@@ -1,0 +1,228 @@
+# Breadcrumbs Schema Compiler
+
+## Status
+
+Draft
+
+## Purpose
+
+The schema compiler turns Breadcrumbs schemas into generated artifacts consumed
+by production devices, services, tools, and SDKs.
+
+The compiler exists to move schema knowledge to build time. Runtime systems
+should use generated artifacts rather than interpreting schemas during normal
+operation.
+
+---
+
+# Inputs
+
+The schema compiler consumes:
+
+* Breadcrumbs schema language files
+* imported schema definitions
+* compatibility metadata
+* reserved field metadata
+* target language configuration
+* target profile configuration
+
+Target profiles may describe constraints such as embedded memory limits,
+supported field types, maximum nesting depth, and enabled generated outputs.
+
+---
+
+# Outputs
+
+The schema compiler may produce:
+
+* generated accessors
+* generated validators
+* generated binary codecs
+* generated inspector metadata
+* generated documentation
+* compatibility reports
+* schema manifests
+* language-specific SDK files
+
+Generated outputs are build artifacts. Production systems consume these
+artifacts directly.
+
+---
+
+# Generated Languages
+
+The schema compiler should support multiple target languages.
+
+Initial target languages may include:
+
+* C
+* C++
+* Rust
+* Go
+* Python
+
+Generated APIs should follow language conventions while preserving the same
+record, envelope, payload, schema name, schema reference, and field identity
+semantics.
+
+---
+
+# Generated accessors
+
+Generated accessors provide typed access to serialized payload data.
+
+They should support:
+
+* reading fields directly from serialized storage
+* checking field presence
+* returning default values when defined by the schema
+* constructing records
+* validating required fields
+* avoiding full-message deserialization when practical
+
+Generated accessors are the normal production interface for schema-specific
+payload access.
+
+The schema compiler is the only supported producer of production runtime
+bindings.
+
+---
+
+# Generated Documentation
+
+The schema compiler should generate human-readable documentation for schemas.
+
+Generated documentation should include:
+
+* schema name
+* schema version
+* schema reference
+* field names
+* field types
+* field optionality
+* units
+* descriptions
+* compatibility notes
+* reserved fields
+
+Documentation should be generated from the same schema inputs used for code
+generation.
+
+---
+
+# Generated Validators
+
+Generated validators check whether a record or payload conforms to its schema.
+
+Validators may check:
+
+* envelope consistency
+* schema reference
+* payload structure
+* required field presence
+* field type validity
+* bounds and profile limits
+* compatibility constraints
+
+Validators should be available for devices, cloud ingestion, tests, and tooling.
+
+---
+
+# Generated Binary Codecs
+
+Generated binary codecs encode and decode record payloads according to the
+selected binary encoding.
+
+Codecs should:
+
+* preserve compiler-generated internal field identities
+* support deterministic encoding
+* support bounded parsing
+* avoid unnecessary allocation
+* support unknown-field handling when allowed by the encoding
+* expose profile-specific limits for embedded targets
+
+The binary codec is generated from the schema. Application code should not
+hand-maintain payload encoding logic.
+
+---
+
+# Generated Inspector Metadata
+
+Generated inspector metadata supports tools that need to display, debug, index,
+or inspect records.
+
+Inspector metadata may include:
+
+* schema name
+* schema version
+* schema reference
+* field names
+* field identities
+* field types
+* optionality
+* units
+* descriptions
+* display hints
+
+Inspector metadata is generated at build time. Tools may load the metadata they
+were built or packaged with; production systems should not depend on dynamic
+schema interpretation for normal operation.
+
+---
+
+# Build Integration
+
+The schema compiler should integrate with normal build systems.
+
+Supported integration patterns may include:
+
+* command-line invocation
+* CMake integration
+* Cargo build scripts
+* Go generate
+* Python packaging hooks
+* CI validation
+* generated artifact caching
+
+Builds should fail when schemas are invalid, compatibility rules are violated,
+or generated artifacts are stale.
+
+---
+
+# Compile-Time Philosophy
+
+Breadcrumbs treats schema knowledge as compile-time knowledge.
+
+The preferred flow is:
+
+```text
+schema
+    ↓
+schema compiler
+    ↓
+Generated artifacts
+    ↓
+Firmware, Services, SDKs, and Tools
+```
+
+Normal production behavior should not require:
+
+* runtime schema interpretation
+* runtime schema downloads
+* dynamic field discovery
+* hand-maintained field identities
+* hand-written binary codecs
+
+This keeps device implementations small, deterministic, portable, and easier to
+validate.
+
+---
+
+# Relationship to Other Documents
+
+Related architecture documents:
+
+* `schema-model.md` defines schema identity, schema references, and field
+  identity rules.
+* `data-model.md` defines records, envelopes, payloads, and generated accessors.
