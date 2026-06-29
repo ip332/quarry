@@ -217,6 +217,8 @@ Normal production behavior should not require:
 This keeps device implementations small, deterministic, portable, and easier to
 validate.
 
+The schema compiler may generate different artifact classes from the same schema: runtime artifacts, validation artifacts, documentation artifacts, and tooling artifacts. Not every schema attribute affects every artifact.
+
 ---
 
 # Relationship to Other Documents

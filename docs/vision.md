@@ -44,7 +44,7 @@ A schema is the contract between devices, services, tools, and operators.
 
 A schema defines the structure and meaning of a record payload. From that schema,
 Breadcrumbs can derive generated accessors, validators, binary codecs, inspector
-metadata, generated documentation, and runtime bindings.
+metadata, generated documentation, and language bindings.
 
 This keeps production systems aligned with the stable architecture decisions:
 
@@ -67,7 +67,7 @@ The long-term Breadcrumbs ecosystem includes:
 * schema compiler
 * runtime libraries
 * binary record format
-* generated runtime bindings
+* generated language bindings
 * cloud services
 
 ```text
@@ -89,9 +89,9 @@ The long-term Breadcrumbs ecosystem includes:
         v
     Binary Records
         |
-   +----+----+
-   |         |
-   v         v
+   +----+--------+
+   |             |
+   v             v
 Breadcrumbs  Breadcrumbs
    Agent       Cloud
    |             |
@@ -114,7 +114,7 @@ Breadcrumbs Cloud, and supporting tools.
 The binary record format provides the serialized representation used for
 transport, local storage, cloud ingestion, and diagnostics.
 
-Generated runtime bindings expose records to application code without making
+Generated language bindings expose records to application code without making
 hand-written object models the canonical representation.
 
 Cloud services manage device lifecycle, provisioning, trust, ingestion, fleet

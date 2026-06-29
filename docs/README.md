@@ -106,6 +106,9 @@ Future specification documents should define implementation details for:
 These specifications should preserve the architecture decisions documented in
 `principles.md` and `architecture/`.
 
+Specification authoring rules and the shared Markdown template are defined in
+[`specifications/README.md`](specifications/README.md).
+
 ---
 
 # Documentation Structure
@@ -129,7 +132,9 @@ docs/
         schema-compiler.md
 
     specifications/
-        ...
+        README.md
+        spec-template.md
+        schema-language.md
 ```
 
 ---
