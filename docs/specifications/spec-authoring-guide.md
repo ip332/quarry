@@ -1,35 +1,183 @@
-# <Specification Title>
-
-## Status
-
-Draft
-
-## Version
-
-0.1
+# Breadcrumbs Specification Authoring Guide
 
 ## Purpose
 
-Describe the purpose of this specification.
+This document defines how technical specifications are written within the Breadcrumbs project.
 
-Explain what implementation-level behavior this specification defines and which
-architecture document it refines.
+Its purpose is to ensure that all specifications use consistent terminology, structure, and normative language.
 
-## Scope
+This guide is intended for:
 
-### In Scope
+* project contributors
+* reviewers
+* AI-assisted authoring tools
+* future maintainers
 
-List the behaviors, formats, APIs, or rules covered by this specification.
+---
 
-### Out of Scope
+# Architecture vs Specification
 
-List related topics that are intentionally defined elsewhere.
+Breadcrumbs distinguishes between architecture and specifications.
 
-## Terminology
+## Architecture
 
-Define terms used by this specification.
+Architecture documents answer:
 
-Use shared Breadcrumbs terminology consistently:
+> **What is the system?**
+
+Architecture documents define:
+
+* principles
+* major components
+* responsibilities
+* relationships
+* long-term design decisions
+
+Architecture intentionally avoids implementation details.
+
+---
+
+## Specifications
+
+Specifications answer:
+
+> **Exactly how does a component behave?**
+
+Specifications define:
+
+* syntax
+* semantics
+* algorithms
+* binary formats
+* compiler behavior
+* runtime behavior
+* compatibility rules
+
+A specification should be precise enough that two independent developers can produce compatible implementations.
+
+---
+
+# Specification Structure
+
+Every specification should contain the following sections.
+
+## Required
+
+* Purpose
+* Scope
+* Terminology
+* Requirements
+* Examples
+* Related Documents
+
+## Optional
+
+Include these sections only when they add value:
+
+* Validation
+* Compatibility
+* Security Considerations
+* Performance Considerations
+* Implementation Notes
+* Open Questions
+
+Avoid creating empty sections.
+
+---
+
+# Normative Language
+
+Breadcrumbs follows the terminology defined by RFC 2119.
+
+The following words have specific meanings:
+
+* **SHALL** — mandatory behavior
+* **SHOULD** — recommended behavior
+* **MAY** — optional behavior
+* **MUST NOT** — prohibited behavior
+
+Only numbered requirements are normative.
+
+All other text is explanatory.
+
+---
+
+# Requirement IDs
+
+Every normative requirement shall have a unique identifier.
+
+Format:
+
+```text
+REQ-<SPEC>-NNN
+```
+
+Examples:
+
+```text
+REQ-SL-001
+REQ-SL-002
+
+REQ-BRF-014
+
+REQ-RAPI-101
+```
+
+Requirement identifiers are permanent.
+
+Once published, an identifier shall never be reused.
+
+---
+
+# Writing Requirements
+
+A requirement should express one behavior.
+
+Good:
+
+```text
+REQ-SL-001
+
+A schema SHALL define exactly one record.
+```
+
+Poor:
+
+```text
+Schemas shall define one record, use version numbers, and support imports.
+```
+
+Keep requirements:
+
+* precise
+* testable
+* implementation independent
+
+---
+
+# Examples
+
+Examples improve understanding but are **not normative**.
+
+Examples should:
+
+* illustrate requirements
+* remain concise
+* avoid introducing new behavior
+
+Whenever useful, distinguish between:
+
+* Valid Example
+* Invalid Example
+* Informative Example
+
+---
+
+# Terminology
+
+Use project terminology consistently.
+
+Preferred terms:
 
 * deviceId
 * record
@@ -40,111 +188,88 @@ Use shared Breadcrumbs terminology consistently:
 * Breadcrumbs Agent
 * Breadcrumbs Cloud
 
-## Requirements
+Avoid introducing synonyms for established terms.
 
-Normative requirements SHALL use IDs in this format:
+---
 
-```text
-REQ-<SPEC>-NNN
-```
+# Cross References
 
-Example:
+Specifications should reference related documents rather than duplicate them.
 
-```text
-REQ-SPEC-ID-001: The implementation SHALL define a stable behavior.
-```
+For example:
 
-Use the following normative language:
+* Schema Language → Schema Model
+* Binary Record Format → Schema Language
+* Runtime API Contract → Binary Record Format
 
-* SHALL: required behavior.
-* SHOULD: recommended behavior with valid exceptions.
-* MAY: optional behavior.
-* MUST NOT: prohibited behavior.
+Each concept should have a single authoritative definition.
 
-Requirements:
+---
 
-* REQ-<SPEC>-001: ...
-* REQ-<SPEC>-002: ...
-* REQ-<SPEC>-003: ...
+# Separation of Concerns
 
-## Validation Rules
+A specification should define only its own responsibility.
 
-Define how implementations validate inputs, outputs, files, messages, or
-generated artifacts covered by this specification.
+For example:
 
-For `.brd` files, validation is performed by the Breadcrumbs schema compiler.
-Do not introduce JSON Schema or YAML meta-specifications for `.brd` validation.
+The Schema Language specification defines:
 
-Validation rules:
+* syntax
+* semantics
 
-* REQ-<SPEC>-100: ...
-* REQ-<SPEC>-101: ...
+It does not define:
 
-## Compatibility Rules
+* binary encoding
+* runtime APIs
+* transport protocols
 
-Define compatibility requirements for versioning, evolution, migration, and
-backward or forward compatibility.
+Similarly:
 
-Compatibility rules:
+The Binary Record Format defines encoding.
 
-* REQ-<SPEC>-200: ...
-* REQ-<SPEC>-201: ...
+It does not redefine schema syntax.
 
-## Examples
+---
 
-Examples should be concise and focused.
+# Documentation Principles
 
-Label examples as valid, invalid, illustrative, or non-normative.
+Specifications should describe:
 
-Examples must not introduce behavior that is not defined by requirements.
+* facts
+* structure
+* behavior
+* constraints
 
-### Valid Example
+Specifications should not describe:
 
-```text
-...
-```
+* business logic
+* application policies
+* user interface behavior
 
-### Invalid Example
+Keep documents focused and cohesive.
 
-```text
-...
-```
+---
 
-## Cross References
+# Review Checklist
 
-Link related architecture documents and specifications.
+Before publishing a specification, verify that:
 
-Use cross references instead of duplicating definitions.
+* the document has a clear purpose
+* requirements are uniquely identified
+* only numbered requirements are normative
+* terminology matches the project glossary
+* examples are illustrative rather than normative
+* duplicated concepts have been replaced with cross references
+* the specification remains focused on a single responsibility
 
-Related architecture documents:
+---
 
-* `../architecture/<document>.md`
+# Evolution
 
-Related specifications:
+Specifications are expected to evolve.
 
-* `<specification>.md`
+Changes should preserve compatibility whenever practical.
 
-## Open Questions
+Breaking changes should be documented explicitly and coordinated with the corresponding compatibility specification.
 
-List unresolved questions that must be answered before the specification is
-considered complete.
-
-Open questions:
-
-* ...
-
-## Reviewer Checklist
-
-Reviewers should verify:
-
-* Required sections are present.
-* Requirement IDs use `REQ-<SPEC>-NNN`.
-* Requirement IDs are stable and not reused.
-* Normative language is limited to requirements.
-* Validation rules are explicit.
-* Compatibility rules are explicit.
-* `.brd` validation remains the responsibility of the schema compiler.
-* No JSON Schema or YAML meta-specification has been introduced.
-* Examples are labeled and do not create implicit requirements.
-* Cross references avoid duplicated explanations.
-* Open questions are unresolved and actionable.
+The goal is to evolve the Breadcrumbs platform while maintaining a stable and understandable specification set.

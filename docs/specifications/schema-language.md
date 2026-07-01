@@ -26,24 +26,43 @@ Schemas are the single source of truth from which the Breadcrumbs Schema Compile
 * inspector metadata
 * testing artifacts
 
-The schema defines the logical model.
+The schema defines the logical data model.
 
-It does **not** define the binary encoding.
+It does **not** define:
+
+* binary encoding
+* runtime behavior
+* transport protocols
+
+Those are defined by separate specifications.
 
 ---
 
 # Design Goals
 
-The language is designed to be:
+The Breadcrumbs Schema Language is designed to be:
 
 * human readable
 * embedded-first
 * deterministic
-* schema-driven
 * compiler friendly
 * language independent
+* schema driven
 * easy to validate
 * easy to review in source control
+
+---
+
+# Normative Language
+
+This specification uses the following normative terms:
+
+* SHALL: required behavior.
+* SHOULD: recommended behavior with valid exceptions.
+* MAY: optional behavior.
+* MUST NOT: prohibited behavior.
+
+Use these terms only for normative requirements.
 
 ---
 
@@ -51,27 +70,25 @@ The language is designed to be:
 
 Version 0.1 uses YAML syntax.
 
-Only the language constructs described in this specification are part of the Breadcrumbs Schema Language.
+The Breadcrumbs Schema Compiler validates `.brd` files.
 
-YAML features not explicitly defined by this specification shall be considered unsupported.
+Only language constructs defined by this specification are part of the Breadcrumbs Schema Language.
 
-The goal is deterministic parsing.
+YAML features not explicitly defined by this specification are considered unsupported.
+
+Unsupported YAML features include:
+
+* anchors
+* aliases
+* merge keys
+* custom tags
+* implementation-specific extensions
 
 ---
 
 # Schema Structure
 
-Every schema contains:
-
-```yaml
-namespace:
-record:
-version:
-type:
-fields:
-```
-
-Example:
+Every schema defines exactly one record.
 
 ```yaml
 namespace: breadcrumbs.geo
@@ -81,6 +98,10 @@ record: Location
 version: 1
 
 type: data
+
+imports:
+
+  - breadcrumbs.common.Timestamp
 
 fields:
 
@@ -108,21 +129,13 @@ Namespaces organize schemas into logical domains.
 
 Examples:
 
-```text
-breadcrumbs.geo
+* breadcrumbs.geo
+* breadcrumbs.telemetry
+* breadcrumbs.diagnostics
+* breadcrumbs.ota
+* vendor.company.product
 
-breadcrumbs.telemetry
-
-breadcrumbs.diagnostics
-
-breadcrumbs.ota
-
-vendor.company.product
-```
-
-Namespaces describe logical ownership.
-
-They are independent of transport protocols.
+Namespaces are independent of transport protocols.
 
 ---
 
@@ -136,25 +149,25 @@ Record names shall be unique within a namespace.
 
 # Version
 
-Every schema defines an integer version.
+Every schema shall define an integer version.
 
 ```yaml
 version: 1
 ```
 
-Versioning rules are defined in the Schema Compatibility specification.
+Schema evolution is defined by the Schema Compatibility specification.
 
 ---
 
 # Record Type
 
-Record type identifies the logical purpose of the record.
+The record type identifies the logical purpose of the record.
 
-Initial record types:
+Version 0.1 defines:
 
 * data
-* event
 * command
+* event
 * configuration
 * diagnostics
 
@@ -162,22 +175,9 @@ Future specifications may introduce additional record types.
 
 ---
 
-# Fields
-
-Each field has a unique name.
-
-Example:
-
-```yaml
-latitude:
-  type: int32
-```
-
----
-
 # Required and Optional Fields
 
-Fields are **required by default**.
+Fields are required by default.
 
 Optional fields are indicated by appending `?` to the field name.
 
@@ -196,9 +196,9 @@ fields:
     type: int32
 ```
 
-The schema defines **semantics**, not encoding.
+The schema defines only the semantic meaning of optional fields.
 
-The schema compiler determines how optional fields are represented in the binary format.
+The binary representation is defined separately.
 
 ---
 
@@ -212,13 +212,13 @@ The following states are distinct:
 
 Applications shall be able to distinguish these states.
 
-The Binary Record Format specification defines the physical representation.
-
 ---
 
-# Primitive Types
+# Type System
 
-Version 0.1 supports:
+## Primitive Types
+
+Boolean
 
 * bool
 
@@ -241,14 +241,37 @@ Floating point
 * float32
 * float64
 
-Other
+---
 
-* string
-* bytes
+## Built-in Types
+
+### string
+
+Represents UTF-8 encoded text.
+
+String fields shall define:
+
+```yaml
+max_bytes:
+```
+
+which specifies the maximum number of encoded UTF-8 bytes.
+
+### bytes
+
+Represents opaque binary data.
+
+Binary fields shall define:
+
+```yaml
+max_bytes:
+```
+
+which specifies the maximum number of stored bytes.
 
 ---
 
-# Enumerations
+## Enumerations
 
 Enumerations are first-class language elements.
 
@@ -262,15 +285,11 @@ enum FixType:
   two_d: 1
 
   three_d: 2
-
-  dead_reckoning: 3
 ```
-
-Fields may reference enum types.
 
 ---
 
-# Nested Records
+## Nested Records
 
 Records may reference other records.
 
@@ -281,52 +300,102 @@ location:
   type: breadcrumbs.geo.Location
 ```
 
-Nested records are embedded logically within the parent record.
-
-Their binary representation is defined separately.
-
 ---
 
-# Arrays
+## Arrays
 
-Version 0.1 supports **bounded variable-length arrays**.
+Version 0.1 supports bounded variable-length arrays.
 
 Example:
 
 ```yaml
 satellites:
-  type: GnssSatellite[]
-  max_count: 64
+  type: Satellite[]
+  max_elements: 64
 ```
 
-The number of elements present in a record may vary from zero up to `max_count`.
+The number of elements may vary from zero up to `max_elements`.
+
+Fixed-size arrays are intentionally not supported.
 
 Unbounded arrays are not supported.
 
-Fixed-size arrays are intentionally omitted because the schema language models logical data rather than memory layout.
+---
+
+# Field Attribute Categories
+
+Field attributes are grouped by the kind of artifact or behavior they affect.
+
+Runtime attributes:
+
+* type
+* scale
+* offset
+
+Validation attributes:
+
+* min
+* max
+* max_bytes
+* max_elements
+* on_overflow
+
+Documentation attributes:
+
+* unit
+* description
 
 ---
 
-# Field Attributes
+# Constraint Handling
 
-# Field Attributes
+Some field types define capacity constraints.
 
-## Runtime
+Examples include:
 
-- type
-- scale
-- offset
+* string
+* bytes
+* arrays
 
-## Validation
+The `on_overflow` schema property defines mandatory producer-side behavior when
+input exceeds a schema-defined capacity limit.
 
-- min
-- max
-- max_count
+Generated builders SHALL enforce the schema-defined overflow behavior
+consistently.
 
-## Documentation
+Application code SHALL NOT override schema-defined overflow behavior.
 
-- unit
-- description
+Supported values:
+
+* reject
+* truncate
+
+If `on_overflow` is omitted, the default behavior is `reject`.
+
+## String Fields
+
+When `on_overflow: truncate` is specified:
+
+* the generated builder SHALL truncate only at a valid UTF-8 boundary
+* invalid UTF-8 SHALL never be stored
+
+## Bytes Fields
+
+When `on_overflow: truncate` is specified:
+
+* the generated builder SHALL keep the first `max_bytes` bytes
+
+## Arrays
+
+When `on_overflow: truncate` is specified:
+
+* the generated builder SHALL keep the first `max_elements` elements
+
+## Numeric Types
+
+`on_overflow` SHALL NOT be used with numeric scalar types.
+
+Applications are responsible for handling values violating `min` or `max`.
 
 ---
 
@@ -346,7 +415,7 @@ latitude:
 The interpretation is:
 
 ```
-physical_value = stored_value × scale
+physical_value = stored_value × scale + offset
 ```
 
 Fixed-point representation is recommended whenever practical.
@@ -355,9 +424,9 @@ Fixed-point representation is recommended whenever practical.
 
 # Units
 
-Units describe the physical meaning of a value.
+Units document the physical meaning of values.
 
-Units do not define binary encoding.
+Units do not affect validation, runtime behavior, or binary encoding.
 
 ---
 
@@ -379,21 +448,6 @@ Imported schemas may be referenced by fields.
 
 ---
 
-# Field Attribute Categories
-Runtime attributes:
-- type
-- scale
-- offset
-
-Validation attributes:
-- min
-- max
-- max_count
-
-Documentation attributes:
-- unit
-- description
-
 # Comments
 
 YAML comments are permitted.
@@ -407,16 +461,17 @@ Comments have no semantic meaning.
 The Breadcrumbs Schema Compiler shall:
 
 * validate schemas
-* assign internal field identities
+* normalize aliases
 * verify compatibility rules
+* assign internal field identifiers
 * generate runtime bindings
-* generate record builders
+* generate builders
 * generate binary codecs
 * generate validators
 * generate documentation
 * generate inspector metadata
 
-Schema authors never assign field identities.
+Schema authors never assign field identifiers.
 
 ---
 
@@ -427,23 +482,23 @@ This specification defines:
 * schema syntax
 * schema semantics
 
-It does not define:
+It intentionally does not define:
 
-* binary encoding
-* runtime APIs
+* binary record format
+* runtime API behavior
 * transport protocols
 
 ---
 
 # Future Extensions
 
-Possible future extensions include:
+Future versions may introduce:
 
+* logical types (UUID, timestamp, IP address, etc.)
 * generic types
 * unions / variants
 * user-defined annotations
-* computed fields
-* schema inheritance
-* dynamic schemas
 * compile-time constants
 * reusable field groups
+* schema inheritance
+* dynamic schemas

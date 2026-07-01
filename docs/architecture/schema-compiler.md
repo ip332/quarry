@@ -67,7 +67,7 @@ semantics.
 
 ---
 
-# Generated accessors
+# Generated Runtime Bindings
 
 Generated accessors provide typed access to serialized payload data.
 
@@ -75,13 +75,14 @@ They should support:
 
 * reading fields directly from serialized storage
 * checking field presence
-* returning default values when defined by the schema
 * constructing records
 * validating required fields
 * avoiding full-message deserialization when practical
 
-Generated accessors are the normal production interface for schema-specific
-payload access.
+Generated accessors are the normal production interface for schema-specific payload access.
+
+Generated runtime bindings SHALL distinguish absent optional fields from present
+fields.
 
 The schema compiler is the only supported producer of production runtime
 bindings.
@@ -142,7 +143,7 @@ Codecs should:
 * support unknown-field handling when allowed by the encoding
 * expose profile-specific limits for embedded targets
 
-The binary codec is generated from the schema. Application code should not
+The binary codec is generated from the schema. Application code SHALL NOT
 hand-maintain payload encoding logic.
 
 ---
