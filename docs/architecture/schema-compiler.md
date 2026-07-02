@@ -62,27 +62,25 @@ Initial target languages may include:
 * Python
 
 Generated APIs should follow language conventions while preserving the same
-record, envelope, payload, schema name, schema reference, and field identity
+record, envelope, payload, schema name, schema reference, and fieldIndex
 semantics.
 
 ---
 
 # Generated Runtime Bindings
 
-Generated accessors provide typed access to serialized payload data.
+Generated accessors provide typed access to binary payload data.
 
 They should support:
 
-* reading fields directly from serialized storage
+* reading fields directly from binary record storage
 * checking field presence
 * constructing records
-* validating required fields
-* avoiding full-record deserialization when practical
+* avoiding full-record materialization when practical
 
 Generated accessors are the normal production interface for schema-specific payload access.
 
-Generated runtime bindings SHALL distinguish absent optional fields from present
-fields.
+Generated runtime bindings SHALL distinguish absent fields from present fields.
 
 The schema compiler is the only supported producer of production runtime
 bindings.
@@ -100,7 +98,7 @@ Generated documentation should include:
 * schema reference
 * field names
 * field types
-* field optionality
+* field presence semantics
 * units
 * descriptions
 * compatibility notes
@@ -120,7 +118,7 @@ Validators may check:
 * envelope consistency
 * schema reference
 * payload structure
-* required field presence
+* field presence consistency
 * field type validity
 * bounds and profile limits
 * compatibility constraints
@@ -136,7 +134,7 @@ selected binary encoding.
 
 Codecs should:
 
-* preserve compiler-generated internal field identities
+* preserve compiler-generated field indexes
 * support deterministic encoding
 * support bounded parsing
 * avoid unnecessary allocation
@@ -159,9 +157,9 @@ Inspector metadata may include:
 * schema version
 * schema reference
 * field names
-* field identities
+* field indexes
 * field types
-* optionality
+* field presence metadata
 * units
 * descriptions
 * display hints
@@ -212,7 +210,7 @@ Normal production behavior should not require:
 * runtime schema interpretation
 * runtime schema downloads
 * dynamic field discovery
-* hand-maintained field identities
+* hand-maintained field indexes
 * hand-written binary codecs
 
 This keeps device implementations small, deterministic, portable, and easier to
@@ -226,6 +224,6 @@ The schema compiler may generate different artifact classes from the same schema
 
 Related architecture documents:
 
-* `schema-model.md` defines schema identity, schema references, and field
-  identity rules.
+* `schema-model.md` defines schema identity, schema references, and field index
+  rules.
 * `data-model.md` defines records, envelopes, payloads, and generated accessors.

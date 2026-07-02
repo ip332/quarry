@@ -36,9 +36,9 @@ cannot run on constrained devices.
 
 ## Serialized-First
 
-Serialized records are the canonical runtime representation.
+Binary records are the canonical runtime representation.
 
-Serialization is not only a transport concern. The same serialized record
+The binary representation is not only a transport concern. The same record byte
 format is used for:
 
 * local persistence
@@ -48,7 +48,8 @@ format is used for:
 * audit trails
 * OTA metadata
 
-Production systems should keep records serialized for most of their lifecycle.
+Production systems should keep records in binary form for most of their
+lifecycle.
 Components should inspect the envelope when generic routing, storage, indexing,
 or filtering is sufficient. Components should interpret payloads only when
 business logic requires schema-specific access.
@@ -63,9 +64,9 @@ The schema defines:
 * schema version
 * schema reference
 * field names
-* compiler-generated field identities
+* compiler-generated field indexes
 * field types
-* optionality
+* field presence semantics
 * compatibility rules
 
 Programming language structs, classes, database tables, and API DTOs are derived
@@ -114,7 +115,7 @@ The record is the central architectural abstraction in Breadcrumbs.
 Each record contains:
 
 * an envelope with generic metadata
-* a payload with schema-specific serialized data
+* a payload with schema-specific binary data
 
 The envelope allows infrastructure to route and store records without knowing
 the payload schema. The payload is accessed through generated accessors produced

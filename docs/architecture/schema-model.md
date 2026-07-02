@@ -23,7 +23,7 @@ The Breadcrumbs schema model is designed to support:
 * embedded-first implementations
 * serialized-first record access
 * stable schema references
-* compiler-generated field identities
+* compiler-generated field indexes
 * generated accessors
 * generated validators
 * generated binary codecs
@@ -53,11 +53,11 @@ The DSL should be:
 * explicit about compatibility
 * independent from a specific transport protocol
 
-The public language shall not contain author-assigned numeric field identities.
-Internal field identities are generated and maintained by the Breadcrumbs schema
+The public language shall not contain author-assigned numeric field indexes.
+Internal field indexes are generated and maintained by the Breadcrumbs schema
 compiler.
 
-Authors never assign or reference field identities directly.
+Authors never assign or reference field indexes directly.
 
 The schema language may support import or export formats for tooling, but the
 Breadcrumbs DSL is the canonical authoring language.
@@ -138,7 +138,7 @@ Example:
 breadcrumbs.telemetry.Location@1
 ```
 
-A record that carries a serialized payload shall identify the schema reference
+A record that carries a binary payload shall identify the schema reference
 needed to interpret that payload.
 
 ---
@@ -174,17 +174,14 @@ recordType: telemetry
 fields:
   latitude:
     type: float64
-    required: true
     unit: degrees
 
   longitude:
     type: float64
-    required: true
     unit: degrees
 
   altitude:
     type: float32
-    required: false
     unit: meters
 ```
 
@@ -195,9 +192,8 @@ fields:
 Each field has:
 
 * stable field name
-* compiler-generated field identity
+* compiler-generated fieldIndex
 * type
-* optionality
 * units, when applicable
 * semantic description
 
@@ -216,21 +212,26 @@ Supported field categories may include:
 
 ---
 
-# Field Identity
+# Field Index
 
-Breadcrumbs schemas do not expose author-assigned numeric field identities in
+Breadcrumbs schemas do not expose author-assigned numeric field indexes in
 the public language.
 
-Internal field identities are generated and maintained by the Breadcrumbs schema
+Internal field indexes are generated and maintained by the Breadcrumbs schema
 compiler.
 
-Authors never assign or reference field identities directly.
+Authors never assign or reference field indexes directly.
 
-Field identity must remain stable once a schema version is published. Field
-identities shall not be reused. Field names shall not be reused with
-incompatible meaning.
+The compiler-generated `fieldIndex` is used by the binary Field Directory to
+identify present field values.
 
-When a field is removed, its field identity is reserved by generated metadata.
+`fieldIndex` is not a logical identifier for the field.
+
+`fieldIndex` must remain stable once a schema version is published. Field
+indexes shall not be reused. Field names shall not be reused with incompatible
+meaning.
+
+When a field is removed, its field index is reserved by generated metadata.
 
 Example:
 
@@ -242,30 +243,33 @@ reserved:
 
 ---
 
-# Required Fields
+# Field Presence
 
-Required fields should be used sparingly.
+Breadcrumbs records are sparse binary records.
 
-A field may be required only when the payload is not meaningful without it.
+Every declared field has associated presence information.
 
-Removing a required field is a breaking change.
+A field is present in a binary record only when application code sets it through
+the generated API.
 
-Changing a required field to optional is generally compatible.
+Field presence is represented by a Field Directory entry. Generated setters
+update the sparse binary record directly.
 
----
+The Field Directory is sorted by `fieldIndex`. Payload values are located using
+directory offsets and lengths, so payload storage order is not semantically
+significant.
 
-# Optional Fields
+Field declarations describe values that may appear in a record. They do not
+classify fields into schema-level presence categories.
 
-Optional fields may be omitted by producers.
+Consumers should tolerate absent fields according to application expectations
+and generated accessor behavior.
 
-Consumers shall tolerate missing optional fields.
+A record may contain at most 256 declared fields because `fieldIndex` is encoded
+as `uint8`.
 
-Optional fields are preferred for:
-
-* platform-specific data
-* sensor-specific data
-* future extensions
-* partially available measurements
+Records needing more than 256 fields should be decomposed into smaller records
+using composition.
 
 ---
 
@@ -274,14 +278,13 @@ Optional fields are preferred for:
 Evolve schemas according to these rules:
 
 * schema references shall uniquely identify schema definitions.
-* field identities shall never be reused.
+* field indexes shall never be reused.
 * field names shall not be reused with incompatible meaning.
 * field meaning shall not change incompatibly.
 * field type shall not change incompatibly.
-* new fields shall be optional by default.
+* new fields may be appended when compatibility rules allow.
 * unknown fields shall be ignored when possible.
 * removed fields shall remain reserved.
-* required fields shall not be removed in compatible versions.
 
 ---
 
@@ -312,7 +315,7 @@ A record wraps payloads using a common envelope.
 The envelope contains routing and indexing metadata, including `recordId` and
 other metadata needed to interpret the payload.
 
-The payload contains schema-specific serialized data.
+The payload contains schema-specific binary data.
 
 Runtime systems deal with records. Transport protocols carry records but do not
 define them.
@@ -334,7 +337,7 @@ Generated artifacts may include:
 
 Generated accessors should support:
 
-* reading fields directly from serialized storage
+* reading fields directly from binary record storage
 * checking field presence
 * validating payload structure
 * constructing records
@@ -348,11 +351,11 @@ Design schemas to support constrained devices.
 
 The model should avoid requiring:
 
-* full-record deserialization
+* full-record materialization
 * unbounded heap allocation
 * recursive parsing without limits
 * runtime schema downloads for normal operation
-* application-maintained field identities
+* application-maintained field indexes
 
 Embedded implementations should be able to compile schema knowledge into
 generated code.
@@ -370,7 +373,7 @@ Cloud implementations should support:
 * schema-aware analytics
 * backward-compatible ingestion
 
-The cloud may deserialize payloads when required, but infrastructure should route
+The cloud may interpret payloads when required, but infrastructure should route
 and store records using envelope metadata whenever possible. Production cloud
 services should consume generated artifacts from the schema compiler for normal
 operation.

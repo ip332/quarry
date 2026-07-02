@@ -61,6 +61,12 @@ maintained.
 1. [`architecture/data-model.md`](architecture/data-model.md)
 2. [`architecture/schema-model.md`](architecture/schema-model.md)
 3. [`architecture/schema-compiler.md`](architecture/schema-compiler.md)
+4. [`architecture/language-generators.md`](architecture/language-generators.md)
+
+## Schema Design
+
+1. [`design/schema-identity.md`](design/schema-identity.md)
+2. [`design/schema-evolution.md`](design/schema-evolution.md)
 
 These documents define records, schemas, generated artifacts, and the
 compile-time model used by production systems.
@@ -83,6 +89,19 @@ compile-time model used by production systems.
 * [`architecture/data-model.md`](architecture/data-model.md)
 * [`architecture/schema-model.md`](architecture/schema-model.md)
 * [`architecture/schema-compiler.md`](architecture/schema-compiler.md)
+* [`architecture/language-generators.md`](architecture/language-generators.md)
+
+## Design Notes
+
+* [`design/schema-identity.md`](design/schema-identity.md)
+* [`design/schema-evolution.md`](design/schema-evolution.md)
+
+## Current Specifications
+
+* [`specifications/schema-language.md`](specifications/schema-language.md)
+* [`specifications/binary-record-format.md`](specifications/binary-record-format.md)
+* [`specifications/schema-compiler.md`](specifications/schema-compiler.md)
+* [`specifications/manifest-format.md`](specifications/manifest-format.md)
 
 ---
 
@@ -91,10 +110,8 @@ compile-time model used by production systems.
 Future specification documents should define implementation details for:
 
 * schema language syntax
-* binary record format
 * record envelope layout
 * generated runtime bindings
-* schema compiler outputs
 * runtime library APIs
 * transport protocol
 * registration API
@@ -121,6 +138,7 @@ docs/
 
     architecture/
         README.md
+        language-generators.md
         device-lifecycle.md
         device-identity.md
         ownership-model.md
@@ -131,10 +149,20 @@ docs/
         schema-model.md
         schema-compiler.md
 
+    design/
+        schema-identity.md
+        schema-evolution.md
+
     specifications/
         README.md
-        spec-template.md
+        spec-authoring-guide.md
         schema-language.md
+        binary-record-format.md
+        schema-compiler.md
+        manifest-format.md
+
+    examples/
+        manifest.pbtxt
 ```
 
 ---

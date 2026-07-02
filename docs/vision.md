@@ -111,7 +111,7 @@ tests, documentation, and inspection tools.
 Runtime libraries provide the common behavior needed by the Breadcrumbs Agent,
 Breadcrumbs Cloud, and supporting tools.
 
-The binary record format provides the serialized representation used for
+The binary record format provides the record byte representation used for
 transport, local storage, cloud ingestion, and diagnostics.
 
 Generated language bindings expose records to application code without making
@@ -148,7 +148,7 @@ Breadcrumbs is not intended to be:
 
 * a general-purpose broker
 * an RPC framework
-* only a serialization library
+* only a binary encoding library
 * tied to a single cloud provider
 * tied to one programming language or operating system
 

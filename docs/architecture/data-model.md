@@ -44,7 +44,7 @@ existing records.
 
 # Record Lifecycle
 
-Keep records serialized for most of their lifecycle.
+Keep records in binary form for most of their lifecycle.
 
 Typical lifecycle:
 
@@ -64,7 +64,7 @@ Routing, Indexing, or Storage
 schema-specific processing
 ```
 
-Infrastructure components should operate on serialized records whenever
+Infrastructure components should operate on binary records whenever
 possible. Full payload interpretation should be limited to components that need
 schema-specific business logic.
 
@@ -96,7 +96,7 @@ diagnostics without interpreting the payload.
 
 ## Payload
 
-The payload contains schema-specific serialized data.
+The payload contains schema-specific binary data.
 
 The payload is defined by a schema and accessed through generated accessors.
 Only components with the generated artifacts for that schema need to interpret
@@ -114,9 +114,9 @@ A schema defines:
 * schema version
 * schema reference
 * field names
-* compiler-generated field identities
+* compiler-generated field indexes
 * field types
-* optionality
+* field presence semantics
 * compatibility rules
 
 Author schemas in the Breadcrumbs schema language and compile them with the
@@ -126,7 +126,7 @@ schema compiler.
 
 # Generated accessors
 
-Applications interact with serialized records using generated accessors produced
+Applications interact with binary records using generated accessors produced
 by the schema compiler.
 
 Example:
@@ -135,22 +135,17 @@ Example:
 float temperature = telemetry.temperature();
 ```
 
-instead of:
+instead of copying fields into a separate language-native mirror.
 
-```cpp
-Telemetry telemetry;
-deserialize(buffer, telemetry);
-```
-
-Use generated accessors directly on serialized storage whenever practical. They
-may expose language-specific APIs, but they do not replace the serialized record
+Use generated accessors directly on binary record storage whenever practical.
+They may expose language-specific APIs, but they do not replace the binary record
 as the canonical representation.
 
 ---
 
 # Local Storage
 
-The Breadcrumbs Agent stores records directly in serialized form.
+The Breadcrumbs Agent stores records directly in binary form.
 
 Local persistence should avoid format conversion whenever practical.
 
@@ -167,7 +162,7 @@ Benefits include:
 # Cloud Ingestion
 
 Cloud services should ingest records without requiring immediate payload
-deserialization.
+interpretation.
 
 Infrastructure components may route, filter, compress, and store records using
 envelope metadata. Components should interpret payloads only when required by
@@ -185,9 +180,9 @@ Expect schemas to evolve throughout the lifetime of the platform.
 Rules:
 
 * schema references shall uniquely identify schema definitions.
-* compiler-generated field identities shall never be reused.
+* compiler-generated field indexes shall never be reused.
 * field names shall not be reused with incompatible meaning.
-* new fields should be optional by default.
+* new fields should be appended when compatibility rules allow.
 * removed fields shall remain reserved.
 * unknown fields shall be ignored when possible.
 
@@ -200,7 +195,7 @@ Backward compatibility should be preserved whenever practical.
 Related architecture documents:
 
 * `schema-model.md` defines schema, schema name, schema version, schema
-  reference, and field identity rules.
+  reference, and field index rules.
 * `schema-compiler.md` defines generated artifacts, generated accessors,
   validators, codecs, documentation, and inspector metadata.
 * `device-identity.md` defines deviceId.

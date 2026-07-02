@@ -24,7 +24,7 @@ Validation of `.brd` files is the responsibility of the Breadcrumbs schema
 compiler.
 
 Markdown specifications SHALL use the shared structure defined in
-`spec-template.md`.
+`spec-authoring-guide.md`.
 
 ---
 
@@ -133,7 +133,7 @@ Examples:
 
 Before approving a specification, reviewers SHOULD verify:
 
-* The specification follows `spec-template.md`.
+* The specification follows `spec-authoring-guide.md`.
 * All required sections are present.
 * Normative statements use requirement IDs.
 * Requirement IDs follow `REQ-<SPEC>-NNN`.
@@ -152,6 +152,9 @@ Before approving a specification, reviewers SHOULD verify:
 # Current Specifications
 
 * `schema-language.md`
+* `binary-record-format.md`
+* `schema-compiler.md`
+* `manifest-format.md`
 
 ---
 
@@ -159,10 +162,8 @@ Before approving a specification, reviewers SHOULD verify:
 
 Planned specifications include:
 
-* binary record format
 * record envelope layout
 * generated runtime bindings
-* schema compiler outputs
 * runtime library APIs
 * transport protocol
 * registration API

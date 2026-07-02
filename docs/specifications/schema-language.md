@@ -115,7 +115,7 @@ fields:
     unit: degrees
     scale: 1e-7
 
-  altitude?:
+  altitude:
     type: int32
     unit: meters
     scale: 0.01
@@ -182,11 +182,36 @@ define them.
 
 ---
 
-# Required and Optional Fields
+# Fields
 
-Fields are required by default.
+Field declarations define the possible fields of a record.
 
-Optional fields are indicated by appending `?` to the field name.
+All declared fields are presence-tracked in the binary representation.
+
+The Schema Compiler assigns a hidden `fieldIndex` to each declared field.
+
+Schema authors do not assign or reference `fieldIndex` values.
+
+The schema language does not expose `fieldIndex` syntax.
+
+`fieldIndex` is not a logical identifier for the field.
+
+A field is present in a binary record only when application code sets it through
+the generated API.
+
+If the setter is called, the generated setter updates the sparse binary record
+directly and the field appears in the Field Directory.
+
+If the setter is not called, no Field Directory entry is written and no value
+bytes are encoded for that field.
+
+There is no schema-level field presence category.
+
+A record may declare at most 256 fields because `fieldIndex` is encoded as
+`uint8` in the binary record format.
+
+Records needing more than 256 fields should be decomposed into smaller records
+using composition.
 
 Example:
 
@@ -199,11 +224,9 @@ fields:
   longitude:
     type: int32
 
-  altitude?:
+  altitude:
     type: int32
 ```
-
-The schema defines only the semantic meaning of optional fields.
 
 The binary representation is defined separately.
 
