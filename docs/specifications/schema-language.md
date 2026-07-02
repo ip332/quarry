@@ -173,8 +173,9 @@ Version 0.1 defines:
 
 Future specifications may introduce additional record types.
 
-The schema compiler assigns `recordId` and `recordVersion` metadata for the
-binary record header.
+The schema compiler assigns `recordId` metadata used by the binary record
+header. Compatible schema evolution keeps the same `recordId`; incompatible
+layout or semantic changes require a new `recordId`.
 
 Runtime systems deal with records. Transport protocols carry records but do not
 define them.

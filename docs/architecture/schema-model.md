@@ -147,9 +147,12 @@ needed to interpret that payload.
 
 A schema defines exactly one record type.
 
-The schema compiler assigns `recordId` and `recordVersion` metadata for the
-binary record header. Runtime systems use `recordId` to identify the record type
-and `recordVersion` to identify the record definition version.
+The schema compiler assigns `recordId` metadata used by the binary record
+header. Runtime systems use `recordId` to identify the record type and its
+compatible evolution line.
+
+Compatible schema evolution keeps the same `recordId`. Incompatible layout or
+semantic changes require a new `recordId`.
 
 Each schema includes:
 
@@ -307,7 +310,7 @@ A schema defines exactly one record type and its payload.
 A record wraps payloads using a common envelope.
 
 The envelope contains routing and indexing metadata, including `recordId` and
-`recordVersion` metadata needed to interpret the payload.
+other metadata needed to interpret the payload.
 
 The payload contains schema-specific serialized data.
 

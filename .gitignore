@@ -58,6 +58,12 @@ compile_commands.json
 *.bak
 *.swp
 
+# macOS metadata
+.DS_Store
+._*
+**/.DS_Store
+**/._*
+
 # vcpkg
 vcpkg_installed/
 
