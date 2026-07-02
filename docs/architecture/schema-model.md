@@ -145,7 +145,11 @@ needed to interpret that payload.
 
 # Schema Definition
 
-A schema defines one record payload type.
+A schema defines exactly one record type.
+
+The schema compiler assigns `recordId` and `recordVersion` metadata for the
+binary record header. Runtime systems use `recordId` to identify the record type
+and `recordVersion` to identify the record definition version.
 
 Each schema includes:
 
@@ -298,14 +302,17 @@ Future versions may adopt semantic versioning if needed.
 
 # Record Relationship
 
-A schema defines payloads.
+A schema defines exactly one record type and its payload.
 
 A record wraps payloads using a common envelope.
 
-The envelope contains routing and indexing metadata, including the schema
-reference needed to interpret the payload.
+The envelope contains routing and indexing metadata, including `recordId` and
+`recordVersion` metadata needed to interpret the payload.
 
 The payload contains schema-specific serialized data.
+
+Runtime systems deal with records. Transport protocols carry records but do not
+define them.
 
 ---
 
@@ -338,7 +345,7 @@ Design schemas to support constrained devices.
 
 The model should avoid requiring:
 
-* full-message deserialization
+* full-record deserialization
 * unbounded heap allocation
 * recursive parsing without limits
 * runtime schema downloads for normal operation

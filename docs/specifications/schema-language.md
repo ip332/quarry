@@ -88,7 +88,7 @@ Unsupported YAML features include:
 
 # Schema Structure
 
-Every schema defines exactly one record.
+Every schema defines exactly one record type.
 
 ```yaml
 namespace: breadcrumbs.geo
@@ -141,7 +141,7 @@ Namespaces are independent of transport protocols.
 
 # Record
 
-Each schema defines exactly one record.
+Each schema defines exactly one record type.
 
 Record names shall be unique within a namespace.
 
@@ -172,6 +172,12 @@ Version 0.1 defines:
 * diagnostics
 
 Future specifications may introduce additional record types.
+
+The schema compiler assigns `recordId` and `recordVersion` metadata for the
+binary record header.
+
+Runtime systems deal with records. Transport protocols carry records but do not
+define them.
 
 ---
 

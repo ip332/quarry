@@ -77,7 +77,7 @@ They should support:
 * checking field presence
 * constructing records
 * validating required fields
-* avoiding full-message deserialization when practical
+* avoiding full-record deserialization when practical
 
 Generated accessors are the normal production interface for schema-specific payload access.
 

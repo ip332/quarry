@@ -146,7 +146,7 @@ hard-coding the platform to one domain.
 
 Breadcrumbs is not intended to be:
 
-* a general-purpose message broker
+* a general-purpose broker
 * an RPC framework
 * only a serialization library
 * tied to a single cloud provider

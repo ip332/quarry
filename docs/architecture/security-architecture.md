@@ -109,7 +109,7 @@ Protection mechanisms may include:
 * digital signatures
 * integrity validation
 * replay protection
-* message authentication
+* record authentication
 
 ---
 
