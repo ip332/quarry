@@ -1,0 +1,201 @@
+syntax = "proto3";
+
+package breadcrumbs.schema_ir;
+
+// SchemaIR is the compiler's stable, backend-facing representation of one
+// fully compiled schema. It is not the runtime manifest and is not the binary
+// record format.
+message SchemaIR {
+  // Schema IR format version.
+  uint32 schema_ir_version = 1;
+
+  // Compiler version that produced this IR, when known.
+  string compiler_version = 2;
+
+  // Root namespace of the resolved namespace hierarchy.
+  NamespaceIR root_namespace = 3;
+}
+
+// NamespaceIR owns child namespaces, records, and enums.
+message NamespaceIR {
+  // Compiler-only identifier for this namespace object.
+  uint64 ir_id = 1;
+
+  // Local namespace segment name.
+  string name = 2;
+
+  // Fully qualified namespace name.
+  string fqn = 3;
+
+  // Compiler-only source origin metadata.
+  SourceOrigin source_origin = 4;
+
+  // Child namespaces owned by this namespace.
+  repeated NamespaceIR namespaces = 5;
+
+  // Records owned by this namespace.
+  repeated RecordIR records = 6;
+
+  // Enums owned by this namespace.
+  repeated EnumIR enums = 7;
+}
+
+// RecordIR represents a resolved record declaration.
+message RecordIR {
+  // Compiler-only identifier used for resolved references inside Schema IR.
+  uint64 ir_id = 1;
+
+  // Local record name.
+  string name = 2;
+
+  // Fully qualified record name.
+  string fqn = 3;
+
+  // Compiler-only source origin metadata.
+  SourceOrigin source_origin = 4;
+
+  // Fields owned by this record.
+  repeated FieldIR fields = 5;
+}
+
+// EnumIR represents a resolved enum declaration.
+message EnumIR {
+  // Compiler-only identifier used for resolved references inside Schema IR.
+  uint64 ir_id = 1;
+
+  // Local enum name.
+  string name = 2;
+
+  // Fully qualified enum name.
+  string fqn = 3;
+
+  // Compiler-only source origin metadata.
+  SourceOrigin source_origin = 4;
+
+  // Values owned by this enum.
+  repeated EnumValueIR values = 5;
+}
+
+// EnumValueIR represents one resolved enum value.
+message EnumValueIR {
+  // Local enum value name.
+  string name = 1;
+
+  // Numeric enum value assigned by the resolved schema model.
+  int64 value = 2;
+
+  // Compiler-only source origin metadata.
+  SourceOrigin source_origin = 3;
+}
+
+// FieldIR represents one resolved field owned by a record.
+message FieldIR {
+  // Field name as declared by the schema.
+  string name = 1;
+
+  // Compiler-assigned binary field index within the containing record.
+  uint32 field_index = 2;
+
+  // Resolved field type value.
+  FieldType type = 3;
+
+  // Compiler-only source origin metadata.
+  SourceOrigin source_origin = 20;
+}
+
+// FieldType represents a resolved field type value. It is not an IR node, has
+// no independent identity, and has no source metadata.
+message FieldType {
+  oneof kind {
+    PrimitiveType primitive = 1;
+    RecordRef record = 2;
+    EnumRef enum_type = 3;
+    ArrayType array = 4;
+    BytesType bytes = 5;
+    StringType string = 6;
+  }
+}
+
+// Primitive scalar type recognized by the compiler.
+enum PrimitiveType {
+  PRIMITIVE_TYPE_UNSPECIFIED = 0;
+  PRIMITIVE_TYPE_BOOL = 1;
+  PRIMITIVE_TYPE_I8 = 2;
+  PRIMITIVE_TYPE_U8 = 3;
+  PRIMITIVE_TYPE_I16 = 4;
+  PRIMITIVE_TYPE_U16 = 5;
+  PRIMITIVE_TYPE_I32 = 6;
+  PRIMITIVE_TYPE_U32 = 7;
+  PRIMITIVE_TYPE_I64 = 8;
+  PRIMITIVE_TYPE_U64 = 9;
+  PRIMITIVE_TYPE_F32 = 10;
+  PRIMITIVE_TYPE_F64 = 11;
+}
+
+// RecordRef references a resolved RecordIR by compiler IR identifier.
+message RecordRef {
+  // Target RecordIR.ir_id.
+  uint64 target_record_ir_id = 1;
+}
+
+// EnumRef references a resolved EnumIR by compiler IR identifier.
+message EnumRef {
+  // Target EnumIR.ir_id.
+  uint64 target_enum_ir_id = 1;
+}
+
+// ArrayType represents a fixed-size array.
+message ArrayType {
+  // Resolved element type.
+  FieldType element_type = 1;
+
+  // Exact number of elements.
+  uint32 count = 2;
+}
+
+// BytesType represents an opaque byte sequence.
+message BytesType {
+  // Maximum encoded byte length.
+  uint32 max_bytes = 1;
+}
+
+// StringType represents a UTF-8 string.
+message StringType {
+  // Maximum encoded byte length.
+  uint32 max_bytes = 1;
+}
+
+// SourceOrigin records where a semantic object came from. It is compiler-only
+// metadata and must not be emitted into runtime artifacts.
+message SourceOrigin {
+  // Logical source unit name.
+  string source_unit = 1;
+
+  // Source file path or identifier.
+  string file = 2;
+
+  // Source span within the file.
+  SourceSpan span = 3;
+}
+
+// SourceSpan identifies a source range. Spans are preferred over single
+// line/column locations.
+message SourceSpan {
+  // Zero-based byte offset of the start of the span.
+  uint32 start_offset = 1;
+
+  // Zero-based byte offset of the end of the span.
+  uint32 end_offset = 2;
+
+  // One-based start line, when known.
+  uint32 start_line = 3;
+
+  // One-based start column, when known.
+  uint32 start_column = 4;
+
+  // One-based end line, when known.
+  uint32 end_line = 5;
+
+  // One-based end column, when known.
+  uint32 end_column = 6;
+}
