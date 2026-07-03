@@ -1,0 +1,51 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "debug",
+      "displayName": "Debug",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BREADCRUMBS_WARNINGS_AS_ERRORS": "ON",
+        "BREADCRUMBS_ENABLE_CLANG_TIDY": "OFF"
+      }
+    },
+    {
+      "name": "debug-clang-tidy",
+      "displayName": "Debug with clang-tidy",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/debug-clang-tidy",
+      "cacheVariables": {
+        "BREADCRUMBS_ENABLE_CLANG_TIDY": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "debug-clang-tidy",
+      "configurePreset": "debug-clang-tidy"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "debug-clang-tidy",
+      "configurePreset": "debug-clang-tidy",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
