@@ -13,8 +13,9 @@ FileReadResult FileSystem::read_text_file(const std::string& path) const {
 
     return FileReadResult{
         .found = true,
-        .text = std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()),
+        .text =
+            std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()),
     };
 }
 
-}  // namespace breadcrumbs::compiler::support
+} // namespace breadcrumbs::compiler::support

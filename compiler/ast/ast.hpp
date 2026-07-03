@@ -19,4 +19,4 @@ struct Ast {
     std::vector<DeclarationSyntax> declarations;
 };
 
-}  // namespace breadcrumbs::compiler::ast
+} // namespace breadcrumbs::compiler::ast

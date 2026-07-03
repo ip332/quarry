@@ -20,4 +20,4 @@ private:
     std::vector<SourceUnit> sources_;
 };
 
-}  // namespace breadcrumbs::compiler::support
+} // namespace breadcrumbs::compiler::support

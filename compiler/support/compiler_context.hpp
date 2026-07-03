@@ -17,4 +17,4 @@ private:
     FileSystem file_system_;
 };
 
-}  // namespace breadcrumbs::compiler::support
+} // namespace breadcrumbs::compiler::support

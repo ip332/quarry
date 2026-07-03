@@ -14,9 +14,8 @@ struct ParseResult {
 
 class Parser {
 public:
-    [[nodiscard]] ParseResult parse(std::string_view source,
-                                    support::CompilerContext& context,
+    [[nodiscard]] ParseResult parse(std::string_view source, support::CompilerContext& context,
                                     diagnostics::DiagnosticCollection& diagnostics) const;
 };
 
-}  // namespace breadcrumbs::compiler::parser
+} // namespace breadcrumbs::compiler::parser

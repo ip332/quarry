@@ -14,4 +14,4 @@ public:
     [[nodiscard]] FileReadResult read_text_file(const std::string& path) const;
 };
 
-}  // namespace breadcrumbs::compiler::support
+} // namespace breadcrumbs::compiler::support

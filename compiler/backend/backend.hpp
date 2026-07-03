@@ -24,4 +24,4 @@ public:
                                          diagnostics::DiagnosticCollection& diagnostics) const;
 };
 
-}  // namespace breadcrumbs::compiler::backend
+} // namespace breadcrumbs::compiler::backend

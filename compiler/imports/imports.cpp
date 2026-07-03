@@ -8,4 +8,4 @@ CompilationUnit ImportResolver::resolve(const std::vector<ast::Ast>& asts,
     return CompilationUnit{.asts = asts};
 }
 
-}  // namespace breadcrumbs::compiler::imports
+} // namespace breadcrumbs::compiler::imports

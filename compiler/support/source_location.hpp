@@ -17,4 +17,4 @@ struct SourceRange {
     SourceLocation end;
 };
 
-}  // namespace breadcrumbs::compiler::support
+} // namespace breadcrumbs::compiler::support

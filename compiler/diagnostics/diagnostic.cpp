@@ -8,9 +8,7 @@ void DiagnosticCollection::add(Diagnostic diagnostic) {
     diagnostics_.push_back(std::move(diagnostic));
 }
 
-const std::vector<Diagnostic>& DiagnosticCollection::all() const {
-    return diagnostics_;
-}
+const std::vector<Diagnostic>& DiagnosticCollection::all() const { return diagnostics_; }
 
 bool DiagnosticCollection::has_errors() const {
     for (const auto& diagnostic : diagnostics_) {
@@ -22,4 +20,4 @@ bool DiagnosticCollection::has_errors() const {
     return false;
 }
 
-}  // namespace breadcrumbs::compiler::diagnostics
+} // namespace breadcrumbs::compiler::diagnostics

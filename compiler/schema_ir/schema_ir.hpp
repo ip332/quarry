@@ -19,4 +19,4 @@ public:
                                       diagnostics::DiagnosticCollection& diagnostics) const;
 };
 
-}  // namespace breadcrumbs::compiler::schema_ir
+} // namespace breadcrumbs::compiler::schema_ir

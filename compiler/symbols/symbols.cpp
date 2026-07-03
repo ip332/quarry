@@ -2,10 +2,9 @@
 
 namespace breadcrumbs::compiler::symbols {
 
-SymbolModel NamespaceBuilder::build(const imports::CompilationUnit&,
-                                    support::CompilerContext&,
+SymbolModel NamespaceBuilder::build(const imports::CompilationUnit&, support::CompilerContext&,
                                     diagnostics::DiagnosticCollection&) const {
     return {};
 }
 
-}  // namespace breadcrumbs::compiler::symbols
+} // namespace breadcrumbs::compiler::symbols

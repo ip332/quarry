@@ -33,4 +33,4 @@ private:
     std::vector<Diagnostic> diagnostics_;
 };
 
-}  // namespace breadcrumbs::compiler::diagnostics
+} // namespace breadcrumbs::compiler::diagnostics
