@@ -1,7 +1,12 @@
 #include "compiler/layout/layout.hpp"
 
-int main() {
+#include <gtest/gtest.h>
+
+namespace {
+
+TEST(LayoutSmokeTest, ConstructsLayoutComputer) {
     breadcrumbs::compiler::layout::LayoutComputer computer;
     (void)computer;
-    return 0;
 }
+
+} // namespace

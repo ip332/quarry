@@ -1,7 +1,12 @@
 #include "compiler/backend/backend.hpp"
 
-int main() {
+#include <gtest/gtest.h>
+
+namespace {
+
+TEST(BackendSmokeTest, ConstructsBackend) {
     breadcrumbs::compiler::backend::Backend backend;
     (void)backend;
-    return 0;
 }
+
+} // namespace

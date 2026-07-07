@@ -1,7 +1,12 @@
 #include "compiler/semantic/semantic.hpp"
 
-int main() {
+#include <gtest/gtest.h>
+
+namespace {
+
+TEST(SemanticSmokeTest, ConstructsSemanticValidator) {
     breadcrumbs::compiler::semantic::SemanticValidator validator;
     (void)validator;
-    return 0;
 }
+
+} // namespace

@@ -1,7 +1,12 @@
 #include "compiler/parser/parser.hpp"
 
-int main() {
+#include <gtest/gtest.h>
+
+namespace {
+
+TEST(ParserSmokeTest, ConstructsParser) {
     breadcrumbs::compiler::parser::Parser parser;
     (void)parser;
-    return 0;
 }
+
+} // namespace

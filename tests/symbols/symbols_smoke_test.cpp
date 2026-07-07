@@ -1,7 +1,12 @@
 #include "compiler/symbols/symbols.hpp"
 
-int main() {
+#include <gtest/gtest.h>
+
+namespace {
+
+TEST(SymbolsSmokeTest, ConstructsNamespaceBuilder) {
     breadcrumbs::compiler::symbols::NamespaceBuilder builder;
     (void)builder;
-    return 0;
 }
+
+} // namespace
