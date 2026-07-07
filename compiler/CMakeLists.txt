@@ -38,6 +38,7 @@ target_link_libraries(breadcrumbs_compiler_ast
 )
 
 add_library(breadcrumbs_compiler_parser
+    parser/lexer.cpp
     parser/parser.cpp
 )
 target_include_directories(breadcrumbs_compiler_parser PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
