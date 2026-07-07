@@ -23,6 +23,7 @@ function(add_breadcrumbs_gtest name source library)
 endfunction()
 
 add_breadcrumbs_gtest(parser_smoke_test parser/parser_smoke_test.cpp breadcrumbs_compiler_parser)
+add_breadcrumbs_gtest(ast_test ast/ast_test.cpp breadcrumbs_compiler_ast)
 add_breadcrumbs_gtest(imports_smoke_test imports/imports_smoke_test.cpp breadcrumbs_compiler_imports)
 add_breadcrumbs_gtest(symbols_smoke_test symbols/symbols_smoke_test.cpp breadcrumbs_compiler_symbols)
 add_breadcrumbs_gtest(semantic_smoke_test semantic/semantic_smoke_test.cpp breadcrumbs_compiler_semantic)

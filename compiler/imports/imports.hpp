@@ -9,7 +9,7 @@
 namespace breadcrumbs::compiler::imports {
 
 struct CompilationUnit {
-    std::vector<ast::Ast> asts;
+    std::vector<const ast::Ast*> asts;
 };
 
 class ImportResolver {
