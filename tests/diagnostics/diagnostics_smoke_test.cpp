@@ -3,6 +3,8 @@
 #include "compiler/support/source_location.hpp"
 #include "compiler/support/source_manager.hpp"
 
+#include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -70,19 +72,16 @@ TEST(DiagnosticTest, BuildsDiagnosticWithOptionalContext) {
             .from_pass("namespace")
             .build();
 
-    ASSERT_TRUE(diagnostic.primary_location().has_value());
-    ASSERT_TRUE(diagnostic.source_range().has_value());
-    ASSERT_TRUE(diagnostic.suggested_fix().has_value());
     EXPECT_EQ(diagnostic.id().str(), "BC1001");
     EXPECT_EQ(diagnostic.severity(), Severity::Error);
     EXPECT_EQ(diagnostic.message(), "duplicate name");
-    EXPECT_EQ(*diagnostic.primary_location(), primary);
-    EXPECT_EQ(*diagnostic.source_range(), range);
+    EXPECT_EQ(diagnostic.primary_location(), std::optional<SourceLocation>(primary));
+    EXPECT_EQ(diagnostic.source_range(), std::optional<SourceRange>(range));
     ASSERT_EQ(diagnostic.related_locations().size(), 1U);
     EXPECT_EQ(diagnostic.related_locations()[0].message(), "previous definition is here");
     ASSERT_EQ(diagnostic.notes().size(), 1U);
     EXPECT_EQ(diagnostic.notes()[0], "names must be unique");
-    EXPECT_EQ(*diagnostic.suggested_fix(), "rename this declaration");
+    EXPECT_EQ(diagnostic.suggested_fix(), std::optional<std::string>("rename this declaration"));
     EXPECT_EQ(diagnostic.compiler_pass(), "namespace");
 
     const Diagnostic location_only =

@@ -1,8 +1,8 @@
 #pragma once
 
+#include "compiler/context/compiler_context.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
-#include "compiler/context/compiler_context.hpp"
 
 #include <string>
 #include <vector>

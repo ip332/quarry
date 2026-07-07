@@ -1,4 +1,20 @@
-find_package(GTest REQUIRED)
+find_package(GTest QUIET)
+
+if(NOT GTest_FOUND)
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG v1.14.0
+    )
+    FetchContent_MakeAvailable(googletest)
+
+    foreach(gtest_target gtest gtest_main gmock gmock_main)
+        if(TARGET ${gtest_target})
+            set_target_properties(${gtest_target} PROPERTIES CXX_CLANG_TIDY "")
+        endif()
+    endforeach()
+endif()
 
 function(add_breadcrumbs_smoke_test name source library)
     add_executable(${name} ${source})

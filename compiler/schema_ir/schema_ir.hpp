@@ -1,9 +1,9 @@
 #pragma once
 
+#include "compiler/context/compiler_context.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/layout/layout.hpp"
 #include "compiler/semantic/semantic.hpp"
-#include "compiler/context/compiler_context.hpp"
 
 namespace breadcrumbs::compiler::schema_ir {
 

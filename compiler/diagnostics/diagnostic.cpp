@@ -273,20 +273,19 @@ DiagnosticEngine::sorted_diagnostics(const support::SourceManager& source_manage
     std::vector<std::size_t> sorted_indices(diagnostics_.size());
     std::iota(sorted_indices.begin(), sorted_indices.end(), 0);
 
-    std::stable_sort(sorted_indices.begin(), sorted_indices.end(),
-                     [&](std::size_t lhs_index, std::size_t rhs_index) {
-                         const Diagnostic& lhs = diagnostics_[lhs_index];
-                         const Diagnostic& rhs = diagnostics_[rhs_index];
-                         const LocationKey lhs_location = location_key(lhs, source_manager);
-                         const LocationKey rhs_location = location_key(rhs, source_manager);
+    std::stable_sort(
+        sorted_indices.begin(), sorted_indices.end(),
+        [&](std::size_t lhs_index, std::size_t rhs_index) {
+            const Diagnostic& lhs = diagnostics_[lhs_index];
+            const Diagnostic& rhs = diagnostics_[rhs_index];
+            const LocationKey lhs_location = location_key(lhs, source_manager);
+            const LocationKey rhs_location = location_key(rhs, source_manager);
 
-                         return std::tuple(!lhs_location.has_location, lhs_location.path,
-                                           lhs_location.byte_offset, lhs.compiler_pass(),
-                                           lhs.id().str()) <
-                                std::tuple(!rhs_location.has_location, rhs_location.path,
-                                           rhs_location.byte_offset, rhs.compiler_pass(),
-                                           rhs.id().str());
-                     });
+            return std::tuple(!lhs_location.has_location, lhs_location.path,
+                              lhs_location.byte_offset, lhs.compiler_pass(), lhs.id().str()) <
+                   std::tuple(!rhs_location.has_location, rhs_location.path,
+                              rhs_location.byte_offset, rhs.compiler_pass(), rhs.id().str());
+        });
 
     std::vector<const Diagnostic*> sorted;
     sorted.reserve(diagnostics_.size());

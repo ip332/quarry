@@ -1,8 +1,8 @@
 #pragma once
 
 #include "compiler/ast/ast.hpp"
-#include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/context/compiler_context.hpp"
+#include "compiler/diagnostics/diagnostic.hpp"
 
 #include <vector>
 
