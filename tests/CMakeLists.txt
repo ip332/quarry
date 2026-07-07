@@ -22,6 +22,7 @@ function(add_breadcrumbs_gtest name source library)
     add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
+# Parser layer test target.
 add_breadcrumbs_gtest(parser_smoke_test parser/parser_smoke_test.cpp breadcrumbs_compiler_parser)
 add_breadcrumbs_gtest(lexer_test parser/lexer_test.cpp breadcrumbs_compiler_parser)
 add_breadcrumbs_gtest(ast_test ast/ast_test.cpp breadcrumbs_compiler_ast)

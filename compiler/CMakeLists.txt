@@ -45,7 +45,6 @@ target_include_directories(breadcrumbs_compiler_parser PUBLIC ${CMAKE_CURRENT_SO
 target_link_libraries(breadcrumbs_compiler_parser
     PUBLIC
         breadcrumbs_compiler_ast
-        breadcrumbs_compiler_context
         breadcrumbs_compiler_diagnostics
         breadcrumbs_compiler_support
         breadcrumbs_project_options

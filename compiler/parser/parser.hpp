@@ -1,10 +1,8 @@
 #pragma once
 
 #include "compiler/ast/ast.hpp"
-#include "compiler/context/compiler_context.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
-
-#include <string_view>
+#include "compiler/support/source_manager.hpp"
 
 namespace breadcrumbs::compiler::parser {
 
@@ -14,8 +12,9 @@ struct ParseResult {
 
 class Parser {
 public:
-    [[nodiscard]] ParseResult parse(std::string_view source, context::CompilerContext& context,
-                                    diagnostics::DiagnosticCollection& diagnostics) const;
+    [[nodiscard]] static ParseResult parse(const support::SourceManager& source_manager,
+                                           support::SourceFileId source_file_id,
+                                           diagnostics::DiagnosticEngine& diagnostics);
 };
 
 } // namespace breadcrumbs::compiler::parser

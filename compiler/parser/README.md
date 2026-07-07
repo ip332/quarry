@@ -1,13 +1,13 @@
 # Parser
 
-Owns lexical analysis and future parsing.
+Owns lexical scanning and syntax parsing for the current schema language.
 
 ## Lexer Responsibility
 
-The lexer converts `SourceManager`-owned source text into syntax tokens for the
-future parser. It is source-syntax infrastructure only. It does not build AST
-nodes, resolve names, validate schema semantics, expand imports, or inspect
-later compiler representations.
+The lexer converts `SourceManager`-owned source text into syntax tokens. It is
+source-syntax infrastructure only. It does not build AST nodes, resolve names,
+validate schema semantics, expand imports, or inspect later compiler
+representations.
 
 The lexer is constructed from:
 
@@ -16,11 +16,12 @@ The lexer is constructed from:
 * `DiagnosticEngine`
 
 The `SourceFileId` must identify a source already registered in
-`SourceManager`. Passing an unknown id is a compiler API/precondition violation;
-the lexer rejects construction with `std::invalid_argument`. This does not emit
-a user-facing lexical diagnostic.
+`SourceManager`. Passing an unknown id is a compiler API/precondition
+violation; the lexer rejects construction with `std::invalid_argument`. This
+does not emit a user-facing lexical diagnostic.
 
-It can scan one token at a time or lex the full source file into a token vector.
+It can scan one token at a time or lex the full source file into a token
+vector.
 
 ## Token Model
 
@@ -36,11 +37,31 @@ text alive while token spellings are used.
 Token kinds cover identifiers, integer literals, string literals, keywords,
 primitive type keywords, punctuation, end-of-file, and invalid tokens.
 
+## Parser Responsibility
+
+The parser consumes lexer tokens and builds the syntax-oriented AST. It keeps
+source ranges on declarations and type syntax where practical and reports syntax
+errors through the diagnostics framework.
+
+Supported syntax currently includes:
+
+* import declarations
+* namespace declarations with nested declarations
+* record declarations with fields
+* enum declarations with values
+* qualified names
+* primitive type references
+* fixed-size array syntax
+* simple annotations on declarations, fields, and enum values
+
 ## Source Ranges
 
 Every token has a valid `SourceRange`. The EOF token has a zero-length range at
 the end of the source buffer. Tokens do not store line or column values; those
 are derived through `SourceManager`.
+
+Parser output uses token ranges to populate AST source metadata. Human-readable
+locations are derived through `SourceManager` later.
 
 ## Comments
 
@@ -72,22 +93,24 @@ The lexer emits diagnostics for:
 * unterminated string literal (`BC2002`)
 * invalid escape sequence (`BC2003`)
 
-Diagnostics use precise source ranges and the compiler pass name `lexer`.
+The parser emits syntax diagnostics through `DiagnosticEngine` using the
+compiler pass name `parser`. The current parser uses a small set of stable IDs
+for unexpected tokens and missing syntax. Diagnostics are intentionally simple
+and deterministic.
 
 ## Lexer / Parser Boundary
 
-The lexer does not expose parser state or parser recovery behavior. The future
-parser should consume tokens and decide how to recover from syntax errors.
+The lexer does not expose parser state or parser recovery behavior. The parser
+consumes tokens and decides how to recover from syntax errors.
 
 ## Dependency Restrictions
 
 Allowed dependencies:
 
 * C++ standard library
+* `compiler/ast`
 * `compiler/diagnostics`
 * `compiler/support`
 
-Parser code may also depend on `compiler/ast`.
-
-Lexer and token code must not depend on imports, symbols, semantic validation,
-layout computation, Schema IR construction, backends, or compiler context.
+Parser code must not depend on imports, symbols, semantic validation, layout
+computation, Schema IR construction, backends, or compiler context.
