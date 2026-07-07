@@ -7,7 +7,6 @@ Responsibilities:
 * source locations and ranges
 * source manager
 * file system abstraction
-* compiler context
 * shared infrastructure utilities
 
 ## SourceLocation
@@ -74,18 +73,8 @@ can:
 Import search paths, import resolution, caching, virtual include roots, and
 overlays are intentionally outside this layer.
 
-## CompilerContext
-
-`CompilerContext` is a shell for shared compiler infrastructure. For now it
-owns a `SourceManager` and a `FileSystem` service.
-
-It must remain infrastructure rather than semantic state. Do not add diagnostic
-engines, semantic models, layout state, identifier allocation state, or
-compatibility policy here until the relevant compiler layer requires them and
-the ownership boundary is explicit.
-
 Allowed dependencies:
 
 * C++ standard library
 
-Support may not depend on compiler passes or diagnostics.
+Support may not depend on diagnostics, compiler context, or compiler passes.

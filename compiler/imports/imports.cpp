@@ -3,7 +3,7 @@
 namespace breadcrumbs::compiler::imports {
 
 CompilationUnit ImportResolver::resolve(const std::vector<ast::Ast>& asts,
-                                        support::CompilerContext&,
+                                        context::CompilerContext&,
                                         diagnostics::DiagnosticCollection&) const {
     return CompilationUnit{.asts = asts};
 }

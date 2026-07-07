@@ -1,5 +1,4 @@
 add_library(breadcrumbs_compiler_support
-    support/compiler_context.cpp
     support/file_system.cpp
     support/source_location.cpp
     support/source_manager.cpp
@@ -13,6 +12,17 @@ add_library(breadcrumbs_compiler_diagnostics
 target_include_directories(breadcrumbs_compiler_diagnostics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(breadcrumbs_compiler_diagnostics
     PUBLIC
+        breadcrumbs_compiler_support
+        breadcrumbs_project_options
+)
+
+add_library(breadcrumbs_compiler_context
+    context/compiler_context.cpp
+)
+target_include_directories(breadcrumbs_compiler_context PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(breadcrumbs_compiler_context
+    PUBLIC
+        breadcrumbs_compiler_diagnostics
         breadcrumbs_compiler_support
         breadcrumbs_project_options
 )
@@ -34,6 +44,7 @@ target_include_directories(breadcrumbs_compiler_parser PUBLIC ${CMAKE_CURRENT_SO
 target_link_libraries(breadcrumbs_compiler_parser
     PUBLIC
         breadcrumbs_compiler_ast
+        breadcrumbs_compiler_context
         breadcrumbs_compiler_diagnostics
         breadcrumbs_compiler_support
         breadcrumbs_project_options
@@ -46,6 +57,7 @@ target_include_directories(breadcrumbs_compiler_imports PUBLIC ${CMAKE_CURRENT_S
 target_link_libraries(breadcrumbs_compiler_imports
     PUBLIC
         breadcrumbs_compiler_ast
+        breadcrumbs_compiler_context
         breadcrumbs_compiler_diagnostics
         breadcrumbs_compiler_support
         breadcrumbs_project_options
@@ -58,6 +70,7 @@ target_include_directories(breadcrumbs_compiler_symbols PUBLIC ${CMAKE_CURRENT_S
 target_link_libraries(breadcrumbs_compiler_symbols
     PUBLIC
         breadcrumbs_compiler_ast
+        breadcrumbs_compiler_context
         breadcrumbs_compiler_imports
         breadcrumbs_compiler_diagnostics
         breadcrumbs_compiler_support
@@ -70,6 +83,7 @@ add_library(breadcrumbs_compiler_semantic
 target_include_directories(breadcrumbs_compiler_semantic PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(breadcrumbs_compiler_semantic
     PUBLIC
+        breadcrumbs_compiler_context
         breadcrumbs_compiler_symbols
         breadcrumbs_compiler_diagnostics
         breadcrumbs_compiler_support
@@ -82,6 +96,7 @@ add_library(breadcrumbs_compiler_layout
 target_include_directories(breadcrumbs_compiler_layout PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(breadcrumbs_compiler_layout
     PUBLIC
+        breadcrumbs_compiler_context
         breadcrumbs_compiler_semantic
         breadcrumbs_compiler_diagnostics
         breadcrumbs_compiler_support
@@ -94,6 +109,7 @@ add_library(breadcrumbs_compiler_schema_ir
 target_include_directories(breadcrumbs_compiler_schema_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(breadcrumbs_compiler_schema_ir
     PUBLIC
+        breadcrumbs_compiler_context
         breadcrumbs_compiler_semantic
         breadcrumbs_compiler_layout
         breadcrumbs_compiler_diagnostics
@@ -107,6 +123,7 @@ add_library(breadcrumbs_compiler_backend
 target_include_directories(breadcrumbs_compiler_backend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(breadcrumbs_compiler_backend
     PUBLIC
+        breadcrumbs_compiler_context
         breadcrumbs_compiler_schema_ir
         breadcrumbs_compiler_diagnostics
         breadcrumbs_compiler_support

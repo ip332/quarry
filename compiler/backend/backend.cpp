@@ -2,7 +2,7 @@
 
 namespace breadcrumbs::compiler::backend {
 
-BackendResult Backend::generate(const schema_ir::SchemaIrModel&, support::CompilerContext&,
+BackendResult Backend::generate(const schema_ir::SchemaIrModel&, context::CompilerContext&,
                                 diagnostics::DiagnosticCollection&) const {
     return {};
 }

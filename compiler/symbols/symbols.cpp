@@ -2,7 +2,7 @@
 
 namespace breadcrumbs::compiler::symbols {
 
-SymbolModel NamespaceBuilder::build(const imports::CompilationUnit&, support::CompilerContext&,
+SymbolModel NamespaceBuilder::build(const imports::CompilationUnit&, context::CompilerContext&,
                                     diagnostics::DiagnosticCollection&) const {
     return {};
 }

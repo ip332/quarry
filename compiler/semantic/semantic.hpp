@@ -1,7 +1,7 @@
 #pragma once
 
 #include "compiler/diagnostics/diagnostic.hpp"
-#include "compiler/support/compiler_context.hpp"
+#include "compiler/context/compiler_context.hpp"
 #include "compiler/symbols/symbols.hpp"
 
 #include <string>
@@ -20,7 +20,7 @@ struct SemanticModel {
 class SemanticValidator {
 public:
     [[nodiscard]] SemanticModel validate(const symbols::SymbolModel& symbol_model,
-                                         support::CompilerContext& context,
+                                         context::CompilerContext& context,
                                          diagnostics::DiagnosticCollection& diagnostics) const;
 };
 

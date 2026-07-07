@@ -2,7 +2,7 @@
 
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
-#include "compiler/support/compiler_context.hpp"
+#include "compiler/context/compiler_context.hpp"
 
 #include <string>
 #include <vector>
@@ -20,7 +20,7 @@ struct BackendResult {
 class Backend {
 public:
     [[nodiscard]] BackendResult generate(const schema_ir::SchemaIrModel& schema_ir,
-                                         support::CompilerContext& context,
+                                         context::CompilerContext& context,
                                          diagnostics::DiagnosticCollection& diagnostics) const;
 };
 

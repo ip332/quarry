@@ -1,6 +1,14 @@
+find_package(GTest REQUIRED)
+
 function(add_breadcrumbs_smoke_test name source library)
     add_executable(${name} ${source})
     target_link_libraries(${name} PRIVATE ${library} breadcrumbs_project_options)
+    add_test(NAME ${name} COMMAND ${name})
+endfunction()
+
+function(add_breadcrumbs_gtest name source library)
+    add_executable(${name} ${source})
+    target_link_libraries(${name} PRIVATE ${library} GTest::gtest_main breadcrumbs_project_options)
     add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
@@ -11,5 +19,5 @@ add_breadcrumbs_smoke_test(semantic_smoke_test semantic/semantic_smoke_test.cpp 
 add_breadcrumbs_smoke_test(layout_smoke_test layout/layout_smoke_test.cpp breadcrumbs_compiler_layout)
 add_breadcrumbs_smoke_test(schema_ir_smoke_test schema_ir/schema_ir_smoke_test.cpp breadcrumbs_compiler_schema_ir)
 add_breadcrumbs_smoke_test(backend_smoke_test backend/backend_smoke_test.cpp breadcrumbs_compiler_backend)
-add_breadcrumbs_smoke_test(diagnostics_smoke_test diagnostics/diagnostics_smoke_test.cpp breadcrumbs_compiler_diagnostics)
-add_breadcrumbs_smoke_test(support_test support/support_test.cpp breadcrumbs_compiler_support)
+add_breadcrumbs_gtest(diagnostics_smoke_test diagnostics/diagnostics_smoke_test.cpp breadcrumbs_compiler_context)
+add_breadcrumbs_gtest(support_test support/support_test.cpp breadcrumbs_compiler_support)

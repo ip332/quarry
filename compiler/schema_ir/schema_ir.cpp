@@ -3,7 +3,7 @@
 namespace breadcrumbs::compiler::schema_ir {
 
 SchemaIrModel SchemaIrBuilder::build(const semantic::SemanticModel&, const layout::LayoutModel&,
-                                     support::CompilerContext&,
+                                     context::CompilerContext&,
                                      diagnostics::DiagnosticCollection&) const {
     return SchemaIrModel{.backend_ready = true};
 }

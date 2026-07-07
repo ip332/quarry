@@ -2,7 +2,7 @@
 
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/semantic/semantic.hpp"
-#include "compiler/support/compiler_context.hpp"
+#include "compiler/context/compiler_context.hpp"
 
 #include <cstdint>
 #include <vector>
@@ -25,7 +25,7 @@ struct LayoutModel {
 class LayoutComputer {
 public:
     [[nodiscard]] LayoutModel compute(const semantic::SemanticModel& semantic_model,
-                                      support::CompilerContext& context,
+                                      context::CompilerContext& context,
                                       diagnostics::DiagnosticCollection& diagnostics) const;
 };
 

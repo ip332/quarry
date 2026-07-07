@@ -2,7 +2,7 @@
 
 #include "compiler/ast/ast.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
-#include "compiler/support/compiler_context.hpp"
+#include "compiler/context/compiler_context.hpp"
 
 #include <string_view>
 
@@ -14,7 +14,7 @@ struct ParseResult {
 
 class Parser {
 public:
-    [[nodiscard]] ParseResult parse(std::string_view source, support::CompilerContext& context,
+    [[nodiscard]] ParseResult parse(std::string_view source, context::CompilerContext& context,
                                     diagnostics::DiagnosticCollection& diagnostics) const;
 };
 

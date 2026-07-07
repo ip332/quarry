@@ -2,7 +2,7 @@
 
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/imports/imports.hpp"
-#include "compiler/support/compiler_context.hpp"
+#include "compiler/context/compiler_context.hpp"
 
 #include <string>
 #include <vector>
@@ -20,7 +20,7 @@ struct SymbolModel {
 class NamespaceBuilder {
 public:
     [[nodiscard]] SymbolModel build(const imports::CompilationUnit& compilation_unit,
-                                    support::CompilerContext& context,
+                                    context::CompilerContext& context,
                                     diagnostics::DiagnosticCollection& diagnostics) const;
 };
 

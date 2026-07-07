@@ -2,7 +2,7 @@
 
 namespace breadcrumbs::compiler::semantic {
 
-SemanticModel SemanticValidator::validate(const symbols::SymbolModel&, support::CompilerContext&,
+SemanticModel SemanticValidator::validate(const symbols::SymbolModel&, context::CompilerContext&,
                                           diagnostics::DiagnosticCollection&) const {
     return {};
 }

@@ -3,7 +3,7 @@
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/layout/layout.hpp"
 #include "compiler/semantic/semantic.hpp"
-#include "compiler/support/compiler_context.hpp"
+#include "compiler/context/compiler_context.hpp"
 
 namespace breadcrumbs::compiler::schema_ir {
 
@@ -15,7 +15,7 @@ class SchemaIrBuilder {
 public:
     [[nodiscard]] SchemaIrModel build(const semantic::SemanticModel& semantic_model,
                                       const layout::LayoutModel& layout_model,
-                                      support::CompilerContext& context,
+                                      context::CompilerContext& context,
                                       diagnostics::DiagnosticCollection& diagnostics) const;
 };
 

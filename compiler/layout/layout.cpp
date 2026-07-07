@@ -2,7 +2,7 @@
 
 namespace breadcrumbs::compiler::layout {
 
-LayoutModel LayoutComputer::compute(const semantic::SemanticModel&, support::CompilerContext&,
+LayoutModel LayoutComputer::compute(const semantic::SemanticModel&, context::CompilerContext&,
                                     diagnostics::DiagnosticCollection&) const {
     return {};
 }

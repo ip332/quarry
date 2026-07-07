@@ -73,3 +73,7 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# Local review archives
+*.tar
+*.tar.gz
