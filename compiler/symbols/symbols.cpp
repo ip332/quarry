@@ -118,9 +118,31 @@ Scope& Scope::add_child_scope(std::string name,
     return *child_scopes_.back();
 }
 
+void Scope::rebind_parent(const Scope* parent) {
+    parent_ = parent;
+    for (const std::unique_ptr<Scope>& child : child_scopes_) {
+        if (child != nullptr) {
+            child->rebind_parent(this);
+        }
+    }
+}
+
 const Scope& SymbolModel::global_scope() const { return global_scope_; }
 
 Scope& SymbolModel::global_scope() { return global_scope_; }
+
+SymbolModel::SymbolModel(SymbolModel&& other) noexcept
+    : global_scope_(std::move(other.global_scope_)) {
+    global_scope_.rebind_parent(nullptr);
+}
+
+SymbolModel& SymbolModel::operator=(SymbolModel&& other) noexcept {
+    if (this != &other) {
+        global_scope_ = std::move(other.global_scope_);
+        global_scope_.rebind_parent(nullptr);
+    }
+    return *this;
+}
 
 const Symbol* SymbolModel::resolve_unqualified(std::string_view name, const Scope& scope) const {
     return scope.find_enclosing(name);

@@ -56,6 +56,7 @@ private:
     [[nodiscard]] Symbol& add_symbol(Symbol symbol);
     [[nodiscard]] Scope&
     add_child_scope(std::string name, const ast::NamespaceDeclarationSyntax* namespace_declaration);
+    void rebind_parent(const Scope* parent);
 
     ScopeKind kind_ = ScopeKind::Global;
     std::string name_;
@@ -67,6 +68,10 @@ private:
 
 class SymbolModel {
 public:
+    SymbolModel() = default;
+    SymbolModel(SymbolModel&& other) noexcept;
+    SymbolModel& operator=(SymbolModel&& other) noexcept;
+
     [[nodiscard]] const Scope& global_scope() const;
     [[nodiscard]] Scope& global_scope();
 
