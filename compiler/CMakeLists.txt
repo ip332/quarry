@@ -88,6 +88,51 @@ target_link_libraries(breadcrumbs_compiler_semantic
         breadcrumbs_project_options
 )
 
+find_package(Protobuf REQUIRED)
+find_package(absl CONFIG REQUIRED)
+
+add_library(breadcrumbs_schema_ir_warning_tweaks INTERFACE)
+target_compile_options(breadcrumbs_schema_ir_warning_tweaks INTERFACE
+    -Wno-error=nullability-extension
+    -Wno-error=gcc-compat
+    -Wno-error=gnu-anonymous-struct
+    -Wno-error=nested-anon-types
+)
+
+set(BREADCRUMBS_SCHEMA_IR_PROTO_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/schema_ir)
+set(BREADCRUMBS_SCHEMA_IR_PROTO_FILE ${CMAKE_CURRENT_SOURCE_DIR}/../proto/breadcrumbs/schema_ir.proto)
+
+add_custom_command(
+    OUTPUT
+        ${BREADCRUMBS_SCHEMA_IR_PROTO_DIR}/breadcrumbs/schema_ir.pb.cc
+        ${BREADCRUMBS_SCHEMA_IR_PROTO_DIR}/breadcrumbs/schema_ir.pb.h
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${BREADCRUMBS_SCHEMA_IR_PROTO_DIR}
+    COMMAND ${Protobuf_PROTOC_EXECUTABLE}
+    ARGS
+        --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/../proto
+        --cpp_out=${BREADCRUMBS_SCHEMA_IR_PROTO_DIR}
+        ${BREADCRUMBS_SCHEMA_IR_PROTO_FILE}
+    DEPENDS ${BREADCRUMBS_SCHEMA_IR_PROTO_FILE}
+    VERBATIM
+)
+
+add_library(breadcrumbs_schema_ir_proto
+    ${BREADCRUMBS_SCHEMA_IR_PROTO_DIR}/breadcrumbs/schema_ir.pb.cc
+)
+target_include_directories(breadcrumbs_schema_ir_proto PUBLIC ${BREADCRUMBS_SCHEMA_IR_PROTO_DIR})
+target_include_directories(breadcrumbs_schema_ir_proto SYSTEM PUBLIC ${Protobuf_INCLUDE_DIRS})
+target_link_libraries(breadcrumbs_schema_ir_proto
+    PUBLIC
+        protobuf::libprotobuf
+        breadcrumbs_project_options
+        absl::absl_log
+        absl::check
+        absl::strings
+        absl::str_format
+    PRIVATE
+        breadcrumbs_schema_ir_warning_tweaks
+)
+
 add_library(breadcrumbs_compiler_layout
     layout/layout.cpp
 )
@@ -107,12 +152,14 @@ add_library(breadcrumbs_compiler_schema_ir
 target_include_directories(breadcrumbs_compiler_schema_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(breadcrumbs_compiler_schema_ir
     PUBLIC
+        breadcrumbs_schema_ir_proto
         breadcrumbs_compiler_context
         breadcrumbs_compiler_semantic
-        breadcrumbs_compiler_layout
+        breadcrumbs_compiler_symbols
         breadcrumbs_compiler_diagnostics
         breadcrumbs_compiler_support
-        breadcrumbs_project_options
+    PRIVATE
+        breadcrumbs_schema_ir_warning_tweaks
 )
 
 add_library(breadcrumbs_compiler_backend
@@ -126,4 +173,6 @@ target_link_libraries(breadcrumbs_compiler_backend
         breadcrumbs_compiler_diagnostics
         breadcrumbs_compiler_support
         breadcrumbs_project_options
+    PRIVATE
+        breadcrumbs_schema_ir_warning_tweaks
 )
