@@ -91,13 +91,35 @@ target_link_libraries(breadcrumbs_compiler_semantic
 find_package(Protobuf REQUIRED)
 find_package(absl CONFIG REQUIRED)
 
-add_library(breadcrumbs_schema_ir_warning_tweaks INTERFACE)
-target_compile_options(breadcrumbs_schema_ir_warning_tweaks INTERFACE
-    -Wno-error=nullability-extension
-    -Wno-error=gcc-compat
-    -Wno-error=gnu-anonymous-struct
-    -Wno-error=nested-anon-types
+set(BREADCRUMBS_ABSL_LINK_LIBS "")
+foreach(BREADCRUMBS_ABSL_CANDIDATE
+    absl::log_internal_check_op
+    absl::log_internal_message
+    absl::log_internal_nullguard
+    absl::log_internal_format
+    absl::log_internal_log_sink_set
+    absl::log_internal_conditions
+    absl::log_internal_globals
+    absl::log_severity
+    absl::raw_logging_internal
+    absl::strings
+    absl::str_format
+    absl::base
 )
+    if(TARGET ${BREADCRUMBS_ABSL_CANDIDATE})
+        list(APPEND BREADCRUMBS_ABSL_LINK_LIBS ${BREADCRUMBS_ABSL_CANDIDATE})
+    endif()
+endforeach()
+
+add_library(breadcrumbs_schema_ir_warning_tweaks INTERFACE)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(breadcrumbs_schema_ir_warning_tweaks INTERFACE
+        -Wno-error=nullability-extension
+        -Wno-error=gcc-compat
+        -Wno-error=gnu-anonymous-struct
+        -Wno-error=nested-anon-types
+    )
+endif()
 
 set(BREADCRUMBS_SCHEMA_IR_PROTO_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/schema_ir)
 set(BREADCRUMBS_SCHEMA_IR_PROTO_FILE ${CMAKE_CURRENT_SOURCE_DIR}/../proto/breadcrumbs/schema_ir.proto)
@@ -125,10 +147,7 @@ target_link_libraries(breadcrumbs_schema_ir_proto
     PUBLIC
         protobuf::libprotobuf
         breadcrumbs_project_options
-        absl::absl_log
-        absl::check
-        absl::strings
-        absl::str_format
+        ${BREADCRUMBS_ABSL_LINK_LIBS}
     PRIVATE
         breadcrumbs_schema_ir_warning_tweaks
 )
@@ -148,6 +167,7 @@ target_link_libraries(breadcrumbs_compiler_layout
 
 add_library(breadcrumbs_compiler_schema_ir
     schema_ir/schema_ir.cpp
+    schema_ir/validation.cpp
 )
 target_include_directories(breadcrumbs_compiler_schema_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(breadcrumbs_compiler_schema_ir
