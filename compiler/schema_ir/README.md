@@ -67,6 +67,15 @@ Source metadata:
 * source file paths and spans are copied from `SourceManager`
 * source locations remain compiler-only metadata
 
+Golden tests:
+
+* fixture-backed golden tests live under `tests/fixtures/schema_ir`
+* each fixture pairs a `.brd` source file with a `.textproto` expectation
+* goldens compare a normalized text-format rendering of the lowered IR
+* compiler-only source metadata is stripped from the comparison so the golden
+  files stay stable and reviewable
+* schema IR smoke tests still cover source metadata behavior separately
+
 Deferred work:
 
 * deterministic Schema IR identifier derivation is not specified yet

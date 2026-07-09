@@ -1,0 +1,10 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  records {
+    ir_id: 2
+    name: "Example"
+    fqn: "Example"
+  }
+}
+

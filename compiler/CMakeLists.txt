@@ -105,6 +105,8 @@ foreach(BREADCRUMBS_ABSL_CANDIDATE
     absl::strings
     absl::str_format
     absl::base
+    absl::container_memory
+    absl::raw_hash_set
 )
     if(TARGET ${BREADCRUMBS_ABSL_CANDIDATE})
         list(APPEND BREADCRUMBS_ABSL_LINK_LIBS ${BREADCRUMBS_ABSL_CANDIDATE})

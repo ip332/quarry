@@ -1,0 +1,36 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  records {
+    ir_id: 2
+    name: "Example"
+    fqn: "Example"
+    fields {
+      name: "active"
+      type {
+        primitive: PRIMITIVE_TYPE_BOOL
+      }
+    }
+    fields {
+      name: "count"
+      type {
+        primitive: PRIMITIVE_TYPE_U32
+      }
+    }
+    fields {
+      name: "label"
+      type {
+        string {
+        }
+      }
+    }
+    fields {
+      name: "blob"
+      type {
+        bytes {
+        }
+      }
+    }
+  }
+}
+

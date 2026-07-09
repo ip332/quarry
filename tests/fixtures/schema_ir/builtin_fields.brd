@@ -1,0 +1,7 @@
+record Example {
+  active: bool
+  count: u32
+  label: string
+  blob: bytes
+}
+

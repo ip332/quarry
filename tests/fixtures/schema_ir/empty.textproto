@@ -1,0 +1,5 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+}
+

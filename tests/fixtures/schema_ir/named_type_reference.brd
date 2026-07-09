@@ -1,0 +1,10 @@
+namespace breadcrumbs.geo {
+  record Location {
+  }
+
+  record Route {
+    origin: Location
+    fallback: breadcrumbs.geo.Location
+  }
+}
+

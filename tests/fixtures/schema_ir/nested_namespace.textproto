@@ -1,0 +1,20 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  namespaces {
+    ir_id: 2
+    name: "breadcrumbs"
+    fqn: "breadcrumbs"
+    namespaces {
+      ir_id: 3
+      name: "geo"
+      fqn: "breadcrumbs.geo"
+      records {
+        ir_id: 4
+        name: "Location"
+        fqn: "breadcrumbs.geo.Location"
+      }
+    }
+  }
+}
+
