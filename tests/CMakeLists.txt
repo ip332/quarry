@@ -37,7 +37,6 @@ target_link_libraries(schema_ir_smoke_test PRIVATE breadcrumbs_schema_ir_warning
 add_breadcrumbs_gtest(schema_ir_validation_test schema_ir/schema_ir_validation_test.cpp
                       breadcrumbs_compiler_schema_ir)
 target_link_libraries(schema_ir_validation_test PRIVATE breadcrumbs_compiler_parser)
-target_link_libraries(schema_ir_validation_test PRIVATE breadcrumbs_compiler_imports)
 target_link_libraries(schema_ir_validation_test PRIVATE breadcrumbs_schema_ir_warning_tweaks)
 add_breadcrumbs_gtest(backend_smoke_test backend/backend_smoke_test.cpp breadcrumbs_compiler_backend)
 target_link_libraries(backend_smoke_test PRIVATE breadcrumbs_schema_ir_warning_tweaks)

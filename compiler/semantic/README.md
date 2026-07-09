@@ -10,7 +10,7 @@ and reports semantic errors through the diagnostics framework.
 It:
 
 * walks the parsed AST
-* resolves type references against the symbol model
+* resolves type references against the symbol table
 * accepts builtin scalar types directly
 * validates type-bearing syntax in records and arrays
 * reports unresolved type references
@@ -26,6 +26,9 @@ table.
 This pass is validation-only for now. It does not cache resolved symbols inside
 AST nodes and does not introduce a semantic side table because no downstream
 consumer needs one yet.
+
+The layer consumes `SymbolTable` to resolve names but does not own symbol
+collection.
 
 ## Dependency Restrictions
 

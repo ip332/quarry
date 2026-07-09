@@ -87,7 +87,7 @@ void emit_invalid_array(diagnostics::DiagnosticEngine& diagnostics,
 
 const symbols::Scope* scope_for_namespace(const ast::NamespaceDeclarationSyntax& declaration,
                                           const symbols::Scope& current_scope,
-                                          const symbols::SymbolModel& symbol_model) {
+                                          const symbols::SymbolTable& symbol_model) {
     const symbols::Symbol* symbol = symbol_model.resolve(declaration.name, current_scope);
     if (symbol == nullptr || symbol->kind != symbols::SymbolKind::Namespace ||
         symbol->child_scope == nullptr) {
@@ -98,7 +98,7 @@ const symbols::Scope* scope_for_namespace(const ast::NamespaceDeclarationSyntax&
 }
 
 void validate_type_reference(const ast::TypeReferenceSyntax& type_reference,
-                             const symbols::Scope& scope, const symbols::SymbolModel& symbol_model,
+                             const symbols::Scope& scope, const symbols::SymbolTable& symbol_model,
                              diagnostics::DiagnosticEngine& diagnostics) {
     if (is_builtin_type(type_reference.name.text())) {
         return;
@@ -120,7 +120,7 @@ void validate_type_reference(const ast::TypeReferenceSyntax& type_reference,
 }
 
 void validate_type(const ast::TypeSyntax& type, const symbols::Scope& scope,
-                   const symbols::SymbolModel& symbol_model,
+                   const symbols::SymbolTable& symbol_model,
                    diagnostics::DiagnosticEngine& diagnostics) {
     std::visit(
         [&](const auto& typed) {
@@ -136,7 +136,7 @@ void validate_type(const ast::TypeSyntax& type, const symbols::Scope& scope,
 }
 
 void validate_declaration(const ast::DeclarationSyntax& declaration, const symbols::Scope& scope,
-                          const symbols::SymbolModel& symbol_model,
+                          const symbols::SymbolTable& symbol_model,
                           diagnostics::DiagnosticEngine& diagnostics) {
     std::visit(
         [&](const auto& typed) {
@@ -167,7 +167,7 @@ void validate_declaration(const ast::DeclarationSyntax& declaration, const symbo
 }
 
 void validate_schema_file(const ast::SchemaFileSyntax& ast,
-                          const symbols::SymbolModel& symbol_model,
+                          const symbols::SymbolTable& symbol_model,
                           diagnostics::DiagnosticEngine& diagnostics) {
     const symbols::Scope& global_scope = symbol_model.global_scope();
     for (const ast::DeclarationPtr& declaration : ast.declarations) {
@@ -180,7 +180,7 @@ void validate_schema_file(const ast::SchemaFileSyntax& ast,
 } // namespace
 
 SemanticModel SemanticValidator::validate(const ast::Ast& ast,
-                                          const symbols::SymbolModel& symbol_model,
+                                          const symbols::SymbolTable& symbol_model,
                                           diagnostics::DiagnosticEngine& diagnostics) const {
     validate_schema_file(ast, symbol_model, diagnostics);
     return {};

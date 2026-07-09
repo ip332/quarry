@@ -2,7 +2,6 @@
 
 #include "compiler/ast/ast.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
-#include "compiler/imports/imports.hpp"
 #include "compiler/support/source_location.hpp"
 
 #include <deque>
@@ -51,7 +50,7 @@ public:
 
 private:
     friend class NamespaceBuilder;
-    friend class SymbolModel;
+    friend class SymbolTable;
 
     [[nodiscard]] Symbol& add_symbol(Symbol symbol);
     [[nodiscard]] Scope&
@@ -66,11 +65,11 @@ private:
     std::vector<std::unique_ptr<Scope>> child_scopes_;
 };
 
-class SymbolModel {
+class SymbolTable {
 public:
-    SymbolModel() = default;
-    SymbolModel(SymbolModel&& other) noexcept;
-    SymbolModel& operator=(SymbolModel&& other) noexcept;
+    SymbolTable() = default;
+    SymbolTable(SymbolTable&& other) noexcept;
+    SymbolTable& operator=(SymbolTable&& other) noexcept;
 
     [[nodiscard]] const Scope& global_scope() const;
     [[nodiscard]] Scope& global_scope();
@@ -85,13 +84,29 @@ public:
     resolve_or_diagnostic(const ast::QualifiedNameSyntax& name, const Scope& scope,
                           diagnostics::DiagnosticEngine& diagnostics) const;
 
+    [[nodiscard]] const Symbol* lookup_unqualified(std::string_view name,
+                                                   const Scope& scope) const {
+        return resolve_unqualified(name, scope);
+    }
+    [[nodiscard]] const Symbol* lookup_qualified(const ast::QualifiedNameSyntax& name,
+                                                 const Scope& scope) const {
+        return resolve_qualified(name, scope);
+    }
+    [[nodiscard]] const Symbol* lookup(const ast::QualifiedNameSyntax& name,
+                                       const Scope& scope) const {
+        return resolve(name, scope);
+    }
+    [[nodiscard]] const Symbol*
+    lookup_or_diagnostic(const ast::QualifiedNameSyntax& name, const Scope& scope,
+                         diagnostics::DiagnosticEngine& diagnostics) const;
+
 private:
     Scope global_scope_;
 };
 
 class NamespaceBuilder {
 public:
-    [[nodiscard]] SymbolModel build(const imports::CompilationUnit& compilation_unit,
+    [[nodiscard]] SymbolTable build(const ast::Ast& ast,
                                     diagnostics::DiagnosticEngine& diagnostics) const;
 
 private:

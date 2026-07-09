@@ -7,7 +7,7 @@ Responsibilities:
 
 * lower parsed AST into protobuf Schema IR
 * preserve the parsed namespace hierarchy exactly as represented by the AST and
-  `SymbolModel`
+  `SymbolTable`
 * represent resolved record and enum references using compiler-assigned IR
   identifiers
 * preserve compiler-only source metadata where available
@@ -29,8 +29,8 @@ Public lowering surface:
 
 * `SchemaIrModel` aliases the protobuf `breadcrumbs::schema_ir::SchemaIR`
 * `SchemaIrBuilder::build(const ast::Ast&, const semantic::SemanticModel&,
-  const layout::LayoutModel&, const symbols::SymbolModel&,
-  context::CompilerContext&, diagnostics::DiagnosticCollection&)`
+  const layout::LayoutModel&, const symbols::SymbolTable&, context::CompilerContext&,
+  diagnostics::DiagnosticCollection&)`
 * `SchemaIrValidator::validate(const SchemaIrModel&, context::CompilerContext&,
   diagnostics::DiagnosticCollection&)`
 
@@ -51,7 +51,7 @@ Namespace handling:
 * `root_namespace` is treated as a synthetic container
 * top-level AST namespaces are lowered as children of that synthetic root
 * multi-component namespace declarations are lowered mechanically, one path
-  component at a time, using the canonical `SymbolModel` scope tree
+  component at a time, using the canonical `SymbolTable` scope tree
 
 Type lowering:
 

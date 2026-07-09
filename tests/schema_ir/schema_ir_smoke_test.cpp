@@ -1,6 +1,5 @@
 #include "compiler/context/compiler_context.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
-#include "compiler/imports/imports.hpp"
 #include "compiler/layout/layout.hpp"
 #include "compiler/parser/parser.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
@@ -20,7 +19,6 @@ namespace {
 
 using breadcrumbs::compiler::context::CompilerContext;
 using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
-using breadcrumbs::compiler::imports::CompilationUnit;
 using breadcrumbs::compiler::layout::LayoutModel;
 using breadcrumbs::compiler::parser::Parser;
 using breadcrumbs::compiler::schema_ir::SchemaIrBuilder;
@@ -29,7 +27,7 @@ using breadcrumbs::compiler::semantic::SemanticModel;
 using breadcrumbs::compiler::semantic::SemanticValidator;
 using breadcrumbs::compiler::support::SourceFileId;
 using breadcrumbs::compiler::symbols::NamespaceBuilder;
-using breadcrumbs::compiler::symbols::SymbolModel;
+using breadcrumbs::compiler::symbols::SymbolTable;
 
 struct FrontendOutput {
     CompilerContext context;
@@ -38,7 +36,7 @@ struct FrontendOutput {
     DiagnosticEngine symbol_diagnostics;
     DiagnosticEngine semantic_diagnostics;
     DiagnosticEngine lowering_diagnostics;
-    std::unique_ptr<SymbolModel> symbol_model;
+    std::unique_ptr<SymbolTable> symbol_table;
     SemanticModel semantic_model;
     LayoutModel layout_model;
     SchemaIrModel schema_ir;
@@ -54,23 +52,20 @@ struct FrontendOutput {
                                       output.parser_diagnostics);
     output.ast = std::move(parse_result.ast);
 
-    CompilationUnit compilation_unit;
-    compilation_unit.asts.push_back(&output.ast);
-
     NamespaceBuilder namespace_builder;
-    output.symbol_model = std::make_unique<SymbolModel>(
-        namespace_builder.build(compilation_unit, output.symbol_diagnostics));
+    output.symbol_table = std::make_unique<SymbolTable>(
+        namespace_builder.build(output.ast, output.symbol_diagnostics));
 
     if (run_semantic) {
         SemanticValidator validator;
         output.semantic_model =
-            validator.validate(output.ast, *output.symbol_model, output.semantic_diagnostics);
+            validator.validate(output.ast, *output.symbol_table, output.semantic_diagnostics);
     }
 
     SchemaIrBuilder schema_ir_builder;
     output.schema_ir =
         schema_ir_builder.build(output.ast, output.semantic_model, output.layout_model,
-                                *output.symbol_model, output.context, output.lowering_diagnostics);
+                                *output.symbol_table, output.context, output.lowering_diagnostics);
     return output;
 }
 

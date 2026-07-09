@@ -14,7 +14,7 @@ It:
 * constructs global and namespace scopes
 * preserves nested namespace structure
 * detects duplicate declarations in the same scope
-* provides lookup for unqualified and qualified names
+* provides `lookup` APIs for unqualified and qualified names
 * reports unresolved names when asked to resolve them explicitly
 
 ## Ownership Model
@@ -24,6 +24,10 @@ declarations through raw pointers because the AST owns the declaration tree.
 
 Scopes own symbol records and nested child scopes, but they do not own the AST
 nodes they describe.
+
+`SymbolTable` is the public name for the symbol model. It owns the scope tree
+and exposes lookup behavior directly to later passes. `NamespaceBuilder::build`
+consumes the parsed AST and constructs the scope tree from that syntax tree.
 
 ## Name Model
 
@@ -51,7 +55,6 @@ Allowed dependencies:
 
 * `compiler/ast`
 * `compiler/diagnostics`
-* `compiler/imports`
 * `compiler/support`
 
 The symbols layer must not perform semantic validation, layout computation, or

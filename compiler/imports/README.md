@@ -7,7 +7,8 @@ Responsibilities:
 * resolve source-level imports
 * build the import graph
 * detect missing, duplicate, ambiguous, and cyclic imports
-* produce the Compilation Unit consumed by symbol construction
+* produce a lightweight compilation unit for later pipeline stages that need
+  grouped ASTs
 
 Allowed dependencies:
 

@@ -11,7 +11,7 @@ struct SemanticModel {};
 class SemanticValidator {
 public:
     [[nodiscard]] SemanticModel validate(const ast::Ast& ast,
-                                         const symbols::SymbolModel& symbol_model,
+                                         const symbols::SymbolTable& symbol_model,
                                          diagnostics::DiagnosticEngine& diagnostics) const;
 };
 

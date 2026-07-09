@@ -127,16 +127,16 @@ void Scope::rebind_parent(const Scope* parent) {
     }
 }
 
-const Scope& SymbolModel::global_scope() const { return global_scope_; }
+const Scope& SymbolTable::global_scope() const { return global_scope_; }
 
-Scope& SymbolModel::global_scope() { return global_scope_; }
+Scope& SymbolTable::global_scope() { return global_scope_; }
 
-SymbolModel::SymbolModel(SymbolModel&& other) noexcept
+SymbolTable::SymbolTable(SymbolTable&& other) noexcept
     : global_scope_(std::move(other.global_scope_)) {
     global_scope_.rebind_parent(nullptr);
 }
 
-SymbolModel& SymbolModel::operator=(SymbolModel&& other) noexcept {
+SymbolTable& SymbolTable::operator=(SymbolTable&& other) noexcept {
     if (this != &other) {
         global_scope_ = std::move(other.global_scope_);
         global_scope_.rebind_parent(nullptr);
@@ -144,11 +144,11 @@ SymbolModel& SymbolModel::operator=(SymbolModel&& other) noexcept {
     return *this;
 }
 
-const Symbol* SymbolModel::resolve_unqualified(std::string_view name, const Scope& scope) const {
+const Symbol* SymbolTable::resolve_unqualified(std::string_view name, const Scope& scope) const {
     return scope.find_enclosing(name);
 }
 
-const Symbol* SymbolModel::resolve_qualified(const ast::QualifiedNameSyntax& name,
+const Symbol* SymbolTable::resolve_qualified(const ast::QualifiedNameSyntax& name,
                                              const Scope& scope) const {
     if (name.parts.empty()) {
         return nullptr;
@@ -173,14 +173,14 @@ const Symbol* SymbolModel::resolve_qualified(const ast::QualifiedNameSyntax& nam
     return symbol;
 }
 
-const Symbol* SymbolModel::resolve(const ast::QualifiedNameSyntax& name, const Scope& scope) const {
+const Symbol* SymbolTable::resolve(const ast::QualifiedNameSyntax& name, const Scope& scope) const {
     if (name.parts.size() == 1) {
         return resolve_unqualified(name.parts.front().text, scope);
     }
     return resolve_qualified(name, scope);
 }
 
-const Symbol* SymbolModel::resolve_or_diagnostic(const ast::QualifiedNameSyntax& name,
+const Symbol* SymbolTable::resolve_or_diagnostic(const ast::QualifiedNameSyntax& name,
                                                  const Scope& scope,
                                                  diagnostics::DiagnosticEngine& diagnostics) const {
     const Symbol* symbol = resolve(name, scope);
@@ -192,14 +192,16 @@ const Symbol* SymbolModel::resolve_or_diagnostic(const ast::QualifiedNameSyntax&
     return nullptr;
 }
 
-SymbolModel NamespaceBuilder::build(const imports::CompilationUnit& compilation_unit,
+const Symbol* SymbolTable::lookup_or_diagnostic(const ast::QualifiedNameSyntax& name,
+                                                const Scope& scope,
+                                                diagnostics::DiagnosticEngine& diagnostics) const {
+    return resolve_or_diagnostic(name, scope, diagnostics);
+}
+
+SymbolTable NamespaceBuilder::build(const ast::Ast& ast,
                                     diagnostics::DiagnosticEngine& diagnostics) const {
-    SymbolModel model;
-    for (const ast::Ast* ast : compilation_unit.asts) {
-        if (ast != nullptr) {
-            collect_schema_file(*ast, model.global_scope(), diagnostics);
-        }
-    }
+    SymbolTable model;
+    collect_schema_file(ast, model.global_scope(), diagnostics);
     return model;
 }
 

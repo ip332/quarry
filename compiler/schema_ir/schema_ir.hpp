@@ -16,7 +16,7 @@ class SchemaIrBuilder {
 public:
     [[nodiscard]] SchemaIrModel
     build(const ast::Ast& ast, const semantic::SemanticModel& semantic_model,
-          const layout::LayoutModel& layout_model, const symbols::SymbolModel& symbol_model,
+          const layout::LayoutModel& layout_model, const symbols::SymbolTable& symbol_model,
           context::CompilerContext& context, diagnostics::DiagnosticCollection& diagnostics) const;
 };
 

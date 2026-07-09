@@ -1,6 +1,5 @@
 #include "compiler/ast/ast.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
-#include "compiler/imports/imports.hpp"
 #include "compiler/symbols/symbols.hpp"
 
 #include <memory>
@@ -22,7 +21,6 @@ using breadcrumbs::compiler::ast::QualifiedNameSyntax;
 using breadcrumbs::compiler::ast::RecordDeclarationSyntax;
 using breadcrumbs::compiler::ast::SchemaFileSyntax;
 using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
-using breadcrumbs::compiler::imports::CompilationUnit;
 using breadcrumbs::compiler::support::SourceFileId;
 using breadcrumbs::compiler::support::SourceLocation;
 using breadcrumbs::compiler::support::SourceRange;
@@ -88,12 +86,6 @@ using breadcrumbs::compiler::symbols::SymbolKind;
     };
 }
 
-[[nodiscard]] CompilationUnit unit_from(const SchemaFileSyntax& ast) {
-    CompilationUnit unit;
-    unit.asts.push_back(&ast);
-    return unit;
-}
-
 [[nodiscard]] const Symbol* find_symbol(const Scope& scope, std::string_view name) {
     return scope.find_local(name);
 }
@@ -106,7 +98,7 @@ TEST(SymbolsSmokeTest, CollectsTopLevelDeclarations) {
     const auto ast = schema_file(std::move(declarations));
     DiagnosticEngine diagnostics;
     NamespaceBuilder builder;
-    const auto model = builder.build(unit_from(ast), diagnostics);
+    const auto model = builder.build(ast, diagnostics);
 
     ASSERT_TRUE(diagnostics.empty());
     const Scope& global = model.global_scope();
@@ -139,7 +131,7 @@ TEST(SymbolsSmokeTest, BuildsNestedNamespaceScopes) {
     const auto ast = schema_file(std::move(declarations));
     DiagnosticEngine diagnostics;
     NamespaceBuilder builder;
-    const auto model = builder.build(unit_from(ast), diagnostics);
+    const auto model = builder.build(ast, diagnostics);
 
     ASSERT_TRUE(diagnostics.empty());
     const Scope& global = model.global_scope();
@@ -179,7 +171,7 @@ TEST(SymbolsSmokeTest, ResolvesCurrentAndEnclosingScopeNames) {
     const auto ast = schema_file(std::move(declarations));
     DiagnosticEngine diagnostics;
     NamespaceBuilder builder;
-    const auto model = builder.build(unit_from(ast), diagnostics);
+    const auto model = builder.build(ast, diagnostics);
 
     const Scope& global = model.global_scope();
     const Symbol* breadcrumbs = find_symbol(global, "breadcrumbs");
@@ -214,7 +206,7 @@ TEST(SymbolsSmokeTest, ResolvesQualifiedNames) {
     const auto ast = schema_file(std::move(declarations));
     DiagnosticEngine diagnostics;
     NamespaceBuilder builder;
-    const auto model = builder.build(unit_from(ast), diagnostics);
+    const auto model = builder.build(ast, diagnostics);
 
     const Scope& global = model.global_scope();
     const Symbol* result =
@@ -271,7 +263,7 @@ TEST(SymbolsSmokeTest, ResolvesQualifiedNamesLexicallyFromEnclosingScopes) {
     const auto ast = schema_file(std::move(declarations));
     DiagnosticEngine diagnostics;
     NamespaceBuilder builder;
-    const auto model = builder.build(unit_from(ast), diagnostics);
+    const auto model = builder.build(ast, diagnostics);
 
     ASSERT_TRUE(diagnostics.empty());
     const Scope& global = model.global_scope();
@@ -327,7 +319,7 @@ TEST(SymbolsSmokeTest, QualifiedNamesRespectLexicalShadowing) {
     const auto ast = schema_file(std::move(declarations));
     DiagnosticEngine diagnostics;
     NamespaceBuilder builder;
-    const auto model = builder.build(unit_from(ast), diagnostics);
+    const auto model = builder.build(ast, diagnostics);
 
     ASSERT_TRUE(diagnostics.empty());
     const Scope& global = model.global_scope();
@@ -350,7 +342,7 @@ TEST(SymbolsSmokeTest, DetectsDuplicateDeclarationsInSameScope) {
     const auto ast = schema_file(std::move(declarations));
     DiagnosticEngine diagnostics;
     NamespaceBuilder builder;
-    const auto model = builder.build(unit_from(ast), diagnostics);
+    const auto model = builder.build(ast, diagnostics);
 
     ASSERT_EQ(diagnostics.diagnostics().size(), 1U);
     EXPECT_EQ(diagnostics.diagnostics()[0].id().str(), "BC4001");
@@ -371,7 +363,7 @@ TEST(SymbolsSmokeTest, DetectsUnresolvedNamesWhenAsked) {
     const auto ast = schema_file(std::move(declarations));
     DiagnosticEngine diagnostics;
     NamespaceBuilder builder;
-    const auto model = builder.build(unit_from(ast), diagnostics);
+    const auto model = builder.build(ast, diagnostics);
 
     const Scope& global = model.global_scope();
     const auto name = qualified_name({identifier("Missing", 0, 7)}, 0, 7);
@@ -418,7 +410,7 @@ TEST(SymbolsSmokeTest, AllowsSameNameInDifferentNamespaces) {
     const auto ast = schema_file(std::move(declarations));
     DiagnosticEngine diagnostics;
     NamespaceBuilder builder;
-    const auto model = builder.build(unit_from(ast), diagnostics);
+    const auto model = builder.build(ast, diagnostics);
 
     ASSERT_TRUE(diagnostics.empty());
     const Scope& global = model.global_scope();

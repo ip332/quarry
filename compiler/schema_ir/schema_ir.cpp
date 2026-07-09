@@ -207,7 +207,7 @@ class SchemaIrBuilderImpl {
 public:
     SchemaIrBuilderImpl(const ast::Ast& ast, const semantic::SemanticModel& semantic_model,
                         const layout::LayoutModel& layout_model,
-                        const symbols::SymbolModel& symbol_model, context::CompilerContext& context,
+                        const symbols::SymbolTable& symbol_model, context::CompilerContext& context,
                         diagnostics::DiagnosticCollection& diagnostics)
         : ast_(ast), semantic_model_(semantic_model), layout_model_(layout_model),
           symbol_model_(symbol_model), source_manager_(context.source_manager()),
@@ -541,7 +541,7 @@ private:
     const ast::Ast& ast_;
     const semantic::SemanticModel& semantic_model_;
     const layout::LayoutModel& layout_model_;
-    const symbols::SymbolModel& symbol_model_;
+    const symbols::SymbolTable& symbol_model_;
     const support::SourceManager& source_manager_;
     diagnostics::DiagnosticCollection& diagnostics_;
     std::uint64_t next_ir_id_ = 1;
@@ -553,7 +553,7 @@ private:
 SchemaIrModel SchemaIrBuilder::build(const ast::Ast& ast,
                                      const semantic::SemanticModel& semantic_model,
                                      const layout::LayoutModel& layout_model,
-                                     const symbols::SymbolModel& symbol_model,
+                                     const symbols::SymbolTable& symbol_model,
                                      context::CompilerContext& context,
                                      diagnostics::DiagnosticCollection& diagnostics) const {
     SchemaIrBuilderImpl builder(ast, semantic_model, layout_model, symbol_model, context,
