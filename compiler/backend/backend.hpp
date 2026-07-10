@@ -1,7 +1,5 @@
 #pragma once
 
-#include "compiler/context/compiler_context.hpp"
-#include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 
 #include <string>
@@ -9,19 +7,25 @@
 
 namespace breadcrumbs::compiler::backend {
 
-struct BackendArtifact {
-    std::string path;
+struct CodegenOptions {
+    std::string output_directory = "generated";
+    std::string root_file_stem = "schema";
+    std::string file_extension = ".generated.hpp";
 };
 
-struct BackendResult {
-    std::vector<BackendArtifact> artifacts;
+struct GeneratedFile {
+    std::string path;
+    std::string content;
+};
+
+struct CodegenResult {
+    std::vector<GeneratedFile> files;
 };
 
 class Backend {
 public:
-    [[nodiscard]] BackendResult generate(const schema_ir::SchemaIrModel& schema_ir,
-                                         context::CompilerContext& context,
-                                         diagnostics::DiagnosticCollection& diagnostics) const;
+    [[nodiscard]] CodegenResult generate(const schema_ir::SchemaIrModel& schema_ir,
+                                         const CodegenOptions& options) const;
 };
 
 } // namespace breadcrumbs::compiler::backend

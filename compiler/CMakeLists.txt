@@ -190,10 +190,7 @@ add_library(breadcrumbs_compiler_backend
 target_include_directories(breadcrumbs_compiler_backend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(breadcrumbs_compiler_backend
     PUBLIC
-        breadcrumbs_compiler_context
         breadcrumbs_compiler_schema_ir
-        breadcrumbs_compiler_diagnostics
-        breadcrumbs_compiler_support
         breadcrumbs_project_options
     PRIVATE
         breadcrumbs_schema_ir_warning_tweaks

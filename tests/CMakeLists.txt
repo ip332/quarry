@@ -44,5 +44,11 @@ target_link_libraries(schema_ir_validation_test PRIVATE breadcrumbs_compiler_par
 target_link_libraries(schema_ir_validation_test PRIVATE breadcrumbs_schema_ir_warning_tweaks)
 add_breadcrumbs_gtest(backend_smoke_test backend/backend_smoke_test.cpp breadcrumbs_compiler_backend)
 target_link_libraries(backend_smoke_test PRIVATE breadcrumbs_schema_ir_warning_tweaks)
+add_breadcrumbs_gtest(backend_codegen_test backend/backend_codegen_test.cpp
+                      breadcrumbs_compiler_backend)
+target_link_libraries(backend_codegen_test PRIVATE breadcrumbs_compiler_parser)
+target_link_libraries(backend_codegen_test PRIVATE breadcrumbs_compiler_layout)
+target_link_libraries(backend_codegen_test PRIVATE breadcrumbs_compiler_schema_ir)
+target_link_libraries(backend_codegen_test PRIVATE breadcrumbs_schema_ir_warning_tweaks)
 add_breadcrumbs_gtest(diagnostics_smoke_test diagnostics/diagnostics_smoke_test.cpp breadcrumbs_compiler_context)
 add_breadcrumbs_gtest(support_test support/support_test.cpp breadcrumbs_compiler_support)
