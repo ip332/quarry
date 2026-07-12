@@ -29,6 +29,7 @@ enum class ScopeKind {
 struct Symbol {
     SymbolKind kind = SymbolKind::Record;
     std::string name;
+    std::string fqn;
     support::SourceRange source_range;
     const ast::DeclarationSyntax* declaration = nullptr;
     const Scope* child_scope = nullptr;

@@ -286,6 +286,7 @@ been rejected, and the namespace hierarchy is canonical.
 * validate field declarations
 * validate arrays
 * validate string and bytes bounds
+* construct resolved field-type values for valid fields
 * validate annotations supported by the language
 * reject unsupported language constructs
 * reject user-authored compiler-managed identifiers
@@ -451,6 +452,7 @@ diagnostics that prevent compilation have already stopped the pipeline.
 * produce the final protobuf Schema IR
 * populate every required Schema IR field
 * preserve source locations where appropriate
+* lower field types from resolved Semantic Model values
 * include compiler-only metadata needed by backends and tools
 * represent resolved references using compiler-assigned object handles
 * emit deterministic output where required by tooling

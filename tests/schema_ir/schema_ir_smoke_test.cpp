@@ -19,12 +19,22 @@ namespace {
 
 using breadcrumbs::compiler::context::CompilerContext;
 using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
+using breadcrumbs::compiler::layout::FieldLayout;
 using breadcrumbs::compiler::layout::LayoutComputer;
 using breadcrumbs::compiler::layout::LayoutModel;
 using breadcrumbs::compiler::parser::Parser;
 using breadcrumbs::compiler::schema_ir::SchemaIrBuilder;
 using breadcrumbs::compiler::schema_ir::SchemaIrModel;
+using breadcrumbs::compiler::semantic::SemanticArrayType;
+using breadcrumbs::compiler::semantic::SemanticBytesType;
+using breadcrumbs::compiler::semantic::SemanticEnumReferenceType;
+using breadcrumbs::compiler::semantic::SemanticField;
 using breadcrumbs::compiler::semantic::SemanticModel;
+using breadcrumbs::compiler::semantic::SemanticPrimitiveType;
+using breadcrumbs::compiler::semantic::SemanticRecord;
+using breadcrumbs::compiler::semantic::SemanticRecordReferenceType;
+using breadcrumbs::compiler::semantic::SemanticStringType;
+using breadcrumbs::compiler::semantic::SemanticType;
 using breadcrumbs::compiler::semantic::SemanticValidator;
 using breadcrumbs::compiler::support::SourceFileId;
 using breadcrumbs::compiler::symbols::NamespaceBuilder;
@@ -113,6 +123,29 @@ find_record(const breadcrumbs::schema_ir::NamespaceIR& parent, std::string_view 
         }
     }
     return nullptr;
+}
+
+[[nodiscard]] const SemanticRecord* find_semantic_record(const SemanticModel& model,
+                                                         std::string_view fqn) {
+    return model.find_record(fqn);
+}
+
+[[nodiscard]] const SemanticField* find_semantic_field(const SemanticRecord& record,
+                                                       std::string_view name) {
+    return record.find_field(name);
+}
+
+[[nodiscard]] SemanticType make_array_type(SemanticType element_type) {
+    SemanticArrayType array;
+    array.element_type = std::make_unique<SemanticType>(std::move(element_type));
+    return SemanticType(std::move(array));
+}
+
+[[nodiscard]] SchemaIrModel lower_schema_ir(FrontendOutput& output,
+                                            DiagnosticEngine& lowering_diagnostics) {
+    SchemaIrBuilder schema_ir_builder;
+    return schema_ir_builder.build(output.ast, output.semantic_model, output.layout_model,
+                                   *output.symbol_table, output.context, lowering_diagnostics);
 }
 
 TEST(SchemaIrSmokeTest, BuildsSyntheticRootForEmptyInput) {
@@ -274,8 +307,82 @@ namespace breadcrumbs.vehicle {
     EXPECT_EQ(journey->fields(1).type().record().target_record_ir_id(), geo_location->ir_id());
 }
 
+TEST(SchemaIrSmokeTest, PrimitiveAliasesProduceTheSameSchemaIrPrimitiveKind) {
+    const FrontendOutput canonical = run_clean_frontend(R"(record Example {
+  value: u32
+}
+)");
+    const FrontendOutput alias = run_clean_frontend(R"(record Example {
+  value: uint32
+}
+)");
+
+    ASSERT_TRUE(canonical.parser_diagnostics.empty());
+    ASSERT_TRUE(alias.parser_diagnostics.empty());
+    ASSERT_TRUE(canonical.symbol_diagnostics.empty());
+    ASSERT_TRUE(alias.symbol_diagnostics.empty());
+    ASSERT_TRUE(canonical.semantic_diagnostics.empty());
+    ASSERT_TRUE(alias.semantic_diagnostics.empty());
+    ASSERT_TRUE(canonical.layout_diagnostics.empty());
+    ASSERT_TRUE(alias.layout_diagnostics.empty());
+    ASSERT_TRUE(canonical.lowering_diagnostics.empty());
+    ASSERT_TRUE(alias.lowering_diagnostics.empty());
+
+    ASSERT_EQ(canonical.schema_ir.root_namespace().records_size(), 1);
+    ASSERT_EQ(alias.schema_ir.root_namespace().records_size(), 1);
+    EXPECT_TRUE(canonical.schema_ir.root_namespace().records(0).fields(0).type().has_primitive());
+    EXPECT_TRUE(alias.schema_ir.root_namespace().records(0).fields(0).type().has_primitive());
+    EXPECT_EQ(canonical.schema_ir.root_namespace().records(0).fields(0).type().primitive(),
+              ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+    EXPECT_EQ(alias.schema_ir.root_namespace().records(0).fields(0).type().primitive(),
+              ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+}
+
+TEST(SchemaIrSmokeTest, LowersFieldTypesFromTheSemanticModel) {
+    FrontendOutput output = run_clean_frontend(R"(record Location {
+}
+
+record Route {
+  destination: int32
+}
+)");
+
+    ASSERT_TRUE(output.parser_diagnostics.empty())
+        << diagnostics_summary(output.parser_diagnostics);
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
+    ASSERT_TRUE(output.semantic_diagnostics.empty())
+        << diagnostics_summary(output.semantic_diagnostics);
+    ASSERT_TRUE(output.layout_diagnostics.empty())
+        << diagnostics_summary(output.layout_diagnostics);
+
+    SemanticRecord* route =
+        const_cast<SemanticRecord*>(find_semantic_record(output.semantic_model, "Route"));
+    ASSERT_NE(route, nullptr);
+    SemanticField* destination =
+        const_cast<SemanticField*>(find_semantic_field(*route, "destination"));
+    ASSERT_NE(destination, nullptr);
+    destination->type =
+        SemanticType(SemanticRecordReferenceType{.canonical_target_fqn = "Location"});
+
+    DiagnosticEngine lowering_diagnostics;
+    const SchemaIrModel schema_ir = lower_schema_ir(output, lowering_diagnostics);
+
+    ASSERT_TRUE(lowering_diagnostics.empty()) << diagnostics_summary(lowering_diagnostics);
+    ASSERT_TRUE(schema_ir.has_root_namespace());
+    ASSERT_EQ(schema_ir.root_namespace().records_size(), 2);
+    const auto* lowered_route = find_record(schema_ir.root_namespace(), "Route");
+    const auto* lowered_location = find_record(schema_ir.root_namespace(), "Location");
+    ASSERT_NE(lowered_route, nullptr);
+    ASSERT_NE(lowered_location, nullptr);
+    ASSERT_EQ(lowered_route->fields_size(), 1);
+    EXPECT_TRUE(lowered_route->fields(0).type().has_record());
+    EXPECT_EQ(lowered_route->fields(0).type().record().target_record_ir_id(),
+              lowered_location->ir_id());
+}
+
 TEST(SchemaIrSmokeTest, LowersArrayTypeSyntax) {
-    const FrontendOutput output = run_clean_frontend(R"(record Route {
+    FrontendOutput output = run_frontend(R"(record Route {
   samples: bytes[16]
 }
 )");
@@ -284,13 +391,45 @@ TEST(SchemaIrSmokeTest, LowersArrayTypeSyntax) {
         << diagnostics_summary(output.parser_diagnostics);
     ASSERT_TRUE(output.symbol_diagnostics.empty())
         << diagnostics_summary(output.symbol_diagnostics);
-    ASSERT_TRUE(output.semantic_model.records.size() == 1U);
     ASSERT_EQ(output.layout_model.records.size(), 1U);
     ASSERT_EQ(output.layout_model.records[0].fqn, "Route");
-    ASSERT_TRUE(output.lowering_diagnostics.empty())
-        << diagnostics_summary(output.lowering_diagnostics);
 
-    const auto& root = output.schema_ir.root_namespace();
+    const auto& route_ast = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+        output.ast.declarations[0]->value);
+    SemanticRecord* route =
+        const_cast<SemanticRecord*>(find_semantic_record(output.semantic_model, "Route"));
+    if (route == nullptr) {
+        output.semantic_model.records.push_back(SemanticRecord{
+            .source_range = route_ast.source_range,
+            .fqn = "Route",
+            .fields =
+                {
+                    SemanticField{
+                        .source_range = route_ast.fields[0].source_range,
+                        .name = "samples",
+                        .type = make_array_type(SemanticType(SemanticBytesType{})),
+                    },
+                },
+        });
+        route = &output.semantic_model.records.back();
+    } else {
+        route->fields.clear();
+        route->fields.push_back(SemanticField{
+            .source_range = route_ast.fields[0].source_range,
+            .name = "samples",
+            .type = make_array_type(SemanticType(SemanticBytesType{})),
+        });
+    }
+
+    output.layout_model.records[0].fields.clear();
+    output.layout_model.records[0].fields.push_back(FieldLayout{.field_index = 0U});
+
+    DiagnosticEngine lowering_diagnostics;
+    const SchemaIrModel lowered = lower_schema_ir(output, lowering_diagnostics);
+
+    ASSERT_TRUE(lowering_diagnostics.empty()) << diagnostics_summary(lowering_diagnostics);
+
+    const auto& root = lowered.root_namespace();
     ASSERT_EQ(root.records_size(), 1);
     const auto& record = root.records(0);
     ASSERT_EQ(record.fields_size(), 1);
@@ -300,8 +439,64 @@ TEST(SchemaIrSmokeTest, LowersArrayTypeSyntax) {
     EXPECT_EQ(record.fields(0).field_index(), 0U);
 }
 
-TEST(SchemaIrSmokeTest, ContinuesAfterInvalidFieldReferenceInTheSameCompilation) {
-    const FrontendOutput output = run_clean_frontend(R"(record Known {
+TEST(SchemaIrSmokeTest, LowersRecursiveSemanticArraysAndPreservesCounts) {
+    FrontendOutput output = run_clean_frontend(R"(record Route {
+  samples: bool
+}
+)");
+
+    ASSERT_TRUE(output.parser_diagnostics.empty())
+        << diagnostics_summary(output.parser_diagnostics);
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
+    ASSERT_TRUE(output.semantic_diagnostics.empty())
+        << diagnostics_summary(output.semantic_diagnostics);
+    ASSERT_TRUE(output.layout_diagnostics.empty())
+        << diagnostics_summary(output.layout_diagnostics);
+
+    SemanticRecord* route =
+        const_cast<SemanticRecord*>(find_semantic_record(output.semantic_model, "Route"));
+    ASSERT_NE(route, nullptr);
+    SemanticField* samples = const_cast<SemanticField*>(find_semantic_field(*route, "samples"));
+    ASSERT_NE(samples, nullptr);
+    samples->type = make_array_type(SemanticType(SemanticBytesType{}));
+
+    auto& route_ast = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+        output.ast.declarations[0]->value);
+    route_ast.fields[0].type = breadcrumbs::compiler::ast::ArrayTypeSyntax{
+        .source_range = route_ast.fields[0].source_range,
+        .element_type =
+            breadcrumbs::compiler::ast::TypeReferenceSyntax{
+                .source_range = route_ast.fields[0].source_range,
+                .name =
+                    breadcrumbs::compiler::ast::QualifiedNameSyntax{
+                        .source_range = route_ast.fields[0].source_range,
+                        .parts =
+                            {
+                                breadcrumbs::compiler::ast::IdentifierSyntax{
+                                    .source_range = route_ast.fields[0].source_range,
+                                    .text = "bytes",
+                                },
+                            },
+                    },
+            },
+        .fixed_size = 16U,
+    };
+
+    DiagnosticEngine lowering_diagnostics;
+    const SchemaIrModel schema_ir = lower_schema_ir(output, lowering_diagnostics);
+
+    ASSERT_TRUE(lowering_diagnostics.empty()) << diagnostics_summary(lowering_diagnostics);
+    const auto* lowered_route = find_record(schema_ir.root_namespace(), "Route");
+    ASSERT_NE(lowered_route, nullptr);
+    ASSERT_EQ(lowered_route->fields_size(), 1);
+    EXPECT_TRUE(lowered_route->fields(0).type().has_array());
+    EXPECT_TRUE(lowered_route->fields(0).type().array().element_type().has_bytes());
+    EXPECT_EQ(lowered_route->fields(0).type().array().count(), 16U);
+}
+
+TEST(SchemaIrSmokeTest, LowersMultipleSemanticFieldsAfterRepairingTheModel) {
+    FrontendOutput output = run_frontend(R"(record Known {
 }
 
 record Example {
@@ -316,20 +511,212 @@ record Example {
     ASSERT_TRUE(output.symbol_diagnostics.empty())
         << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_EQ(output.layout_model.records.size(), 2U);
-    ASSERT_EQ(output.lowering_diagnostics.diagnostics().size(), 1U);
-    EXPECT_EQ(output.lowering_diagnostics.diagnostics()[0].severity(),
-              breadcrumbs::compiler::diagnostics::Severity::InternalCompilerError);
 
-    const auto& root = output.schema_ir.root_namespace();
+    const auto& example_ast = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+        output.ast.declarations[1]->value);
+
+    SemanticRecord* example =
+        const_cast<SemanticRecord*>(find_semantic_record(output.semantic_model, "Example"));
+    ASSERT_NE(example, nullptr);
+    example->fields.clear();
+    example->fields.push_back(SemanticField{
+        .source_range = example_ast.fields[0].source_range,
+        .name = "good",
+        .type = SemanticType(SemanticPrimitiveType::Bool),
+    });
+    example->fields.push_back(SemanticField{
+        .source_range = example_ast.fields[1].source_range,
+        .name = "bad",
+        .type = SemanticType(SemanticRecordReferenceType{.canonical_target_fqn = "Known"}),
+    });
+    example->fields.push_back(SemanticField{
+        .source_range = example_ast.fields[2].source_range,
+        .name = "also_good",
+        .type = SemanticType(SemanticPrimitiveType::U32),
+    });
+
+    ASSERT_EQ(output.layout_model.records.size(), 2U);
+    breadcrumbs::compiler::layout::RecordLayout* layout_example = nullptr;
+    for (auto& candidate : output.layout_model.records) {
+        if (candidate.fqn == "Example") {
+            layout_example = &candidate;
+            break;
+        }
+    }
+    ASSERT_NE(layout_example, nullptr);
+    layout_example->fields.clear();
+    layout_example->fields.push_back(FieldLayout{.field_index = 0U});
+    layout_example->fields.push_back(FieldLayout{.field_index = 1U});
+    layout_example->fields.push_back(FieldLayout{.field_index = 2U});
+
+    DiagnosticEngine lowering_diagnostics;
+    const SchemaIrModel lowered = lower_schema_ir(output, lowering_diagnostics);
+
+    ASSERT_TRUE(lowering_diagnostics.empty()) << diagnostics_summary(lowering_diagnostics);
+    const auto& root = lowered.root_namespace();
     ASSERT_EQ(root.records_size(), 2);
-    const auto& example = root.records(1);
-    ASSERT_EQ(example.fields_size(), 3);
-    EXPECT_EQ(example.fields(0).field_index(), 0U);
-    EXPECT_TRUE(example.fields(0).type().has_primitive());
-    EXPECT_EQ(example.fields(1).field_index(), 1U);
-    EXPECT_EQ(example.fields(2).field_index(), 2U);
-    EXPECT_TRUE(example.fields(2).type().has_primitive());
-    EXPECT_EQ(example.fields(2).type().primitive(), ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+    const auto& known = root.records(0);
+    const auto* lowered_example = find_record(root, "Example");
+    ASSERT_NE(lowered_example, nullptr);
+    ASSERT_EQ(known.name(), "Known");
+    ASSERT_EQ(lowered_example->name(), "Example");
+    ASSERT_EQ(lowered_example->fields_size(), 3);
+    EXPECT_EQ(lowered_example->fields(0).field_index(), 0U);
+    EXPECT_TRUE(lowered_example->fields(0).type().has_primitive());
+    EXPECT_EQ(lowered_example->fields(1).field_index(), 1U);
+    EXPECT_TRUE(lowered_example->fields(1).type().has_record());
+    EXPECT_EQ(lowered_example->fields(1).type().record().target_record_ir_id(), known.ir_id());
+    EXPECT_EQ(lowered_example->fields(2).field_index(), 2U);
+    EXPECT_TRUE(lowered_example->fields(2).type().has_primitive());
+    EXPECT_EQ(lowered_example->fields(2).type().primitive(),
+              ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+}
+
+TEST(SchemaIrSmokeTest, FailsAtomicallyWhenSemanticFieldOrderDiffersFromAstOrder) {
+    FrontendOutput output = run_clean_frontend(R"(record Example {
+  first: bool
+  second: u32
+}
+)");
+
+    ASSERT_TRUE(output.parser_diagnostics.empty())
+        << diagnostics_summary(output.parser_diagnostics);
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
+    ASSERT_TRUE(output.semantic_diagnostics.empty())
+        << diagnostics_summary(output.semantic_diagnostics);
+    ASSERT_TRUE(output.layout_diagnostics.empty())
+        << diagnostics_summary(output.layout_diagnostics);
+
+    SemanticRecord* record =
+        const_cast<SemanticRecord*>(find_semantic_record(output.semantic_model, "Example"));
+    ASSERT_NE(record, nullptr);
+    ASSERT_EQ(record->fields.size(), 2U);
+    std::swap(record->fields[0], record->fields[1]);
+
+    DiagnosticEngine lowering_diagnostics;
+    const SchemaIrModel schema_ir = lower_schema_ir(output, lowering_diagnostics);
+
+    ASSERT_FALSE(lowering_diagnostics.empty());
+    EXPECT_FALSE(schema_ir.has_root_namespace());
+    EXPECT_EQ(lowering_diagnostics.diagnostics()[0].severity(),
+              breadcrumbs::compiler::diagnostics::Severity::InternalCompilerError);
+}
+
+TEST(SchemaIrSmokeTest, FailsAtomicallyWhenSemanticFieldIsMissing) {
+    FrontendOutput output = run_clean_frontend(R"(record Example {
+  first: bool
+  second: u32
+}
+)");
+
+    ASSERT_TRUE(output.parser_diagnostics.empty())
+        << diagnostics_summary(output.parser_diagnostics);
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
+    ASSERT_TRUE(output.semantic_diagnostics.empty())
+        << diagnostics_summary(output.semantic_diagnostics);
+    ASSERT_TRUE(output.layout_diagnostics.empty())
+        << diagnostics_summary(output.layout_diagnostics);
+
+    SemanticRecord* record =
+        const_cast<SemanticRecord*>(find_semantic_record(output.semantic_model, "Example"));
+    ASSERT_NE(record, nullptr);
+    ASSERT_EQ(record->fields.size(), 2U);
+    record->fields.pop_back();
+
+    DiagnosticEngine lowering_diagnostics;
+    const SchemaIrModel schema_ir = lower_schema_ir(output, lowering_diagnostics);
+
+    ASSERT_FALSE(lowering_diagnostics.empty());
+    EXPECT_FALSE(schema_ir.has_root_namespace());
+    EXPECT_EQ(lowering_diagnostics.diagnostics()[0].severity(),
+              breadcrumbs::compiler::diagnostics::Severity::InternalCompilerError);
+}
+
+TEST(SchemaIrSmokeTest, FailsAtomicallyWhenSemanticTypeIsInvalid) {
+    FrontendOutput output = run_clean_frontend(R"(record Example {
+  value: bool
+}
+)");
+
+    ASSERT_TRUE(output.parser_diagnostics.empty())
+        << diagnostics_summary(output.parser_diagnostics);
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
+    ASSERT_TRUE(output.semantic_diagnostics.empty())
+        << diagnostics_summary(output.semantic_diagnostics);
+    ASSERT_TRUE(output.layout_diagnostics.empty())
+        << diagnostics_summary(output.layout_diagnostics);
+
+    SemanticRecord* record =
+        const_cast<SemanticRecord*>(find_semantic_record(output.semantic_model, "Example"));
+    ASSERT_NE(record, nullptr);
+    SemanticField* field = const_cast<SemanticField*>(find_semantic_field(*record, "value"));
+    ASSERT_NE(field, nullptr);
+    field->type = SemanticType();
+
+    DiagnosticEngine lowering_diagnostics;
+    const SchemaIrModel schema_ir = lower_schema_ir(output, lowering_diagnostics);
+
+    ASSERT_FALSE(lowering_diagnostics.empty());
+    EXPECT_FALSE(schema_ir.has_root_namespace());
+    EXPECT_EQ(lowering_diagnostics.diagnostics()[0].severity(),
+              breadcrumbs::compiler::diagnostics::Severity::InternalCompilerError);
+}
+
+TEST(SchemaIrSmokeTest, FailsAtomicallyWhenRecursiveSemanticArrayElementIsNull) {
+    FrontendOutput output = run_clean_frontend(R"(record Route {
+  samples: bool
+}
+)");
+
+    ASSERT_TRUE(output.parser_diagnostics.empty())
+        << diagnostics_summary(output.parser_diagnostics);
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
+    ASSERT_TRUE(output.semantic_diagnostics.empty())
+        << diagnostics_summary(output.semantic_diagnostics);
+    ASSERT_TRUE(output.layout_diagnostics.empty())
+        << diagnostics_summary(output.layout_diagnostics);
+
+    SemanticRecord* record =
+        const_cast<SemanticRecord*>(find_semantic_record(output.semantic_model, "Route"));
+    ASSERT_NE(record, nullptr);
+    SemanticField* field = const_cast<SemanticField*>(find_semantic_field(*record, "samples"));
+    ASSERT_NE(field, nullptr);
+    SemanticArrayType array;
+    field->type = SemanticType(std::move(array));
+
+    auto& route_ast = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+        output.ast.declarations[0]->value);
+    route_ast.fields[0].type = breadcrumbs::compiler::ast::ArrayTypeSyntax{
+        .source_range = route_ast.fields[0].source_range,
+        .element_type =
+            breadcrumbs::compiler::ast::TypeReferenceSyntax{
+                .source_range = route_ast.fields[0].source_range,
+                .name =
+                    breadcrumbs::compiler::ast::QualifiedNameSyntax{
+                        .source_range = route_ast.fields[0].source_range,
+                        .parts =
+                            {
+                                breadcrumbs::compiler::ast::IdentifierSyntax{
+                                    .source_range = route_ast.fields[0].source_range,
+                                    .text = "bytes",
+                                },
+                            },
+                    },
+            },
+        .fixed_size = 16U,
+    };
+
+    DiagnosticEngine lowering_diagnostics;
+    const SchemaIrModel schema_ir = lower_schema_ir(output, lowering_diagnostics);
+
+    ASSERT_FALSE(lowering_diagnostics.empty());
+    EXPECT_FALSE(schema_ir.has_root_namespace());
+    EXPECT_EQ(lowering_diagnostics.diagnostics()[0].severity(),
+              breadcrumbs::compiler::diagnostics::Severity::InternalCompilerError);
 }
 
 } // namespace

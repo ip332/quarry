@@ -5,6 +5,7 @@
 #include "compiler/support/source_manager.hpp"
 #include "compiler/symbols/symbols.hpp"
 
+#include <algorithm>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -18,7 +19,12 @@ namespace {
 using breadcrumbs::compiler::ast::SchemaFileSyntax;
 using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
 using breadcrumbs::compiler::parser::Parser;
+using breadcrumbs::compiler::semantic::SemanticArrayType;
+using breadcrumbs::compiler::semantic::SemanticField;
 using breadcrumbs::compiler::semantic::SemanticModel;
+using breadcrumbs::compiler::semantic::SemanticPrimitiveType;
+using breadcrumbs::compiler::semantic::SemanticRecord;
+using breadcrumbs::compiler::semantic::SemanticType;
 using breadcrumbs::compiler::semantic::SemanticValidator;
 using breadcrumbs::compiler::support::SourceFileId;
 using breadcrumbs::compiler::support::SourceManager;
@@ -66,6 +72,49 @@ struct AnalysisOutput {
     return stream.str();
 }
 
+[[nodiscard]] const SemanticRecord* find_record(const SemanticModel& model, std::string_view fqn) {
+    return model.find_record(fqn);
+}
+
+[[nodiscard]] const SemanticField* find_field(const SemanticRecord& record, std::string_view name) {
+    const auto found =
+        std::find_if(record.fields.begin(), record.fields.end(),
+                     [name](const SemanticField& field) { return field.name == name; });
+    if (found == record.fields.end()) {
+        return nullptr;
+    }
+    return &*found;
+}
+
+void expect_primitive_type(const SemanticField& field, SemanticPrimitiveType expected) {
+    ASSERT_TRUE(field.type.is_primitive()) << field.name;
+    EXPECT_EQ(field.type.primitive(), expected) << field.name;
+}
+
+void expect_string_type(const SemanticField& field) {
+    EXPECT_TRUE(field.type.is_string()) << field.name;
+}
+
+void expect_bytes_type(const SemanticField& field) {
+    EXPECT_TRUE(field.type.is_bytes()) << field.name;
+}
+
+void expect_record_reference_type(const SemanticField& field, std::string_view expected_fqn) {
+    ASSERT_TRUE(field.type.is_record_reference()) << field.name;
+    EXPECT_EQ(field.type.record_reference().canonical_target_fqn, expected_fqn) << field.name;
+}
+
+void expect_enum_reference_type(const SemanticField& field, std::string_view expected_fqn) {
+    ASSERT_TRUE(field.type.is_enum_reference()) << field.name;
+    EXPECT_EQ(field.type.enum_reference().canonical_target_fqn, expected_fqn) << field.name;
+}
+
+[[nodiscard]] SemanticType make_array_type(SemanticType element_type) {
+    SemanticArrayType array;
+    array.element_type = std::make_unique<SemanticType>(std::move(element_type));
+    return SemanticType(std::move(array));
+}
+
 TEST(SemanticSmokeTest, AcceptsBuiltinFieldTypes) {
     const AnalysisOutput output = analyze(R"(record Example {
   active: bool
@@ -73,12 +122,110 @@ TEST(SemanticSmokeTest, AcceptsBuiltinFieldTypes) {
   total: uint64
   ratio: float64
   label: string
+  payload: bytes
 }
 )");
 
     ASSERT_TRUE(expect_clean_pipeline(output));
+    ASSERT_EQ(output.semantic_model.records.size(), 1U);
+    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    ASSERT_NE(record, nullptr);
+    ASSERT_EQ(record->fields.size(), 6U);
+    const SemanticField* label = find_field(*record, "label");
+    ASSERT_NE(label, nullptr);
+    expect_string_type(*label);
+    const SemanticField* payload = find_field(*record, "payload");
+    ASSERT_NE(payload, nullptr);
+    expect_bytes_type(*payload);
+    expect_primitive_type(record->fields[0], SemanticPrimitiveType::Bool);
+    expect_primitive_type(record->fields[1], SemanticPrimitiveType::I32);
+    expect_primitive_type(record->fields[2], SemanticPrimitiveType::U64);
+    expect_primitive_type(record->fields[3], SemanticPrimitiveType::F64);
     EXPECT_TRUE(output.semantic_diagnostics.empty())
         << diagnostics_summary(output.semantic_diagnostics);
+}
+
+TEST(SemanticSmokeTest, NormalizesPrimitiveAliasesToCanonicalKinds) {
+    const AnalysisOutput output = analyze(R"(record Example {
+  bool_value: bool
+  i8_short: i8
+  i8_long: int8
+  u8_short: u8
+  u8_long: uint8
+  i16_short: i16
+  i16_long: int16
+  u16_short: u16
+  u16_long: uint16
+  i32_short: i32
+  i32_long: int32
+  u32_short: u32
+  u32_long: uint32
+  i64_short: i64
+  i64_long: int64
+  u64_short: u64
+  u64_long: uint64
+  f32_short: f32
+  f32_long: float32
+  f64_short: f64
+  f64_long: float64
+  text: string
+  payload: bytes
+}
+)");
+
+    ASSERT_TRUE(expect_clean_pipeline(output));
+    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    ASSERT_NE(record, nullptr);
+    ASSERT_EQ(record->fields.size(), 23U);
+    expect_primitive_type(record->fields[0], SemanticPrimitiveType::Bool);
+    expect_primitive_type(record->fields[1], SemanticPrimitiveType::I8);
+    expect_primitive_type(record->fields[2], SemanticPrimitiveType::I8);
+    expect_primitive_type(record->fields[3], SemanticPrimitiveType::U8);
+    expect_primitive_type(record->fields[4], SemanticPrimitiveType::U8);
+    expect_primitive_type(record->fields[5], SemanticPrimitiveType::I16);
+    expect_primitive_type(record->fields[6], SemanticPrimitiveType::I16);
+    expect_primitive_type(record->fields[7], SemanticPrimitiveType::U16);
+    expect_primitive_type(record->fields[8], SemanticPrimitiveType::U16);
+    expect_primitive_type(record->fields[9], SemanticPrimitiveType::I32);
+    expect_primitive_type(record->fields[10], SemanticPrimitiveType::I32);
+    expect_primitive_type(record->fields[11], SemanticPrimitiveType::U32);
+    expect_primitive_type(record->fields[12], SemanticPrimitiveType::U32);
+    expect_primitive_type(record->fields[13], SemanticPrimitiveType::I64);
+    expect_primitive_type(record->fields[14], SemanticPrimitiveType::I64);
+    expect_primitive_type(record->fields[15], SemanticPrimitiveType::U64);
+    expect_primitive_type(record->fields[16], SemanticPrimitiveType::U64);
+    expect_primitive_type(record->fields[17], SemanticPrimitiveType::F32);
+    expect_primitive_type(record->fields[18], SemanticPrimitiveType::F32);
+    expect_primitive_type(record->fields[19], SemanticPrimitiveType::F64);
+    expect_primitive_type(record->fields[20], SemanticPrimitiveType::F64);
+    expect_string_type(record->fields[21]);
+    expect_bytes_type(record->fields[22]);
+    EXPECT_TRUE(output.semantic_diagnostics.empty())
+        << diagnostics_summary(output.semantic_diagnostics);
+}
+
+TEST(SemanticSmokeTest, PreservesRecordAndFieldDeclarationOrder) {
+    const AnalysisOutput output = analyze(R"(record Beta {
+  second: u32
+  first: bool
+}
+
+record Alpha {
+  left: bool
+  right: bool
+}
+)");
+
+    ASSERT_TRUE(expect_clean_pipeline(output));
+    ASSERT_EQ(output.semantic_model.records.size(), 2U);
+    EXPECT_EQ(output.semantic_model.records[0].fqn, "Beta");
+    EXPECT_EQ(output.semantic_model.records[1].fqn, "Alpha");
+    ASSERT_EQ(output.semantic_model.records[0].fields.size(), 2U);
+    EXPECT_EQ(output.semantic_model.records[0].fields[0].name, "second");
+    EXPECT_EQ(output.semantic_model.records[0].fields[1].name, "first");
+    ASSERT_EQ(output.semantic_model.records[1].fields.size(), 2U);
+    EXPECT_EQ(output.semantic_model.records[1].fields[0].name, "left");
+    EXPECT_EQ(output.semantic_model.records[1].fields[1].name, "right");
 }
 
 TEST(SemanticSmokeTest, CollectsEmptyFileIntoEmptySymbolTable) {
@@ -230,6 +377,10 @@ TEST(SemanticSmokeTest, ResolvesUnqualifiedNamedTypesInCurrentScope) {
 )");
 
     ASSERT_TRUE(expect_clean_pipeline(output));
+    const SemanticRecord* route = find_record(output.semantic_model, "breadcrumbs.geo.Route");
+    ASSERT_NE(route, nullptr);
+    ASSERT_EQ(route->fields.size(), 1U);
+    expect_record_reference_type(route->fields[0], "breadcrumbs.geo.Location");
     EXPECT_TRUE(output.semantic_diagnostics.empty())
         << diagnostics_summary(output.semantic_diagnostics);
 }
@@ -248,6 +399,10 @@ TEST(SemanticSmokeTest, ResolvesNamedTypesThroughEnclosingScopes) {
 )");
 
     ASSERT_TRUE(expect_clean_pipeline(output));
+    const SemanticRecord* path = find_record(output.semantic_model, "breadcrumbs.geo.detail.Path");
+    ASSERT_NE(path, nullptr);
+    ASSERT_EQ(path->fields.size(), 1U);
+    expect_record_reference_type(path->fields[0], "breadcrumbs.geo.Location");
     EXPECT_TRUE(output.semantic_diagnostics.empty())
         << diagnostics_summary(output.semantic_diagnostics);
 }
@@ -259,7 +414,7 @@ TEST(SemanticSmokeTest, ResolvesQualifiedNamedTypes) {
   }
 }
 
-    namespace breadcrumbs.geo {
+namespace breadcrumbs.geo {
   record Location {
   }
 }
@@ -293,6 +448,43 @@ TEST(SemanticSmokeTest, ResolvesQualifiedNamedTypes) {
     };
     ASSERT_NE(output.symbol_table->resolve(name, *vehicle->child_scope), nullptr);
 
+    const SemanticRecord* journey =
+        find_record(output.semantic_model, "breadcrumbs.vehicle.Journey");
+    ASSERT_NE(journey, nullptr);
+    ASSERT_EQ(journey->fields.size(), 1U);
+    expect_record_reference_type(journey->fields[0], "breadcrumbs.geo.Location");
+
+    EXPECT_TRUE(output.semantic_diagnostics.empty())
+        << diagnostics_summary(output.semantic_diagnostics);
+}
+
+TEST(SemanticSmokeTest, ResolvesRecordAndEnumReferencesToCanonicalFQNs) {
+    const AnalysisOutput output = analyze(R"(namespace breadcrumbs.geo {
+  enum Mode {
+    automatic = 0
+    manual = 1
+  }
+
+  record Location {
+  }
+
+  record Route {
+    relative_location: Location
+    qualified_location: breadcrumbs.geo.Location
+    relative_mode: Mode
+    qualified_mode: breadcrumbs.geo.Mode
+  }
+}
+)");
+
+    ASSERT_TRUE(expect_clean_pipeline(output));
+    const SemanticRecord* route = find_record(output.semantic_model, "breadcrumbs.geo.Route");
+    ASSERT_NE(route, nullptr);
+    ASSERT_EQ(route->fields.size(), 4U);
+    expect_record_reference_type(route->fields[0], "breadcrumbs.geo.Location");
+    expect_record_reference_type(route->fields[1], "breadcrumbs.geo.Location");
+    expect_enum_reference_type(route->fields[2], "breadcrumbs.geo.Mode");
+    expect_enum_reference_type(route->fields[3], "breadcrumbs.geo.Mode");
     EXPECT_TRUE(output.semantic_diagnostics.empty())
         << diagnostics_summary(output.semantic_diagnostics);
 }
@@ -318,6 +510,14 @@ namespace breadcrumbs.telemetry {
 )");
 
     ASSERT_TRUE(expect_clean_pipeline(output));
+    const SemanticRecord* route = find_record(output.semantic_model, "breadcrumbs.geo.Route");
+    ASSERT_NE(route, nullptr);
+    ASSERT_EQ(route->fields.size(), 1U);
+    expect_record_reference_type(route->fields[0], "breadcrumbs.geo.Location");
+    const SemanticRecord* event = find_record(output.semantic_model, "breadcrumbs.telemetry.Event");
+    ASSERT_NE(event, nullptr);
+    ASSERT_EQ(event->fields.size(), 1U);
+    expect_record_reference_type(event->fields[0], "breadcrumbs.telemetry.Location");
     EXPECT_TRUE(output.semantic_diagnostics.empty())
         << diagnostics_summary(output.semantic_diagnostics);
 }
@@ -332,6 +532,9 @@ TEST(SemanticSmokeTest, ReportsUnresolvedNamedTypeDiagnostics) {
     ASSERT_EQ(output.semantic_diagnostics.diagnostics().size(), 1U);
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].id().str(), "BC5001");
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].compiler_pass(), "semantic");
+    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    ASSERT_NE(record, nullptr);
+    EXPECT_TRUE(record->fields.empty());
 }
 
 TEST(SemanticSmokeTest, ReportsNamespaceUsedAsTypeDiagnostics) {
@@ -349,6 +552,10 @@ TEST(SemanticSmokeTest, ReportsNamespaceUsedAsTypeDiagnostics) {
     ASSERT_EQ(output.semantic_diagnostics.diagnostics().size(), 1U);
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].id().str(), "BC5002");
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].compiler_pass(), "semantic");
+    const SemanticRecord* journey =
+        find_record(output.semantic_model, "breadcrumbs.vehicle.Journey");
+    ASSERT_NE(journey, nullptr);
+    EXPECT_TRUE(journey->fields.empty());
 }
 
 TEST(SemanticSmokeTest, ReportsLexicalShadowingInQualifiedTypeResolution) {
@@ -371,6 +578,10 @@ namespace breadcrumbs.vehicle {
     ASSERT_EQ(output.semantic_diagnostics.diagnostics().size(), 1U);
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].id().str(), "BC5001");
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].compiler_pass(), "semantic");
+    const SemanticRecord* journey =
+        find_record(output.semantic_model, "breadcrumbs.vehicle.Journey");
+    ASSERT_NE(journey, nullptr);
+    EXPECT_TRUE(journey->fields.empty());
 }
 
 TEST(SemanticSmokeTest, ContinuesAfterMultipleSemanticErrors) {
@@ -398,6 +609,44 @@ namespace breadcrumbs.vehicle {
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].id().str(), "BC5001");
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[1].id().str(), "BC5001");
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[2].id().str(), "BC5003");
+    const SemanticRecord* journey =
+        find_record(output.semantic_model, "breadcrumbs.vehicle.Journey");
+    ASSERT_NE(journey, nullptr);
+    ASSERT_EQ(journey->fields.size(), 2U);
+    EXPECT_EQ(journey->fields[0].name, "destination");
+    expect_record_reference_type(journey->fields[0], "breadcrumbs.geo.Location");
+    EXPECT_EQ(journey->fields[1].name, "home");
+    expect_record_reference_type(journey->fields[1], "breadcrumbs.geo.Location");
+}
+
+TEST(SemanticSmokeTest, SupportsRecursiveArraySemanticTypes) {
+    SemanticType leaf(SemanticPrimitiveType::U32);
+    SemanticType middle = make_array_type(std::move(leaf));
+    SemanticType inner = make_array_type(std::move(middle));
+    const SemanticType recursive = make_array_type(std::move(inner));
+
+    ASSERT_TRUE(recursive.is_array());
+    ASSERT_TRUE(recursive.array().element_type != nullptr);
+    ASSERT_TRUE(recursive.array().element_type->is_array());
+    ASSERT_TRUE(recursive.array().element_type->array().element_type != nullptr);
+    ASSERT_TRUE(recursive.array().element_type->array().element_type->is_array());
+    ASSERT_TRUE(recursive.array().element_type->array().element_type->array().element_type !=
+                nullptr);
+    ASSERT_TRUE(
+        recursive.array().element_type->array().element_type->array().element_type->is_primitive());
+    EXPECT_EQ(
+        recursive.array().element_type->array().element_type->array().element_type->primitive(),
+        SemanticPrimitiveType::U32);
+
+    const SemanticType copied = recursive;
+    ASSERT_TRUE(copied.is_array());
+    ASSERT_TRUE(copied.array().element_type != nullptr);
+    ASSERT_TRUE(copied.array().element_type->is_array());
+    ASSERT_TRUE(copied.array().element_type->array().element_type != nullptr);
+    ASSERT_TRUE(copied.array().element_type->array().element_type->is_array());
+    ASSERT_TRUE(copied.array().element_type->array().element_type->array().element_type != nullptr);
+    EXPECT_EQ(copied.array().element_type->array().element_type->array().element_type->primitive(),
+              SemanticPrimitiveType::U32);
 }
 
 } // namespace

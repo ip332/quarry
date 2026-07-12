@@ -1,1 +1,1 @@
-- PR-019: Propagate compiler-assigned record IDs into Schema IR
+- PR-021: Lower Schema IR field types from the Semantic Model

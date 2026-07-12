@@ -5,7 +5,8 @@ defined by `proto/breadcrumbs/schema_ir.proto`.
 
 Responsibilities:
 
-* lower parsed AST into protobuf Schema IR
+* lower resolved Semantic Model field types into protobuf Schema IR field
+  types
 * preserve the parsed namespace hierarchy exactly as represented by the AST and
   `SymbolTable`
 * represent resolved record and enum references using compiler-assigned IR
@@ -56,11 +57,15 @@ Namespace handling:
 
 Type lowering:
 
-* builtin scalar names are mapped to `PrimitiveType`
+* resolved `SemanticType` values are lowered into protobuf `FieldType`
+* semantic analysis owns builtin alias normalization and named-type resolution
 * `string` and `bytes` use the dedicated protobuf message kinds
-* named record and enum references are lowered through resolved symbols to
-  compiler IR identifiers
-* fixed-size array syntax is lowered recursively as an `ArrayType`
+* named record and enum references use the canonical target FQNs stored in the
+  Semantic Model and are translated to compiler IR identifiers here
+* semantic arrays are lowered recursively as `ArrayType`
+* the current builder still copies the parsed array count into the protobuf
+  `ArrayType` because the Semantic Model carries recursive array shape but not
+  bounds yet
 * `field_index` is copied from the Layout Model and is not invented here
 * record IDs are computed in the Layout Model and are copied into `RecordIR`
 * `record_id` and `ir_id` remain separate compiler-owned identifiers

@@ -34,6 +34,24 @@ constexpr std::string_view symbol_pass = "symbols";
     return name.text();
 }
 
+[[nodiscard]] std::string scope_fqn(const Scope& scope) {
+    std::vector<std::string_view> parts;
+    for (const Scope* current = &scope; current != nullptr; current = current->parent()) {
+        if (current->kind() == ScopeKind::Namespace && !current->name().empty()) {
+            parts.push_back(current->name());
+        }
+    }
+
+    std::string fqn;
+    for (auto it = parts.rbegin(); it != parts.rend(); ++it) {
+        if (!fqn.empty()) {
+            fqn.push_back('.');
+        }
+        fqn.append(*it);
+    }
+    return fqn;
+}
+
 void emit_duplicate(diagnostics::DiagnosticEngine& diagnostics, SymbolKind kind,
                     std::string_view name, support::SourceRange current_range,
                     support::SourceRange previous_range) {
@@ -253,9 +271,16 @@ Scope& NamespaceBuilder::ensure_namespace_path(Scope& scope,
         const Symbol* existing = current_scope->find_local(part.text);
 
         if (existing == nullptr) {
+            const std::string namespace_fqn = current_scope->kind() == ScopeKind::Global
+                                                  ? std::string()
+                                                  : scope_fqn(*current_scope);
+            const std::string part_fqn = namespace_fqn.empty()
+                                             ? std::string(part.text)
+                                             : namespace_fqn + "." + std::string(part.text);
             Symbol& symbol = current_scope->add_symbol(Symbol{
                 .kind = SymbolKind::Namespace,
                 .name = part.text,
+                .fqn = part_fqn,
                 .source_range = declaration_range,
                 .declaration = &wrapper,
                 .child_scope = nullptr,
@@ -292,9 +317,11 @@ void NamespaceBuilder::register_named_declaration(
         return;
     }
 
+    const std::string scope_name = scope_fqn(scope);
     Symbol& symbol = scope.add_symbol(Symbol{
         .kind = kind,
         .name = name,
+        .fqn = scope_name.empty() ? name : scope_name + "." + name,
         .source_range = declaration_range,
         .declaration = &declaration,
         .child_scope = nullptr,

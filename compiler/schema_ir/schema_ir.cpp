@@ -34,47 +34,35 @@ constexpr std::string_view schema_ir_pass = "schema_ir";
     return qualified;
 }
 
-[[nodiscard]] std::optional<::breadcrumbs::schema_ir::PrimitiveType>
-primitive_type_for_name(std::string_view name) {
-    if (name == "bool") {
+[[nodiscard]] ::breadcrumbs::schema_ir::PrimitiveType
+primitive_type_for_semantic(semantic::SemanticPrimitiveType primitive) {
+    switch (primitive) {
+    case semantic::SemanticPrimitiveType::Bool:
         return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL;
-    }
-    if (name == "int8" || name == "i8") {
+    case semantic::SemanticPrimitiveType::I8:
         return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_I8;
-    }
-    if (name == "uint8" || name == "u8") {
+    case semantic::SemanticPrimitiveType::U8:
         return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U8;
-    }
-    if (name == "int16" || name == "i16") {
+    case semantic::SemanticPrimitiveType::I16:
         return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_I16;
-    }
-    if (name == "uint16" || name == "u16") {
+    case semantic::SemanticPrimitiveType::U16:
         return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U16;
-    }
-    if (name == "int32" || name == "i32") {
+    case semantic::SemanticPrimitiveType::I32:
         return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_I32;
-    }
-    if (name == "uint32" || name == "u32") {
+    case semantic::SemanticPrimitiveType::U32:
         return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32;
-    }
-    if (name == "int64" || name == "i64") {
+    case semantic::SemanticPrimitiveType::I64:
         return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_I64;
-    }
-    if (name == "uint64" || name == "u64") {
+    case semantic::SemanticPrimitiveType::U64:
         return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U64;
-    }
-    if (name == "float32" || name == "f32") {
+    case semantic::SemanticPrimitiveType::F32:
         return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_F32;
-    }
-    if (name == "float64" || name == "f64") {
+    case semantic::SemanticPrimitiveType::F64:
         return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_F64;
     }
-    return std::nullopt;
+
+    return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_UNSPECIFIED;
 }
-
-[[nodiscard]] bool is_string_type(std::string_view name) { return name == "string"; }
-
-[[nodiscard]] bool is_bytes_type(std::string_view name) { return name == "bytes"; }
 
 void emit_internal_error(diagnostics::DiagnosticCollection& diagnostics, std::string message,
                          support::SourceRange range = support::SourceRange::invalid()) {
@@ -313,7 +301,9 @@ private:
                     }
 
                     const uint64_t ir_id = next_ir_id_++;
-                    declaration_ids_[&declaration] = ir_id;
+                    const std::string record_fqn =
+                        qualify_fqn(current_namespace_fqn, typed.name.text);
+                    ir_ids_by_fqn_[record_fqn] = ir_id;
                     ::breadcrumbs::schema_ir::RecordIR& record = ensure_record_child(
                         namespace_ir, typed.name.text, source_manager_, typed.source_range);
                     record.set_ir_id(ir_id);
@@ -329,7 +319,9 @@ private:
                     }
 
                     const uint64_t ir_id = next_ir_id_++;
-                    declaration_ids_[&declaration] = ir_id;
+                    const std::string enum_fqn =
+                        qualify_fqn(current_namespace_fqn, typed.name.text);
+                    ir_ids_by_fqn_[enum_fqn] = ir_id;
                     ::breadcrumbs::schema_ir::EnumIR& enum_ir = ensure_enum_child(
                         namespace_ir, typed.name.text, source_manager_, typed.source_range);
                     enum_ir.set_ir_id(ir_id);
@@ -340,102 +332,119 @@ private:
             declaration.value);
     }
 
-    [[nodiscard]] ::breadcrumbs::schema_ir::FieldType
-    lower_type_reference(const ast::TypeReferenceSyntax& type_reference,
-                         const symbols::Scope& scope) {
-        ::breadcrumbs::schema_ir::FieldType field_type;
-
-        if (const std::optional<::breadcrumbs::schema_ir::PrimitiveType> primitive =
-                primitive_type_for_name(type_reference.name.text());
-            primitive.has_value()) {
-            field_type.set_primitive(*primitive);
-            return field_type;
+    [[nodiscard]] std::optional<std::uint64_t> find_ir_id(std::string_view fqn) const {
+        const auto found = ir_ids_by_fqn_.find(std::string(fqn));
+        if (found == ir_ids_by_fqn_.end()) {
+            return std::nullopt;
         }
-
-        if (is_string_type(type_reference.name.text())) {
-            ::breadcrumbs::schema_ir::StringType* string_type = field_type.mutable_string();
-            string_type->set_max_bytes(0);
-            return field_type;
-        }
-
-        if (is_bytes_type(type_reference.name.text())) {
-            ::breadcrumbs::schema_ir::BytesType* bytes_type = field_type.mutable_bytes();
-            bytes_type->set_max_bytes(0);
-            return field_type;
-        }
-
-        const symbols::Symbol* symbol = symbol_model_.resolve(type_reference.name, scope);
-        if (symbol == nullptr) {
-            emit_internal_error(diagnostics_,
-                                "schema IR lowering could not resolve type '" +
-                                    type_reference.name.text() + "'",
-                                type_reference.source_range);
-            return field_type;
-        }
-
-        const auto declared_id = declaration_ids_.find(symbol->declaration);
-        if (declared_id == declaration_ids_.end()) {
-            emit_internal_error(diagnostics_,
-                                "schema IR lowering is missing an IR id for '" +
-                                    type_reference.name.text() + "'",
-                                type_reference.source_range);
-            layout_failed_ = true;
-            return field_type;
-        }
-
-        switch (symbol->kind) {
-        case symbols::SymbolKind::Record:
-            field_type.mutable_record()->set_target_record_ir_id(declared_id->second);
-            break;
-        case symbols::SymbolKind::Enum:
-            field_type.mutable_enum_type()->set_target_enum_ir_id(declared_id->second);
-            break;
-        case symbols::SymbolKind::Namespace:
-            emit_internal_error(diagnostics_,
-                                "schema IR lowering cannot use namespace '" +
-                                    type_reference.name.text() + "' as a type",
-                                type_reference.source_range);
-            layout_failed_ = true;
-            break;
-        }
-
-        return field_type;
+        return found->second;
     }
 
-    [[nodiscard]] ::breadcrumbs::schema_ir::FieldType lower_type(const ast::TypeSyntax& type,
-                                                                 const symbols::Scope& scope) {
+    void emit_invalid_semantic_type(std::string_view record_fqn, std::string_view field_name,
+                                    support::SourceRange range) {
+        emit_internal_error(diagnostics_,
+                            "schema IR lowering encountered an invalid semantic field type for '" +
+                                std::string(record_fqn) + "." + std::string(field_name) + "'",
+                            range);
+        layout_failed_ = true;
+    }
+
+    [[nodiscard]] ::breadcrumbs::schema_ir::FieldType
+    lower_semantic_type(const semantic::SemanticType& semantic_type,
+                        const ast::TypeSyntax* source_type, std::string_view record_fqn,
+                        std::string_view field_name, support::SourceRange field_range) {
+        ::breadcrumbs::schema_ir::FieldType field_type;
+        if (!semantic_type.is_valid()) {
+            emit_invalid_semantic_type(record_fqn, field_name, field_range);
+            return field_type;
+        }
+
         return std::visit(
             [&](const auto& typed) -> ::breadcrumbs::schema_ir::FieldType {
                 using Type = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<Type, ast::TypeReferenceSyntax>) {
-                    return lower_type_reference(typed, scope);
-                } else if constexpr (std::is_same_v<Type, ast::ArrayTypeSyntax>) {
-                    ::breadcrumbs::schema_ir::FieldType field_type;
-                    ::breadcrumbs::schema_ir::ArrayType* array_type = field_type.mutable_array();
-                    if (typed.fixed_size.has_value()) {
-                        if (*typed.fixed_size > std::numeric_limits<std::uint32_t>::max()) {
-                            emit_internal_error(diagnostics_,
-                                                "schema IR lowering encountered an array size "
-                                                "that does not fit in uint32_t",
-                                                typed.source_range);
-                        } else {
-                            array_type->set_count(static_cast<std::uint32_t>(*typed.fixed_size));
-                        }
-                    } else {
+                if constexpr (std::is_same_v<Type, semantic::SemanticPrimitiveType>) {
+                    field_type.set_primitive(primitive_type_for_semantic(typed));
+                    return field_type;
+                } else if constexpr (std::is_same_v<Type, semantic::SemanticStringType>) {
+                    field_type.mutable_string()->set_max_bytes(0);
+                    return field_type;
+                } else if constexpr (std::is_same_v<Type, semantic::SemanticBytesType>) {
+                    field_type.mutable_bytes()->set_max_bytes(0);
+                    return field_type;
+                } else if constexpr (std::is_same_v<Type, semantic::SemanticRecordReferenceType>) {
+                    const std::optional<std::uint64_t> target_ir_id =
+                        find_ir_id(typed.canonical_target_fqn);
+                    if (!target_ir_id.has_value()) {
+                        emit_internal_error(
+                            diagnostics_,
+                            "schema IR lowering could not locate record reference '" +
+                                typed.canonical_target_fqn + "'",
+                            field_range);
+                        layout_failed_ = true;
+                        return {};
+                    }
+                    field_type.mutable_record()->set_target_record_ir_id(*target_ir_id);
+                    return field_type;
+                } else if constexpr (std::is_same_v<Type, semantic::SemanticEnumReferenceType>) {
+                    const std::optional<std::uint64_t> target_ir_id =
+                        find_ir_id(typed.canonical_target_fqn);
+                    if (!target_ir_id.has_value()) {
                         emit_internal_error(diagnostics_,
-                                            "schema IR lowering encountered an array without a "
-                                            "fixed size",
-                                            typed.source_range);
+                                            "schema IR lowering could not locate enum reference '" +
+                                                typed.canonical_target_fqn + "'",
+                                            field_range);
+                        layout_failed_ = true;
+                        return {};
+                    }
+                    field_type.mutable_enum_type()->set_target_enum_ir_id(*target_ir_id);
+                    return field_type;
+                } else if constexpr (std::is_same_v<Type, semantic::SemanticArrayType>) {
+                    if (!typed.element_type) {
+                        emit_invalid_semantic_type(record_fqn, field_name, field_range);
+                        return {};
                     }
 
-                    array_type->mutable_element_type()->CopyFrom(
-                        lower_type(typed.element_type, scope));
-                    return field_type;
-                }
+                    const auto* source_array_type =
+                        source_type != nullptr ? std::get_if<ast::ArrayTypeSyntax>(source_type)
+                                               : nullptr;
+                    ::breadcrumbs::schema_ir::FieldType element_type = lower_semantic_type(
+                        *typed.element_type, nullptr, record_fqn, field_name, field_range);
+                    if (layout_failed_) {
+                        return {};
+                    }
 
-                return {};
+                    ::breadcrumbs::schema_ir::ArrayType* array_type = field_type.mutable_array();
+                    if (source_array_type != nullptr) {
+                        if (!source_array_type->fixed_size.has_value()) {
+                            emit_internal_error(diagnostics_,
+                                                "schema IR lowering encountered an array without a "
+                                                "fixed size",
+                                                source_array_type->source_range);
+                            layout_failed_ = true;
+                            return {};
+                        }
+                        if (*source_array_type->fixed_size >
+                            std::numeric_limits<std::uint32_t>::max()) {
+                            emit_internal_error(diagnostics_,
+                                                "schema IR lowering encountered an array size that "
+                                                "does not fit in uint32_t",
+                                                source_array_type->source_range);
+                            layout_failed_ = true;
+                            return {};
+                        }
+
+                        array_type->set_count(
+                            static_cast<std::uint32_t>(*source_array_type->fixed_size));
+                    }
+
+                    array_type->mutable_element_type()->CopyFrom(std::move(element_type));
+                    return field_type;
+                } else {
+                    emit_invalid_semantic_type(record_fqn, field_name, field_range);
+                    return {};
+                }
             },
-            type);
+            semantic_type.value);
     }
 
     [[nodiscard]] const semantic::SemanticRecord*
@@ -450,12 +459,20 @@ private:
 
     bool populate_record_fields(::breadcrumbs::schema_ir::RecordIR& record,
                                 const ast::RecordDeclarationSyntax& declaration,
-                                const symbols::Scope& scope, std::string_view record_fqn) {
+                                std::string_view record_fqn) {
         const semantic::SemanticRecord* semantic_record = find_semantic_record(record_fqn);
         const layout::RecordLayout* layout_record = find_layout_record(record_fqn);
-        if (semantic_record == nullptr || layout_record == nullptr) {
+        if (semantic_record == nullptr) {
             emit_internal_error(diagnostics_,
-                                "schema IR lowering could not locate layout for record '" +
+                                "schema IR lowering could not locate semantic record '" +
+                                    std::string(record_fqn) + "'",
+                                declaration.source_range);
+            layout_failed_ = true;
+            return false;
+        }
+        if (layout_record == nullptr) {
+            emit_internal_error(diagnostics_,
+                                "schema IR lowering could not locate layout record '" +
                                     std::string(record_fqn) + "'",
                                 declaration.source_range);
             layout_failed_ = true;
@@ -488,11 +505,11 @@ private:
             const semantic::SemanticField& semantic_field = semantic_record->fields[field_index];
             const layout::FieldLayout& layout_field = layout_record->fields[field_index];
             if (semantic_field.name != field.name.text) {
-                emit_internal_error(
-                    diagnostics_,
-                    "schema IR lowering observed inconsistent field ordering for record '" +
-                        std::string(record_fqn) + "'",
-                    field.source_range);
+                emit_internal_error(diagnostics_,
+                                    "schema IR lowering observed inconsistent semantic field "
+                                    "ordering for record '" +
+                                        std::string(record_fqn) + "'",
+                                    field.source_range);
                 layout_failed_ = true;
                 return false;
             }
@@ -500,7 +517,11 @@ private:
             ::breadcrumbs::schema_ir::FieldIR* field_ir = record.add_fields();
             field_ir->set_name(field.name.text);
             field_ir->set_field_index(layout_field.field_index);
-            field_ir->mutable_type()->CopyFrom(lower_type(field.type, scope));
+            field_ir->mutable_type()->CopyFrom(lower_semantic_type(
+                semantic_field.type, &field.type, record_fqn, field.name.text, field.source_range));
+            if (layout_failed_) {
+                return false;
+            }
             populate_source_origin(field_ir->mutable_source_origin(), source_manager_,
                                    field.source_range);
         }
@@ -590,7 +611,7 @@ private:
 
                     const std::string record_fqn =
                         qualify_fqn(current_namespace_fqn, typed.name.text);
-                    if (!populate_record_fields(*record, typed, scope, record_fqn)) {
+                    if (!populate_record_fields(*record, typed, record_fqn)) {
                         return;
                     }
                 } else if constexpr (std::is_same_v<Type, ast::EnumDeclarationSyntax>) {
@@ -620,7 +641,7 @@ private:
     const support::SourceManager& source_manager_;
     diagnostics::DiagnosticCollection& diagnostics_;
     std::uint64_t next_ir_id_ = 1;
-    std::unordered_map<const ast::DeclarationSyntax*, std::uint64_t> declaration_ids_;
+    std::unordered_map<std::string, std::uint64_t> ir_ids_by_fqn_;
     bool layout_failed_ = false;
 };
 
