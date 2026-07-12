@@ -37,17 +37,23 @@ struct PrimitiveMapping {
     bool needs_cstdint = false;
 };
 
-struct EnumMapping {
+struct TypeLoweringResult {
     std::string cpp_type;
-    bool needs_cstdint = true;
+    std::set<std::string> standard_includes;
+    std::set<std::string> generated_includes;
+    std::vector<std::uint64_t> same_namespace_declaration_dependencies;
+};
+
+struct FieldPlan {
+    std::string name;
+    std::string cpp_type;
 };
 
 struct RecordPlan {
     const ::breadcrumbs::schema_ir::RecordIR* record = nullptr;
     std::size_t source_order = 0;
+    std::vector<FieldPlan> fields;
     std::vector<std::uint64_t> same_namespace_declaration_dependencies;
-    std::set<std::string> includes;
-    bool needs_cstdint = false;
 };
 
 struct DeclarationPlan {
@@ -69,7 +75,7 @@ struct NamespacePlan {
     std::string file_path;
     std::string include_path;
     bool emits_file = false;
-    bool needs_cstdint = false;
+    std::set<std::string> standard_includes;
     std::set<std::string> includes;
     std::vector<DeclarationPlan> declarations;
     std::vector<NamespacePlan> children;
@@ -216,11 +222,127 @@ primitive_mapping(::breadcrumbs::schema_ir::PrimitiveType primitive, std::string
     return std::nullopt;
 }
 
-[[nodiscard]] EnumMapping enum_mapping() {
-    return EnumMapping{
-        .cpp_type = "std::int64_t",
-        .needs_cstdint = true,
-    };
+void add_primitive_requirements(TypeLoweringResult& result, const PrimitiveMapping& mapping) {
+    if (mapping.needs_cstdint) {
+        result.standard_includes.insert("<cstdint>");
+    }
+}
+
+void merge_type_requirements(TypeLoweringResult& target, const TypeLoweringResult& source) {
+    target.standard_includes.insert(source.standard_includes.begin(),
+                                    source.standard_includes.end());
+    target.generated_includes.insert(source.generated_includes.begin(),
+                                     source.generated_includes.end());
+    target.same_namespace_declaration_dependencies.insert(
+        target.same_namespace_declaration_dependencies.end(),
+        source.same_namespace_declaration_dependencies.begin(),
+        source.same_namespace_declaration_dependencies.end());
+}
+
+[[nodiscard]] const NamedTypeInfo*
+lookup_named_type(const TypeCatalog& catalog, std::uint64_t ir_id, std::string& error_message);
+
+[[nodiscard]] TypeLoweringResult
+lower_field_type(const ::breadcrumbs::schema_ir::FieldType& field_type,
+                 const std::string& current_namespace_fqn,
+                 const std::map<std::uint64_t, std::size_t>& local_declaration_ids,
+                 const TypeCatalog& catalog, std::string& error_message) {
+    TypeLoweringResult result;
+
+    switch (field_type.kind_case()) {
+    case ::breadcrumbs::schema_ir::FieldType::kPrimitive: {
+        const std::optional<PrimitiveMapping> mapping =
+            primitive_mapping(field_type.primitive(), error_message);
+        if (!mapping.has_value()) {
+            return {};
+        }
+        result.cpp_type = mapping->cpp_type;
+        add_primitive_requirements(result, *mapping);
+        return result;
+    }
+    case ::breadcrumbs::schema_ir::FieldType::kString:
+        result.cpp_type = "std::string";
+        result.standard_includes.insert("<string>");
+        return result;
+    case ::breadcrumbs::schema_ir::FieldType::kBytes:
+        result.cpp_type = "std::vector<std::byte>";
+        result.standard_includes.insert("<cstddef>");
+        result.standard_includes.insert("<vector>");
+        return result;
+    case ::breadcrumbs::schema_ir::FieldType::kRecord: {
+        const NamedTypeInfo* target =
+            lookup_named_type(catalog, field_type.record().target_record_ir_id(), error_message);
+        if (target == nullptr) {
+            return {};
+        }
+        if (target->kind != NamedTypeInfo::Kind::Record) {
+            error_message = "backend codegen expected Schema IR record id " +
+                            std::to_string(field_type.record().target_record_ir_id()) +
+                            " to refer to a record";
+            return {};
+        }
+        result.cpp_type = target->cpp_name;
+        if (target->namespace_fqn == current_namespace_fqn) {
+            const auto it = local_declaration_ids.find(field_type.record().target_record_ir_id());
+            if (it == local_declaration_ids.end()) {
+                error_message = "backend codegen could not order a same-namespace declaration "
+                                "dependency";
+                return {};
+            }
+            result.same_namespace_declaration_dependencies.push_back(
+                field_type.record().target_record_ir_id());
+        } else {
+            result.generated_includes.insert(target->include_path);
+        }
+        return result;
+    }
+    case ::breadcrumbs::schema_ir::FieldType::kEnumType: {
+        const NamedTypeInfo* target =
+            lookup_named_type(catalog, field_type.enum_type().target_enum_ir_id(), error_message);
+        if (target == nullptr) {
+            return {};
+        }
+        if (target->kind != NamedTypeInfo::Kind::Enum) {
+            error_message = "backend codegen expected Schema IR enum id " +
+                            std::to_string(field_type.enum_type().target_enum_ir_id()) +
+                            " to refer to an enum";
+            return {};
+        }
+        result.cpp_type = target->cpp_name;
+        if (target->namespace_fqn != current_namespace_fqn) {
+            result.generated_includes.insert(target->include_path);
+        } else {
+            const auto it = local_declaration_ids.find(field_type.enum_type().target_enum_ir_id());
+            if (it == local_declaration_ids.end()) {
+                error_message = "backend codegen could not order a same-namespace declaration "
+                                "dependency";
+                return {};
+            }
+            result.same_namespace_declaration_dependencies.push_back(
+                field_type.enum_type().target_enum_ir_id());
+        }
+        return result;
+    }
+    case ::breadcrumbs::schema_ir::FieldType::kArray: {
+        TypeLoweringResult element =
+            lower_field_type(field_type.array().element_type(), current_namespace_fqn,
+                             local_declaration_ids, catalog, error_message);
+        if (!error_message.empty()) {
+            return {};
+        }
+        merge_type_requirements(result, element);
+        result.cpp_type = std::move(element.cpp_type);
+        result.cpp_type = "std::vector<" + result.cpp_type + ">";
+        result.standard_includes.insert("<vector>");
+        return result;
+    }
+    case ::breadcrumbs::schema_ir::FieldType::KIND_NOT_SET:
+        error_message = "backend codegen encountered a field without a type";
+        return {};
+    }
+
+    error_message = "backend codegen encountered an unknown field type";
+    return {};
 }
 
 [[nodiscard]] const NamedTypeInfo*
@@ -232,91 +354,6 @@ lookup_named_type(const TypeCatalog& catalog, std::uint64_t ir_id, std::string& 
         return nullptr;
     }
     return &it->second;
-}
-
-[[nodiscard]] bool
-analyze_field_type(const ::breadcrumbs::schema_ir::FieldType& field_type,
-                   const std::string& current_namespace_fqn,
-                   const std::map<std::uint64_t, std::size_t>& local_declaration_ids,
-                   const TypeCatalog& catalog, RecordPlan& plan, std::string& error_message) {
-    switch (field_type.kind_case()) {
-    case ::breadcrumbs::schema_ir::FieldType::kPrimitive: {
-        const std::optional<PrimitiveMapping> mapping =
-            primitive_mapping(field_type.primitive(), error_message);
-        if (!mapping.has_value()) {
-            return false;
-        }
-        plan.needs_cstdint = plan.needs_cstdint || mapping->needs_cstdint;
-        return true;
-    }
-    case ::breadcrumbs::schema_ir::FieldType::kRecord: {
-        const NamedTypeInfo* target =
-            lookup_named_type(catalog, field_type.record().target_record_ir_id(), error_message);
-        if (target == nullptr) {
-            return false;
-        }
-        if (target->kind != NamedTypeInfo::Kind::Record) {
-            error_message = "backend codegen expected Schema IR record id " +
-                            std::to_string(field_type.record().target_record_ir_id()) +
-                            " to refer to a record";
-            return false;
-        }
-        if (target->namespace_fqn == current_namespace_fqn) {
-            const auto it = local_declaration_ids.find(field_type.record().target_record_ir_id());
-            if (it == local_declaration_ids.end()) {
-                error_message = "backend codegen could not order a same-namespace declaration "
-                                "dependency";
-                return false;
-            }
-            plan.same_namespace_declaration_dependencies.push_back(
-                field_type.record().target_record_ir_id());
-        } else {
-            plan.includes.insert(target->include_path);
-        }
-        return true;
-    }
-    case ::breadcrumbs::schema_ir::FieldType::kEnumType: {
-        const NamedTypeInfo* target =
-            lookup_named_type(catalog, field_type.enum_type().target_enum_ir_id(), error_message);
-        if (target == nullptr) {
-            return false;
-        }
-        if (target->kind != NamedTypeInfo::Kind::Enum) {
-            error_message = "backend codegen expected Schema IR enum id " +
-                            std::to_string(field_type.enum_type().target_enum_ir_id()) +
-                            " to refer to an enum";
-            return false;
-        }
-        if (target->namespace_fqn != current_namespace_fqn) {
-            plan.includes.insert(target->include_path);
-        } else {
-            const auto it = local_declaration_ids.find(field_type.enum_type().target_enum_ir_id());
-            if (it == local_declaration_ids.end()) {
-                error_message = "backend codegen could not order a same-namespace declaration "
-                                "dependency";
-                return false;
-            }
-            plan.same_namespace_declaration_dependencies.push_back(
-                field_type.enum_type().target_enum_ir_id());
-        }
-        return true;
-    }
-    case ::breadcrumbs::schema_ir::FieldType::kBytes:
-        error_message = "backend codegen does not yet support bytes fields";
-        return false;
-    case ::breadcrumbs::schema_ir::FieldType::kString:
-        error_message = "backend codegen does not yet support string fields";
-        return false;
-    case ::breadcrumbs::schema_ir::FieldType::kArray:
-        error_message = "backend codegen does not yet support array fields";
-        return false;
-    case ::breadcrumbs::schema_ir::FieldType::KIND_NOT_SET:
-        error_message = "backend codegen encountered a field without a type";
-        return false;
-    }
-
-    error_message = "backend codegen encountered an unknown field type";
-    return false;
 }
 
 [[nodiscard]] bool order_declarations_topologically(std::vector<DeclarationPlan>& declarations,
@@ -427,7 +464,9 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
     plan.file_path = file_path_for_namespace(options, ns.fqn());
     plan.include_path = file_stem_for_namespace(options, ns.fqn());
     plan.emits_file = ns.records_size() > 0 || ns.enums_size() > 0;
-    plan.needs_cstdint = ns.enums_size() > 0;
+    if (ns.enums_size() > 0) {
+        plan.standard_includes.insert("<cstdint>");
+    }
 
     if (plan.emits_file) {
         std::map<std::uint64_t, std::size_t> local_declaration_ids;
@@ -453,9 +492,8 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
                     RecordPlan{
                         .record = &record,
                         .source_order = static_cast<std::size_t>(index),
+                        .fields = {},
                         .same_namespace_declaration_dependencies = {},
-                        .includes = {},
-                        .needs_cstdint = false,
                     },
                 .source_order = static_cast<std::size_t>(ns.enums_size() + index),
                 .same_namespace_declaration_dependencies = {},
@@ -477,18 +515,27 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
             }
 
             RecordPlan& record_plan = declaration_plan.record;
+            record_plan.fields.reserve(static_cast<std::size_t>(record_plan.record->fields_size()));
             for (int field_index = 0; field_index < record_plan.record->fields_size();
                  ++field_index) {
                 const ::breadcrumbs::schema_ir::FieldIR& field =
                     record_plan.record->fields(field_index);
-                if (!analyze_field_type(field.type(), ns.fqn(), local_declaration_ids, catalog,
-                                        record_plan, error_message)) {
+                const TypeLoweringResult lowered = lower_field_type(
+                    field.type(), ns.fqn(), local_declaration_ids, catalog, error_message);
+                if (!error_message.empty()) {
                     return false;
                 }
+                record_plan.fields.push_back(
+                    FieldPlan{.name = field.name(), .cpp_type = lowered.cpp_type});
+                plan.standard_includes.insert(lowered.standard_includes.begin(),
+                                              lowered.standard_includes.end());
+                plan.includes.insert(lowered.generated_includes.begin(),
+                                     lowered.generated_includes.end());
+                record_plan.same_namespace_declaration_dependencies.insert(
+                    record_plan.same_namespace_declaration_dependencies.end(),
+                    lowered.same_namespace_declaration_dependencies.begin(),
+                    lowered.same_namespace_declaration_dependencies.end());
             }
-
-            plan.needs_cstdint = plan.needs_cstdint || record_plan.needs_cstdint;
-            plan.includes.insert(record_plan.includes.begin(), record_plan.includes.end());
         }
 
         if (!order_declarations_topologically(plan.declarations, error_message)) {
@@ -563,69 +610,10 @@ void collect_emitted_files(const NamespacePlan& plan, std::vector<const Namespac
     return true;
 }
 
-[[nodiscard]] std::string render_field_type(const ::breadcrumbs::schema_ir::FieldType& field_type,
-                                            const TypeCatalog& catalog,
-                                            std::string& error_message) {
-    switch (field_type.kind_case()) {
-    case ::breadcrumbs::schema_ir::FieldType::kPrimitive: {
-        const std::optional<PrimitiveMapping> mapping =
-            primitive_mapping(field_type.primitive(), error_message);
-        if (!mapping.has_value()) {
-            return {};
-        }
-        return mapping->cpp_type;
-    }
-    case ::breadcrumbs::schema_ir::FieldType::kRecord: {
-        const NamedTypeInfo* target =
-            lookup_named_type(catalog, field_type.record().target_record_ir_id(), error_message);
-        if (target == nullptr) {
-            return {};
-        }
-        if (target->kind != NamedTypeInfo::Kind::Record) {
-            error_message = "backend codegen expected Schema IR record id " +
-                            std::to_string(field_type.record().target_record_ir_id()) +
-                            " to refer to a record";
-            return {};
-        }
-        return target->cpp_name;
-    }
-    case ::breadcrumbs::schema_ir::FieldType::kEnumType: {
-        const NamedTypeInfo* target =
-            lookup_named_type(catalog, field_type.enum_type().target_enum_ir_id(), error_message);
-        if (target == nullptr) {
-            return {};
-        }
-        if (target->kind != NamedTypeInfo::Kind::Enum) {
-            error_message = "backend codegen expected Schema IR enum id " +
-                            std::to_string(field_type.enum_type().target_enum_ir_id()) +
-                            " to refer to an enum";
-            return {};
-        }
-        return target->cpp_name;
-    }
-    case ::breadcrumbs::schema_ir::FieldType::kBytes:
-        error_message = "backend codegen does not yet support bytes fields";
-        return {};
-    case ::breadcrumbs::schema_ir::FieldType::kString:
-        error_message = "backend codegen does not yet support string fields";
-        return {};
-    case ::breadcrumbs::schema_ir::FieldType::kArray:
-        error_message = "backend codegen does not yet support array fields";
-        return {};
-    case ::breadcrumbs::schema_ir::FieldType::KIND_NOT_SET:
-        error_message = "backend codegen encountered a field without a type";
-        return {};
-    }
-
-    error_message = "backend codegen encountered an unknown field type";
-    return {};
-}
-
 [[nodiscard]] std::string render_enum_definition(const ::breadcrumbs::schema_ir::EnumIR& enum_ir,
                                                  std::size_t indent_level) {
-    const EnumMapping mapping = enum_mapping();
     std::ostringstream stream;
-    stream << indent(indent_level) << "enum class " << enum_ir.name() << " : " << mapping.cpp_type
+    stream << indent(indent_level) << "enum class " << enum_ir.name() << " : std::int64_t"
            << " {\n";
     for (int index = 0; index < enum_ir.values_size(); ++index) {
         const ::breadcrumbs::schema_ir::EnumValueIR& value = enum_ir.values(index);
@@ -635,51 +623,39 @@ void collect_emitted_files(const NamespacePlan& plan, std::vector<const Namespac
     return stream.str();
 }
 
-[[nodiscard]] std::string render_record_definition(const ::breadcrumbs::schema_ir::RecordIR& record,
-                                                   const TypeCatalog& catalog,
-                                                   std::size_t indent_level,
-                                                   std::string& error_message) {
+[[nodiscard]] std::string render_record_definition(const RecordPlan& record_plan,
+                                                   std::size_t indent_level) {
     std::ostringstream stream;
-    stream << indent(indent_level) << "struct " << record.name();
-    if (record.fields_size() == 0) {
+    stream << indent(indent_level) << "struct " << record_plan.record->name();
+    if (record_plan.fields.empty()) {
         stream << " {};\n";
         return stream.str();
     }
 
     stream << " {\n";
-    for (int field_index = 0; field_index < record.fields_size(); ++field_index) {
-        const ::breadcrumbs::schema_ir::FieldIR& field = record.fields(field_index);
-        const std::string field_type = render_field_type(field.type(), catalog, error_message);
-        if (!error_message.empty()) {
-            return {};
-        }
-        stream << indent(indent_level + 1) << field_type << ' ' << field.name() << ";\n";
+    for (const FieldPlan& field : record_plan.fields) {
+        stream << indent(indent_level + 1) << field.cpp_type << ' ' << field.name << ";\n";
     }
     stream << indent(indent_level) << "};\n";
     return stream.str();
 }
 
-[[nodiscard]] std::string render_namespace_file(const NamespacePlan& plan,
-                                                const CodegenOptions& options,
-                                                const TypeCatalog& catalog,
-                                                std::string& error_message) {
+[[nodiscard]] std::string render_namespace_file(const NamespacePlan& plan) {
     std::ostringstream stream;
     stream << "// Generated by Breadcrumbs.\n";
     stream << namespace_comment(plan.fqn);
     stream << '\n';
 
-    if (plan.needs_cstdint) {
-        stream << "#include <cstdint>\n";
+    for (const std::string& include : plan.standard_includes) {
+        stream << "#include " << include << "\n";
     }
-    if (!plan.includes.empty()) {
-        if (plan.needs_cstdint) {
-            stream << '\n';
-        }
-        for (const std::string& include_path : plan.includes) {
-            stream << "#include \"" << include_path << "\"\n";
-        }
+    if (!plan.standard_includes.empty() && !plan.includes.empty()) {
+        stream << '\n';
     }
-    if (plan.needs_cstdint || !plan.includes.empty()) {
+    for (const std::string& include_path : plan.includes) {
+        stream << "#include \"" << include_path << "\"\n";
+    }
+    if (!plan.standard_includes.empty() || !plan.includes.empty()) {
         stream << '\n';
     }
 
@@ -692,12 +668,7 @@ void collect_emitted_files(const NamespacePlan& plan, std::vector<const Namespac
         if (declaration.kind == DeclarationPlan::Kind::Enum) {
             stream << render_enum_definition(*declaration.enum_ir, parts.size());
         } else {
-            const std::string record_definition = render_record_definition(
-                *declaration.record.record, catalog, parts.size(), error_message);
-            if (!error_message.empty()) {
-                return {};
-            }
-            stream << record_definition;
+            stream << render_record_definition(declaration.record, parts.size());
         }
         wrote_declaration = true;
         if (index + 1 < plan.declarations.size()) {
@@ -716,28 +687,19 @@ void collect_emitted_files(const NamespacePlan& plan, std::vector<const Namespac
         output.push_back('\n');
     }
 
-    (void)options;
     return output;
 }
 
-void collect_namespace_files(const NamespacePlan& plan, const CodegenOptions& options,
-                             const TypeCatalog& catalog, std::vector<GeneratedFile>& files,
-                             std::string& error_message) {
+void collect_namespace_files(const NamespacePlan& plan, std::vector<GeneratedFile>& files) {
     if (plan.emits_file) {
         GeneratedFile file;
         file.path = plan.file_path;
-        file.content = render_namespace_file(plan, options, catalog, error_message);
-        if (!error_message.empty()) {
-            return;
-        }
+        file.content = render_namespace_file(plan);
         files.push_back(std::move(file));
     }
 
     for (const NamespacePlan& child : plan.children) {
-        collect_namespace_files(child, options, catalog, files, error_message);
-        if (!error_message.empty()) {
-            return;
-        }
+        collect_namespace_files(child, files);
     }
 }
 
@@ -768,12 +730,7 @@ CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
     }
 
     std::vector<GeneratedFile> files;
-    collect_namespace_files(root_plan, options, catalog, files, error_message);
-    if (!error_message.empty()) {
-        result.success = false;
-        result.error_message = std::move(error_message);
-        return result;
-    }
+    collect_namespace_files(root_plan, files);
 
     result.files = std::move(files);
     return result;

@@ -34,10 +34,18 @@ Current C++ generation behavior:
   * `u8`, `u16`, `u32`, `u64` -> `std::uint*_t`
   * `f32` -> `float`
   * `f64` -> `double`
+* maps `string` to `std::string`
+* maps `bytes` to `std::vector<std::byte>`
+* maps arrays recursively to `std::vector<CppType<T>>`
+  * array `max_count` stays in Schema IR and is not enforced by the generated
+    declaration yet
 * lowers named record and enum references to fully qualified C++ names
 * emits namespace blocks matching the Schema IR namespace hierarchy
-* fails clearly when it encounters a valid-but-unsupported field kind such as
-  `string`, `bytes`, or `array`
+* includes standard headers only when required
+  * `<cstddef>` for `std::byte`
+  * `<cstdint>` for fixed-width integers and enum underlying types
+  * `<string>` for `std::string`
+  * `<vector>` for arrays and `bytes`
 * returns `success = false`, a non-empty `error_message`, and no generated
   files for backend failures
 * keeps enum formatting, parsing, reflection, and helper APIs out of scope

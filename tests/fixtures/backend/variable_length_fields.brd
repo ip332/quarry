@@ -1,0 +1,17 @@
+record Child {
+  count: u32
+}
+
+enum Mode {
+  Off = 0
+  On = 1
+}
+
+record Example {
+  name: string
+  payload: bytes
+  counts: u32[4]
+  distances: f64[2]
+  modes: Mode[2]
+  children: Child[3]
+}

@@ -9,6 +9,7 @@
 #include "compiler/support/source_manager.hpp"
 #include "compiler/symbols/symbols.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -188,8 +189,13 @@ void write_generated_files(const CodegenResult& result, const std::filesystem::p
     return status;
 }
 
-void compile_generated_header(const CodegenResult& result, std::string_view translation_unit) {
+void compile_generated_header(const CodegenResult& result, std::string_view generated_path,
+                              std::string_view translation_unit) {
     ASSERT_FALSE(result.files.empty());
+    const auto generated_file =
+        std::find_if(result.files.begin(), result.files.end(),
+                     [&](const auto& file) { return file.path == generated_path; });
+    ASSERT_NE(generated_file, result.files.end()) << generated_path;
 
     const std::filesystem::path root = make_temp_directory("compile");
     const std::filesystem::path generated_root = root / CodegenOptions{}.output_directory;
@@ -227,6 +233,170 @@ void compile_generated_header(const CodegenResult& result, std::string_view tran
     auto* second = enum_ir->add_values();
     second->set_name("Negative");
     second->set_value(-1);
+    return schema_ir;
+}
+
+[[nodiscard]] SchemaIrModel make_manual_unspecified_primitive_schema_ir() {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    auto* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    root->set_name("");
+    root->set_fqn("");
+
+    auto* record = root->add_records();
+    record->set_ir_id(2);
+    record->set_name("Broken");
+    record->set_fqn("Broken");
+    auto* field = record->add_fields();
+    field->set_name("missing");
+    field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_UNSPECIFIED);
+    return schema_ir;
+}
+
+[[nodiscard]] SchemaIrModel make_manual_variable_length_schema_ir() {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    auto* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    root->set_name("");
+    root->set_fqn("");
+
+    auto* child = root->add_records();
+    child->set_ir_id(2);
+    child->set_name("Child");
+    child->set_fqn("Child");
+    auto* child_field = child->add_fields();
+    child_field->set_name("count");
+    child_field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+
+    auto* mode = root->add_enums();
+    mode->set_ir_id(3);
+    mode->set_name("Mode");
+    mode->set_fqn("Mode");
+    auto* off = mode->add_values();
+    off->set_name("Off");
+    off->set_value(0);
+    auto* on = mode->add_values();
+    on->set_name("On");
+    on->set_value(1);
+
+    auto* example = root->add_records();
+    example->set_ir_id(4);
+    example->set_name("Example");
+    example->set_fqn("Example");
+
+    auto* name_field = example->add_fields();
+    name_field->set_name("name");
+    name_field->mutable_type()->mutable_string();
+
+    auto* payload_field = example->add_fields();
+    payload_field->set_name("payload");
+    payload_field->mutable_type()->mutable_bytes();
+
+    auto* counts_field = example->add_fields();
+    counts_field->set_name("counts");
+    counts_field->mutable_type()->mutable_array()->set_count(4);
+    counts_field->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
+        ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+
+    auto* distances_field = example->add_fields();
+    distances_field->set_name("distances");
+    distances_field->mutable_type()->mutable_array()->set_count(2);
+    distances_field->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
+        ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_F64);
+
+    auto* modes_field = example->add_fields();
+    modes_field->set_name("modes");
+    modes_field->mutable_type()->mutable_array()->set_count(2);
+    modes_field->mutable_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->mutable_enum_type()
+        ->set_target_enum_ir_id(3);
+
+    auto* children_field = example->add_fields();
+    children_field->set_name("children");
+    children_field->mutable_type()->mutable_array()->set_count(3);
+    children_field->mutable_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->mutable_record()
+        ->set_target_record_ir_id(2);
+
+    return schema_ir;
+}
+
+[[nodiscard]] SchemaIrModel make_manual_cross_namespace_array_schema_ir() {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    auto* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    root->set_name("");
+    root->set_fqn("");
+
+    auto* alpha = root->add_namespaces();
+    alpha->set_ir_id(2);
+    alpha->set_name("alpha");
+    alpha->set_fqn("alpha");
+
+    auto* alpha_one = alpha->add_namespaces();
+    alpha_one->set_ir_id(3);
+    alpha_one->set_name("one");
+    alpha_one->set_fqn("alpha.one");
+
+    auto* element = alpha_one->add_records();
+    element->set_ir_id(4);
+    element->set_name("Element");
+    element->set_fqn("alpha.one.Element");
+    auto* element_field = element->add_fields();
+    element_field->set_name("id");
+    element_field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+
+    auto* mode = alpha_one->add_enums();
+    mode->set_ir_id(5);
+    mode->set_name("Mode");
+    mode->set_fqn("alpha.one.Mode");
+    auto* off = mode->add_values();
+    off->set_name("Off");
+    off->set_value(0);
+    auto* on = mode->add_values();
+    on->set_name("On");
+    on->set_value(1);
+
+    auto* beta = root->add_namespaces();
+    beta->set_ir_id(6);
+    beta->set_name("beta");
+    beta->set_fqn("beta");
+
+    auto* beta_two = beta->add_namespaces();
+    beta_two->set_ir_id(7);
+    beta_two->set_name("two");
+    beta_two->set_fqn("beta.two");
+
+    auto* basket = beta_two->add_records();
+    basket->set_ir_id(8);
+    basket->set_name("Basket");
+    basket->set_fqn("beta.two.Basket");
+
+    auto* elements_field = basket->add_fields();
+    elements_field->set_name("elements");
+    elements_field->mutable_type()->mutable_array()->set_count(2);
+    elements_field->mutable_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->mutable_record()
+        ->set_target_record_ir_id(4);
+
+    auto* modes_field = basket->add_fields();
+    modes_field->set_name("modes");
+    modes_field->mutable_type()->mutable_array()->set_count(2);
+    modes_field->mutable_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->mutable_enum_type()
+        ->set_target_enum_ir_id(5);
+
     return schema_ir;
 }
 
@@ -323,12 +493,13 @@ TEST(BackendCodegenTest, CyclicNamespaceDependencyFailsClearly) {
     EXPECT_NE(result.error_message.find("cycle"), std::string::npos);
 }
 
-TEST(BackendCodegenTest, UnsupportedFieldFailsAtomically) {
-    const std::string source = backend_fixture_text("valid_then_unsupported");
-    const CodegenResult result = run_backend(source, CodegenOptions{});
+TEST(BackendCodegenTest, MalformedFieldTypeFailsAtomically) {
+    Backend backend;
+    const CodegenResult result =
+        backend.generate(make_manual_unspecified_primitive_schema_ir(), CodegenOptions{});
     EXPECT_FALSE(result.success);
     EXPECT_TRUE(result.files.empty());
-    EXPECT_NE(result.error_message.find("string"), std::string::npos);
+    EXPECT_NE(result.error_message.find("unspecified primitive field type"), std::string::npos);
 }
 
 TEST(BackendCodegenTest, EnumReferenceMatchesGolden) {
@@ -361,9 +532,36 @@ TEST(BackendCodegenTest, MultipleEnumsHaveStableOrder) {
     EXPECT_EQ(render_result(result), render_result(second_result));
 }
 
-TEST(BackendCodegenTest, GeneratedHeadersCompile) {
-    const std::string source = backend_fixture_text("mixed_same_namespace_dependencies");
-    const CodegenResult result = run_backend(source, CodegenOptions{});
+TEST(BackendCodegenTest, VariableLengthFieldsMatchGolden) {
+    Backend backend;
+    const CodegenResult result =
+        backend.generate(make_manual_variable_length_schema_ir(), CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+    EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
+    EXPECT_EQ(render_result(result), backend_golden_text("variable_length_fields"));
+
+    const CodegenResult second_result =
+        backend.generate(make_manual_variable_length_schema_ir(), CodegenOptions{});
+    ASSERT_TRUE(second_result.success) << second_result.error_message;
+    EXPECT_EQ(render_result(result), render_result(second_result));
+}
+
+TEST(BackendCodegenTest, CrossNamespaceArrayReferenceMatchesGolden) {
+    Backend backend;
+    const CodegenResult result =
+        backend.generate(make_manual_cross_namespace_array_schema_ir(), CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 2u);
+    EXPECT_EQ(result.files[0].path, "generated/alpha/one.generated.hpp");
+    EXPECT_EQ(result.files[1].path, "generated/beta/two.generated.hpp");
+    EXPECT_EQ(render_result(result), backend_golden_text("cross_namespace_array_reference"));
+}
+
+TEST(BackendCodegenTest, GeneratedVariableLengthHeaderCompiles) {
+    Backend backend;
+    const CodegenResult result =
+        backend.generate(make_manual_variable_length_schema_ir(), CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_FALSE(result.files.empty());
 
@@ -372,18 +570,45 @@ TEST(BackendCodegenTest, GeneratedHeadersCompile) {
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
+        "#include <cstddef>\n"
         "#include <cstdint>\n"
         "#include <type_traits>\n"
-        "static_assert(std::is_enum_v<::Status>);\n"
-        "static_assert(std::is_same_v<std::underlying_type_t<::Status>, std::int64_t>);\n"
+        "static_assert(std::is_enum_v<::Mode>);\n"
+        "static_assert(std::is_same_v<std::underlying_type_t<::Mode>, std::int64_t>);\n"
         "int main() {\n"
-        "  ::Wrapper value{};\n"
-        "  value.state = ::Status::Ready;\n"
-        "  value.child.count = 1u;\n"
-        "  return value.state == ::Status::Ready ? 0 : 1;\n"
+        "  ::Example value{};\n"
+        "  value.name = \"example\";\n"
+        "  value.payload.push_back(std::byte{0x01});\n"
+        "  value.counts.push_back(42u);\n"
+        "  value.distances.push_back(3.5);\n"
+        "  value.modes.push_back(::Mode::On);\n"
+        "  value.children.push_back(::Child{});\n"
+        "  return value.name.empty() ? 1 : 0;\n"
         "}\n";
 
-    compile_generated_header(result, translation_source);
+    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
+}
+
+TEST(BackendCodegenTest, GeneratedCrossNamespaceArrayHeaderCompiles) {
+    Backend backend;
+    const CodegenResult result =
+        backend.generate(make_manual_cross_namespace_array_schema_ir(), CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 2u);
+
+    const std::string translation_source =
+        "#include \"beta/two.generated.hpp\"\n"
+        "#include <cstdint>\n"
+        "#include <type_traits>\n"
+        "static_assert(std::is_same_v<std::underlying_type_t<::alpha::one::Mode>, std::int64_t>);\n"
+        "int main() {\n"
+        "  ::beta::two::Basket value{};\n"
+        "  value.elements.push_back(::alpha::one::Element{});\n"
+        "  value.modes.push_back(::alpha::one::Mode::On);\n"
+        "  return value.elements.empty() ? 1 : 0;\n"
+        "}\n";
+
+    compile_generated_header(result, "generated/beta/two.generated.hpp", translation_source);
 }
 
 } // namespace
