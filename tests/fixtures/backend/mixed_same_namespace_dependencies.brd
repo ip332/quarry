@@ -1,0 +1,13 @@
+record Wrapper {
+  child: Child
+  state: Status
+}
+
+record Child {
+  count: u32
+}
+
+enum Status {
+  Unknown = 0
+  Ready = 1
+}

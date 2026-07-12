@@ -1,0 +1,9 @@
+enum First {
+  Alpha = 1
+  Beta = 2
+}
+
+enum Second {
+  Gamma = 3
+  Delta = 4
+}

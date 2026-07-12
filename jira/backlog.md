@@ -1,0 +1,1 @@
+- PR-015: concrete C++ enum generation from validated Schema IR

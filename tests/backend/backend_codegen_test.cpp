@@ -9,13 +9,17 @@
 #include "compiler/support/source_manager.hpp"
 #include "compiler/symbols/symbols.hpp"
 
+#include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 #include <gtest/gtest.h>
@@ -145,6 +149,87 @@ void trim_trailing_newlines(std::string& text) {
     return rendered;
 }
 
+[[nodiscard]] std::filesystem::path make_temp_directory(std::string_view stem) {
+    static std::uint64_t counter = 0;
+    const std::filesystem::path directory = std::filesystem::temp_directory_path() /
+                                            (std::string("breadcrumbs-backend-codegen-") +
+                                             std::string(stem) + "-" + std::to_string(counter++));
+    std::filesystem::remove_all(directory);
+    std::filesystem::create_directories(directory);
+    return directory;
+}
+
+void write_text_file(const std::filesystem::path& path, std::string_view text) {
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream output(path);
+    if (!output.is_open()) {
+        throw std::runtime_error("failed to open file for writing: " + path.string());
+    }
+    output << text;
+}
+
+void write_generated_files(const CodegenResult& result, const std::filesystem::path& root) {
+    for (const auto& file : result.files) {
+        write_text_file(root / file.path, file.content);
+    }
+}
+
+[[nodiscard]] std::string generated_include_path(std::string_view output_directory,
+                                                 std::string_view generated_path) {
+    const std::string prefix = std::string(output_directory) + "/";
+    if (generated_path.rfind(prefix, 0) == 0) {
+        return std::string(generated_path.substr(prefix.size()));
+    }
+    return std::string(generated_path);
+}
+
+[[nodiscard]] int run_command(const std::string& command) {
+    const int status = std::system(command.c_str());
+    return status;
+}
+
+void compile_generated_header(const CodegenResult& result, std::string_view translation_unit) {
+    ASSERT_FALSE(result.files.empty());
+
+    const std::filesystem::path root = make_temp_directory("compile");
+    const std::filesystem::path generated_root = root / CodegenOptions{}.output_directory;
+    write_generated_files(result, root);
+
+    const std::filesystem::path source_path = root / "compile.cpp";
+    write_text_file(source_path, translation_unit);
+
+    const std::filesystem::path object_path = root / "compile.o";
+    const std::string compiler = BREADCRUMBS_TEST_CXX_COMPILER;
+    std::ostringstream command;
+    command << std::quoted(compiler) << " -std=c++20 -I" << std::quoted(generated_root.string())
+            << " -c " << std::quoted(source_path.string()) << " -o "
+            << std::quoted(object_path.string());
+
+    const int status = run_command(command.str());
+    ASSERT_EQ(status, 0) << "command failed: " << command.str();
+}
+
+[[nodiscard]] SchemaIrModel make_manual_negative_enum_schema_ir() {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    auto* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    root->set_name("");
+    root->set_fqn("");
+
+    auto* enum_ir = root->add_enums();
+    enum_ir->set_ir_id(2);
+    enum_ir->set_name("SignedValue");
+    enum_ir->set_fqn("SignedValue");
+    auto* first = enum_ir->add_values();
+    first->set_name("Zero");
+    first->set_value(0);
+    auto* second = enum_ir->add_values();
+    second->set_name("Negative");
+    second->set_value(-1);
+    return schema_ir;
+}
+
 TEST(BackendCodegenTest, EmptySchemaGeneratesNoFiles) {
     const CodegenResult result = run_backend("", CodegenOptions{});
     EXPECT_TRUE(result.success) << result.error_message;
@@ -167,6 +252,19 @@ TEST(BackendCodegenTest, EnumMatchesGolden) {
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
     EXPECT_EQ(render_result(result), backend_golden_text("enum"));
+}
+
+TEST(BackendCodegenTest, NegativeEnumValuesArePreserved) {
+    Backend backend;
+    const CodegenResult result =
+        backend.generate(make_manual_negative_enum_schema_ir(), CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+    EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
+    EXPECT_NE(render_result(result).find("enum class SignedValue : std::int64_t"),
+              std::string::npos);
+    EXPECT_NE(render_result(result).find("Zero = 0"), std::string::npos);
+    EXPECT_NE(render_result(result).find("Negative = -1"), std::string::npos);
 }
 
 TEST(BackendCodegenTest, NamedTypeReferenceMatchesGolden) {
@@ -207,6 +305,16 @@ TEST(BackendCodegenTest, CrossNamespaceReferenceMatchesGolden) {
     EXPECT_EQ(render_result(result), backend_golden_text("cross_namespace_reference"));
 }
 
+TEST(BackendCodegenTest, CrossNamespaceEnumReferenceMatchesGolden) {
+    const std::string source = backend_fixture_text("cross_namespace_enum_reference");
+    const CodegenResult result = run_backend(source, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 2u);
+    EXPECT_EQ(result.files[0].path, "generated/alpha/one.generated.hpp");
+    EXPECT_EQ(result.files[1].path, "generated/beta/two.generated.hpp");
+    EXPECT_EQ(render_result(result), backend_golden_text("cross_namespace_enum_reference"));
+}
+
 TEST(BackendCodegenTest, CyclicNamespaceDependencyFailsClearly) {
     const std::string source = backend_fixture_text("cyclic_namespace_reference");
     const CodegenResult result = run_backend(source, CodegenOptions{});
@@ -230,6 +338,52 @@ TEST(BackendCodegenTest, EnumReferenceMatchesGolden) {
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
     EXPECT_EQ(render_result(result), backend_golden_text("enum_reference"));
+}
+
+TEST(BackendCodegenTest, EnumAndRecordSameNamespaceMatchGolden) {
+    const std::string source = backend_fixture_text("mixed_same_namespace_dependencies");
+    const CodegenResult result = run_backend(source, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+    EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
+    EXPECT_EQ(render_result(result), backend_golden_text("mixed_same_namespace_dependencies"));
+}
+
+TEST(BackendCodegenTest, MultipleEnumsHaveStableOrder) {
+    const std::string source = backend_fixture_text("multiple_enums");
+    const CodegenResult result = run_backend(source, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+    EXPECT_EQ(render_result(result), backend_golden_text("multiple_enums"));
+
+    const CodegenResult second_result = run_backend(source, CodegenOptions{});
+    ASSERT_TRUE(second_result.success) << second_result.error_message;
+    EXPECT_EQ(render_result(result), render_result(second_result));
+}
+
+TEST(BackendCodegenTest, GeneratedHeadersCompile) {
+    const std::string source = backend_fixture_text("mixed_same_namespace_dependencies");
+    const CodegenResult result = run_backend(source, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_FALSE(result.files.empty());
+
+    const std::string header_include =
+        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string translation_source =
+        "#include \"" + header_include +
+        "\"\n"
+        "#include <cstdint>\n"
+        "#include <type_traits>\n"
+        "static_assert(std::is_enum_v<::Status>);\n"
+        "static_assert(std::is_same_v<std::underlying_type_t<::Status>, std::int64_t>);\n"
+        "int main() {\n"
+        "  ::Wrapper value{};\n"
+        "  value.state = ::Status::Ready;\n"
+        "  value.child.count = 1u;\n"
+        "  return value.state == ::Status::Ready ? 0 : 1;\n"
+        "}\n";
+
+    compile_generated_header(result, translation_source);
 }
 
 } // namespace

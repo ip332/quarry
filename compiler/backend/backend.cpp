@@ -37,6 +37,11 @@ struct PrimitiveMapping {
     bool needs_cstdint = false;
 };
 
+struct EnumMapping {
+    std::string cpp_type;
+    bool needs_cstdint = true;
+};
+
 struct RecordPlan {
     const ::breadcrumbs::schema_ir::RecordIR* record = nullptr;
     std::size_t source_order = 0;
@@ -209,6 +214,13 @@ primitive_mapping(::breadcrumbs::schema_ir::PrimitiveType primitive, std::string
 
     error_message = "backend codegen encountered an unsupported primitive field type";
     return std::nullopt;
+}
+
+[[nodiscard]] EnumMapping enum_mapping() {
+    return EnumMapping{
+        .cpp_type = "std::int64_t",
+        .needs_cstdint = true,
+    };
 }
 
 [[nodiscard]] const NamedTypeInfo*
@@ -415,6 +427,7 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
     plan.file_path = file_path_for_namespace(options, ns.fqn());
     plan.include_path = file_stem_for_namespace(options, ns.fqn());
     plan.emits_file = ns.records_size() > 0 || ns.enums_size() > 0;
+    plan.needs_cstdint = ns.enums_size() > 0;
 
     if (plan.emits_file) {
         std::map<std::uint64_t, std::size_t> local_declaration_ids;
@@ -422,8 +435,6 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
 
         for (int index = 0; index < ns.enums_size(); ++index) {
             const ::breadcrumbs::schema_ir::EnumIR& enum_ir = ns.enums(index);
-            local_declaration_ids.emplace(enum_ir.ir_id(),
-                                          static_cast<std::size_t>(plan.declarations.size()));
             plan.declarations.push_back(DeclarationPlan{
                 .kind = DeclarationPlan::Kind::Enum,
                 .enum_ir = &enum_ir,
@@ -612,8 +623,10 @@ void collect_emitted_files(const NamespacePlan& plan, std::vector<const Namespac
 
 [[nodiscard]] std::string render_enum_definition(const ::breadcrumbs::schema_ir::EnumIR& enum_ir,
                                                  std::size_t indent_level) {
+    const EnumMapping mapping = enum_mapping();
     std::ostringstream stream;
-    stream << indent(indent_level) << "enum class " << enum_ir.name() << " {\n";
+    stream << indent(indent_level) << "enum class " << enum_ir.name() << " : " << mapping.cpp_type
+           << " {\n";
     for (int index = 0; index < enum_ir.values_size(); ++index) {
         const ::breadcrumbs::schema_ir::EnumValueIR& value = enum_ir.values(index);
         stream << indent(indent_level + 1) << value.name() << " = " << value.value() << ",\n";

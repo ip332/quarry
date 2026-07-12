@@ -19,6 +19,10 @@ Current C++ generation behavior:
   * for example, `generated/alpha/one.generated.hpp` is included as
     `"alpha/one.generated.hpp"`
 * generates concrete `enum class` declarations for enum IR objects
+  * uses `std::int64_t` as the fixed underlying type so enum values are never
+    narrowed or truncated
+  * preserves explicit numeric values exactly as stored in Schema IR
+  * does not auto-number omitted values or synthesize reflection helpers
 * generates concrete `struct` declarations for record IR objects
 * preserves declaration order unless record dependencies force a deterministic
   reordering
@@ -36,6 +40,8 @@ Current C++ generation behavior:
   `string`, `bytes`, or `array`
 * returns `success = false`, a non-empty `error_message`, and no generated
   files for backend failures
+* keeps enum formatting, parsing, reflection, and helper APIs out of scope
+  for this PR
 
 Allowed dependencies:
 
