@@ -1,0 +1,3 @@
+record Broken {
+  label: string
+}

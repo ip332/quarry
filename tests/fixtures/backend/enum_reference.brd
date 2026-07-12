@@ -1,0 +1,8 @@
+enum Color {
+  Red = 1
+  Green = 2
+}
+
+record Paint {
+  color: Color
+}

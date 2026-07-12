@@ -1,0 +1,5 @@
+record Example {
+  active: bool
+  count: u32
+  ratio: f64
+}

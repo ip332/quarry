@@ -51,12 +51,8 @@ struct FrontendOutput {
     SourceFileId source_file_id;
 };
 
-[[nodiscard]] std::filesystem::path schema_fixtures_root() {
-    return std::filesystem::path(__FILE__).parent_path().parent_path() / "fixtures" / "schema_ir";
-}
-
-[[nodiscard]] std::filesystem::path backend_fixtures_root() {
-    return std::filesystem::path(__FILE__).parent_path().parent_path() / "fixtures" / "backend";
+[[nodiscard]] std::filesystem::path fixtures_root(std::string_view category) {
+    return std::filesystem::path(__FILE__).parent_path().parent_path() / "fixtures" / category;
 }
 
 [[nodiscard]] std::string read_file(const std::filesystem::path& path) {
@@ -115,16 +111,24 @@ void trim_trailing_newlines(std::string& text) {
     return result;
 }
 
-[[nodiscard]] std::string schema_fixture_text(std::string_view name) {
-    std::string text = read_file(schema_fixtures_root() / (std::string(name) + ".brd"));
+[[nodiscard]] std::string fixture_text(std::string_view category, std::string_view name,
+                                       std::string_view extension) {
+    std::string text =
+        read_file(fixtures_root(category) / (std::string(name) + std::string(extension)));
     trim_trailing_newlines(text);
     return text;
 }
 
+[[nodiscard]] std::string schema_fixture_text(std::string_view name) {
+    return fixture_text("schema_ir", name, ".brd");
+}
+
+[[nodiscard]] std::string backend_fixture_text(std::string_view name) {
+    return fixture_text("backend", name, ".brd");
+}
+
 [[nodiscard]] std::string backend_golden_text(std::string_view name) {
-    std::string text = read_file(backend_fixtures_root() / (std::string(name) + ".txt"));
-    trim_trailing_newlines(text);
-    return text;
+    return fixture_text("backend", name, ".txt");
 }
 
 [[nodiscard]] std::string render_result(const CodegenResult& result) {
@@ -141,26 +145,91 @@ void trim_trailing_newlines(std::string& text) {
     return rendered;
 }
 
-TEST(BackendCodegenTest, EmptySchemaGeneratesRootSkeleton) {
+TEST(BackendCodegenTest, EmptySchemaGeneratesNoFiles) {
     const CodegenResult result = run_backend("", CodegenOptions{});
+    EXPECT_TRUE(result.success) << result.error_message;
     EXPECT_TRUE(result.files.empty());
 }
 
-TEST(BackendCodegenTest, SingleRecordMatchesGolden) {
-    const std::string source = schema_fixture_text("single_record");
+TEST(BackendCodegenTest, BuiltinScalarFieldsMatchGolden) {
+    const std::string source = backend_fixture_text("builtin_scalar_fields");
     const CodegenResult result = run_backend(source, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
-    EXPECT_EQ(render_result(result), backend_golden_text("single_record"));
+    EXPECT_EQ(render_result(result), backend_golden_text("builtin_scalar_fields"));
 }
 
-TEST(BackendCodegenTest, MultipleNamespacesMatchGolden) {
+TEST(BackendCodegenTest, EnumMatchesGolden) {
+    const std::string source = schema_fixture_text("enum");
+    const CodegenResult result = run_backend(source, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+    EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
+    EXPECT_EQ(render_result(result), backend_golden_text("enum"));
+}
+
+TEST(BackendCodegenTest, NamedTypeReferenceMatchesGolden) {
+    const std::string source = schema_fixture_text("named_type_reference");
+    const CodegenResult result = run_backend(source, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+    EXPECT_EQ(result.files.front().path, "generated/breadcrumbs/geo.generated.hpp");
+    EXPECT_EQ(render_result(result), backend_golden_text("named_type_reference"));
+}
+
+TEST(BackendCodegenTest, SameFileForwardReferenceOrdersDefinitions) {
+    const std::string source = backend_fixture_text("forward_record_reference");
+    const CodegenResult result = run_backend(source, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+    EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
+    EXPECT_EQ(render_result(result), backend_golden_text("forward_record_reference"));
+}
+
+TEST(BackendCodegenTest, MultipleTopLevelNamespacesMatchGolden) {
     const std::string source = schema_fixture_text("multiple_top_level_namespaces");
     const CodegenResult result = run_backend(source, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2u);
     EXPECT_EQ(result.files[0].path, "generated/alpha/one.generated.hpp");
     EXPECT_EQ(result.files[1].path, "generated/beta/two.generated.hpp");
     EXPECT_EQ(render_result(result), backend_golden_text("multiple_top_level_namespaces"));
+}
+
+TEST(BackendCodegenTest, CrossNamespaceReferenceMatchesGolden) {
+    const std::string source = backend_fixture_text("cross_namespace_reference");
+    const CodegenResult result = run_backend(source, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 2u);
+    EXPECT_EQ(result.files[0].path, "generated/alpha/one.generated.hpp");
+    EXPECT_EQ(result.files[1].path, "generated/beta/two.generated.hpp");
+    EXPECT_EQ(render_result(result), backend_golden_text("cross_namespace_reference"));
+}
+
+TEST(BackendCodegenTest, CyclicNamespaceDependencyFailsClearly) {
+    const std::string source = backend_fixture_text("cyclic_namespace_reference");
+    const CodegenResult result = run_backend(source, CodegenOptions{});
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.files.empty());
+    EXPECT_NE(result.error_message.find("cycle"), std::string::npos);
+}
+
+TEST(BackendCodegenTest, UnsupportedFieldFailsAtomically) {
+    const std::string source = backend_fixture_text("valid_then_unsupported");
+    const CodegenResult result = run_backend(source, CodegenOptions{});
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(result.files.empty());
+    EXPECT_NE(result.error_message.find("string"), std::string::npos);
+}
+
+TEST(BackendCodegenTest, EnumReferenceMatchesGolden) {
+    const std::string source = backend_fixture_text("enum_reference");
+    const CodegenResult result = run_backend(source, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+    EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
+    EXPECT_EQ(render_result(result), backend_golden_text("enum_reference"));
 }
 
 } // namespace

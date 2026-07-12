@@ -19,6 +19,8 @@ struct GeneratedFile {
 };
 
 struct CodegenResult {
+    bool success = true;
+    std::string error_message;
     std::vector<GeneratedFile> files;
 };
 
