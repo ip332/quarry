@@ -427,7 +427,9 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
             plan.declarations.push_back(DeclarationPlan{
                 .kind = DeclarationPlan::Kind::Enum,
                 .enum_ir = &enum_ir,
+                .record = {},
                 .source_order = static_cast<std::size_t>(index),
+                .same_namespace_declaration_dependencies = {},
             });
         }
 
@@ -435,12 +437,17 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
             const ::breadcrumbs::schema_ir::RecordIR& record = ns.records(index);
             plan.declarations.push_back(DeclarationPlan{
                 .kind = DeclarationPlan::Kind::Record,
+                .enum_ir = nullptr,
                 .record =
                     RecordPlan{
                         .record = &record,
                         .source_order = static_cast<std::size_t>(index),
+                        .same_namespace_declaration_dependencies = {},
+                        .includes = {},
+                        .needs_cstdint = false,
                     },
                 .source_order = static_cast<std::size_t>(ns.enums_size() + index),
+                .same_namespace_declaration_dependencies = {},
             });
         }
 
