@@ -11,6 +11,7 @@ root_namespace {
       fqn: "alpha.one"
       records {
         ir_id: 4
+        record_id: 1
         name: "First"
         fqn: "alpha.one.First"
       }
@@ -26,6 +27,7 @@ root_namespace {
       fqn: "beta.two"
       records {
         ir_id: 7
+        record_id: 2
         name: "Second"
         fqn: "beta.two.Second"
       }

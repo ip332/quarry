@@ -1,1 +1,1 @@
-- PR-018: Deterministic initial layout computation and Schema IR field-index integration
+- PR-019: Propagate compiler-assigned record IDs into Schema IR

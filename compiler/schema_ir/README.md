@@ -19,6 +19,7 @@ Validation responsibilities:
 * reject malformed namespace, record, enum, field, and value structure
 * reject duplicate names in the same IR namespace or container
 * reject duplicate IR identifiers
+* reject missing or duplicate compiler-assigned record IDs
 * reject missing or wrong-kind record and enum references
 * validate that field types are present and structurally well-formed
 
@@ -61,8 +62,8 @@ Type lowering:
   compiler IR identifiers
 * fixed-size array syntax is lowered recursively as an `ArrayType`
 * `field_index` is copied from the Layout Model and is not invented here
-* record IDs are computed in the Layout Model but are not yet propagated into
-  Schema IR
+* record IDs are computed in the Layout Model and are copied into `RecordIR`
+* `record_id` and `ir_id` remain separate compiler-owned identifiers
 
 Source metadata:
 

@@ -88,6 +88,10 @@ It owns child namespaces, records, and enums declared in that namespace.
 
 It owns its fields.
 
+`RecordIR.record_id` is a compiler-assigned binary/runtime identifier copied
+from the Layout Model. It is distinct from `RecordIR.ir_id`, which remains a
+compiler-internal object handle used for references inside Schema IR.
+
 ### EnumIR
 
 `EnumIR` represents one resolved enum declaration.
@@ -254,6 +258,9 @@ runtime specification explicitly defines a corresponding runtime field.
 the compiler and binary record model. Schema IR references should not rely on
 unresolved text names when a compiler identifier is available.
 
+`recordId` values are assigned by the Layout Model, copied into `RecordIR`, and
+validated to be nonzero and globally unique within Schema IR.
+
 ---
 
 ## Relationship to Layout IR
@@ -298,6 +305,7 @@ Schema IR guarantees:
 * fields own resolved `FieldType` values
 * record references target existing `RecordIR` objects
 * enum references target existing `EnumIR` objects
+* record IDs are nonzero and globally unique
 * semantic validation is complete
 * source metadata is compiler-only
 

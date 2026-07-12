@@ -171,12 +171,33 @@ private:
             const std::optional<support::SourceRange> record_range =
                 source_range_from_origin(record.source_origin(), source_manager_);
             register_object(record.ir_id(), ObjectKind::Record, record_range);
+            register_record_id(record.record_id(), record_range);
         }
 
         for (const ::breadcrumbs::schema_ir::EnumIR& enum_ir : namespace_ir.enums()) {
             const std::optional<support::SourceRange> enum_range =
                 source_range_from_origin(enum_ir.source_origin(), source_manager_);
             register_object(enum_ir.ir_id(), ObjectKind::Enum, enum_range);
+        }
+    }
+
+    void register_record_id(uint32_t record_id, const std::optional<support::SourceRange>& range) {
+        if (record_id == 0U) {
+            emit_diagnostic(diagnostics_, diagnostic_id("BC6010"), diagnostics::Severity::Error,
+                            "schema IR record has a missing or zero record_id", range);
+            return;
+        }
+
+        const auto inserted = record_ids_.emplace(record_id, range);
+        if (!inserted.second) {
+            const std::optional<support::SourceRange> previous_range = inserted.first->second;
+            emit_diagnostic(diagnostics_, diagnostic_id("BC6011"), diagnostics::Severity::Error,
+                            "schema IR record id " + std::to_string(record_id) + " is duplicated",
+                            range,
+                            previous_range.has_value()
+                                ? std::optional<diagnostics::RelatedLocation>(make_related_location(
+                                      previous_range, "previous record with this id is here"))
+                                : std::nullopt);
         }
     }
 
@@ -507,6 +528,7 @@ private:
     std::unordered_map<uint64_t, ObjectInfo> objects_by_id_;
     std::unordered_map<uint64_t, ObjectInfo> record_by_id_;
     std::unordered_map<uint64_t, ObjectInfo> enum_by_id_;
+    std::unordered_map<uint32_t, std::optional<support::SourceRange>> record_ids_;
 };
 
 void SchemaIrValidator::validate(const SchemaIrModel& schema_ir, context::CompilerContext& context,

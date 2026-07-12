@@ -175,6 +175,11 @@ record Example {
     ASSERT_EQ(root.records_size(), 1);
     const auto& record = root.records(0);
     EXPECT_EQ(record.name(), "Example");
+    EXPECT_EQ(record.ir_id(), 2U);
+    EXPECT_EQ(record.record_id(), 1U);
+    ASSERT_EQ(output.layout_model.records.size(), 1U);
+    EXPECT_EQ(record.record_id(), output.layout_model.records[0].record_id);
+    EXPECT_NE(record.ir_id(), record.record_id());
     EXPECT_EQ(record.source_origin().file(), "/test/schema.brd");
     EXPECT_EQ(record.source_origin().span().start_line(), 2U);
     EXPECT_EQ(record.source_origin().span().start_column(), 1U);

@@ -3,6 +3,7 @@ root_namespace {
   ir_id: 1
   records {
     ir_id: 2
+    record_id: 1
     name: "Example"
     fqn: "Example"
     fields {

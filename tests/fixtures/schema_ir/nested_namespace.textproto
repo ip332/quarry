@@ -11,10 +11,10 @@ root_namespace {
       fqn: "breadcrumbs.geo"
       records {
         ir_id: 4
+        record_id: 1
         name: "Location"
         fqn: "breadcrumbs.geo.Location"
       }
     }
   }
 }
-

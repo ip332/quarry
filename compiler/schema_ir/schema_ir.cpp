@@ -462,6 +462,15 @@ private:
             return false;
         }
 
+        if (layout_record->record_id == 0U) {
+            emit_internal_error(diagnostics_,
+                                "schema IR lowering observed a zero record_id for record '" +
+                                    std::string(record_fqn) + "'",
+                                declaration.source_range);
+            layout_failed_ = true;
+            return false;
+        }
+
         if (semantic_record->fields.size() != declaration.fields.size() ||
             layout_record->fields.size() != declaration.fields.size()) {
             emit_internal_error(
@@ -473,6 +482,7 @@ private:
             return false;
         }
 
+        record.set_record_id(layout_record->record_id);
         for (std::size_t field_index = 0; field_index < declaration.fields.size(); ++field_index) {
             const ast::FieldDeclarationSyntax& field = declaration.fields[field_index];
             const semantic::SemanticField& semantic_field = semantic_record->fields[field_index];

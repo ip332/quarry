@@ -45,6 +45,9 @@ message RecordIR {
   // Compiler-only identifier used for resolved references inside Schema IR.
   uint64 ir_id = 1;
 
+  // Compiler-assigned binary/runtime record identifier.
+  uint32 record_id = 6;
+
   // Local record name.
   string name = 2;
 

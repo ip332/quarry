@@ -195,12 +195,14 @@ TEST(SchemaIrValidationTest, RejectsDuplicateRecordNamesInTheSameScope) {
 
     auto* first = root->add_records();
     first->set_ir_id(2);
+    first->set_record_id(2);
     first->set_name("Location");
     first->set_fqn("Location");
     set_origin(first, "/test/schema.brd", 0, 0);
 
     auto* second = root->add_records();
     second->set_ir_id(3);
+    second->set_record_id(3);
     second->set_name("Location");
     second->set_fqn("Location");
     set_origin(second, "/test/schema.brd", 0, 0);
@@ -210,6 +212,25 @@ TEST(SchemaIrValidationTest, RejectsDuplicateRecordNamesInTheSameScope) {
 
     ASSERT_EQ(diagnostics.diagnostics().size(), 1U);
     EXPECT_EQ(diagnostics.diagnostics()[0].id().str(), "BC6002");
+}
+
+TEST(SchemaIrValidationTest, RejectsMissingRecordId) {
+    CompilerContext context;
+    (void)add_test_source(context);
+
+    SchemaIrModel schema_ir = make_schema_ir();
+    auto* record = schema_ir.mutable_root_namespace()->add_records();
+    record->set_ir_id(2);
+    record->set_record_id(0);
+    record->set_name("Route");
+    record->set_fqn("Route");
+    set_origin(record, "/test/schema.brd", 0, 0);
+
+    DiagnosticEngine diagnostics;
+    validate_schema_ir(schema_ir, context, diagnostics);
+
+    ASSERT_EQ(diagnostics.diagnostics().size(), 1U);
+    EXPECT_EQ(diagnostics.diagnostics()[0].id().str(), "BC6010");
 }
 
 TEST(SchemaIrValidationTest, AllowsTheSameNameInDifferentNamespaces) {
@@ -227,6 +248,7 @@ TEST(SchemaIrValidationTest, AllowsTheSameNameInDifferentNamespaces) {
 
     auto* geo_record = geo->add_records();
     geo_record->set_ir_id(3);
+    geo_record->set_record_id(3);
     geo_record->set_name("Location");
     geo_record->set_fqn("geo.Location");
     set_origin(geo_record, "/test/schema.brd", 0, 0);
@@ -239,6 +261,7 @@ TEST(SchemaIrValidationTest, AllowsTheSameNameInDifferentNamespaces) {
 
     auto* telemetry_record = telemetry->add_records();
     telemetry_record->set_ir_id(5);
+    telemetry_record->set_record_id(5);
     telemetry_record->set_name("Location");
     telemetry_record->set_fqn("telemetry.Location");
     set_origin(telemetry_record, "/test/schema.brd", 0, 0);
@@ -249,6 +272,77 @@ TEST(SchemaIrValidationTest, AllowsTheSameNameInDifferentNamespaces) {
     EXPECT_TRUE(diagnostics.empty()) << diagnostics_summary(diagnostics, context.source_manager());
 }
 
+TEST(SchemaIrValidationTest, RejectsDuplicateRecordIdsInTheSameNamespace) {
+    CompilerContext context;
+    (void)add_test_source(context);
+
+    SchemaIrModel schema_ir = make_schema_ir();
+    auto* root = schema_ir.mutable_root_namespace();
+
+    auto* first = root->add_records();
+    first->set_ir_id(2);
+    first->set_record_id(10);
+    first->set_name("Location");
+    first->set_fqn("Location");
+    set_origin(first, "/test/schema.brd", 0, 0, 1, 1, 1, 8);
+
+    auto* second = root->add_records();
+    second->set_ir_id(3);
+    second->set_record_id(10);
+    second->set_name("Route");
+    second->set_fqn("Route");
+    set_origin(second, "/test/schema.brd", 9, 17, 2, 1, 2, 8);
+
+    DiagnosticEngine diagnostics;
+    validate_schema_ir(schema_ir, context, diagnostics);
+
+    ASSERT_EQ(diagnostics.diagnostics().size(), 1U);
+    EXPECT_EQ(diagnostics.diagnostics()[0].id().str(), "BC6011");
+    const std::string formatted =
+        DiagnosticFormatter::format(diagnostics.diagnostics()[0], context.source_manager());
+    EXPECT_NE(formatted.find("previous record with this id is here"), std::string::npos);
+}
+
+TEST(SchemaIrValidationTest, RejectsDuplicateRecordIdsInDifferentNamespaces) {
+    CompilerContext context;
+    (void)add_test_source(context);
+
+    SchemaIrModel schema_ir = make_schema_ir();
+    auto* root = schema_ir.mutable_root_namespace();
+
+    auto* geo = root->add_namespaces();
+    geo->set_ir_id(2);
+    geo->set_name("geo");
+    geo->set_fqn("geo");
+    set_origin(geo, "/test/schema.brd", 0, 0);
+
+    auto* first = geo->add_records();
+    first->set_ir_id(3);
+    first->set_record_id(11);
+    first->set_name("Location");
+    first->set_fqn("geo.Location");
+    set_origin(first, "/test/schema.brd", 0, 0);
+
+    auto* telemetry = root->add_namespaces();
+    telemetry->set_ir_id(4);
+    telemetry->set_name("telemetry");
+    telemetry->set_fqn("telemetry");
+    set_origin(telemetry, "/test/schema.brd", 0, 0);
+
+    auto* second = telemetry->add_records();
+    second->set_ir_id(5);
+    second->set_record_id(11);
+    second->set_name("Location");
+    second->set_fqn("telemetry.Location");
+    set_origin(second, "/test/schema.brd", 0, 0);
+
+    DiagnosticEngine diagnostics;
+    validate_schema_ir(schema_ir, context, diagnostics);
+
+    ASSERT_EQ(diagnostics.diagnostics().size(), 1U);
+    EXPECT_EQ(diagnostics.diagnostics()[0].id().str(), "BC6011");
+}
+
 TEST(SchemaIrValidationTest, RejectsDuplicateFieldNames) {
     CompilerContext context;
     (void)add_test_source(context);
@@ -256,6 +350,7 @@ TEST(SchemaIrValidationTest, RejectsDuplicateFieldNames) {
     SchemaIrModel schema_ir = make_schema_ir();
     auto* record = schema_ir.mutable_root_namespace()->add_records();
     record->set_ir_id(2);
+    record->set_record_id(6);
     record->set_name("Route");
     record->set_fqn("Route");
     set_origin(record, "/test/schema.brd", 0, 0);
@@ -286,6 +381,7 @@ TEST(SchemaIrValidationTest, AllowsGappedFieldIndexes) {
     SchemaIrModel schema_ir = make_schema_ir();
     auto* record = schema_ir.mutable_root_namespace()->add_records();
     record->set_ir_id(2);
+    record->set_record_id(7);
     record->set_name("Route");
     record->set_fqn("Route");
     set_origin(record, "/test/schema.brd", 0, 0);
@@ -315,6 +411,7 @@ TEST(SchemaIrValidationTest, RejectsDuplicateFieldIndexes) {
     SchemaIrModel schema_ir = make_schema_ir();
     auto* record = schema_ir.mutable_root_namespace()->add_records();
     record->set_ir_id(2);
+    record->set_record_id(8);
     record->set_name("Route");
     record->set_fqn("Route");
     set_origin(record, "/test/schema.brd", 0, 0);
@@ -345,6 +442,7 @@ TEST(SchemaIrValidationTest, RejectsFieldIndexesAboveUint8Limit) {
     SchemaIrModel schema_ir = make_schema_ir();
     auto* record = schema_ir.mutable_root_namespace()->add_records();
     record->set_ir_id(2);
+    record->set_record_id(19);
     record->set_name("Route");
     record->set_fqn("Route");
     set_origin(record, "/test/schema.brd", 0, 0);
@@ -399,6 +497,7 @@ TEST(SchemaIrValidationTest, RejectsDuplicateIds) {
 
     auto* first = root->add_records();
     first->set_ir_id(2);
+    first->set_record_id(9);
     first->set_name("Location");
     first->set_fqn("Location");
     set_origin(first, "/test/schema.brd", 0, 0);
@@ -423,6 +522,7 @@ TEST(SchemaIrValidationTest, RejectsMissingRecordReferences) {
     SchemaIrModel schema_ir = make_schema_ir();
     auto* record = schema_ir.mutable_root_namespace()->add_records();
     record->set_ir_id(2);
+    record->set_record_id(12);
     record->set_name("Route");
     record->set_fqn("Route");
     set_origin(record, "/test/schema.brd", 0, 0);
@@ -454,6 +554,7 @@ TEST(SchemaIrValidationTest, RejectsWrongKindRecordReferences) {
 
     auto* record = root->add_records();
     record->set_ir_id(3);
+    record->set_record_id(13);
     record->set_name("Route");
     record->set_fqn("Route");
     set_origin(record, "/test/schema.brd", 0, 0);
@@ -477,6 +578,7 @@ TEST(SchemaIrValidationTest, RejectsMissingEnumReferences) {
     SchemaIrModel schema_ir = make_schema_ir();
     auto* record = schema_ir.mutable_root_namespace()->add_records();
     record->set_ir_id(2);
+    record->set_record_id(14);
     record->set_name("Route");
     record->set_fqn("Route");
     set_origin(record, "/test/schema.brd", 0, 0);
@@ -502,6 +604,7 @@ TEST(SchemaIrValidationTest, RejectsWrongKindEnumReferences) {
 
     auto* record = root->add_records();
     record->set_ir_id(2);
+    record->set_record_id(15);
     record->set_name("Route");
     record->set_fqn("Route");
     set_origin(record, "/test/schema.brd", 0, 0);
@@ -531,6 +634,7 @@ TEST(SchemaIrValidationTest, RejectsMissingFieldTypes) {
     SchemaIrModel schema_ir = make_schema_ir();
     auto* record = schema_ir.mutable_root_namespace()->add_records();
     record->set_ir_id(2);
+    record->set_record_id(16);
     record->set_name("Route");
     record->set_fqn("Route");
     set_origin(record, "/test/schema.brd", 0, 0);
@@ -553,6 +657,7 @@ TEST(SchemaIrValidationTest, RejectsInvalidArrayElementTypes) {
     SchemaIrModel schema_ir = make_schema_ir();
     auto* record = schema_ir.mutable_root_namespace()->add_records();
     record->set_ir_id(2);
+    record->set_record_id(17);
     record->set_name("Route");
     record->set_fqn("Route");
     set_origin(record, "/test/schema.brd", 0, 0);
@@ -576,6 +681,7 @@ TEST(SchemaIrValidationTest, UsesSourceMetadataInDiagnosticsWhenAvailable) {
     SchemaIrModel schema_ir = make_schema_ir();
     auto* record = schema_ir.mutable_root_namespace()->add_records();
     record->set_ir_id(2);
+    record->set_record_id(18);
     record->set_name("Route");
     record->set_fqn("Route");
     set_origin(record, "/test/schema.brd", 0, 0, 1, 1, 1, 1);
