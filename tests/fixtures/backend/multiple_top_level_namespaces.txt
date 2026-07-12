@@ -7,6 +7,13 @@ namespace one {
 
     struct First {};
 
+    class FirstBuilder {
+    public:
+      First build() const {
+        return First{};
+      }
+    };
+
 } // namespace one
 } // namespace alpha
 === generated/beta/two.generated.hpp ===
@@ -17,6 +24,13 @@ namespace beta {
 namespace two {
 
     struct Second {};
+
+    class SecondBuilder {
+    public:
+      Second build() const {
+        return Second{};
+      }
+    };
 
 } // namespace two
 } // namespace beta

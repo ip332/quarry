@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -13,14 +14,217 @@ enum class Mode : std::int64_t {
 };
 
 struct Child {
-  std::uint32_t count;
+  Child() = default;
+
+  bool has_count() const {
+    return count_.has_value();
+  }
+  const std::uint32_t* count() const {
+    return count_ ? &*count_ : nullptr;
+  }
+
+private:
+  friend class ChildBuilder;
+  std::optional<std::uint32_t> count_;
+};
+
+class ChildBuilder {
+public:
+  bool has_count() const {
+    return count_.has_value();
+  }
+
+  bool set_count(const std::uint32_t& value) {
+    if (!validate_count(value)) {
+      return false;
+    }
+    count_ = value;
+    return true;
+  }
+
+  Child build() const {
+    Child value;
+    value.count_ = count_;
+    return value;
+  }
+
+private:
+  static bool validate_count(const std::uint32_t& value) {
+    return true;
+  }
+
+  std::optional<std::uint32_t> count_;
 };
 
 struct Example {
-  std::string name;
-  std::vector<std::byte> payload;
-  std::vector<std::uint32_t> counts;
-  std::vector<double> distances;
-  std::vector<::Mode> modes;
-  std::vector<::Child> children;
+  Example() = default;
+
+  bool has_name() const {
+    return name_.has_value();
+  }
+  const std::string* name() const {
+    return name_ ? &*name_ : nullptr;
+  }
+  bool has_payload() const {
+    return payload_.has_value();
+  }
+  const std::vector<std::byte>* payload() const {
+    return payload_ ? &*payload_ : nullptr;
+  }
+  bool has_counts() const {
+    return counts_.has_value();
+  }
+  const std::vector<std::uint32_t>* counts() const {
+    return counts_ ? &*counts_ : nullptr;
+  }
+  bool has_distances() const {
+    return distances_.has_value();
+  }
+  const std::vector<double>* distances() const {
+    return distances_ ? &*distances_ : nullptr;
+  }
+  bool has_modes() const {
+    return modes_.has_value();
+  }
+  const std::vector<::Mode>* modes() const {
+    return modes_ ? &*modes_ : nullptr;
+  }
+  bool has_children() const {
+    return children_.has_value();
+  }
+  const std::vector<::Child>* children() const {
+    return children_ ? &*children_ : nullptr;
+  }
+
+private:
+  friend class ExampleBuilder;
+  std::optional<std::string> name_;
+  std::optional<std::vector<std::byte>> payload_;
+  std::optional<std::vector<std::uint32_t>> counts_;
+  std::optional<std::vector<double>> distances_;
+  std::optional<std::vector<::Mode>> modes_;
+  std::optional<std::vector<::Child>> children_;
+};
+
+class ExampleBuilder {
+public:
+  bool has_name() const {
+    return name_.has_value();
+  }
+  bool has_payload() const {
+    return payload_.has_value();
+  }
+  bool has_counts() const {
+    return counts_.has_value();
+  }
+  bool has_distances() const {
+    return distances_.has_value();
+  }
+  bool has_modes() const {
+    return modes_.has_value();
+  }
+  bool has_children() const {
+    return children_.has_value();
+  }
+
+  bool set_name(const std::string& value) {
+    if (!validate_name(value)) {
+      return false;
+    }
+    name_ = value;
+    return true;
+  }
+  bool set_payload(const std::vector<std::byte>& value) {
+    if (!validate_payload(value)) {
+      return false;
+    }
+    payload_ = value;
+    return true;
+  }
+  bool set_counts(const std::vector<std::uint32_t>& value) {
+    if (!validate_counts(value)) {
+      return false;
+    }
+    counts_ = value;
+    return true;
+  }
+  bool set_distances(const std::vector<double>& value) {
+    if (!validate_distances(value)) {
+      return false;
+    }
+    distances_ = value;
+    return true;
+  }
+  bool set_modes(const std::vector<::Mode>& value) {
+    if (!validate_modes(value)) {
+      return false;
+    }
+    modes_ = value;
+    return true;
+  }
+  bool set_children(const std::vector<::Child>& value) {
+    if (!validate_children(value)) {
+      return false;
+    }
+    children_ = value;
+    return true;
+  }
+
+  Example build() const {
+    Example value;
+    value.name_ = name_;
+    value.payload_ = payload_;
+    value.counts_ = counts_;
+    value.distances_ = distances_;
+    value.modes_ = modes_;
+    value.children_ = children_;
+    return value;
+  }
+
+private:
+  static bool validate_name(const std::string& value) {
+    return true;
+  }
+  static bool validate_payload(const std::vector<std::byte>& value) {
+    return true;
+  }
+  static bool validate_counts(const std::vector<std::uint32_t>& value) {
+    if (value.size() > 4) {
+      return false;
+    }
+    for (const auto& element_0 : value) {
+    }
+    return true;
+  }
+  static bool validate_distances(const std::vector<double>& value) {
+    if (value.size() > 2) {
+      return false;
+    }
+    for (const auto& element_0 : value) {
+    }
+    return true;
+  }
+  static bool validate_modes(const std::vector<::Mode>& value) {
+    if (value.size() > 2) {
+      return false;
+    }
+    for (const auto& element_0 : value) {
+    }
+    return true;
+  }
+  static bool validate_children(const std::vector<::Child>& value) {
+    if (value.size() > 3) {
+      return false;
+    }
+    for (const auto& element_0 : value) {
+    }
+    return true;
+  }
+
+  std::optional<std::string> name_;
+  std::optional<std::vector<std::byte>> payload_;
+  std::optional<std::vector<std::uint32_t>> counts_;
+  std::optional<std::vector<double>> distances_;
+  std::optional<std::vector<::Mode>> modes_;
+  std::optional<std::vector<::Child>> children_;
 };

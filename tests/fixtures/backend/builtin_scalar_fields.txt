@@ -3,9 +3,91 @@
 // Namespace: <root>
 
 #include <cstdint>
+#include <optional>
 
 struct Example {
-  bool active;
-  std::uint32_t count;
-  double ratio;
+  Example() = default;
+
+  bool has_active() const {
+    return active_.has_value();
+  }
+  const bool* active() const {
+    return active_ ? &*active_ : nullptr;
+  }
+  bool has_count() const {
+    return count_.has_value();
+  }
+  const std::uint32_t* count() const {
+    return count_ ? &*count_ : nullptr;
+  }
+  bool has_ratio() const {
+    return ratio_.has_value();
+  }
+  const double* ratio() const {
+    return ratio_ ? &*ratio_ : nullptr;
+  }
+
+private:
+  friend class ExampleBuilder;
+  std::optional<bool> active_;
+  std::optional<std::uint32_t> count_;
+  std::optional<double> ratio_;
+};
+
+class ExampleBuilder {
+public:
+  bool has_active() const {
+    return active_.has_value();
+  }
+  bool has_count() const {
+    return count_.has_value();
+  }
+  bool has_ratio() const {
+    return ratio_.has_value();
+  }
+
+  bool set_active(const bool& value) {
+    if (!validate_active(value)) {
+      return false;
+    }
+    active_ = value;
+    return true;
+  }
+  bool set_count(const std::uint32_t& value) {
+    if (!validate_count(value)) {
+      return false;
+    }
+    count_ = value;
+    return true;
+  }
+  bool set_ratio(const double& value) {
+    if (!validate_ratio(value)) {
+      return false;
+    }
+    ratio_ = value;
+    return true;
+  }
+
+  Example build() const {
+    Example value;
+    value.active_ = active_;
+    value.count_ = count_;
+    value.ratio_ = ratio_;
+    return value;
+  }
+
+private:
+  static bool validate_active(const bool& value) {
+    return true;
+  }
+  static bool validate_count(const std::uint32_t& value) {
+    return true;
+  }
+  static bool validate_ratio(const double& value) {
+    return true;
+  }
+
+  std::optional<bool> active_;
+  std::optional<std::uint32_t> count_;
+  std::optional<double> ratio_;
 };

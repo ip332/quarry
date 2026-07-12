@@ -204,15 +204,20 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
     const std::filesystem::path source_path = root / "compile.cpp";
     write_text_file(source_path, translation_unit);
 
-    const std::filesystem::path object_path = root / "compile.o";
+    const std::filesystem::path executable_path = root / "compile";
     const std::string compiler = BREADCRUMBS_TEST_CXX_COMPILER;
     std::ostringstream command;
     command << std::quoted(compiler) << " -std=c++20 -I" << std::quoted(generated_root.string())
-            << " -c " << std::quoted(source_path.string()) << " -o "
-            << std::quoted(object_path.string());
+            << " " << std::quoted(source_path.string()) << " -o "
+            << std::quoted(executable_path.string());
 
     const int status = run_command(command.str());
     ASSERT_EQ(status, 0) << "command failed: " << command.str();
+
+    std::ostringstream run_command_stream;
+    run_command_stream << std::quoted(executable_path.string());
+    const int run_status = run_command(run_command_stream.str());
+    ASSERT_EQ(run_status, 0) << "command failed: " << executable_path.string();
 }
 
 [[nodiscard]] SchemaIrModel make_manual_negative_enum_schema_ir() {
@@ -400,10 +405,187 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
     return schema_ir;
 }
 
+[[nodiscard]] SchemaIrModel make_manual_bounded_builder_schema_ir() {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    auto* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    root->set_name("");
+    root->set_fqn("");
+
+    auto* alpha = root->add_namespaces();
+    alpha->set_ir_id(2);
+    alpha->set_name("alpha");
+    alpha->set_fqn("alpha");
+
+    auto* alpha_one = alpha->add_namespaces();
+    alpha_one->set_ir_id(3);
+    alpha_one->set_name("one");
+    alpha_one->set_fqn("alpha.one");
+
+    auto* child = alpha_one->add_records();
+    child->set_ir_id(4);
+    child->set_name("Child");
+    child->set_fqn("alpha.one.Child");
+    auto* child_count = child->add_fields();
+    child_count->set_name("count");
+    child_count->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+
+    auto* mode = alpha_one->add_enums();
+    mode->set_ir_id(5);
+    mode->set_name("Mode");
+    mode->set_fqn("alpha.one.Mode");
+    auto* off = mode->add_values();
+    off->set_name("Off");
+    off->set_value(0);
+    auto* on = mode->add_values();
+    on->set_name("On");
+    on->set_value(1);
+
+    auto* wrapper = alpha_one->add_records();
+    wrapper->set_ir_id(6);
+    wrapper->set_name("Wrapper");
+    wrapper->set_fqn("alpha.one.Wrapper");
+
+    auto* wrapper_child = wrapper->add_fields();
+    wrapper_child->set_name("child");
+    wrapper_child->mutable_type()->mutable_record()->set_target_record_ir_id(4);
+
+    auto* wrapper_mode = wrapper->add_fields();
+    wrapper_mode->set_name("mode");
+    wrapper_mode->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(5);
+
+    auto* wrapper_children = wrapper->add_fields();
+    wrapper_children->set_name("children");
+    wrapper_children->mutable_type()->mutable_array()->set_count(2);
+    wrapper_children->mutable_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->mutable_record()
+        ->set_target_record_ir_id(4);
+
+    auto* wrapper_modes = wrapper->add_fields();
+    wrapper_modes->set_name("modes");
+    wrapper_modes->mutable_type()->mutable_array()->set_count(2);
+    wrapper_modes->mutable_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->mutable_enum_type()
+        ->set_target_enum_ir_id(5);
+
+    auto* beta = root->add_namespaces();
+    beta->set_ir_id(7);
+    beta->set_name("beta");
+    beta->set_fqn("beta");
+
+    auto* beta_two = beta->add_namespaces();
+    beta_two->set_ir_id(8);
+    beta_two->set_name("two");
+    beta_two->set_fqn("beta.two");
+
+    auto* envelope = beta_two->add_records();
+    envelope->set_ir_id(9);
+    envelope->set_name("Envelope");
+    envelope->set_fqn("beta.two.Envelope");
+
+    auto* active = envelope->add_fields();
+    active->set_name("active");
+    active->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL);
+
+    auto* count = envelope->add_fields();
+    count->set_name("count");
+    count->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+
+    auto* ratio = envelope->add_fields();
+    ratio->set_name("ratio");
+    ratio->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_F64);
+
+    auto* label = envelope->add_fields();
+    label->set_name("label");
+    label->mutable_type()->mutable_string()->set_max_bytes(5);
+
+    auto* payload = envelope->add_fields();
+    payload->set_name("payload");
+    payload->mutable_type()->mutable_bytes()->set_max_bytes(4);
+
+    auto* child_ref = envelope->add_fields();
+    child_ref->set_name("child");
+    child_ref->mutable_type()->mutable_record()->set_target_record_ir_id(4);
+
+    auto* mode_ref = envelope->add_fields();
+    mode_ref->set_name("mode");
+    mode_ref->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(5);
+
+    auto* children_ref = envelope->add_fields();
+    children_ref->set_name("children");
+    children_ref->mutable_type()->mutable_array()->set_count(2);
+    children_ref->mutable_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->mutable_record()
+        ->set_target_record_ir_id(4);
+
+    auto* modes_ref = envelope->add_fields();
+    modes_ref->set_name("modes");
+    modes_ref->mutable_type()->mutable_array()->set_count(2);
+    modes_ref->mutable_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->mutable_enum_type()
+        ->set_target_enum_ir_id(5);
+
+    auto* samples = envelope->add_fields();
+    samples->set_name("samples");
+    samples->mutable_type()->mutable_array()->set_count(3);
+    samples->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
+        ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+
+    auto* nested = envelope->add_fields();
+    nested->set_name("nested");
+    nested->mutable_type()->mutable_array()->set_count(2);
+    nested->mutable_type()->mutable_array()->mutable_element_type()->mutable_array()->set_count(3);
+    nested->mutable_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U16);
+
+    return schema_ir;
+}
+
 TEST(BackendCodegenTest, EmptySchemaGeneratesNoFiles) {
     const CodegenResult result = run_backend("", CodegenOptions{});
     EXPECT_TRUE(result.success) << result.error_message;
     EXPECT_TRUE(result.files.empty());
+}
+
+TEST(BackendCodegenTest, SingleRecordMatchesGolden) {
+    const std::string source = backend_fixture_text("single_record");
+    const CodegenResult result = run_backend(source, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+    EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
+    EXPECT_EQ(render_result(result), backend_golden_text("single_record"));
+}
+
+TEST(BackendCodegenTest, GeneratedSingleRecordHeaderCompilesAndRuns) {
+    const std::string source = backend_fixture_text("single_record");
+    const CodegenResult result = run_backend(source, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+
+    const std::string header_include =
+        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string translation_source = "#include \"" + header_include +
+                                           "\"\n"
+                                           "int main() {\n"
+                                           "  ::ExampleBuilder builder;\n"
+                                           "  const auto value = builder.build();\n"
+                                           "  (void)value;\n"
+                                           "  return 0;\n"
+                                           "}\n";
+
+    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
 }
 
 TEST(BackendCodegenTest, BuiltinScalarFieldsMatchGolden) {
@@ -413,6 +595,51 @@ TEST(BackendCodegenTest, BuiltinScalarFieldsMatchGolden) {
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
     EXPECT_EQ(render_result(result), backend_golden_text("builtin_scalar_fields"));
+}
+
+TEST(BackendCodegenTest, GeneratedBuiltinScalarHeaderCompilesAndRuns) {
+    const std::string source = backend_fixture_text("builtin_scalar_fields");
+    const CodegenResult result = run_backend(source, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+
+    const std::string header_include =
+        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string translation_source =
+        "#include \"" + header_include +
+        "\"\n"
+        "#include <type_traits>\n"
+        "int main() {\n"
+        "  static_assert(std::is_same_v<decltype(::ExampleBuilder{}.set_active(false)), bool>);\n"
+        "  ::ExampleBuilder builder;\n"
+        "  if (builder.has_active() || builder.has_count() || builder.has_ratio()) {\n"
+        "    return 1;\n"
+        "  }\n"
+        "  if (!builder.set_active(false)) {\n"
+        "    return 2;\n"
+        "  }\n"
+        "  if (!builder.set_count(0u)) {\n"
+        "    return 3;\n"
+        "  }\n"
+        "  if (!builder.set_ratio(0.0)) {\n"
+        "    return 4;\n"
+        "  }\n"
+        "  const auto value = builder.build();\n"
+        "  if (!value.has_active() || !value.has_count() || !value.has_ratio()) {\n"
+        "    return 5;\n"
+        "  }\n"
+        "  if (value.active() == nullptr || *value.active() != false) {\n"
+        "    return 6;\n"
+        "  }\n"
+        "  if (value.count() == nullptr || *value.count() != 0u) {\n"
+        "    return 7;\n"
+        "  }\n"
+        "  if (value.ratio() == nullptr || *value.ratio() != 0.0) {\n"
+        "    return 8;\n"
+        "  }\n"
+        "  return 0;\n"
+        "}\n";
+
+    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
 }
 
 TEST(BackendCodegenTest, EnumMatchesGolden) {
@@ -547,6 +774,58 @@ TEST(BackendCodegenTest, VariableLengthFieldsMatchGolden) {
     EXPECT_EQ(render_result(result), render_result(second_result));
 }
 
+TEST(BackendCodegenTest, GeneratedVariableLengthHeaderCompilesAndRuns) {
+    Backend backend;
+    const CodegenResult result =
+        backend.generate(make_manual_variable_length_schema_ir(), CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+
+    const std::string header_include =
+        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string translation_source =
+        "#include \"" + header_include +
+        "\"\n"
+        "#include <cstddef>\n"
+        "#include <cstdint>\n"
+        "#include <string>\n"
+        "#include <type_traits>\n"
+        "#include <vector>\n"
+        "int main() {\n"
+        "  static_assert(std::is_same_v<decltype(::ExampleBuilder{}.set_name(std::string{})), "
+        "bool>);\n"
+        "  ::ExampleBuilder builder;\n"
+        "  if (!builder.set_name(\"example\")) {\n"
+        "    return 1;\n"
+        "  }\n"
+        "  if (!builder.set_payload(std::vector<std::byte>{std::byte{0x01}})) {\n"
+        "    return 2;\n"
+        "  }\n"
+        "  if (!builder.set_counts(std::vector<std::uint32_t>{1u, 2u, 3u, 4u})) {\n"
+        "    return 3;\n"
+        "  }\n"
+        "  if (!builder.set_distances(std::vector<double>{3.5, 4.5})) {\n"
+        "    return 4;\n"
+        "  }\n"
+        "  if (!builder.set_modes(std::vector<::Mode>{::Mode::On, ::Mode::Off})) {\n"
+        "    return 5;\n"
+        "  }\n"
+        "  if (!builder.set_children(std::vector<::Child>{::Child{}, ::Child{}})) {\n"
+        "    return 6;\n"
+        "  }\n"
+        "  const auto value = builder.build();\n"
+        "  if (!value.has_name() || !value.has_payload() || !value.has_counts()) {\n"
+        "    return 7;\n"
+        "  }\n"
+        "  if (value.name() == nullptr || *value.name() != \"example\") {\n"
+        "    return 8;\n"
+        "  }\n"
+        "  return 0;\n"
+        "}\n";
+
+    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
+}
+
 TEST(BackendCodegenTest, CrossNamespaceArrayReferenceMatchesGolden) {
     Backend backend;
     const CodegenResult result =
@@ -558,54 +837,136 @@ TEST(BackendCodegenTest, CrossNamespaceArrayReferenceMatchesGolden) {
     EXPECT_EQ(render_result(result), backend_golden_text("cross_namespace_array_reference"));
 }
 
-TEST(BackendCodegenTest, GeneratedVariableLengthHeaderCompiles) {
+TEST(BackendCodegenTest, GeneratedBuilderBoundsHeaderCompilesAndRuns) {
     Backend backend;
     const CodegenResult result =
-        backend.generate(make_manual_variable_length_schema_ir(), CodegenOptions{});
-    ASSERT_TRUE(result.success) << result.error_message;
-    ASSERT_FALSE(result.files.empty());
-
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
-    const std::string translation_source =
-        "#include \"" + header_include +
-        "\"\n"
-        "#include <cstddef>\n"
-        "#include <cstdint>\n"
-        "#include <type_traits>\n"
-        "static_assert(std::is_enum_v<::Mode>);\n"
-        "static_assert(std::is_same_v<std::underlying_type_t<::Mode>, std::int64_t>);\n"
-        "int main() {\n"
-        "  ::Example value{};\n"
-        "  value.name = \"example\";\n"
-        "  value.payload.push_back(std::byte{0x01});\n"
-        "  value.counts.push_back(42u);\n"
-        "  value.distances.push_back(3.5);\n"
-        "  value.modes.push_back(::Mode::On);\n"
-        "  value.children.push_back(::Child{});\n"
-        "  return value.name.empty() ? 1 : 0;\n"
-        "}\n";
-
-    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
-}
-
-TEST(BackendCodegenTest, GeneratedCrossNamespaceArrayHeaderCompiles) {
-    Backend backend;
-    const CodegenResult result =
-        backend.generate(make_manual_cross_namespace_array_schema_ir(), CodegenOptions{});
+        backend.generate(make_manual_bounded_builder_schema_ir(), CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2u);
+    ASSERT_EQ(result.files[0].path, "generated/alpha/one.generated.hpp");
+    ASSERT_EQ(result.files[1].path, "generated/beta/two.generated.hpp");
 
     const std::string translation_source =
         "#include \"beta/two.generated.hpp\"\n"
+        "#include <cstddef>\n"
         "#include <cstdint>\n"
+        "#include <string>\n"
         "#include <type_traits>\n"
-        "static_assert(std::is_same_v<std::underlying_type_t<::alpha::one::Mode>, std::int64_t>);\n"
+        "#include <vector>\n"
         "int main() {\n"
-        "  ::beta::two::Basket value{};\n"
-        "  value.elements.push_back(::alpha::one::Element{});\n"
-        "  value.modes.push_back(::alpha::one::Mode::On);\n"
-        "  return value.elements.empty() ? 1 : 0;\n"
+        "  ::alpha::one::ChildBuilder child_builder;\n"
+        "  if (!child_builder.set_count(7u)) {\n"
+        "    return 1;\n"
+        "  }\n"
+        "  const auto child = child_builder.build();\n"
+        "  ::alpha::one::WrapperBuilder wrapper_builder;\n"
+        "  if (!wrapper_builder.set_child(child) || "
+        "!wrapper_builder.set_mode(::alpha::one::Mode::On)) {\n"
+        "    return 2;\n"
+        "  }\n"
+        "  if (!wrapper_builder.set_children(std::vector<::alpha::one::Child>{child, child})) {\n"
+        "    return 3;\n"
+        "  }\n"
+        "  if (!wrapper_builder.set_modes(std::vector<::alpha::one::Mode>{::alpha::one::Mode::Off, "
+        "::alpha::one::Mode::On})) {\n"
+        "    return 4;\n"
+        "  }\n"
+        "  const auto wrapper = wrapper_builder.build();\n"
+        "  if (!wrapper.has_child() || !wrapper.has_mode() || !wrapper.has_children() || "
+        "!wrapper.has_modes()) {\n"
+        "    return 5;\n"
+        "  }\n"
+        "  ::beta::two::EnvelopeBuilder builder;\n"
+        "  if (builder.has_active() || builder.has_label() || builder.has_payload()) {\n"
+        "    return 6;\n"
+        "  }\n"
+        "  if (!builder.set_active(false)) {\n"
+        "    return 7;\n"
+        "  }\n"
+        "  if (!builder.set_count(0u) || !builder.set_ratio(0.0)) {\n"
+        "    return 8;\n"
+        "  }\n"
+        "  if (!builder.set_child(child) || !builder.set_mode(::alpha::one::Mode::Off)) {\n"
+        "    return 9;\n"
+        "  }\n"
+        "  if (!builder.set_children(std::vector<::alpha::one::Child>{child, child})) {\n"
+        "    return 10;\n"
+        "  }\n"
+        "  if (!builder.set_modes(std::vector<::alpha::one::Mode>{::alpha::one::Mode::On, "
+        "::alpha::one::Mode::Off})) {\n"
+        "    return 11;\n"
+        "  }\n"
+        "  if (!builder.set_samples(std::vector<std::uint32_t>{1u, 2u, 3u})) {\n"
+        "    return 12;\n"
+        "  }\n"
+        "  if (!builder.set_nested(std::vector<std::vector<std::uint16_t>>{{1u, 2u, 3u}, {4u, 5u, "
+        "6u}})) {\n"
+        "    return 13;\n"
+        "  }\n"
+        "  if (builder.set_label(std::string(\"toolong\"))) {\n"
+        "    return 14;\n"
+        "  }\n"
+        "  if (builder.has_label()) {\n"
+        "    return 15;\n"
+        "  }\n"
+        "  if (!builder.set_label(std::string(\"hello\"))) {\n"
+        "    return 16;\n"
+        "  }\n"
+        "  if (builder.set_label(std::string(\"toolong\"))) {\n"
+        "    return 17;\n"
+        "  }\n"
+        "  if (!builder.has_label()) {\n"
+        "    return 18;\n"
+        "  }\n"
+        "  if (!builder.set_payload(std::vector<std::byte>{std::byte{0x01}, std::byte{0x02}, "
+        "std::byte{0x03}, std::byte{0x04}})) {\n"
+        "    return 19;\n"
+        "  }\n"
+        "  if (builder.set_payload(std::vector<std::byte>{std::byte{0x01}, std::byte{0x02}, "
+        "std::byte{0x03}, std::byte{0x04}, std::byte{0x05}})) {\n"
+        "    return 20;\n"
+        "  }\n"
+        "  if (!builder.has_payload()) {\n"
+        "    return 21;\n"
+        "  }\n"
+        "  if (builder.set_children(std::vector<::alpha::one::Child>{child, child, child})) {\n"
+        "    return 22;\n"
+        "  }\n"
+        "  if (builder.set_modes(std::vector<::alpha::one::Mode>{::alpha::one::Mode::Off, "
+        "::alpha::one::Mode::On, ::alpha::one::Mode::Off})) {\n"
+        "    return 23;\n"
+        "  }\n"
+        "  if (builder.set_samples(std::vector<std::uint32_t>{1u, 2u, 3u, 4u})) {\n"
+        "    return 24;\n"
+        "  }\n"
+        "  if (builder.set_nested(std::vector<std::vector<std::uint16_t>>{{1u, 2u, 3u, 4u}})) {\n"
+        "    return 25;\n"
+        "  }\n"
+        "  if (builder.set_nested(std::vector<std::vector<std::uint16_t>>{{1u, 2u, 3u}, {4u, 5u, "
+        "6u}, {7u, 8u, 9u}})) {\n"
+        "    return 26;\n"
+        "  }\n"
+        "  const auto value = builder.build();\n"
+        "  if (!value.has_active() || !value.has_count() || !value.has_ratio() || "
+        "!value.has_label() || !value.has_payload()) {\n"
+        "    return 27;\n"
+        "  }\n"
+        "  if (value.active() == nullptr || *value.active() != false) {\n"
+        "    return 28;\n"
+        "  }\n"
+        "  if (value.count() == nullptr || *value.count() != 0u) {\n"
+        "    return 29;\n"
+        "  }\n"
+        "  if (value.ratio() == nullptr || *value.ratio() != 0.0) {\n"
+        "    return 30;\n"
+        "  }\n"
+        "  if (value.label() == nullptr || *value.label() != std::string(\"hello\")) {\n"
+        "    return 31;\n"
+        "  }\n"
+        "  if (value.payload() == nullptr || value.payload()->size() != 4u) {\n"
+        "    return 32;\n"
+        "  }\n"
+        "  return 0;\n"
         "}\n";
 
     compile_generated_header(result, "generated/beta/two.generated.hpp", translation_source);

@@ -3,11 +3,90 @@
 // Namespace: <root>
 
 #include <cstdint>
+#include <optional>
 
 struct B {
-  std::uint32_t count;
+  B() = default;
+
+  bool has_count() const {
+    return count_.has_value();
+  }
+  const std::uint32_t* count() const {
+    return count_ ? &*count_ : nullptr;
+  }
+
+private:
+  friend class BBuilder;
+  std::optional<std::uint32_t> count_;
+};
+
+class BBuilder {
+public:
+  bool has_count() const {
+    return count_.has_value();
+  }
+
+  bool set_count(const std::uint32_t& value) {
+    if (!validate_count(value)) {
+      return false;
+    }
+    count_ = value;
+    return true;
+  }
+
+  B build() const {
+    B value;
+    value.count_ = count_;
+    return value;
+  }
+
+private:
+  static bool validate_count(const std::uint32_t& value) {
+    return true;
+  }
+
+  std::optional<std::uint32_t> count_;
 };
 
 struct A {
-  ::B value;
+  A() = default;
+
+  bool has_value() const {
+    return value_.has_value();
+  }
+  const ::B* value() const {
+    return value_ ? &*value_ : nullptr;
+  }
+
+private:
+  friend class ABuilder;
+  std::optional<::B> value_;
+};
+
+class ABuilder {
+public:
+  bool has_value() const {
+    return value_.has_value();
+  }
+
+  bool set_value(const ::B& value) {
+    if (!validate_value(value)) {
+      return false;
+    }
+    value_ = value;
+    return true;
+  }
+
+  A build() const {
+    A value;
+    value.value_ = value_;
+    return value;
+  }
+
+private:
+  static bool validate_value(const ::B& value) {
+    return true;
+  }
+
+  std::optional<::B> value_;
 };

@@ -45,6 +45,7 @@ struct TypeLoweringResult {
 };
 
 struct FieldPlan {
+    const ::breadcrumbs::schema_ir::FieldIR* field = nullptr;
     std::string name;
     std::string cpp_type;
 };
@@ -159,6 +160,10 @@ struct NamespacePlan {
     return "// Namespace: " + std::string(fqn) + "\n";
 }
 
+[[nodiscard]] std::string field_member_name(std::string_view field_name) {
+    return std::string(field_name) + "_";
+}
+
 void append_namespace_open(std::ostringstream& stream,
                            const std::vector<std::string>& namespace_stack) {
     for (const std::string& part : namespace_stack) {
@@ -220,6 +225,10 @@ primitive_mapping(::breadcrumbs::schema_ir::PrimitiveType primitive, std::string
 
     error_message = "backend codegen encountered an unsupported primitive field type";
     return std::nullopt;
+}
+
+void add_record_requirements(std::set<std::string>& standard_includes) {
+    standard_includes.insert("<optional>");
 }
 
 void add_primitive_requirements(TypeLoweringResult& result, const PrimitiveMapping& mapping) {
@@ -343,6 +352,81 @@ lower_field_type(const ::breadcrumbs::schema_ir::FieldType& field_type,
 
     error_message = "backend codegen encountered an unknown field type";
     return {};
+}
+
+[[nodiscard]] bool
+render_field_validation_statements(const ::breadcrumbs::schema_ir::FieldType& field_type,
+                                   std::string_view value_expression, std::size_t indent_level,
+                                   std::size_t element_depth, std::ostringstream& stream,
+                                   std::string& error_message) {
+    switch (field_type.kind_case()) {
+    case ::breadcrumbs::schema_ir::FieldType::kPrimitive:
+    case ::breadcrumbs::schema_ir::FieldType::kRecord:
+    case ::breadcrumbs::schema_ir::FieldType::kEnumType:
+        return true;
+    case ::breadcrumbs::schema_ir::FieldType::kString: {
+        const std::uint32_t max_bytes = field_type.string().max_bytes();
+        if (max_bytes > 0) {
+            stream << indent(indent_level) << "if (" << value_expression << ".size() > "
+                   << max_bytes << ") {\n";
+            stream << indent(indent_level + 1) << "return false;\n";
+            stream << indent(indent_level) << "}\n";
+        }
+        return true;
+    }
+    case ::breadcrumbs::schema_ir::FieldType::kBytes: {
+        const std::uint32_t max_bytes = field_type.bytes().max_bytes();
+        if (max_bytes > 0) {
+            stream << indent(indent_level) << "if (" << value_expression << ".size() > "
+                   << max_bytes << ") {\n";
+            stream << indent(indent_level + 1) << "return false;\n";
+            stream << indent(indent_level) << "}\n";
+        }
+        return true;
+    }
+    case ::breadcrumbs::schema_ir::FieldType::kArray: {
+        const std::uint32_t max_count = field_type.array().count();
+        const std::string element_name = "element_" + std::to_string(element_depth);
+        stream << indent(indent_level) << "if (" << value_expression << ".size() > " << max_count
+               << ") {\n";
+        stream << indent(indent_level + 1) << "return false;\n";
+        stream << indent(indent_level) << "}\n";
+        stream << indent(indent_level) << "for (const auto& " << element_name << " : "
+               << value_expression << ") {\n";
+        if (!render_field_validation_statements(field_type.array().element_type(), element_name,
+                                                indent_level + 1, element_depth + 1, stream,
+                                                error_message)) {
+            return false;
+        }
+        stream << indent(indent_level) << "}\n";
+        return true;
+    }
+    case ::breadcrumbs::schema_ir::FieldType::KIND_NOT_SET:
+        error_message = "backend codegen encountered a field without a type";
+        return false;
+    }
+
+    error_message = "backend codegen encountered an unknown field type";
+    return false;
+}
+
+[[nodiscard]] bool render_field_validation_function(const FieldPlan& field,
+                                                    std::size_t indent_level,
+                                                    std::ostringstream& stream,
+                                                    std::string& error_message) {
+    if (field.field == nullptr) {
+        error_message = "backend codegen encountered a missing field IR";
+        return false;
+    }
+    stream << indent(indent_level) << "static bool validate_" << field.name << "(const "
+           << field.cpp_type << "& value) {\n";
+    if (!render_field_validation_statements(field.field->type(), "value", indent_level + 1, 0,
+                                            stream, error_message)) {
+        return false;
+    }
+    stream << indent(indent_level + 1) << "return true;\n";
+    stream << indent(indent_level) << "}\n";
+    return true;
 }
 
 [[nodiscard]] const NamedTypeInfo*
@@ -485,6 +569,9 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
 
         for (int index = 0; index < ns.records_size(); ++index) {
             const ::breadcrumbs::schema_ir::RecordIR& record = ns.records(index);
+            if (record.fields_size() > 0) {
+                add_record_requirements(plan.standard_includes);
+            }
             plan.declarations.push_back(DeclarationPlan{
                 .kind = DeclarationPlan::Kind::Record,
                 .enum_ir = nullptr,
@@ -526,7 +613,7 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
                     return false;
                 }
                 record_plan.fields.push_back(
-                    FieldPlan{.name = field.name(), .cpp_type = lowered.cpp_type});
+                    FieldPlan{.field = &field, .name = field.name(), .cpp_type = lowered.cpp_type});
                 plan.standard_includes.insert(lowered.standard_includes.begin(),
                                               lowered.standard_includes.end());
                 plan.includes.insert(lowered.generated_includes.begin(),
@@ -623,24 +710,114 @@ void collect_emitted_files(const NamespacePlan& plan, std::vector<const Namespac
     return stream.str();
 }
 
-[[nodiscard]] std::string render_record_definition(const RecordPlan& record_plan,
-                                                   std::size_t indent_level) {
-    std::ostringstream stream;
-    stream << indent(indent_level) << "struct " << record_plan.record->name();
+[[nodiscard]] bool render_record_builder_definition(const RecordPlan& record_plan,
+                                                    std::size_t indent_level,
+                                                    std::ostringstream& stream,
+                                                    std::string& error_message) {
+    const std::string& record_name = record_plan.record->name();
+    stream << indent(indent_level) << "class " << record_name << "Builder {\n";
+    stream << indent(indent_level) << "public:\n";
+
     if (record_plan.fields.empty()) {
-        stream << " {};\n";
-        return stream.str();
+        stream << indent(indent_level + 1) << record_name << " build() const {\n";
+        stream << indent(indent_level + 2) << "return " << record_name << "{};\n";
+        stream << indent(indent_level + 1) << "}\n";
+        stream << indent(indent_level) << "};\n";
+        return true;
     }
 
-    stream << " {\n";
     for (const FieldPlan& field : record_plan.fields) {
-        stream << indent(indent_level + 1) << field.cpp_type << ' ' << field.name << ";\n";
+        stream << indent(indent_level + 1) << "bool has_" << field.name << "() const {\n";
+        stream << indent(indent_level + 2) << "return " << field_member_name(field.name)
+               << ".has_value();\n";
+        stream << indent(indent_level + 1) << "}\n";
     }
+    if (!record_plan.fields.empty()) {
+        stream << '\n';
+    }
+
+    for (const FieldPlan& field : record_plan.fields) {
+        stream << indent(indent_level + 1) << "bool set_" << field.name << "(const "
+               << field.cpp_type << "& value) {\n";
+        stream << indent(indent_level + 2) << "if (!validate_" << field.name << "(value)) {\n";
+        stream << indent(indent_level + 3) << "return false;\n";
+        stream << indent(indent_level + 2) << "}\n";
+        stream << indent(indent_level + 2) << field_member_name(field.name) << " = value;\n";
+        stream << indent(indent_level + 2) << "return true;\n";
+        stream << indent(indent_level + 1) << "}\n";
+    }
+
+    if (!record_plan.fields.empty()) {
+        stream << '\n';
+    }
+
+    stream << indent(indent_level + 1) << record_name << " build() const {\n";
+    stream << indent(indent_level + 2) << record_name << " value;\n";
+    for (const FieldPlan& field : record_plan.fields) {
+        stream << indent(indent_level + 2) << "value." << field_member_name(field.name) << " = "
+               << field_member_name(field.name) << ";\n";
+    }
+    stream << indent(indent_level + 2) << "return value;\n";
+    stream << indent(indent_level + 1) << "}\n";
+
+    if (!record_plan.fields.empty()) {
+        stream << '\n';
+        stream << indent(indent_level) << "private:\n";
+        for (const FieldPlan& field : record_plan.fields) {
+            if (!render_field_validation_function(field, indent_level + 1, stream, error_message)) {
+                return false;
+            }
+        }
+
+        stream << '\n';
+        for (const FieldPlan& field : record_plan.fields) {
+            stream << indent(indent_level + 1) << "std::optional<" << field.cpp_type << "> "
+                   << field_member_name(field.name) << ";\n";
+        }
+    }
+
     stream << indent(indent_level) << "};\n";
-    return stream.str();
+    return true;
 }
 
-[[nodiscard]] std::string render_namespace_file(const NamespacePlan& plan) {
+[[nodiscard]] bool render_record_definition(const RecordPlan& record_plan, std::size_t indent_level,
+                                            std::ostringstream& stream,
+                                            std::string& error_message) {
+    const std::string& record_name = record_plan.record->name();
+    if (record_plan.fields.empty()) {
+        stream << indent(indent_level) << "struct " << record_name << " {};\n\n";
+        return render_record_builder_definition(record_plan, indent_level, stream, error_message);
+    }
+
+    stream << indent(indent_level) << "struct " << record_name << " {\n";
+    stream << indent(indent_level + 1) << record_name << "() = default;\n\n";
+    for (const FieldPlan& field : record_plan.fields) {
+        stream << indent(indent_level + 1) << "bool has_" << field.name << "() const {\n";
+        stream << indent(indent_level + 2) << "return " << field_member_name(field.name)
+               << ".has_value();\n";
+        stream << indent(indent_level + 1) << "}\n";
+        stream << indent(indent_level + 1) << "const " << field.cpp_type << "* " << field.name
+               << "() const {\n";
+        stream << indent(indent_level + 2) << "return " << field_member_name(field.name) << " ? &*"
+               << field_member_name(field.name) << " : nullptr;\n";
+        stream << indent(indent_level + 1) << "}\n";
+    }
+    stream << '\n' << indent(indent_level) << "private:\n";
+    stream << indent(indent_level + 1) << "friend class " << record_name << "Builder;\n";
+    for (const FieldPlan& field : record_plan.fields) {
+        stream << indent(indent_level + 1) << "std::optional<" << field.cpp_type << "> "
+               << field_member_name(field.name) << ";\n";
+    }
+    stream << indent(indent_level) << "};\n\n";
+
+    if (!render_record_builder_definition(record_plan, indent_level, stream, error_message)) {
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool render_namespace_file(const NamespacePlan& plan, std::string& output,
+                                         std::string& error_message) {
     std::ostringstream stream;
     stream << "// Generated by Breadcrumbs.\n";
     stream << namespace_comment(plan.fqn);
@@ -668,7 +845,10 @@ void collect_emitted_files(const NamespacePlan& plan, std::vector<const Namespac
         if (declaration.kind == DeclarationPlan::Kind::Enum) {
             stream << render_enum_definition(*declaration.enum_ir, parts.size());
         } else {
-            stream << render_record_definition(declaration.record, parts.size());
+            if (!render_record_definition(declaration.record, parts.size(), stream,
+                                          error_message)) {
+                return false;
+            }
         }
         wrote_declaration = true;
         if (index + 1 < plan.declarations.size()) {
@@ -682,25 +862,32 @@ void collect_emitted_files(const NamespacePlan& plan, std::vector<const Namespac
 
     append_namespace_close(stream, parts);
 
-    std::string output = stream.str();
+    output = stream.str();
     if (!output.empty() && output.back() != '\n') {
         output.push_back('\n');
     }
 
-    return output;
+    return true;
 }
 
-void collect_namespace_files(const NamespacePlan& plan, std::vector<GeneratedFile>& files) {
+[[nodiscard]] bool collect_namespace_files(const NamespacePlan& plan,
+                                           std::vector<GeneratedFile>& files,
+                                           std::string& error_message) {
     if (plan.emits_file) {
         GeneratedFile file;
         file.path = plan.file_path;
-        file.content = render_namespace_file(plan);
+        if (!render_namespace_file(plan, file.content, error_message)) {
+            return false;
+        }
         files.push_back(std::move(file));
     }
 
     for (const NamespacePlan& child : plan.children) {
-        collect_namespace_files(child, files);
+        if (!collect_namespace_files(child, files, error_message)) {
+            return false;
+        }
     }
+    return true;
 }
 
 } // namespace
@@ -730,7 +917,11 @@ CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
     }
 
     std::vector<GeneratedFile> files;
-    collect_namespace_files(root_plan, files);
+    if (!collect_namespace_files(root_plan, files, error_message)) {
+        result.success = false;
+        result.error_message = std::move(error_message);
+        return result;
+    }
 
     result.files = std::move(files);
     return result;

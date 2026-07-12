@@ -1,1 +1,1 @@
-- PR-016: C++ variable-length field type generation from validated Schema IR
+- PR-017: Generated record builders with logical presence tracking and bounds enforcement

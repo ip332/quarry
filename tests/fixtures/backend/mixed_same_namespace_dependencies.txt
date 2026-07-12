@@ -3,6 +3,7 @@
 // Namespace: <root>
 
 #include <cstdint>
+#include <optional>
 
 enum class Status : std::int64_t {
   Unknown = 0,
@@ -10,10 +11,109 @@ enum class Status : std::int64_t {
 };
 
 struct Child {
-  std::uint32_t count;
+  Child() = default;
+
+  bool has_count() const {
+    return count_.has_value();
+  }
+  const std::uint32_t* count() const {
+    return count_ ? &*count_ : nullptr;
+  }
+
+private:
+  friend class ChildBuilder;
+  std::optional<std::uint32_t> count_;
+};
+
+class ChildBuilder {
+public:
+  bool has_count() const {
+    return count_.has_value();
+  }
+
+  bool set_count(const std::uint32_t& value) {
+    if (!validate_count(value)) {
+      return false;
+    }
+    count_ = value;
+    return true;
+  }
+
+  Child build() const {
+    Child value;
+    value.count_ = count_;
+    return value;
+  }
+
+private:
+  static bool validate_count(const std::uint32_t& value) {
+    return true;
+  }
+
+  std::optional<std::uint32_t> count_;
 };
 
 struct Wrapper {
-  ::Child child;
-  ::Status state;
+  Wrapper() = default;
+
+  bool has_child() const {
+    return child_.has_value();
+  }
+  const ::Child* child() const {
+    return child_ ? &*child_ : nullptr;
+  }
+  bool has_state() const {
+    return state_.has_value();
+  }
+  const ::Status* state() const {
+    return state_ ? &*state_ : nullptr;
+  }
+
+private:
+  friend class WrapperBuilder;
+  std::optional<::Child> child_;
+  std::optional<::Status> state_;
+};
+
+class WrapperBuilder {
+public:
+  bool has_child() const {
+    return child_.has_value();
+  }
+  bool has_state() const {
+    return state_.has_value();
+  }
+
+  bool set_child(const ::Child& value) {
+    if (!validate_child(value)) {
+      return false;
+    }
+    child_ = value;
+    return true;
+  }
+  bool set_state(const ::Status& value) {
+    if (!validate_state(value)) {
+      return false;
+    }
+    state_ = value;
+    return true;
+  }
+
+  Wrapper build() const {
+    Wrapper value;
+    value.child_ = child_;
+    value.state_ = state_;
+    return value;
+  }
+
+private:
+  static bool validate_child(const ::Child& value) {
+    return true;
+  }
+  static bool validate_state(const ::Status& value) {
+    return true;
+  }
+
+  std::optional<::Child> child_;
+  std::optional<::Status> state_;
 };

@@ -3,3 +3,10 @@
 // Namespace: <root>
 
 struct Example {};
+
+class ExampleBuilder {
+public:
+  Example build() const {
+    return Example{};
+  }
+};

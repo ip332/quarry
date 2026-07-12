@@ -3,6 +3,7 @@
 // Namespace: <root>
 
 #include <cstdint>
+#include <optional>
 
 enum class Color : std::int64_t {
   Red = 1,
@@ -10,5 +11,44 @@ enum class Color : std::int64_t {
 };
 
 struct Paint {
-  ::Color color;
+  Paint() = default;
+
+  bool has_color() const {
+    return color_.has_value();
+  }
+  const ::Color* color() const {
+    return color_ ? &*color_ : nullptr;
+  }
+
+private:
+  friend class PaintBuilder;
+  std::optional<::Color> color_;
+};
+
+class PaintBuilder {
+public:
+  bool has_color() const {
+    return color_.has_value();
+  }
+
+  bool set_color(const ::Color& value) {
+    if (!validate_color(value)) {
+      return false;
+    }
+    color_ = value;
+    return true;
+  }
+
+  Paint build() const {
+    Paint value;
+    value.color_ = color_;
+    return value;
+  }
+
+private:
+  static bool validate_color(const ::Color& value) {
+    return true;
+  }
+
+  std::optional<::Color> color_;
 };
