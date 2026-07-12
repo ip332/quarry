@@ -25,6 +25,7 @@ namespace {
 
 using breadcrumbs::compiler::context::CompilerContext;
 using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
+using breadcrumbs::compiler::layout::LayoutComputer;
 using breadcrumbs::compiler::layout::LayoutModel;
 using breadcrumbs::compiler::parser::Parser;
 using breadcrumbs::compiler::schema_ir::SchemaIrBuilder;
@@ -42,6 +43,7 @@ struct FrontendOutput {
     DiagnosticEngine parser_diagnostics;
     DiagnosticEngine symbol_diagnostics;
     DiagnosticEngine semantic_diagnostics;
+    DiagnosticEngine layout_diagnostics;
     DiagnosticEngine lowering_diagnostics;
     DiagnosticEngine validation_diagnostics;
     std::unique_ptr<SymbolTable> symbol_table;
@@ -88,13 +90,25 @@ void trim_trailing_newlines(std::string& text) {
     output.semantic_model =
         validator.validate(output.ast, *output.symbol_table, output.semantic_diagnostics);
 
+    if (output.semantic_diagnostics.empty()) {
+        LayoutComputer layout_computer;
+        output.layout_model = layout_computer.compute(output.semantic_model, output.context,
+                                                      output.layout_diagnostics);
+    }
+
     SchemaIrBuilder schema_ir_builder;
-    output.schema_ir =
-        schema_ir_builder.build(output.ast, output.semantic_model, output.layout_model,
-                                *output.symbol_table, output.context, output.lowering_diagnostics);
+    if (output.semantic_diagnostics.empty() && output.layout_diagnostics.empty()) {
+        output.schema_ir = schema_ir_builder.build(output.ast, output.semantic_model,
+                                                   output.layout_model, *output.symbol_table,
+                                                   output.context, output.lowering_diagnostics);
+    }
 
     SchemaIrValidator schema_ir_validator;
-    schema_ir_validator.validate(output.schema_ir, output.context, output.validation_diagnostics);
+    if (output.semantic_diagnostics.empty() && output.layout_diagnostics.empty() &&
+        output.lowering_diagnostics.empty()) {
+        schema_ir_validator.validate(output.schema_ir, output.context,
+                                     output.validation_diagnostics);
+    }
     return output;
 }
 
@@ -164,6 +178,7 @@ void expect_fixture_matches_golden(std::string_view fixture_name) {
     ASSERT_TRUE(output.parser_diagnostics.empty());
     ASSERT_TRUE(output.symbol_diagnostics.empty());
     ASSERT_TRUE(output.semantic_diagnostics.empty());
+    ASSERT_TRUE(output.layout_diagnostics.empty());
     ASSERT_TRUE(output.lowering_diagnostics.empty());
     ASSERT_TRUE(output.validation_diagnostics.empty());
 

@@ -23,6 +23,7 @@ namespace {
 using breadcrumbs::compiler::context::CompilerContext;
 using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
 using breadcrumbs::compiler::diagnostics::DiagnosticFormatter;
+using breadcrumbs::compiler::layout::LayoutComputer;
 using breadcrumbs::compiler::layout::LayoutModel;
 using breadcrumbs::compiler::parser::Parser;
 using breadcrumbs::compiler::schema_ir::SchemaIrBuilder;
@@ -41,6 +42,7 @@ struct FrontendOutput {
     DiagnosticEngine parser_diagnostics;
     DiagnosticEngine symbol_diagnostics;
     DiagnosticEngine semantic_diagnostics;
+    DiagnosticEngine layout_diagnostics;
     DiagnosticEngine lowering_diagnostics;
     DiagnosticEngine validation_diagnostics;
     std::unique_ptr<SymbolTable> symbol_table;
@@ -73,10 +75,18 @@ struct FrontendOutput {
             validator.validate(output.ast, *output.symbol_table, output.semantic_diagnostics);
     }
 
+    if (output.semantic_diagnostics.empty()) {
+        LayoutComputer layout_computer;
+        output.layout_model = layout_computer.compute(output.semantic_model, output.context,
+                                                      output.layout_diagnostics);
+    }
+
     SchemaIrBuilder schema_ir_builder;
-    output.schema_ir =
-        schema_ir_builder.build(output.ast, output.semantic_model, output.layout_model,
-                                *output.symbol_table, output.context, output.lowering_diagnostics);
+    if (output.semantic_diagnostics.empty() && output.layout_diagnostics.empty()) {
+        output.schema_ir = schema_ir_builder.build(output.ast, output.semantic_model,
+                                                   output.layout_model, *output.symbol_table,
+                                                   output.context, output.lowering_diagnostics);
+    }
     return output;
 }
 
@@ -142,6 +152,7 @@ TEST(SchemaIrValidationTest, AcceptsValidatedFrontendOutput) {
     ASSERT_TRUE(output.parser_diagnostics.empty());
     ASSERT_TRUE(output.symbol_diagnostics.empty());
     ASSERT_TRUE(output.semantic_diagnostics.empty());
+    ASSERT_TRUE(output.layout_diagnostics.empty());
     ASSERT_TRUE(output.lowering_diagnostics.empty())
         << diagnostics_summary(output.lowering_diagnostics, output.context.source_manager());
 
@@ -251,11 +262,13 @@ TEST(SchemaIrValidationTest, RejectsDuplicateFieldNames) {
 
     auto* field = record->add_fields();
     field->set_name("origin");
+    field->set_field_index(0);
     set_origin(field, "/test/schema.brd", 0, 0);
     field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL);
 
     auto* duplicate_field = record->add_fields();
     duplicate_field->set_name("origin");
+    duplicate_field->set_field_index(1);
     set_origin(duplicate_field, "/test/schema.brd", 0, 0);
     duplicate_field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
 
@@ -264,6 +277,89 @@ TEST(SchemaIrValidationTest, RejectsDuplicateFieldNames) {
 
     ASSERT_EQ(diagnostics.diagnostics().size(), 1U);
     EXPECT_EQ(diagnostics.diagnostics()[0].id().str(), "BC6003");
+}
+
+TEST(SchemaIrValidationTest, AllowsGappedFieldIndexes) {
+    CompilerContext context;
+    (void)add_test_source(context);
+
+    SchemaIrModel schema_ir = make_schema_ir();
+    auto* record = schema_ir.mutable_root_namespace()->add_records();
+    record->set_ir_id(2);
+    record->set_name("Route");
+    record->set_fqn("Route");
+    set_origin(record, "/test/schema.brd", 0, 0);
+
+    auto* field = record->add_fields();
+    field->set_name("origin");
+    field->set_field_index(0);
+    set_origin(field, "/test/schema.brd", 0, 0);
+    field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL);
+
+    auto* second = record->add_fields();
+    second->set_name("destination");
+    second->set_field_index(2);
+    set_origin(second, "/test/schema.brd", 0, 0);
+    second->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+
+    DiagnosticEngine diagnostics;
+    validate_schema_ir(schema_ir, context, diagnostics);
+
+    EXPECT_TRUE(diagnostics.empty()) << diagnostics_summary(diagnostics, context.source_manager());
+}
+
+TEST(SchemaIrValidationTest, RejectsDuplicateFieldIndexes) {
+    CompilerContext context;
+    (void)add_test_source(context);
+
+    SchemaIrModel schema_ir = make_schema_ir();
+    auto* record = schema_ir.mutable_root_namespace()->add_records();
+    record->set_ir_id(2);
+    record->set_name("Route");
+    record->set_fqn("Route");
+    set_origin(record, "/test/schema.brd", 0, 0);
+
+    auto* field = record->add_fields();
+    field->set_name("origin");
+    field->set_field_index(0);
+    set_origin(field, "/test/schema.brd", 0, 0);
+    field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL);
+
+    auto* duplicate_field = record->add_fields();
+    duplicate_field->set_name("destination");
+    duplicate_field->set_field_index(0);
+    set_origin(duplicate_field, "/test/schema.brd", 0, 0);
+    duplicate_field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+
+    DiagnosticEngine diagnostics;
+    validate_schema_ir(schema_ir, context, diagnostics);
+
+    ASSERT_EQ(diagnostics.diagnostics().size(), 1U);
+    EXPECT_EQ(diagnostics.diagnostics()[0].id().str(), "BC6008");
+}
+
+TEST(SchemaIrValidationTest, RejectsFieldIndexesAboveUint8Limit) {
+    CompilerContext context;
+    (void)add_test_source(context);
+
+    SchemaIrModel schema_ir = make_schema_ir();
+    auto* record = schema_ir.mutable_root_namespace()->add_records();
+    record->set_ir_id(2);
+    record->set_name("Route");
+    record->set_fqn("Route");
+    set_origin(record, "/test/schema.brd", 0, 0);
+
+    auto* field = record->add_fields();
+    field->set_name("origin");
+    field->set_field_index(256);
+    set_origin(field, "/test/schema.brd", 0, 0);
+    field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL);
+
+    DiagnosticEngine diagnostics;
+    validate_schema_ir(schema_ir, context, diagnostics);
+
+    ASSERT_EQ(diagnostics.diagnostics().size(), 1U);
+    EXPECT_EQ(diagnostics.diagnostics()[0].id().str(), "BC6009");
 }
 
 TEST(SchemaIrValidationTest, RejectsDuplicateEnumValueNames) {
@@ -486,11 +582,13 @@ TEST(SchemaIrValidationTest, UsesSourceMetadataInDiagnosticsWhenAvailable) {
 
     auto* field = record->add_fields();
     field->set_name("origin");
+    field->set_field_index(0);
     set_origin(field, "/test/schema.brd", 0, 0, 1, 1, 1, 1);
     field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL);
 
     auto* duplicate = record->add_fields();
     duplicate->set_name("origin");
+    duplicate->set_field_index(1);
     set_origin(duplicate, "/test/schema.brd", 0, 0, 1, 1, 1, 1);
     duplicate->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
 

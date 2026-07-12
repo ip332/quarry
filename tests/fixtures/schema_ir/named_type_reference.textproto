@@ -28,6 +28,7 @@ root_namespace {
         }
         fields {
           name: "fallback"
+          field_index: 1
           type {
             record {
               target_record_ir_id: 4
@@ -38,4 +39,3 @@ root_namespace {
     }
   }
 }
-

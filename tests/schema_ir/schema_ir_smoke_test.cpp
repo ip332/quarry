@@ -19,6 +19,7 @@ namespace {
 
 using breadcrumbs::compiler::context::CompilerContext;
 using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
+using breadcrumbs::compiler::layout::LayoutComputer;
 using breadcrumbs::compiler::layout::LayoutModel;
 using breadcrumbs::compiler::parser::Parser;
 using breadcrumbs::compiler::schema_ir::SchemaIrBuilder;
@@ -35,6 +36,7 @@ struct FrontendOutput {
     DiagnosticEngine parser_diagnostics;
     DiagnosticEngine symbol_diagnostics;
     DiagnosticEngine semantic_diagnostics;
+    DiagnosticEngine layout_diagnostics;
     DiagnosticEngine lowering_diagnostics;
     std::unique_ptr<SymbolTable> symbol_table;
     SemanticModel semantic_model;
@@ -43,7 +45,7 @@ struct FrontendOutput {
     SourceFileId source_file_id;
 };
 
-[[nodiscard]] FrontendOutput run_frontend(std::string text, bool run_semantic) {
+[[nodiscard]] FrontendOutput run_frontend(std::string text) {
     FrontendOutput output;
     output.source_file_id =
         output.context.source_manager().add_source("/test/schema.brd", std::move(text));
@@ -56,30 +58,31 @@ struct FrontendOutput {
     output.symbol_table = std::make_unique<SymbolTable>(
         namespace_builder.build(output.ast, output.symbol_diagnostics));
 
-    if (run_semantic) {
-        SemanticValidator validator;
-        output.semantic_model =
-            validator.validate(output.ast, *output.symbol_table, output.semantic_diagnostics);
-    }
+    SemanticValidator validator;
+    output.semantic_model =
+        validator.validate(output.ast, *output.symbol_table, output.semantic_diagnostics);
+
+    LayoutComputer layout_computer;
+    output.layout_model =
+        layout_computer.compute(output.semantic_model, output.context, output.layout_diagnostics);
 
     SchemaIrBuilder schema_ir_builder;
-    output.schema_ir =
-        schema_ir_builder.build(output.ast, output.semantic_model, output.layout_model,
-                                *output.symbol_table, output.context, output.lowering_diagnostics);
+    if (output.layout_diagnostics.empty()) {
+        output.schema_ir = schema_ir_builder.build(output.ast, output.semantic_model,
+                                                   output.layout_model, *output.symbol_table,
+                                                   output.context, output.lowering_diagnostics);
+    }
     return output;
 }
 
 [[nodiscard]] FrontendOutput run_clean_frontend(std::string text) {
-    return run_frontend(std::move(text), true);
-}
-
-[[nodiscard]] FrontendOutput lower_without_semantic(std::string text) {
-    return run_frontend(std::move(text), false);
+    return run_frontend(std::move(text));
 }
 
 [[nodiscard]] bool clean(const FrontendOutput& output) {
     return output.parser_diagnostics.empty() && output.symbol_diagnostics.empty() &&
-           output.semantic_diagnostics.empty() && output.lowering_diagnostics.empty();
+           output.semantic_diagnostics.empty() && output.layout_diagnostics.empty() &&
+           output.lowering_diagnostics.empty();
 }
 
 [[nodiscard]] std::string diagnostics_summary(const DiagnosticEngine& diagnostics) {
@@ -179,12 +182,16 @@ record Example {
 
     EXPECT_TRUE(record.fields(0).type().has_primitive());
     EXPECT_EQ(record.fields(0).type().primitive(), ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL);
+    EXPECT_EQ(record.fields(0).field_index(), 0U);
     EXPECT_TRUE(record.fields(1).type().has_primitive());
     EXPECT_EQ(record.fields(1).type().primitive(), ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+    EXPECT_EQ(record.fields(1).field_index(), 1U);
     EXPECT_TRUE(record.fields(2).type().has_string());
     EXPECT_EQ(record.fields(2).type().string().max_bytes(), 0U);
+    EXPECT_EQ(record.fields(2).field_index(), 2U);
     EXPECT_TRUE(record.fields(3).type().has_bytes());
     EXPECT_EQ(record.fields(3).type().bytes().max_bytes(), 0U);
+    EXPECT_EQ(record.fields(3).field_index(), 3U);
 }
 
 TEST(SchemaIrSmokeTest, LowersEnumsWithExplicitValues) {
@@ -254,13 +261,16 @@ namespace breadcrumbs.vehicle {
 
     ASSERT_EQ(route->fields_size(), 1);
     ASSERT_EQ(journey->fields_size(), 2);
+    EXPECT_EQ(route->fields(0).field_index(), 0U);
     EXPECT_EQ(route->fields(0).type().record().target_record_ir_id(), geo_location->ir_id());
+    EXPECT_EQ(journey->fields(0).field_index(), 0U);
     EXPECT_EQ(journey->fields(0).type().record().target_record_ir_id(), vehicle_location->ir_id());
+    EXPECT_EQ(journey->fields(1).field_index(), 1U);
     EXPECT_EQ(journey->fields(1).type().record().target_record_ir_id(), geo_location->ir_id());
 }
 
 TEST(SchemaIrSmokeTest, LowersArrayTypeSyntax) {
-    const FrontendOutput output = lower_without_semantic(R"(record Route {
+    const FrontendOutput output = run_clean_frontend(R"(record Route {
   samples: bytes[16]
 }
 )");
@@ -269,6 +279,9 @@ TEST(SchemaIrSmokeTest, LowersArrayTypeSyntax) {
         << diagnostics_summary(output.parser_diagnostics);
     ASSERT_TRUE(output.symbol_diagnostics.empty())
         << diagnostics_summary(output.symbol_diagnostics);
+    ASSERT_TRUE(output.semantic_model.records.size() == 1U);
+    ASSERT_EQ(output.layout_model.records.size(), 1U);
+    ASSERT_EQ(output.layout_model.records[0].fqn, "Route");
     ASSERT_TRUE(output.lowering_diagnostics.empty())
         << diagnostics_summary(output.lowering_diagnostics);
 
@@ -279,10 +292,11 @@ TEST(SchemaIrSmokeTest, LowersArrayTypeSyntax) {
     EXPECT_TRUE(record.fields(0).type().has_array());
     EXPECT_EQ(record.fields(0).type().array().count(), 16U);
     EXPECT_TRUE(record.fields(0).type().array().element_type().has_bytes());
+    EXPECT_EQ(record.fields(0).field_index(), 0U);
 }
 
 TEST(SchemaIrSmokeTest, ContinuesAfterInvalidFieldReferenceInTheSameCompilation) {
-    const FrontendOutput output = lower_without_semantic(R"(record Known {
+    const FrontendOutput output = run_clean_frontend(R"(record Known {
 }
 
 record Example {
@@ -296,6 +310,7 @@ record Example {
         << diagnostics_summary(output.parser_diagnostics);
     ASSERT_TRUE(output.symbol_diagnostics.empty())
         << diagnostics_summary(output.symbol_diagnostics);
+    ASSERT_EQ(output.layout_model.records.size(), 2U);
     ASSERT_EQ(output.lowering_diagnostics.diagnostics().size(), 1U);
     EXPECT_EQ(output.lowering_diagnostics.diagnostics()[0].severity(),
               breadcrumbs::compiler::diagnostics::Severity::InternalCompilerError);
@@ -304,7 +319,10 @@ record Example {
     ASSERT_EQ(root.records_size(), 2);
     const auto& example = root.records(1);
     ASSERT_EQ(example.fields_size(), 3);
+    EXPECT_EQ(example.fields(0).field_index(), 0U);
     EXPECT_TRUE(example.fields(0).type().has_primitive());
+    EXPECT_EQ(example.fields(1).field_index(), 1U);
+    EXPECT_EQ(example.fields(2).field_index(), 2U);
     EXPECT_TRUE(example.fields(2).type().has_primitive());
     EXPECT_EQ(example.fields(2).type().primitive(), ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
 }

@@ -17,3 +17,13 @@ Allowed dependencies:
 * `compiler/support`
 
 This layer must not perform semantic analysis or backend generation.
+
+Current layout behavior:
+
+* records are processed in canonical fully qualified name order
+* the initial `recordId` allocation starts at `1` and increments monotonically
+* fields are assigned `fieldIndex` values in declaration order starting at `0`
+* a record may contain at most `256` declared fields because `fieldIndex` is
+  stored as `uint8` in the binary record format
+* the Layout Model stores canonical record FQNs so later passes can locate the
+  correct layout without depending on traversal order

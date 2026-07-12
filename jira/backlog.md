@@ -1,1 +1,1 @@
-- PR-017: Generated record builders with logical presence tracking and bounds enforcement
+- PR-018: Deterministic initial layout computation and Schema IR field-index integration

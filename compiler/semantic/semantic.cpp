@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 namespace breadcrumbs::compiler::semantic {
 namespace {
@@ -43,6 +44,17 @@ constexpr std::string_view semantic_pass = "semantic";
     }
 
     return false;
+}
+
+[[nodiscard]] std::string qualify_fqn(std::string_view parent_fqn, std::string_view name) {
+    if (parent_fqn.empty()) {
+        return std::string(name);
+    }
+
+    std::string qualified(parent_fqn);
+    qualified.push_back('.');
+    qualified.append(name);
+    return qualified;
 }
 
 void emit_unresolved_type(diagnostics::DiagnosticEngine& diagnostics,
@@ -135,9 +147,26 @@ void validate_type(const ast::TypeSyntax& type, const symbols::Scope& scope,
         type);
 }
 
-void validate_declaration(const ast::DeclarationSyntax& declaration, const symbols::Scope& scope,
-                          const symbols::SymbolTable& symbol_model,
-                          diagnostics::DiagnosticEngine& diagnostics) {
+void collect_semantic_record(const ast::RecordDeclarationSyntax& declaration,
+                             std::string_view current_namespace_fqn, SemanticModel& model) {
+    SemanticRecord record;
+    record.source_range = declaration.source_range;
+    record.fqn = qualify_fqn(current_namespace_fqn, declaration.name.text);
+    record.fields.reserve(declaration.fields.size());
+    for (const ast::FieldDeclarationSyntax& field : declaration.fields) {
+        record.fields.push_back(SemanticField{
+            .source_range = field.source_range,
+            .name = field.name.text,
+        });
+    }
+    model.records.push_back(std::move(record));
+}
+
+void collect_semantic_declaration(const ast::DeclarationSyntax& declaration,
+                                  const symbols::Scope& scope,
+                                  const symbols::SymbolTable& symbol_model,
+                                  diagnostics::DiagnosticEngine& diagnostics, SemanticModel& model,
+                                  std::string current_namespace_fqn) {
     std::visit(
         [&](const auto& typed) {
             using Type = std::decay_t<decltype(typed)>;
@@ -148,15 +177,19 @@ void validate_declaration(const ast::DeclarationSyntax& declaration, const symbo
                     return;
                 }
 
+                const std::string namespace_fqn =
+                    qualify_fqn(current_namespace_fqn, typed.name.text());
                 for (const ast::DeclarationPtr& nested : typed.declarations) {
                     if (nested != nullptr) {
-                        validate_declaration(*nested, *namespace_scope, symbol_model, diagnostics);
+                        collect_semantic_declaration(*nested, *namespace_scope, symbol_model,
+                                                     diagnostics, model, namespace_fqn);
                     }
                 }
             } else if constexpr (std::is_same_v<Type, ast::RecordDeclarationSyntax>) {
                 for (const ast::FieldDeclarationSyntax& field : typed.fields) {
                     validate_type(field.type, scope, symbol_model, diagnostics);
                 }
+                collect_semantic_record(typed, current_namespace_fqn, model);
             } else if constexpr (std::is_same_v<Type, ast::EnumDeclarationSyntax>) {
                 (void)typed;
             } else if constexpr (std::is_same_v<Type, ast::ImportDeclarationSyntax>) {
@@ -166,24 +199,36 @@ void validate_declaration(const ast::DeclarationSyntax& declaration, const symbo
         declaration.value);
 }
 
-void validate_schema_file(const ast::SchemaFileSyntax& ast,
-                          const symbols::SymbolTable& symbol_model,
-                          diagnostics::DiagnosticEngine& diagnostics) {
+SemanticModel validate_schema_file(const ast::SchemaFileSyntax& ast,
+                                   const symbols::SymbolTable& symbol_model,
+                                   diagnostics::DiagnosticEngine& diagnostics) {
+    SemanticModel model;
     const symbols::Scope& global_scope = symbol_model.global_scope();
     for (const ast::DeclarationPtr& declaration : ast.declarations) {
         if (declaration != nullptr) {
-            validate_declaration(*declaration, global_scope, symbol_model, diagnostics);
+            collect_semantic_declaration(*declaration, global_scope, symbol_model, diagnostics,
+                                         model, {});
         }
     }
+    return model;
 }
 
 } // namespace
 
+const SemanticRecord* SemanticModel::find_record(std::string_view fqn) const {
+    const auto found =
+        std::find_if(records.begin(), records.end(),
+                     [fqn](const SemanticRecord& record) { return record.fqn == fqn; });
+    if (found == records.end()) {
+        return nullptr;
+    }
+    return &*found;
+}
+
 SemanticModel SemanticValidator::validate(const ast::Ast& ast,
                                           const symbols::SymbolTable& symbol_model,
-                                          diagnostics::DiagnosticEngine& diagnostics) const {
-    validate_schema_file(ast, symbol_model, diagnostics);
-    return {};
+                                          diagnostics::DiagnosticCollection& diagnostics) const {
+    return validate_schema_file(ast, symbol_model, diagnostics);
 }
 
 } // namespace breadcrumbs::compiler::semantic

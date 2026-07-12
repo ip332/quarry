@@ -30,6 +30,7 @@ namespace {
 using breadcrumbs::compiler::backend::Backend;
 using breadcrumbs::compiler::backend::CodegenOptions;
 using breadcrumbs::compiler::backend::CodegenResult;
+using breadcrumbs::compiler::layout::LayoutComputer;
 using breadcrumbs::compiler::layout::LayoutModel;
 using breadcrumbs::compiler::parser::Parser;
 using breadcrumbs::compiler::schema_ir::SchemaIrBuilder;
@@ -47,6 +48,7 @@ struct FrontendOutput {
     breadcrumbs::compiler::diagnostics::DiagnosticEngine parser_diagnostics;
     breadcrumbs::compiler::diagnostics::DiagnosticEngine symbol_diagnostics;
     breadcrumbs::compiler::diagnostics::DiagnosticEngine semantic_diagnostics;
+    breadcrumbs::compiler::diagnostics::DiagnosticEngine layout_diagnostics;
     breadcrumbs::compiler::diagnostics::DiagnosticEngine lowering_diagnostics;
     breadcrumbs::compiler::diagnostics::DiagnosticEngine validation_diagnostics;
     std::unique_ptr<SymbolTable> symbol_table;
@@ -93,13 +95,25 @@ void trim_trailing_newlines(std::string& text) {
     output.semantic_model =
         semantic_validator.validate(output.ast, *output.symbol_table, output.semantic_diagnostics);
 
+    if (output.semantic_diagnostics.empty()) {
+        LayoutComputer layout_computer;
+        output.layout_model = layout_computer.compute(output.semantic_model, output.context,
+                                                      output.layout_diagnostics);
+    }
+
     SchemaIrBuilder schema_ir_builder;
-    output.schema_ir =
-        schema_ir_builder.build(output.ast, output.semantic_model, output.layout_model,
-                                *output.symbol_table, output.context, output.lowering_diagnostics);
+    if (output.semantic_diagnostics.empty() && output.layout_diagnostics.empty()) {
+        output.schema_ir = schema_ir_builder.build(output.ast, output.semantic_model,
+                                                   output.layout_model, *output.symbol_table,
+                                                   output.context, output.lowering_diagnostics);
+    }
 
     SchemaIrValidator schema_ir_validator;
-    schema_ir_validator.validate(output.schema_ir, output.context, output.validation_diagnostics);
+    if (output.semantic_diagnostics.empty() && output.layout_diagnostics.empty() &&
+        output.lowering_diagnostics.empty()) {
+        schema_ir_validator.validate(output.schema_ir, output.context,
+                                     output.validation_diagnostics);
+    }
     return output;
 }
 
@@ -111,6 +125,7 @@ void trim_trailing_newlines(std::string& text) {
     EXPECT_TRUE(frontend.parser_diagnostics.empty());
     EXPECT_TRUE(frontend.symbol_diagnostics.empty());
     EXPECT_TRUE(frontend.semantic_diagnostics.empty());
+    EXPECT_TRUE(frontend.layout_diagnostics.empty());
     EXPECT_TRUE(frontend.lowering_diagnostics.empty());
     EXPECT_TRUE(frontend.validation_diagnostics.empty());
     return result;

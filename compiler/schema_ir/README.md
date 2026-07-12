@@ -60,7 +60,9 @@ Type lowering:
 * named record and enum references are lowered through resolved symbols to
   compiler IR identifiers
 * fixed-size array syntax is lowered recursively as an `ArrayType`
-* `field_index` remains a later layout concern and is not assigned here
+* `field_index` is copied from the Layout Model and is not invented here
+* record IDs are computed in the Layout Model but are not yet propagated into
+  Schema IR
 
 Source metadata:
 
@@ -80,5 +82,5 @@ Deferred work:
 
 * deterministic Schema IR identifier derivation is not specified yet
 * imports remain out of scope for this pass
-* layout-driven field index assignment remains a later compiler stage
+* preserved manifest state and compatibility-aware layout reuse remain deferred
 * backend generation remains out of scope

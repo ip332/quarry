@@ -327,10 +327,34 @@ private:
     void validate_record(const ::breadcrumbs::schema_ir::RecordIR& record) {
         std::unordered_map<std::string, std::optional<support::SourceRange>> field_names;
         field_names.reserve(static_cast<std::size_t>(record.fields_size()));
+        std::unordered_map<std::uint32_t, std::optional<support::SourceRange>> field_indexes;
+        field_indexes.reserve(static_cast<std::size_t>(record.fields_size()));
 
         for (const ::breadcrumbs::schema_ir::FieldIR& field : record.fields()) {
             const std::optional<support::SourceRange> field_range =
                 source_range_from_origin(field.source_origin(), source_manager_);
+            const std::uint32_t field_index = field.field_index();
+            if (field_index > 255U) {
+                emit_diagnostic(diagnostics_, diagnostic_id("BC6009"), diagnostics::Severity::Error,
+                                "schema IR field '" + std::string(field.name()) +
+                                    "' has field_index " + std::to_string(field_index) +
+                                    " which exceeds the uint8 limit",
+                                field_range);
+            } else {
+                const auto [index_it, index_inserted] =
+                    field_indexes.emplace(field_index, field_range);
+                if (!index_inserted) {
+                    emit_diagnostic(
+                        diagnostics_, diagnostic_id("BC6008"), diagnostics::Severity::Error,
+                        "schema IR field '" + std::string(field.name()) + "' reuses field_index " +
+                            std::to_string(field_index) + " within the same record",
+                        field_range,
+                        index_it->second.has_value()
+                            ? std::optional<diagnostics::RelatedLocation>(make_related_location(
+                                  index_it->second, "previous field with this index is here"))
+                            : std::nullopt);
+                }
+            }
             const auto [it, inserted] = field_names.emplace(std::string(field.name()), field_range);
             if (!inserted) {
                 emit_diagnostic(

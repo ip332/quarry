@@ -5,6 +5,8 @@
 #include "compiler/semantic/semantic.hpp"
 
 #include <cstdint>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace breadcrumbs::compiler::layout {
@@ -14,12 +16,15 @@ struct FieldLayout {
 };
 
 struct RecordLayout {
+    std::string fqn;
     std::uint32_t record_id = 0;
     std::vector<FieldLayout> fields;
 };
 
 struct LayoutModel {
     std::vector<RecordLayout> records;
+
+    [[nodiscard]] const RecordLayout* find_record(std::string_view fqn) const;
 };
 
 class LayoutComputer {

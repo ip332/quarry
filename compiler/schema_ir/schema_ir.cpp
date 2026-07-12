@@ -223,11 +223,12 @@ public:
         root->set_fqn("");
         populate_source_origin(root->mutable_source_origin(), source_manager_, ast_.source_range);
 
-        collect_skeletons(ast_.declarations, *root, symbol_model_.global_scope());
-        populate_declarations(ast_.declarations, *root, symbol_model_.global_scope());
+        collect_skeletons(ast_.declarations, *root, symbol_model_.global_scope(), {});
+        populate_declarations(ast_.declarations, *root, symbol_model_.global_scope(), {});
 
-        (void)semantic_model_;
-        (void)layout_model_;
+        if (layout_failed_) {
+            return {};
+        }
         return schema_ir;
     }
 
@@ -240,6 +241,7 @@ private:
         if (name.parts.empty()) {
             emit_internal_error(diagnostics_,
                                 "schema IR lowering encountered an empty namespace name", range);
+            layout_failed_ = true;
             return {};
         }
 
@@ -250,6 +252,7 @@ private:
                 emit_internal_error(
                     diagnostics_,
                     "schema IR lowering could not resolve namespace '" + name.text() + "'", range);
+                layout_failed_ = true;
                 return {};
             }
 
@@ -268,23 +271,24 @@ private:
 
     void collect_skeletons(const std::vector<ast::DeclarationPtr>& declarations,
                            ::breadcrumbs::schema_ir::NamespaceIR& namespace_ir,
-                           const symbols::Scope& scope) {
+                           const symbols::Scope& scope, std::string_view current_namespace_fqn) {
         for (const ast::DeclarationPtr& declaration : declarations) {
             if (declaration != nullptr) {
-                collect_skeleton(*declaration, namespace_ir, scope);
+                collect_skeleton(*declaration, namespace_ir, scope, current_namespace_fqn);
             }
         }
     }
 
     void collect_skeletons(const ast::NamespaceDeclarationSyntax& namespace_declaration,
                            ::breadcrumbs::schema_ir::NamespaceIR& namespace_ir,
-                           const symbols::Scope& scope) {
-        collect_skeletons(namespace_declaration.declarations, namespace_ir, scope);
+                           const symbols::Scope& scope, std::string_view current_namespace_fqn) {
+        collect_skeletons(namespace_declaration.declarations, namespace_ir, scope,
+                          current_namespace_fqn);
     }
 
     void collect_skeleton(const ast::DeclarationSyntax& declaration,
                           ::breadcrumbs::schema_ir::NamespaceIR& namespace_ir,
-                          const symbols::Scope& scope) {
+                          const symbols::Scope& scope, std::string_view current_namespace_fqn) {
         std::visit(
             [&](const auto& typed) {
                 using Type = std::decay_t<decltype(typed)>;
@@ -295,8 +299,8 @@ private:
                         return;
                     }
 
-                    collect_skeletons(typed.declarations, *traversal.namespace_ir,
-                                      *traversal.scope);
+                    collect_skeletons(typed.declarations, *traversal.namespace_ir, *traversal.scope,
+                                      qualify_fqn(current_namespace_fqn, typed.name.text()));
                 } else if constexpr (std::is_same_v<Type, ast::RecordDeclarationSyntax>) {
                     const symbols::Symbol* symbol = scope.find_local(typed.name.text);
                     if (symbol == nullptr || symbol->kind != symbols::SymbolKind::Record) {
@@ -304,6 +308,7 @@ private:
                                             "schema IR lowering could not resolve record '" +
                                                 typed.name.text + "'",
                                             typed.source_range);
+                        layout_failed_ = true;
                         return;
                     }
 
@@ -319,6 +324,7 @@ private:
                                             "schema IR lowering could not resolve enum '" +
                                                 typed.name.text + "'",
                                             typed.source_range);
+                        layout_failed_ = true;
                         return;
                     }
 
@@ -373,6 +379,7 @@ private:
                                 "schema IR lowering is missing an IR id for '" +
                                     type_reference.name.text() + "'",
                                 type_reference.source_range);
+            layout_failed_ = true;
             return field_type;
         }
 
@@ -388,6 +395,7 @@ private:
                                 "schema IR lowering cannot use namespace '" +
                                     type_reference.name.text() + "' as a type",
                                 type_reference.source_range);
+            layout_failed_ = true;
             break;
         }
 
@@ -430,16 +438,63 @@ private:
             type);
     }
 
-    void populate_record_fields(::breadcrumbs::schema_ir::RecordIR& record,
+    [[nodiscard]] const semantic::SemanticRecord*
+    find_semantic_record(std::string_view record_fqn) const {
+        return semantic_model_.find_record(record_fqn);
+    }
+
+    [[nodiscard]] const layout::RecordLayout*
+    find_layout_record(std::string_view record_fqn) const {
+        return layout_model_.find_record(record_fqn);
+    }
+
+    bool populate_record_fields(::breadcrumbs::schema_ir::RecordIR& record,
                                 const ast::RecordDeclarationSyntax& declaration,
-                                const symbols::Scope& scope) {
-        for (const ast::FieldDeclarationSyntax& field : declaration.fields) {
+                                const symbols::Scope& scope, std::string_view record_fqn) {
+        const semantic::SemanticRecord* semantic_record = find_semantic_record(record_fqn);
+        const layout::RecordLayout* layout_record = find_layout_record(record_fqn);
+        if (semantic_record == nullptr || layout_record == nullptr) {
+            emit_internal_error(diagnostics_,
+                                "schema IR lowering could not locate layout for record '" +
+                                    std::string(record_fqn) + "'",
+                                declaration.source_range);
+            layout_failed_ = true;
+            return false;
+        }
+
+        if (semantic_record->fields.size() != declaration.fields.size() ||
+            layout_record->fields.size() != declaration.fields.size()) {
+            emit_internal_error(
+                diagnostics_,
+                "schema IR lowering observed inconsistent field counts for record '" +
+                    std::string(record_fqn) + "'",
+                declaration.source_range);
+            layout_failed_ = true;
+            return false;
+        }
+
+        for (std::size_t field_index = 0; field_index < declaration.fields.size(); ++field_index) {
+            const ast::FieldDeclarationSyntax& field = declaration.fields[field_index];
+            const semantic::SemanticField& semantic_field = semantic_record->fields[field_index];
+            const layout::FieldLayout& layout_field = layout_record->fields[field_index];
+            if (semantic_field.name != field.name.text) {
+                emit_internal_error(
+                    diagnostics_,
+                    "schema IR lowering observed inconsistent field ordering for record '" +
+                        std::string(record_fqn) + "'",
+                    field.source_range);
+                layout_failed_ = true;
+                return false;
+            }
+
             ::breadcrumbs::schema_ir::FieldIR* field_ir = record.add_fields();
             field_ir->set_name(field.name.text);
+            field_ir->set_field_index(layout_field.field_index);
             field_ir->mutable_type()->CopyFrom(lower_type(field.type, scope));
             populate_source_origin(field_ir->mutable_source_origin(), source_manager_,
                                    field.source_range);
         }
+        return true;
     }
 
     void populate_enum_values(::breadcrumbs::schema_ir::EnumIR& enum_ir,
@@ -478,23 +533,26 @@ private:
 
     void populate_declarations(const std::vector<ast::DeclarationPtr>& declarations,
                                ::breadcrumbs::schema_ir::NamespaceIR& namespace_ir,
-                               const symbols::Scope& scope) {
+                               const symbols::Scope& scope,
+                               std::string_view current_namespace_fqn) {
         for (const ast::DeclarationPtr& declaration : declarations) {
             if (declaration != nullptr) {
-                populate_declaration(*declaration, namespace_ir, scope);
+                populate_declaration(*declaration, namespace_ir, scope, current_namespace_fqn);
             }
         }
     }
 
     void populate_declarations(const ast::NamespaceDeclarationSyntax& namespace_declaration,
                                ::breadcrumbs::schema_ir::NamespaceIR& namespace_ir,
-                               const symbols::Scope& scope) {
-        populate_declarations(namespace_declaration.declarations, namespace_ir, scope);
+                               const symbols::Scope& scope,
+                               std::string_view current_namespace_fqn) {
+        populate_declarations(namespace_declaration.declarations, namespace_ir, scope,
+                              current_namespace_fqn);
     }
 
     void populate_declaration(const ast::DeclarationSyntax& declaration,
                               ::breadcrumbs::schema_ir::NamespaceIR& namespace_ir,
-                              const symbols::Scope& scope) {
+                              const symbols::Scope& scope, std::string_view current_namespace_fqn) {
         std::visit(
             [&](const auto& typed) {
                 using Type = std::decay_t<decltype(typed)>;
@@ -506,7 +564,8 @@ private:
                     }
 
                     populate_declarations(typed.declarations, *traversal.namespace_ir,
-                                          *traversal.scope);
+                                          *traversal.scope,
+                                          qualify_fqn(current_namespace_fqn, typed.name.text()));
                 } else if constexpr (std::is_same_v<Type, ast::RecordDeclarationSyntax>) {
                     ::breadcrumbs::schema_ir::RecordIR* record =
                         find_record_child(namespace_ir, typed.name.text);
@@ -515,10 +574,15 @@ private:
                                             "schema IR lowering could not locate record '" +
                                                 typed.name.text + "'",
                                             typed.source_range);
+                        layout_failed_ = true;
                         return;
                     }
 
-                    populate_record_fields(*record, typed, scope);
+                    const std::string record_fqn =
+                        qualify_fqn(current_namespace_fqn, typed.name.text);
+                    if (!populate_record_fields(*record, typed, scope, record_fqn)) {
+                        return;
+                    }
                 } else if constexpr (std::is_same_v<Type, ast::EnumDeclarationSyntax>) {
                     ::breadcrumbs::schema_ir::EnumIR* enum_ir =
                         find_enum_child(namespace_ir, typed.name.text);
@@ -527,6 +591,7 @@ private:
                                             "schema IR lowering could not locate enum '" +
                                                 typed.name.text + "'",
                                             typed.source_range);
+                        layout_failed_ = true;
                         return;
                     }
 
@@ -546,6 +611,7 @@ private:
     diagnostics::DiagnosticCollection& diagnostics_;
     std::uint64_t next_ir_id_ = 1;
     std::unordered_map<const ast::DeclarationSyntax*, std::uint64_t> declaration_ids_;
+    bool layout_failed_ = false;
 };
 
 } // namespace
