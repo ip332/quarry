@@ -47,6 +47,13 @@ Allowed dependencies:
 * `compiler/symbols`
 * protobuf-generated Schema IR types
 
+Implementation status:
+
+* the normative `.brd` source contract is defined in
+  `docs/specifications/schema-language.md`
+* the current frontend still uses transitional parser/AST contracts, including
+  legacy array handling, until the YAML migration lands
+
 Namespace handling:
 
 * the protobuf model requires a single `root_namespace`
@@ -63,9 +70,8 @@ Type lowering:
 * named record and enum references use the canonical target FQNs stored in the
   Semantic Model and are translated to compiler IR identifiers here
 * semantic arrays are lowered recursively as `ArrayType`
-* the current builder still copies the parsed array count into the protobuf
-  `ArrayType` because the Semantic Model carries recursive array shape but not
-  bounds yet
+* the current builder still mirrors transitional array shape information from
+  the frontend until bounded-array migration work lands
 * `field_index` is copied from the Layout Model and is not invented here
 * record IDs are computed in the Layout Model and are copied into `RecordIR`
 * `record_id` and `ir_id` remain separate compiler-owned identifiers

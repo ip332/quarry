@@ -27,3 +27,9 @@ Current layout behavior:
   stored as `uint8` in the binary record format
 * the Layout Model stores canonical record FQNs so later passes can locate the
   correct layout without depending on traversal order
+
+Current implementation status:
+
+* the normative YAML source contract is defined in
+  `docs/specifications/schema-language.md`
+* bounded-array frontend support is not implemented by this documentation PR

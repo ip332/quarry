@@ -14,11 +14,13 @@ It:
 * canonicalizes builtin scalar aliases into resolved semantic types
 * preserves distinct string and bytes semantic kinds
 * records canonical record and enum reference FQNs
-* validates type-bearing syntax in records and arrays
+* validates type-bearing syntax in the current transitional declaration-parser
+  AST
 * reports unresolved type references
 * reports declarations that resolve successfully but are invalid in type
   position
-* reports unsupported fixed-size arrays
+* reports unsupported fixed-size arrays in the current transitional parser
+  path
 
 ## Ownership Model
 
@@ -40,6 +42,18 @@ Semantic fields carry resolved semantic types. Semantic field types are
 backend-neutral values. They do not contain AST nodes, unresolved source names,
 `recordId`, `fieldIndex`, sizes, offsets, or encoding classifications. Those
 remain layout responsibilities.
+
+## Current Implementation Status
+
+The normative `.brd` YAML contract is defined in
+`docs/specifications/schema-language.md`.
+
+The current semantic implementation still consumes the transitional
+declaration-parser AST and validates that shape.
+
+After the frontend migration lands, semantic analysis will consume the source
+model produced from normative YAML decoding rather than the transitional AST
+shape.
 
 ## Dependency Restrictions
 

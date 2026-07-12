@@ -29,6 +29,9 @@ This document does not define:
 
 Those details belong to dedicated specifications or implementation documents.
 
+The normative `.brd` source-language syntax and language semantics are defined
+only in `docs/specifications/schema-language.md`.
+
 ---
 
 ## Design Principles

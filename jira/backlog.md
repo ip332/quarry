@@ -1,1 +1,1 @@
-- PR-021: Lower Schema IR field types from the Semantic Model
+- PR-022: Confirm YAML as the normative .brd format and define the frontend migration contract

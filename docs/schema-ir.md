@@ -190,7 +190,7 @@ The initial type system supports:
 * primitive scalar types
 * record references
 * enum references
-* fixed-size arrays
+* bounded variable-length arrays
 * bytes
 * strings
 
@@ -200,8 +200,9 @@ Record references use resolved references to `RecordIR` objects.
 
 Enum references use resolved references to `EnumIR` objects.
 
-Array types are fixed-size only. They recursively contain a `FieldType` element
-type and an element count.
+Array types represent bounded variable-length arrays from the source-language
+contract. They recursively contain a `FieldType` element type and carry the
+validated maximum element count as compiler metadata.
 
 String and bytes remain the bounded variable-length types when supported.
 
@@ -358,11 +359,11 @@ Open questions intentionally left for later design work:
 * whether Schema IR should have a stable serialized debug format
 * whether annotations are represented as first-class IR objects
 * how generic types should be represented if introduced
-* whether arrays may contain arrays
-* whether variable-size arrays should be added later
-* whether string and bytes bounds are required or optional
 * whether services belong in Schema IR
 * enum value metadata shape
 * IDE metadata shape
 * how much layout metadata should be copied into Schema IR versus referenced
   from Layout IR
+
+Source-language array syntax and bounds are defined by
+`docs/specifications/schema-language.md` and are not reopened here.

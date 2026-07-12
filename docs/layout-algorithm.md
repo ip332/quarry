@@ -191,8 +191,8 @@ value.
 
 Primitive numeric and boolean field types are fixed-size values.
 
-Fixed-size arrays are fixed-size values when their element type has fixed-size
-layout and the array count is known.
+Bounded variable-length arrays are variable-size values because their encoded
+size depends on the present element count.
 
 ## Variable-Size Values
 
@@ -200,8 +200,8 @@ Variable-size values have encoded sizes that depend on the field value.
 
 Strings and bytes are variable-size values.
 
-Arrays are variable-size values if a future schema version supports
-variable-size arrays.
+Arrays are variable-size values when the schema language defines them as
+bounded variable-length arrays.
 
 ## References
 
@@ -215,8 +215,8 @@ backend generation.
 
 Array layout classification depends on the array count and element type.
 
-For fixed-size arrays, the layout classification records the element
-classification and array count.
+For bounded arrays, the layout classification records the element
+classification and the validated maximum element count.
 
 ## Strings
 

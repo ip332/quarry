@@ -43,16 +43,15 @@ The parser consumes lexer tokens and builds the syntax-oriented AST. It keeps
 source ranges on declarations and type syntax where practical and reports syntax
 errors through the diagnostics framework.
 
-Supported syntax currently includes:
+Current implementation status:
 
-* import declarations
-* namespace declarations with nested declarations
-* record declarations with fields
-* enum declarations with values
-* qualified names
-* primitive type references
-* fixed-size array syntax
-* simple annotations on declarations, fields, and enum values
+* the normative `.brd` grammar is defined in `docs/specifications/schema-language.md`
+* the current parser implementation is transitional scaffolding for that YAML
+  grammar
+* the current temporary declaration grammar, annotation parsing, and
+  fixed-size array handling are not normative language contracts
+* current annotations are transitional string-valued metadata; the normative
+  YAML contract uses native typed field properties
 
 ## Source Ranges
 

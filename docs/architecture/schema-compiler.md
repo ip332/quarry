@@ -13,6 +13,9 @@ The compiler exists to move schema knowledge to build time. Runtime systems
 should use generated artifacts rather than interpreting schemas during normal
 operation.
 
+The normative `.brd` source-language grammar and schema-language semantics are
+defined by `docs/specifications/schema-language.md`.
+
 ---
 
 # Inputs
@@ -51,7 +54,7 @@ artifacts directly.
 
 # Generated Languages
 
-The schema compiler should support multiple target languages.
+The schema compiler supports multiple target languages.
 
 Initial target languages may include:
 
@@ -61,7 +64,7 @@ Initial target languages may include:
 * Go
 * Python
 
-Generated APIs should follow language conventions while preserving the same
+Generated APIs follow language conventions while preserving the same
 record, envelope, payload, schema name, schema reference, and fieldIndex
 semantics.
 
@@ -71,16 +74,17 @@ semantics.
 
 Generated accessors provide typed access to binary payload data.
 
-They should support:
+They are expected to support:
 
 * reading fields directly from binary record storage
 * checking field presence
 * constructing records
 * avoiding full-record materialization when practical
 
-Generated accessors are the normal production interface for schema-specific payload access.
+Generated accessors are the normal production interface for schema-specific
+payload access.
 
-Generated runtime bindings SHALL distinguish absent fields from present fields.
+Generated runtime bindings distinguish absent fields from present fields.
 
 The schema compiler is the only supported producer of production runtime
 bindings.
@@ -89,7 +93,7 @@ bindings.
 
 # Generated Documentation
 
-The schema compiler should generate human-readable documentation for schemas.
+The schema compiler can generate human-readable documentation for schemas.
 
 Generated documentation should include:
 
@@ -104,7 +108,7 @@ Generated documentation should include:
 * compatibility notes
 * reserved fields
 
-Documentation should be generated from the same schema inputs used for code
+Documentation is generated from the same schema inputs used for code
 generation.
 
 ---
@@ -123,7 +127,7 @@ Validators may check:
 * bounds and profile limits
 * compatibility constraints
 
-Validators should be available for devices, cloud ingestion, tests, and tooling.
+Validators are available for devices, cloud ingestion, tests, and tooling.
 
 ---
 
@@ -132,7 +136,7 @@ Validators should be available for devices, cloud ingestion, tests, and tooling.
 Generated binary codecs encode and decode record payloads according to the
 selected binary encoding.
 
-Codecs should:
+Codecs are expected to:
 
 * preserve compiler-generated field indexes
 * support deterministic encoding
@@ -141,7 +145,7 @@ Codecs should:
 * support unknown-field handling when allowed by the encoding
 * expose profile-specific limits for embedded targets
 
-The binary codec is generated from the schema. Application code SHALL NOT
+The binary codec is generated from the schema. Application code does not
 hand-maintain payload encoding logic.
 
 ---
@@ -164,17 +168,17 @@ Inspector metadata may include:
 * descriptions
 * display hints
 
-Inspector metadata is generated at build time. Tools may load the metadata they
-were built or packaged with; production systems should not depend on dynamic
-schema interpretation for normal operation.
+Inspector metadata is generated at build time. Tools may load the metadata
+they were built or packaged with; production systems should not depend on
+dynamic schema interpretation for normal operation.
 
 ---
 
 # Build Integration
 
-The schema compiler should integrate with normal build systems.
+The schema compiler integrates with normal build systems.
 
-Supported integration patterns may include:
+Supported integration patterns include:
 
 * command-line invocation
 * CMake integration
@@ -184,8 +188,8 @@ Supported integration patterns may include:
 * CI validation
 * generated artifact caching
 
-Builds should fail when schemas are invalid, compatibility rules are violated,
-or generated artifacts are stale.
+Builds fail when schemas are invalid, compatibility rules are violated, or
+generated artifacts are stale.
 
 ---
 
@@ -216,7 +220,9 @@ Normal production behavior should not require:
 This keeps device implementations small, deterministic, portable, and easier to
 validate.
 
-The schema compiler may generate different artifact classes from the same schema: runtime artifacts, validation artifacts, documentation artifacts, and tooling artifacts. Not every schema attribute affects every artifact.
+The schema compiler may generate different artifact classes from the same
+schema: runtime artifacts, validation artifacts, documentation artifacts, and
+tooling artifacts. Not every schema attribute affects every artifact.
 
 ---
 

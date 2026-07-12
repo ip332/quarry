@@ -50,8 +50,12 @@ The AST currently models:
 * array type syntax
 * annotation syntax
 
-Array syntax can represent a fixed size when such syntax is present. Semantic
-rules decide which array forms are legal for a schema language version.
+Current implementation status:
+
+* the normative `.brd` grammar is defined in `docs/specifications/schema-language.md`
+* the current AST still carries legacy fixed-size array representation and
+  annotation nodes from the temporary parser
+* those nodes are transitional scaffolding and do not redefine the language
 
 ## Debug Support
 

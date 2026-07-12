@@ -66,469 +66,283 @@ Use these terms only for normative requirements.
 
 ---
 
-# Authoring Format
+# Requirements
 
-Version 0.1 uses YAML syntax.
+## REQ-SL-001
 
-The Breadcrumbs Schema Compiler validates `.brd` files.
+Version 0.1 `.brd` files SHALL use YAML as the source format.
 
-Only language constructs defined by this specification are part of the Breadcrumbs Schema Language.
+## REQ-SL-002
 
-YAML features not explicitly defined by this specification are considered unsupported.
+A `.brd` file SHALL be one YAML document describing one schema.
 
-Unsupported YAML features include:
+## REQ-SL-003
 
-* anchors
-* aliases
-* merge keys
-* custom tags
-* implementation-specific extensions
+The document root SHALL be a YAML mapping containing the top-level keys
+`namespace`, `record`, `version`, `type`, and `fields`.
+
+## REQ-SL-004
+
+The document root MAY contain the optional keys `imports`, `enums`, and
+`annotations`.
+
+## REQ-SL-005
+
+Duplicate top-level keys SHALL be invalid.
+
+## REQ-SL-006
+
+Unknown top-level keys SHALL be invalid.
+
+## REQ-SL-007
+
+The source-language specification SHALL not rely on unsupported YAML features
+such as anchors, aliases, merge keys, custom tags, or implementation-specific
+extensions.
+
+## REQ-SL-008
+
+The `namespace` property SHALL be a dotted qualified-name string.
+
+## REQ-SL-009
+
+The `record` property SHALL be the logical record name for the schema.
+
+## REQ-SL-010
+
+The `type` property SHALL identify the logical record type and SHALL be one of
+`data`, `command`, `event`, `configuration`, or `diagnostics`.
+
+## REQ-SL-011
+
+Record names SHALL be unique within a namespace.
+
+## REQ-SL-012
+
+The `fields` property SHALL be a YAML mapping from field name to field
+definition.
+
+## REQ-SL-013
+
+Field names SHALL be unique within a record.
+
+## REQ-SL-014
+
+Each field definition SHALL be a YAML mapping containing the required `type`
+key and MAY contain `max_bytes`, `max_elements`, and `annotations`.
+
+## REQ-SL-015
+
+Unknown keys inside a field definition SHALL be invalid.
+
+## REQ-SL-016
+
+Duplicate keys inside a field definition SHALL be invalid.
+
+## REQ-SL-017
+
+The order of fields in the `fields` mapping SHALL be preserved by the compiler
+pipeline.
+
+## REQ-SL-018
+
+The `annotations` field property SHALL be generic string-valued metadata.
+
+## REQ-SL-019
+
+The `max_bytes` field property SHALL be a native YAML integer value and SHALL
+not be encoded as a string annotation.
+
+## REQ-SL-020
+
+The `max_elements` field property SHALL be a native YAML integer value and
+SHALL not be encoded as a string annotation.
+
+## REQ-SL-021
+
+The `enums` property, when present, SHALL be a YAML mapping from enum name to
+enum definition.
+
+## REQ-SL-022
+
+Each enum definition SHALL contain the required `values` key and MAY contain
+`annotations`.
+
+## REQ-SL-023
+
+Enum values SHALL be unique within their enum.
+
+## REQ-SL-024
+
+Enum values SHALL use explicit integer literals.
+
+## REQ-SL-025
+
+Enum value order SHALL be preserved by the compiler pipeline.
+
+## REQ-SL-026
+
+Unknown keys inside an enum definition SHALL be invalid.
+
+## REQ-SL-027
+
+The `type` property of a field SHALL accept a canonical primitive name, a
+primitive alias, `string`, `bytes`, a qualified named type, or a bounded
+variable-length array type ending in `[]`.
+
+## REQ-SL-028
+
+Accepted primitive names and aliases SHALL include `bool`, `i8`/`int8`,
+`u8`/`uint8`, `i16`/`int16`, `u16`/`uint16`, `i32`/`int32`, `u32`/`uint32`,
+`i64`/`int64`, `u64`/`uint64`, `f32`/`float32`, and `f64`/`float64`.
+
+## REQ-SL-029
+
+Primitive aliases SHALL be semantically equivalent and canonicalized by the
+compiler.
+
+## REQ-SL-030
+
+`string` and `bytes` SHALL be distinct built-in kinds.
+
+## REQ-SL-031
+
+Named types SHALL resolve to records or enums in the compiler namespace model.
+
+## REQ-SL-032
+
+Relative and fully qualified references to the same declaration SHALL resolve
+to the same canonical target FQN.
+
+## REQ-SL-033
+
+`string` fields SHALL carry a `max_bytes` property.
+
+## REQ-SL-034
+
+`bytes` fields SHALL carry a `max_bytes` property.
+
+## REQ-SL-035
+
+`max_bytes` SHALL be a positive YAML integer.
+
+## REQ-SL-036
+
+`max_bytes` SHALL NOT appear on fields whose `type` is neither `string` nor
+`bytes`.
+
+## REQ-SL-037
+
+Version 0.1 arrays SHALL be bounded variable-length arrays.
+
+## REQ-SL-038
+
+The source form of an array field SHALL use a `type` value ending in `[]`.
+
+## REQ-SL-039
+
+An array field SHALL carry exactly one `max_elements` property.
+
+## REQ-SL-040
+
+`max_elements` SHALL be a positive YAML integer.
+
+## REQ-SL-041
+
+`max_elements` SHALL NOT appear on fields whose `type` is not an array type.
+
+## REQ-SL-042
+
+Fixed-size array syntax such as `uint32[64]` SHALL be rejected in version 0.1.
+
+## REQ-SL-043
+
+Nested arrays such as `uint32[][]` SHALL be rejected in version 0.1.
+
+## REQ-SL-044
+
+Arrays of otherwise valid field types SHALL be permitted unless another
+normative rule forbids a specific combination.
+
+## REQ-SL-045
+
+Generic annotations SHALL be string-valued metadata under an `annotations`
+mapping.
+
+## REQ-SL-046
+
+Typed field properties SHALL be native YAML keys with defined names and value
+types.
+
+## REQ-SL-047
+
+Unknown typed field properties SHALL be invalid.
+
+## REQ-SL-048
+
+Duplicate typed field properties SHALL be invalid.
+
+## REQ-SL-049
+
+The YAML parser and source decoder SHALL preserve file, line, and column
+information for diagnostics.
+
+## REQ-SL-050
+
+YAML syntax errors SHALL be normalized into Breadcrumbs diagnostics.
+
+## REQ-SL-051
+
+Semantic validation SHALL remain a separate compiler stage from YAML decoding.
+
+## REQ-SL-052
+
+Source order of YAML mappings and sequences SHALL be preserved when schema data
+is converted into compiler models.
+
+## REQ-SL-053
+
+The source-language specification SHALL defer binary record format, runtime API
+behavior, and transport protocols to separate specifications.
 
 ---
 
-# Schema Structure
+# Implementation Status
 
-Every schema defines exactly one record type.
+The current declaration parser and AST are transitional implementation
+scaffolding.
+
+Current tests may exercise legacy declaration syntax and fixed-size-array
+forms.
+
+Those implementation artifacts do not redefine the normative `.brd` contract.
+
+The frontend is expected to migrate to YAML decoding in a later implementation
+increment.
+
+---
+
+# Examples
+
+Examples remain informative only.
 
 ```yaml
-namespace: breadcrumbs.geo
-
-record: Location
-
+namespace: breadcrumbs.telemetry
+record: Sample
 version: 1
-
 type: data
-
-imports:
-
-  - breadcrumbs.common.Timestamp
-
 fields:
-
-  latitude:
-    type: int32
-    unit: degrees
-    scale: 1e-7
-
-  longitude:
-    type: int32
-    unit: degrees
-    scale: 1e-7
-
-  altitude:
-    type: int32
-    unit: meters
-    scale: 0.01
+  samples:
+    type: uint32[]
+    max_elements: 64
 ```
 
 ---
 
-# Namespace
-
-Namespaces organize schemas into logical domains.
-
-Examples:
-
-* breadcrumbs.geo
-* breadcrumbs.telemetry
-* breadcrumbs.diagnostics
-* breadcrumbs.ota
-* vendor.company.product
-
-Namespaces are independent of transport protocols.
-
----
-
-# Record
-
-Each schema defines exactly one record type.
-
-Record names shall be unique within a namespace.
-
----
-
-# Version
-
-Every schema shall define an integer version.
-
-```yaml
-version: 1
-```
-
-Schema evolution is defined by the Schema Compatibility specification.
-
----
-
-# Record Type
-
-The record type identifies the logical purpose of the record.
-
-Version 0.1 defines:
-
-* data
-* command
-* event
-* configuration
-* diagnostics
-
-Future specifications may introduce additional record types.
-
-The schema compiler assigns `recordId` metadata used by the binary record
-header. Compatible schema evolution keeps the same `recordId`; incompatible
-layout or semantic changes require a new `recordId`.
-
-Runtime systems deal with records. Transport protocols carry records but do not
-define them.
-
----
-
-# Fields
-
-Field declarations define the possible fields of a record.
-
-All declared fields are presence-tracked in the binary representation.
-
-The Schema Compiler assigns a hidden `fieldIndex` to each declared field.
-
-Schema authors do not assign or reference `fieldIndex` values.
-
-The schema language does not expose `fieldIndex` syntax.
-
-`fieldIndex` is not a logical identifier for the field.
-
-A field is present in a binary record only when application code sets it through
-the generated API.
-
-If the setter is called, the generated setter updates the sparse binary record
-directly and the field appears in the Field Directory.
-
-If the setter is not called, no Field Directory entry is written and no value
-bytes are encoded for that field.
-
-There is no schema-level field presence category.
-
-A record may declare at most 256 fields because `fieldIndex` is encoded as
-`uint8` in the binary record format.
-
-Records needing more than 256 fields should be decomposed into smaller records
-using composition.
-
-Example:
-
-```yaml
-fields:
-
-  latitude:
-    type: int32
-
-  longitude:
-    type: int32
-
-  altitude:
-    type: int32
-```
-
-The binary representation is defined separately.
-
----
-
-# Presence Semantics
-
-The following states are distinct:
-
-* field absent
-* field present with value 0
-* field present with another value
-
-Applications shall be able to distinguish these states.
-
----
-
-# Type System
-
-## Primitive Types
-
-Boolean
-
-* bool
-
-Signed integers
-
-* int8
-* int16
-* int32
-* int64
-
-Unsigned integers
-
-* uint8
-* uint16
-* uint32
-* uint64
-
-Floating point
-
-* float32
-* float64
-
----
-
-## Built-in Types
-
-### string
-
-Represents UTF-8 encoded text.
-
-String fields shall define:
-
-```yaml
-max_bytes:
-```
-
-which specifies the maximum number of encoded UTF-8 bytes.
-
-### bytes
-
-Represents opaque binary data.
-
-Binary fields shall define:
-
-```yaml
-max_bytes:
-```
-
-which specifies the maximum number of stored bytes.
-
----
-
-## Enumerations
-
-Enumerations are first-class language elements.
-
-Example:
-
-```yaml
-enum FixType:
-
-  none: 0
-
-  two_d: 1
-
-  three_d: 2
-```
-
----
-
-## Nested Records
-
-Records may reference other records.
-
-Example:
-
-```yaml
-location:
-  type: breadcrumbs.geo.Location
-```
-
----
-
-## Arrays
-
-Version 0.1 supports bounded variable-length arrays.
-
-Example:
-
-```yaml
-satellites:
-  type: Satellite[]
-  max_elements: 64
-```
-
-The number of elements may vary from zero up to `max_elements`.
-
-Fixed-size arrays are intentionally not supported.
-
-Unbounded arrays are not supported.
-
----
-
-# Field Attribute Categories
-
-Field attributes are grouped by the kind of artifact or behavior they affect.
-
-Runtime attributes:
-
-* type
-* scale
-* offset
-
-Validation attributes:
-
-* min
-* max
-* max_bytes
-* max_elements
-* on_overflow
-
-Documentation attributes:
-
-* unit
-* description
-
----
-
-# Constraint Handling
-
-Some field types define capacity constraints.
-
-Examples include:
-
-* string
-* bytes
-* arrays
-
-The `on_overflow` schema property defines mandatory producer-side behavior when
-input exceeds a schema-defined capacity limit.
-
-Generated builders SHALL enforce the schema-defined overflow behavior
-consistently.
-
-Application code SHALL NOT override schema-defined overflow behavior.
-
-Supported values:
-
-* reject
-* truncate
-
-If `on_overflow` is omitted, the default behavior is `reject`.
-
-## String Fields
-
-When `on_overflow: truncate` is specified:
-
-* the generated builder SHALL truncate only at a valid UTF-8 boundary
-* invalid UTF-8 SHALL never be stored
-
-## Bytes Fields
-
-When `on_overflow: truncate` is specified:
-
-* the generated builder SHALL keep the first `max_bytes` bytes
-
-## Arrays
-
-When `on_overflow: truncate` is specified:
-
-* the generated builder SHALL keep the first `max_elements` elements
-
-## Numeric Types
-
-`on_overflow` SHALL NOT be used with numeric scalar types.
-
-Applications are responsible for handling values violating `min` or `max`.
-
----
-
-# Numeric Representation
-
-Schemas describe logical values.
-
-Example:
-
-```yaml
-latitude:
-  type: int32
-  unit: degrees
-  scale: 1e-7
-```
-
-The interpretation is:
-
-```
-physical_value = stored_value × scale + offset
-```
-
-Fixed-point representation is recommended whenever practical.
-
----
-
-# Units
-
-Units document the physical meaning of values.
-
-Units do not affect validation, runtime behavior, or binary encoding.
-
----
-
-# Imports
-
-Schemas may import other schemas.
-
-Example:
-
-```yaml
-imports:
-
-  - breadcrumbs.geo.Location
-
-  - breadcrumbs.common.Timestamp
-```
-
-Imported schemas may be referenced by fields.
-
----
-
-# Comments
-
-YAML comments are permitted.
-
-Comments have no semantic meaning.
-
----
-
-# Compiler Responsibilities
-
-The Breadcrumbs Schema Compiler shall:
-
-* validate schemas
-* normalize aliases
-* verify compatibility rules
-* assign internal field identifiers
-* generate runtime bindings
-* generate builders
-* generate binary codecs
-* generate validators
-* generate documentation
-* generate inspector metadata
-
-Schema authors never assign field identifiers.
-
----
-
-# Relationship to Other Specifications
-
-This specification defines:
-
-* schema syntax
-* schema semantics
-
-It intentionally does not define:
-
-* binary record format
-* runtime API behavior
-* transport protocols
-
----
-
-# Future Extensions
-
-Future versions may introduce:
-
-* logical types (UUID, timestamp, IP address, etc.)
-* generic types
-* unions / variants
-* user-defined annotations
-* compile-time constants
-* reusable field groups
-* schema inheritance
-* dynamic schemas
+# Related Documents
+
+* `docs/compiler-architecture.md`
+* `docs/compiler-passes.md`
+* `docs/schema-ir.md`
+* `docs/architecture/schema-compiler.md`
+* `docs/specifications/schema-compiler.md`

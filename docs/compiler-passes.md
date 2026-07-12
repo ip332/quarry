@@ -284,10 +284,10 @@ been rejected, and the namespace hierarchy is canonical.
 * resolve record references
 * resolve enum references
 * validate field declarations
-* validate arrays
+* validate bounded arrays defined by the schema-language specification
 * validate string and bytes bounds
 * construct resolved field-type values for valid fields
-* validate annotations supported by the language
+* validate typed constraints and annotations supported by the language
 * reject unsupported language constructs
 * reject user-authored compiler-managed identifiers
 * detect illegal recursion
@@ -373,7 +373,7 @@ known, and unsupported language constructs have already been rejected.
 * assign or preserve `fieldIndex` metadata for fields
 * compute sparse record directory metadata
 * compute field value encoding metadata
-* compute fixed-size and variable-size value metadata
+* compute value metadata required for binary layout and bounded collections
 * compute reference encoding metadata
 * enforce field count limits
 * enforce layout size limits
