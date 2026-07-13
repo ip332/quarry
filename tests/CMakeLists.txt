@@ -41,6 +41,9 @@ target_link_libraries(yaml_source_schema_lowering_test PRIVATE breadcrumbs_compi
 target_link_libraries(yaml_source_schema_lowering_test PRIVATE breadcrumbs_compiler_schema_ir)
 target_link_libraries(yaml_source_schema_lowering_test PRIVATE breadcrumbs_compiler_context)
 target_link_libraries(yaml_source_schema_lowering_test PRIVATE breadcrumbs_schema_ir_warning_tweaks)
+add_breadcrumbs_gtest(yaml_compiler_test frontend/yaml_compiler_test.cpp
+                      breadcrumbs_compiler_frontend)
+target_link_libraries(yaml_compiler_test PRIVATE breadcrumbs_schema_ir_warning_tweaks)
 add_breadcrumbs_gtest(layout_smoke_test layout/layout_smoke_test.cpp breadcrumbs_compiler_layout)
 target_link_libraries(layout_smoke_test PRIVATE breadcrumbs_compiler_parser)
 add_breadcrumbs_gtest(schema_ir_smoke_test schema_ir/schema_ir_smoke_test.cpp breadcrumbs_compiler_schema_ir)

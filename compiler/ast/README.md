@@ -59,6 +59,8 @@ Current implementation status:
 * the YAML source-schema lowering pass also populates this AST with record
   version, logical record type, `max_bytes`, `max_elements`, and bounded-array
   source metadata during the migration path
+* the production YAML frontend still lowers through this AST boundary before
+  the existing Semantic, Layout, and Schema IR passes consume the schema
 * later compiler stages now carry the validated record metadata and
   bounded-array metadata through the Semantic and Schema IR models
 

@@ -70,6 +70,11 @@ source-schema lowering, semantic validation, and Schema IR, but downstream
 layout and runtime policy still do not interpret the full bounded-array
 contract yet.
 
+The `compiler/frontend` orchestration layer now exposes a production-facing
+import-free YAML compilation path through validated Schema IR. That layer still
+uses the transitional AST boundary internally, and the legacy declaration
+parser remains available during the migration.
+
 ---
 
 ## 1. Parser

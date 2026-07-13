@@ -59,9 +59,10 @@ The frontend migration path now carries YAML-decoded schema version, logical
 record type, string/bytes bounds, and bounded-array counts into the Semantic
 Model so later passes can consume the resolved values directly.
 
-After the frontend migration lands, semantic analysis will consume the source
-model produced from normative YAML decoding rather than the transitional AST
-shape.
+The production YAML frontend now reaches validated Schema IR through the
+transitional AST boundary, but semantic analysis still consumes the transitional
+AST shape today. Direct `SourceSchemaDocument`-to-SemanticModel migration has
+not happened yet.
 
 ## Dependency Restrictions
 

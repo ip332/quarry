@@ -1,1 +1,1 @@
-- PR-026: Carry resolved record metadata and variable-length field bounds through the semantic pipeline
+- PR-027: Add an import-free YAML compilation pipeline through validated Schema IR

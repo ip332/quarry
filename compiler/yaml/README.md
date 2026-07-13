@@ -65,6 +65,11 @@ Its current boundary is explicit: bounded variable-length arrays remain
 represented in the lowered AST, and the existing Semantic, Layout, and Schema
 IR stages now carry the validated bounds forward.
 
+The production-facing `compiler/frontend` orchestration layer runs this YAML
+pipeline through validated Schema IR, but it still uses the transitional AST
+boundary internally. Direct `SourceSchemaDocument`-to-SemanticModel migration
+has not happened yet.
+
 ## Restricted YAML Profile
 
 The parser accepts one YAML document and rejects unsupported profile features

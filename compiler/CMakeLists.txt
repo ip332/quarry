@@ -219,6 +219,23 @@ target_link_libraries(breadcrumbs_compiler_schema_ir
         breadcrumbs_schema_ir_warning_tweaks
 )
 
+add_library(breadcrumbs_compiler_frontend
+    frontend/yaml_compiler.cpp
+)
+target_include_directories(breadcrumbs_compiler_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(breadcrumbs_compiler_frontend
+    PUBLIC
+        breadcrumbs_compiler_context
+        breadcrumbs_compiler_schema_ir
+        breadcrumbs_project_options
+    PRIVATE
+        breadcrumbs_compiler_layout
+        breadcrumbs_compiler_semantic
+        breadcrumbs_compiler_symbols
+        breadcrumbs_compiler_yaml
+        breadcrumbs_schema_ir_warning_tweaks
+)
+
 add_library(breadcrumbs_compiler_backend
     backend/backend.cpp
 )

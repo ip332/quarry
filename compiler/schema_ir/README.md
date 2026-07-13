@@ -55,6 +55,9 @@ Implementation status:
 
 * the normative `.brd` source contract is defined in
   `docs/specifications/schema-language.md`
+* the production-facing YAML frontend now orchestrates the import-free YAML
+  pipeline through validated Schema IR, but it still lowers through the
+  transitional AST boundary internally
 * the current frontend still uses transitional parser/AST contracts, including
   legacy array handling, until the YAML migration lands
 

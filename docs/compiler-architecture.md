@@ -65,6 +65,9 @@ The compiler pipeline is:
   Parsed AST.
 * YAML source files flow through `YamlParser`, `YamlDocument`, source-schema
   decoding, and source-schema lowering into the same AST boundary.
+* The production-facing YAML frontend orchestrates the import-free YAML path
+  through validated Schema IR while still reusing the transitional AST
+  boundary internally.
 * AST flows into import resolution, symbol construction, semantic validation,
   layout computation, Schema IR, and backends.
 
