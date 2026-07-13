@@ -3,6 +3,7 @@
 #include "compiler/support/source_location.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -37,10 +38,17 @@ struct TypeReferenceSyntax {
     QualifiedNameSyntax name;
 };
 
+enum class ArrayTypeSyntaxKind {
+    LegacyFixedSize,
+    BoundedVariableLength,
+};
+
 struct ArrayTypeSyntax {
     support::SourceRange source_range;
     TypeReferenceSyntax element_type;
+    ArrayTypeSyntaxKind kind = ArrayTypeSyntaxKind::LegacyFixedSize;
     std::optional<std::size_t> fixed_size;
+    support::SourceRange fixed_size_source_range = support::SourceRange::invalid();
 };
 
 using TypeSyntax = std::variant<TypeReferenceSyntax, ArrayTypeSyntax>;
@@ -50,6 +58,10 @@ struct FieldDeclarationSyntax {
     IdentifierSyntax name;
     TypeSyntax type;
     std::vector<AnnotationSyntax> annotations;
+    std::optional<std::int64_t> max_bytes;
+    support::SourceRange max_bytes_source_range = support::SourceRange::invalid();
+    std::optional<std::int64_t> max_elements;
+    support::SourceRange max_elements_source_range = support::SourceRange::invalid();
 };
 
 struct EnumValueDeclarationSyntax {
@@ -69,6 +81,10 @@ struct EnumDeclarationSyntax {
 struct RecordDeclarationSyntax {
     support::SourceRange source_range;
     IdentifierSyntax name;
+    std::int64_t version = 0;
+    support::SourceRange version_source_range = support::SourceRange::invalid();
+    std::string record_type_spelling;
+    support::SourceRange record_type_source_range = support::SourceRange::invalid();
     std::vector<FieldDeclarationSyntax> fields;
     std::vector<AnnotationSyntax> annotations;
 };

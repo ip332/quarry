@@ -8,6 +8,8 @@ compiler models and generated artifacts.
 The compiler architecture should:
 
 * resolve imports into a canonical namespace model
+* support a normative YAML source frontend during migration to the AST-based
+  compiler pipeline
 * validate schema semantics before layout computation
 * compute deterministic binary layout metadata
 * preserve compiler-managed identifiers such as `recordId` and `fieldIndex`
@@ -59,42 +61,21 @@ the binary record format.
 
 The compiler pipeline is:
 
-```text
-Source files
-    |
-    v
-Lexer/parser
-    |
-    v
-Parsed AST
-    |
-    v
-Import resolver
-    |
-    v
-Symbol table / namespace merge
-    |
-    v
-Resolved IR
-    |
-    v
-Semantic validation
-    |
-    v
-Semantic IR
-    |
-    v
-Layout computation
-    |
-    v
-Layout IR
-    |
-    v
-Schema IR
-    |
-    v
-Backends
-```
+* Legacy declaration-syntax source files flow through the lexer/parser into
+  Parsed AST.
+* YAML source files flow through `YamlParser`, `YamlDocument`, source-schema
+  decoding, and source-schema lowering into the same AST boundary.
+* AST flows into import resolution, symbol construction, semantic validation,
+  layout computation, Schema IR, and backends.
+
+The current migration boundary is intentionally uneven: scalar- and enum-shaped
+schemas can flow through the existing downstream pipeline today, while
+bounded-variable arrays remain preserved only through the YAML decoding and
+source-schema lowering stages until later compiler models adopt `max_elements`.
+
+During migration, the legacy declaration-syntax frontend and the normative YAML
+frontend both remain available. Legacy declaration-syntax tests continue to
+exercise the temporary lexer/parser frontend.
 
 Each stage should consume the previous stage's output and produce a model with
 fewer source-syntax concerns and more compiler-owned structure.

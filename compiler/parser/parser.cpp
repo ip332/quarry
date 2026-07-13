@@ -266,7 +266,12 @@ private:
         return ast::TypeSyntax(ast::ArrayTypeSyntax{
             .source_range = support::SourceRange(element_type.source_range.begin(), end),
             .element_type = std::move(element_type),
+            .kind = ast::ArrayTypeSyntaxKind::LegacyFixedSize,
             .fixed_size = fixed_size,
+            .fixed_size_source_range = fixed_size.has_value()
+                                            ? support::SourceRange(token.source_range.begin(),
+                                                                   token.source_range.end())
+                                            : support::SourceRange::invalid(),
         });
     }
 

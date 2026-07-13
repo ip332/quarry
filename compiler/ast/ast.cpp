@@ -21,7 +21,8 @@ void dump_type(const TypeSyntax& type, std::ostream& output) {
                 output << typed.name.text();
             } else if constexpr (std::is_same_v<Type, ArrayTypeSyntax>) {
                 output << typed.element_type.name.text() << '[';
-                if (typed.fixed_size.has_value()) {
+                if (typed.kind == ArrayTypeSyntaxKind::LegacyFixedSize &&
+                    typed.fixed_size.has_value()) {
                     output << *typed.fixed_size;
                 }
                 output << ']';
@@ -46,6 +47,14 @@ void dump_namespace(const NamespaceDeclarationSyntax& namespace_declaration, std
 void dump_record(const RecordDeclarationSyntax& record, std::ostream& output, int depth) {
     indent(output, depth);
     output << "record " << record.name.text << '\n';
+    if (record.version != 0) {
+        indent(output, depth + 1);
+        output << "version " << record.version << '\n';
+    }
+    if (!record.record_type_spelling.empty()) {
+        indent(output, depth + 1);
+        output << "type " << record.record_type_spelling << '\n';
+    }
     for (const FieldDeclarationSyntax& field : record.fields) {
         indent(output, depth + 1);
         output << "field " << field.name.text << ": ";

@@ -1,2 +1,1 @@
-- PR-024: Decode the YAML document into the Breadcrumbs source schema model
-- PR-025: Connect the YAML source schema model to the compiler pipeline
+- PR-026: Propagate YAML record metadata and field bounds through downstream compiler models

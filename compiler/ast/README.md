@@ -56,6 +56,11 @@ Current implementation status:
 * the current AST still carries legacy fixed-size array representation and
   annotation nodes from the temporary parser
 * those nodes are transitional scaffolding and do not redefine the language
+* the YAML source-schema lowering pass also populates this AST with record
+  version, logical record type, `max_bytes`, `max_elements`, and bounded-array
+  source metadata during the migration path
+* bounded arrays are still rejected by later compiler stages until the
+  downstream models learn how to carry `max_elements`
 
 ## Debug Support
 

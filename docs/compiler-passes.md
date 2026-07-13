@@ -35,11 +35,48 @@ or backend APIs.
 
 ---
 
+## YAML Frontend Migration Path
+
+During the migration to the normative YAML `.brd` format, YAML source files
+flow through:
+
+```text
+YAML source
+    |
+    v
+YamlParser
+    |
+    v
+YamlDocument
+    |
+    v
+schema decoder
+    |
+    v
+source-schema lowering
+    |
+    v
+AST
+```
+
+The existing legacy declaration parser remains available for transitional test
+coverage and produces the same AST-shaped input that later passes already
+consume. The YAML frontend does not replace the legacy parser yet; it feeds the
+same downstream pipeline through an explicit lowering boundary.
+
+Scalar- and enum-shaped YAML schemas can currently traverse the complete
+legacy pipeline. Bounded-variable arrays are preserved through YAML decoding
+and source-schema lowering, but the existing Semantic, Layout, and Schema IR
+passes still reject them until the downstream models are extended.
+
+---
+
 ## 1. Parser
 
 ### Purpose
 
-The parser converts schema source text into a syntax-oriented AST.
+The legacy parser converts declaration-syntax schema source text into a
+syntax-oriented AST.
 
 This pass understands source syntax only. It does not resolve names, validate
 types, build namespaces, compute layout, or assign compiler-managed identifiers.

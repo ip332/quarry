@@ -113,13 +113,9 @@ void emit_invalid_type_position(diagnostics::DiagnosticEngine& diagnostics,
 
 void emit_invalid_array(diagnostics::DiagnosticEngine& diagnostics,
                         const ast::ArrayTypeSyntax& array_type) {
-    if (!array_type.fixed_size.has_value()) {
-        return;
-    }
-
     diagnostics.emit(diagnostics::Diagnostic::create(diagnostic_id("BC5003"),
                                                      diagnostics::Severity::Error,
-                                                     "fixed-size arrays are not supported")
+                                                     "array types are not supported yet")
                          .at(array_type.source_range)
                          .from_pass(std::string(semantic_pass))
                          .build());
