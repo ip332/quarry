@@ -20,13 +20,10 @@ It:
 It does not parse YAML text, build AST nodes, resolve symbols, perform semantic
 validation, compute layout, or construct Schema IR.
 
-## Compatibility Projection
-
-The module also owns the temporary compatibility projection from the normalized
-source-schema model into the legacy AST shape used by `SchemaIrBuilder`.
-That projection remains available only for legacy AST-based callers and tests;
-the production YAML frontend now lowers normalized source schema directly into
-Schema IR.
+The normalized source-schema model is the production-facing YAML representation
+that downstream compiler stages now consume directly. The legacy AST pipeline
+remains available separately for declaration-syntax callers and tests, but
+this module no longer provides a source-schema-to-AST compatibility bridge.
 
 ## Dependencies
 

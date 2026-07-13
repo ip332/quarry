@@ -32,15 +32,15 @@ add_breadcrumbs_gtest(semantic_smoke_test semantic/semantic_smoke_test.cpp bread
 target_link_libraries(semantic_smoke_test PRIVATE breadcrumbs_compiler_parser)
 add_breadcrumbs_gtest(yaml_parser_test yaml/yaml_parser_test.cpp breadcrumbs_compiler_yaml)
 add_breadcrumbs_gtest(yaml_schema_decoder_test yaml/schema_decoder_test.cpp breadcrumbs_compiler_yaml)
-add_breadcrumbs_gtest(yaml_source_schema_lowering_test yaml/source_schema_lowering_test.cpp
+add_breadcrumbs_gtest(normalized_source_schema_pipeline_test
+                      yaml/normalized_source_schema_pipeline_test.cpp
                       breadcrumbs_compiler_yaml)
-target_link_libraries(yaml_source_schema_lowering_test PRIVATE breadcrumbs_compiler_parser)
-target_link_libraries(yaml_source_schema_lowering_test PRIVATE breadcrumbs_compiler_symbols)
-target_link_libraries(yaml_source_schema_lowering_test PRIVATE breadcrumbs_compiler_semantic)
-target_link_libraries(yaml_source_schema_lowering_test PRIVATE breadcrumbs_compiler_layout)
-target_link_libraries(yaml_source_schema_lowering_test PRIVATE breadcrumbs_compiler_schema_ir)
-target_link_libraries(yaml_source_schema_lowering_test PRIVATE breadcrumbs_compiler_context)
-target_link_libraries(yaml_source_schema_lowering_test PRIVATE breadcrumbs_schema_ir_warning_tweaks)
+target_link_libraries(normalized_source_schema_pipeline_test PRIVATE breadcrumbs_compiler_symbols)
+target_link_libraries(normalized_source_schema_pipeline_test PRIVATE breadcrumbs_compiler_semantic)
+target_link_libraries(normalized_source_schema_pipeline_test PRIVATE breadcrumbs_compiler_layout)
+target_link_libraries(normalized_source_schema_pipeline_test PRIVATE breadcrumbs_compiler_schema_ir)
+target_link_libraries(normalized_source_schema_pipeline_test PRIVATE breadcrumbs_compiler_context)
+target_link_libraries(normalized_source_schema_pipeline_test PRIVATE breadcrumbs_schema_ir_warning_tweaks)
 add_breadcrumbs_gtest(yaml_compiler_test frontend/yaml_compiler_test.cpp
                       breadcrumbs_compiler_frontend)
 target_link_libraries(yaml_compiler_test PRIVATE breadcrumbs_schema_ir_warning_tweaks)

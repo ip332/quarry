@@ -74,9 +74,9 @@ bounded-array contract yet.
 The `compiler/frontend` orchestration layer now exposes a production-facing
 import-free YAML compilation path through validated Schema IR. That layer now
 builds symbols, semantic state, and Schema IR directly from the normalized
-source-schema model. The compatibility AST projection remains only for the
-legacy AST-based Schema IR path and transitional tests. The legacy declaration
-parser remains available during the migration.
+source-schema model. AST remains in use only for the independent legacy
+declaration-syntax pipeline. The legacy declaration parser remains available
+during the migration.
 
 ---
 

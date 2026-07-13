@@ -58,12 +58,12 @@ declaration-parser AST and also accepts the normalized source-schema model.
 
 The production YAML frontend now passes normalized YAML source schema directly
 into symbol construction and semantic validation. The production YAML frontend
-now also passes the normalized source schema directly into `SchemaIrBuilder`,
-so the compatibility AST projection is retained only for legacy AST-based
-`SchemaIrBuilder` callers and tests.
+also passes the normalized source schema directly into `SchemaIrBuilder`, so
+the YAML pipeline no longer uses a source-schema-to-AST compatibility
+projection.
 
-Direct source-schema-to-SchemaIrBuilder migration has now happened for the
-production YAML path; the legacy AST path remains available temporarily.
+The legacy AST path remains available for the independent declaration-syntax
+frontend and its tests.
 
 ## Dependency Restrictions
 

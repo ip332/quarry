@@ -56,14 +56,11 @@ Current implementation status:
 * the current AST still carries legacy fixed-size array representation and
   annotation nodes from the temporary parser
 * those nodes are transitional scaffolding and do not redefine the language
-* the YAML source-schema compatibility projection still populates this AST with
-  record version, logical record type, `max_bytes`, `max_elements`, and
-  bounded-array source metadata for the remaining AST-based Schema IR builder
-* the production YAML frontend now builds symbols and semantic state directly
-  from the normalized source-schema model and lowers directly into
-  `SchemaIrBuilder`
-* the compatibility projection remains available only for the legacy AST-based
-  `SchemaIrBuilder` path and tests
+* the AST remains the representation produced by the legacy declaration parser
+* the production YAML frontend builds symbols, semantic state, and Schema IR
+  directly from the normalized source-schema model without a compatibility AST
+  projection
+* the legacy AST-based `SchemaIrBuilder` path and tests remain available
 * later compiler stages carry the validated record metadata and bounded-array
   metadata through the Semantic and Schema IR models
 
@@ -78,8 +75,8 @@ The legacy parser produces ASTs from source text. The import resolver consumes
 ASTs to expand the compilation boundary. The namespace builder can consume
 either ASTs or the normalized source-schema model to build symbol information.
 The semantic validator likewise consumes either the legacy AST path or the
-normalized source-schema model together with symbol information. The
-production YAML path no longer requires a compatibility AST after source-schema
+normalized source-schema model together with symbol information. The production
+YAML path no longer routes through a compatibility AST after source-schema
 normalization.
 
 ## Dependency Restrictions

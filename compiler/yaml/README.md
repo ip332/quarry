@@ -49,24 +49,14 @@ The source-schema normalization layer lives in `compiler/source_schema` and
 turns the decoded schema into structured identifiers, qualified names, and
 bounded type references.
 
-The YAML module keeps a thin compatibility wrapper for the legacy AST bridge.
-That wrapper preserves:
+The YAML module no longer provides a source-schema-to-AST compatibility
+projection. Production YAML stays on the normalized source-schema path and the
+downstream compiler stages consume that model directly.
 
-* namespace spelling
-* record names, versions, and logical record type spellings
-* ordered fields, enums, and enum values
-* field `max_bytes` and `max_elements` metadata
-* source ranges from the YAML document model
-
-The compatibility wrapper does not perform schema semantics, symbol
-resolution, layout computation, or Schema IR construction. It exists only so
-the remaining AST-based Schema IR builder can be reached during migration.
-
-The production-facing `compiler/frontend` orchestration layer now builds the
-symbol table and semantic model directly from the normalized source schema
-and lowers directly into `SchemaIrBuilder` without the compatibility AST hop.
-The compatibility projection remains only for legacy AST-based
-`SchemaIrBuilder` callers and tests.
+The production-facing `compiler/frontend` orchestration layer builds the
+symbol table, semantic model, layout model, and Schema IR directly from the
+normalized source schema. The legacy declaration parser remains available for
+its independent AST-based pipeline.
 
 ## Restricted YAML Profile
 
@@ -88,7 +78,7 @@ Allowed direct Breadcrumbs dependencies:
 
 * `compiler/support`
 * `compiler/diagnostics`
-* `compiler/ast` for source-schema lowering
+* `compiler/source_schema`
 
 The implementation uses libyaml privately through the event API. Public
 headers do not expose libyaml types.
@@ -100,7 +90,7 @@ repository migrates toward YAML decoding. That legacy frontend is still used
 by existing `.brd` tests and does not define the normative language contract.
 The normative YAML frontend now normalizes into the neutral source-schema
 module before entering the remaining compiler pipeline, and the production
-YAML path now reaches Schema IR without projecting back to the legacy AST.
+YAML path now reaches Schema IR without any compatibility AST bridge.
 
 This module is the first step toward a later YAML-to-Breadcrumbs schema
 pipeline that will eventually feed semantic validation and later compiler

@@ -63,9 +63,10 @@ Implementation status:
   source-schema model
 * the legacy AST-based Schema IR path remains available for transitional
   callers and tests
-* the current frontend still uses transitional parser/AST contracts for the
-  legacy declaration-syntax path, including legacy array handling, until the
-  YAML migration lands
+* the independent legacy declaration-syntax frontend continues to use
+  parser/AST contracts, including its legacy array representation. The
+  production YAML frontend does not depend on those contracts and remains
+  normalized-source-schema-based through Schema IR.
 
 Namespace handling:
 

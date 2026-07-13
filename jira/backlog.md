@@ -1,1 +1,1 @@
-- PR-029: Lower the normalized YAML source-schema model directly into Schema IR
+- PR-030: Remove the retired normalized-source-schema-to-legacy-AST compatibility projection and its compatibility-only dependencies/tests while retaining the independent legacy declaration-syntax parser and AST pipeline

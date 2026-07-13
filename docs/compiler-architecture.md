@@ -8,8 +8,8 @@ compiler models and generated artifacts.
 The compiler architecture should:
 
 * resolve imports into a canonical namespace model
-* support a normative YAML source frontend during migration to the AST-based
-  compiler pipeline
+* support a normative YAML source frontend during migration to the legacy
+  declaration-syntax compiler pipeline
 * validate schema semantics before layout computation
 * compute deterministic binary layout metadata
 * preserve compiler-managed identifiers such as `recordId` and `fieldIndex`
@@ -71,7 +71,7 @@ The compiler pipeline is:
   into symbol construction, semantic validation, layout computation, and
   Schema IR lowering.
 * AST flows into import resolution, legacy symbol construction, legacy
-  semantic validation, layout computation, compatibility Schema IR
+  semantic validation, layout computation, legacy AST-based Schema IR
   construction, and backends.
 
 The current migration boundary is intentionally uneven: scalar- and
@@ -79,8 +79,9 @@ enum-shaped schemas can flow through the existing downstream pipeline today,
 and bounded-variable arrays are preserved through YAML decoding,
 source-schema normalization, semantic validation, and Schema IR. The
 remaining work is downstream policy and runtime support rather than
-representation. The compatibility AST projection remains only for the legacy
-AST-based Schema IR path and transitional tests.
+representation. The normalized YAML pipeline no longer routes through a
+source-schema-to-AST compatibility projection; AST remains owned by the
+independent legacy declaration-syntax pipeline.
 
 During migration, the legacy declaration-syntax frontend and the normative YAML
 frontend both remain available. Legacy declaration-syntax tests continue to
