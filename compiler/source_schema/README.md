@@ -24,8 +24,9 @@ validation, compute layout, or construct Schema IR.
 
 The module also owns the temporary compatibility projection from the normalized
 source-schema model into the legacy AST shape used by `SchemaIrBuilder`.
-That projection exists only while the final AST-based Schema IR boundary is
-still in use.
+That projection remains available only for legacy AST-based callers and tests;
+the production YAML frontend now lowers normalized source schema directly into
+Schema IR.
 
 ## Dependencies
 

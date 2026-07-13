@@ -9,8 +9,8 @@ Responsibilities:
   types
 * copy Semantic Model record metadata such as schema version and logical
   record type when available
-* preserve the parsed namespace hierarchy exactly as represented by the AST and
-  `SymbolTable`
+* preserve the parsed namespace hierarchy exactly as represented by the AST or
+  the normalized source schema and corresponding symbol tree
 * represent resolved record and enum references using compiler-assigned IR
   identifiers
 * copy validated string/bytes `max_bytes` and array `max_elements` values from
@@ -37,6 +37,9 @@ Public lowering surface:
 * `SchemaIrBuilder::build(const ast::Ast&, const semantic::SemanticModel&,
   const layout::LayoutModel&, const symbols::SymbolTable&, context::CompilerContext&,
   diagnostics::DiagnosticCollection&)`
+* `SchemaIrBuilder::build(const source_schema::NormalizedSourceSchemaDocument&,
+  const semantic::SemanticModel&, const layout::LayoutModel&,
+  context::CompilerContext&, diagnostics::DiagnosticCollection&)`
 * `SchemaIrValidator::validate(const SchemaIrModel&, context::CompilerContext&,
   diagnostics::DiagnosticCollection&)`
 
@@ -56,18 +59,22 @@ Implementation status:
 * the normative `.brd` source contract is defined in
   `docs/specifications/schema-language.md`
 * the production-facing YAML frontend now orchestrates the import-free YAML
-  pipeline through validated Schema IR, but it still lowers through the
-  transitional AST boundary internally
-* the current frontend still uses transitional parser/AST contracts, including
-  legacy array handling, until the YAML migration lands
+  pipeline through validated Schema IR directly from the normalized
+  source-schema model
+* the legacy AST-based Schema IR path remains available for transitional
+  callers and tests
+* the current frontend still uses transitional parser/AST contracts for the
+  legacy declaration-syntax path, including legacy array handling, until the
+  YAML migration lands
 
 Namespace handling:
 
 * the protobuf model requires a single `root_namespace`
 * `root_namespace` is treated as a synthetic container
-* top-level AST namespaces are lowered as children of that synthetic root
+* top-level YAML source-schema namespaces and legacy AST namespaces are lowered
+  as children of that synthetic root
 * multi-component namespace declarations are lowered mechanically, one path
-  component at a time, using the canonical `SymbolTable` scope tree
+  component at a time
 
 Type lowering:
 

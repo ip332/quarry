@@ -2,13 +2,11 @@
 
 #include "compiler/layout/layout.hpp"
 #include "compiler/source_schema/source_schema.hpp"
-#include "compiler/source_schema/source_schema_lowering.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "compiler/schema_ir/validation.hpp"
 #include "compiler/semantic/semantic.hpp"
 #include "compiler/symbols/symbols.hpp"
 #include "compiler/yaml/schema_decoder.hpp"
-#include "compiler/yaml/source_schema_lowering.hpp"
 #include "compiler/yaml/yaml_parser.hpp"
 
 #include <optional>
@@ -67,15 +65,9 @@ YamlCompilationResult YamlCompiler::compile(support::SourceFileId source_file_id
         return result;
     }
 
-    const source_schema::SourceSchemaLoweringResult lowering_result =
-        source_schema::lower_source_schema(*normalization_result.document, diagnostics);
-    if (has_fatal_diagnostics(diagnostics) || !lowering_result.ast.has_value()) {
-        return result;
-    }
-
     schema_ir::SchemaIrBuilder schema_ir_builder;
     const schema_ir::SchemaIrModel schema_ir = schema_ir_builder.build(
-        *lowering_result.ast, semantic_model, layout_model, symbol_table, context, diagnostics);
+        *normalization_result.document, semantic_model, layout_model, context, diagnostics);
     if (has_fatal_diagnostics(diagnostics)) {
         return result;
     }

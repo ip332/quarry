@@ -223,6 +223,7 @@ add_library(breadcrumbs_compiler_schema_ir
 target_include_directories(breadcrumbs_compiler_schema_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(breadcrumbs_compiler_schema_ir
     PUBLIC
+        breadcrumbs_compiler_source_schema
         breadcrumbs_schema_ir_proto
         breadcrumbs_compiler_context
         breadcrumbs_compiler_layout

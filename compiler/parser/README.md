@@ -52,8 +52,8 @@ Current implementation status:
   `compiler/yaml`; it preserves YAML order and source ranges but does not yet
   decode Breadcrumbs schema vocabulary
 * the production-facing YAML orchestration layer now compiles import-free YAML
-  through validated Schema IR while still lowering into the transitional AST
-  boundary internally
+  through validated Schema IR without a compatibility AST hop after source-
+  schema normalization
 * the current temporary declaration grammar, annotation parsing, and
   fixed-size array handling are not normative language contracts
 * current annotations are transitional string-valued metadata; the normative

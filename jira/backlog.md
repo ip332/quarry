@@ -1,1 +1,1 @@
-- PR-028: Validate decoded YAML directly into the semantic model and reduce the YAML-to-legacy-AST bridge
+- PR-029: Lower the normalized YAML source-schema model directly into Schema IR

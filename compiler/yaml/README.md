@@ -63,10 +63,10 @@ resolution, layout computation, or Schema IR construction. It exists only so
 the remaining AST-based Schema IR builder can be reached during migration.
 
 The production-facing `compiler/frontend` orchestration layer now builds the
-symbol table and semantic model directly from the normalized source schema,
-but it still uses the transitional AST projection immediately before
-`SchemaIrBuilder`. Direct source-schema-to-SchemaIrBuilder migration has not
-happened yet.
+symbol table and semantic model directly from the normalized source schema
+and lowers directly into `SchemaIrBuilder` without the compatibility AST hop.
+The compatibility projection remains only for legacy AST-based
+`SchemaIrBuilder` callers and tests.
 
 ## Restricted YAML Profile
 
@@ -99,7 +99,8 @@ The legacy declaration lexer/parser remains temporarily supported while the
 repository migrates toward YAML decoding. That legacy frontend is still used
 by existing `.brd` tests and does not define the normative language contract.
 The normative YAML frontend now normalizes into the neutral source-schema
-module before entering the remaining compiler pipeline.
+module before entering the remaining compiler pipeline, and the production
+YAML path now reaches Schema IR without projecting back to the legacy AST.
 
 This module is the first step toward a later YAML-to-Breadcrumbs schema
 pipeline that will eventually feed semantic validation and later compiler

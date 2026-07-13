@@ -60,8 +60,10 @@ Current implementation status:
   record version, logical record type, `max_bytes`, `max_elements`, and
   bounded-array source metadata for the remaining AST-based Schema IR builder
 * the production YAML frontend now builds symbols and semantic state directly
-  from the normalized source-schema model and only projects to AST immediately
-  before `SchemaIrBuilder`
+  from the normalized source-schema model and lowers directly into
+  `SchemaIrBuilder`
+* the compatibility projection remains available only for the legacy AST-based
+  `SchemaIrBuilder` path and tests
 * later compiler stages carry the validated record metadata and bounded-array
   metadata through the Semantic and Schema IR models
 
@@ -76,7 +78,9 @@ The legacy parser produces ASTs from source text. The import resolver consumes
 ASTs to expand the compilation boundary. The namespace builder can consume
 either ASTs or the normalized source-schema model to build symbol information.
 The semantic validator likewise consumes either the legacy AST path or the
-normalized source-schema model together with symbol information.
+normalized source-schema model together with symbol information. The
+production YAML path no longer requires a compatibility AST after source-schema
+normalization.
 
 ## Dependency Restrictions
 

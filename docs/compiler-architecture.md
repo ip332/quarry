@@ -68,8 +68,8 @@ The compiler pipeline is:
   model.
 * The production-facing YAML frontend orchestrates the import-free YAML path
   through validated Schema IR by feeding the normalized source schema directly
-  into symbol construction and semantic validation, then projecting to AST
-  only immediately before `SchemaIrBuilder`.
+  into symbol construction, semantic validation, layout computation, and
+  Schema IR lowering.
 * AST flows into import resolution, legacy symbol construction, legacy
   semantic validation, layout computation, compatibility Schema IR
   construction, and backends.
@@ -79,7 +79,8 @@ enum-shaped schemas can flow through the existing downstream pipeline today,
 and bounded-variable arrays are preserved through YAML decoding,
 source-schema normalization, semantic validation, and Schema IR. The
 remaining work is downstream policy and runtime support rather than
-representation.
+representation. The compatibility AST projection remains only for the legacy
+AST-based Schema IR path and transitional tests.
 
 During migration, the legacy declaration-syntax frontend and the normative YAML
 frontend both remain available. Legacy declaration-syntax tests continue to
