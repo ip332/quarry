@@ -22,7 +22,7 @@ names, validate schema semantics, compute layout, or construct Schema IR.
 ## Source Schema Decoder
 
 The YAML module also contains the schema-specific decoder that turns a
-`YamlDocument` into a Breadcrumbs source schema model.
+`YamlDocument` into the raw Breadcrumbs source schema model.
 
 That source schema model preserves:
 
@@ -40,16 +40,17 @@ construction.
 
 The migration bridge currently supports a fully traversable scalar-, enum-, and
 bounded-array-shaped YAML subset. Bounded variable-length arrays are preserved
-through YAML decoding and source-schema lowering so later compiler stages can
-validate and lower the carried bounds.
+through YAML decoding and source-schema normalization so later compiler stages
+can validate and lower the carried bounds.
 
-## Source Schema Lowerer
+## Source Schema Normalization
 
-The YAML module also contains the source-schema lowering pass that turns a
-decoded Breadcrumbs source schema model into the existing syntax AST used by
-the legacy compiler pipeline.
+The source-schema normalization layer lives in `compiler/source_schema` and
+turns the decoded schema into structured identifiers, qualified names, and
+bounded type references.
 
-That lowering pass preserves:
+The YAML module keeps a thin compatibility wrapper for the legacy AST bridge.
+That wrapper preserves:
 
 * namespace spelling
 * record names, versions, and logical record type spellings
@@ -57,18 +58,15 @@ That lowering pass preserves:
 * field `max_bytes` and `max_elements` metadata
 * source ranges from the YAML document model
 
-The lowering pass does not perform schema semantics, symbol resolution, layout
-computation, or Schema IR construction. It is a migration bridge from the
-normative YAML frontend into the existing AST-based compiler stages.
+The compatibility wrapper does not perform schema semantics, symbol
+resolution, layout computation, or Schema IR construction. It exists only so
+the remaining AST-based Schema IR builder can be reached during migration.
 
-Its current boundary is explicit: bounded variable-length arrays remain
-represented in the lowered AST, and the existing Semantic, Layout, and Schema
-IR stages now carry the validated bounds forward.
-
-The production-facing `compiler/frontend` orchestration layer runs this YAML
-pipeline through validated Schema IR, but it still uses the transitional AST
-boundary internally. Direct `SourceSchemaDocument`-to-SemanticModel migration
-has not happened yet.
+The production-facing `compiler/frontend` orchestration layer now builds the
+symbol table and semantic model directly from the normalized source schema,
+but it still uses the transitional AST projection immediately before
+`SchemaIrBuilder`. Direct source-schema-to-SchemaIrBuilder migration has not
+happened yet.
 
 ## Restricted YAML Profile
 
@@ -98,10 +96,10 @@ headers do not expose libyaml types.
 ## Migration Status
 
 The legacy declaration lexer/parser remains temporarily supported while the
-repository migrates toward YAML decoding. That legacy frontend is still used by
-existing `.brd` tests and does not define the normative language contract.
-The normative YAML frontend lowers through this module into the existing AST
-pipeline during the migration period.
+repository migrates toward YAML decoding. That legacy frontend is still used
+by existing `.brd` tests and does not define the normative language contract.
+The normative YAML frontend now normalizes into the neutral source-schema
+module before entering the remaining compiler pipeline.
 
 This module is the first step toward a later YAML-to-Breadcrumbs schema
 pipeline that will eventually feed semantic validation and later compiler

@@ -68,6 +68,7 @@ using breadcrumbs::compiler::yaml::SourceSchemaDocument;
 using breadcrumbs::compiler::yaml::SourceSchemaEnum;
 using breadcrumbs::compiler::yaml::SourceSchemaEnumValue;
 using breadcrumbs::compiler::yaml::SourceSchemaField;
+using breadcrumbs::compiler::yaml::SourceSchemaImports;
 using breadcrumbs::compiler::yaml::SourceSchemaLoweringResult;
 using breadcrumbs::compiler::yaml::YamlDecodeResult;
 using breadcrumbs::compiler::yaml::YamlDocument;
@@ -120,17 +121,6 @@ using breadcrumbs::compiler::yaml::YamlScalarKind;
         .value = value,
         .value_range = range(end - 1, end),
     };
-}
-
-[[nodiscard]] std::unique_ptr<YamlNode> scalar_node(std::string value, YamlScalarKind kind,
-                                                    std::size_t begin, std::size_t end) {
-    auto node = std::make_unique<YamlNode>();
-    node->source_range = range(begin, end);
-    node->value = breadcrumbs::compiler::yaml::YamlScalarNode{
-        .value = std::move(value),
-        .kind = kind,
-    };
-    return node;
 }
 
 [[nodiscard]] std::string diagnostics_summary(const DiagnosticEngine& diagnostics) {
@@ -460,8 +450,7 @@ TEST(SourceSchemaLoweringTest, RejectsUnsupportedImportsAtomically) {
     schema.fields.push_back(field("label", "string", 39, 60));
     schema.fields.back().max_bytes = 16;
     schema.fields.back().max_bytes_range = range(52, 54);
-    schema.imports =
-        scalar_node("core.schema", breadcrumbs::compiler::yaml::YamlScalarKind::Plain, 61, 72);
+    schema.imports = SourceSchemaImports{.source_range = range(61, 72), .empty = false};
     schema.imports_range = range(61, 72);
 
     DiagnosticEngine diagnostics;
@@ -486,7 +475,7 @@ TEST(SourceSchemaLoweringTest, PreservesEmptyImports) {
     schema.fields.push_back(field("label", "string", 39, 60));
     schema.fields.back().max_bytes = 16;
     schema.fields.back().max_bytes_range = range(52, 54);
-    schema.imports = scalar_node("", breadcrumbs::compiler::yaml::YamlScalarKind::Plain, 61, 61);
+    schema.imports = SourceSchemaImports{.source_range = range(61, 61), .empty = true};
     schema.imports_range = range(61, 61);
 
     DiagnosticEngine diagnostics;
@@ -644,7 +633,7 @@ annotations:
     EXPECT_EQ(lowered_ir_record.record_id(), layout_record->record_id);
     EXPECT_NE(lowered_ir_record.ir_id(), lowered_ir_record.record_id());
     EXPECT_EQ(lowered_ir_record.source_origin().file(), "/test/schema.yaml");
-    EXPECT_EQ(lowered_ir_record.source_origin().span().start_line(), 1U);
+    EXPECT_EQ(lowered_ir_record.source_origin().span().start_line(), 2U);
     ASSERT_EQ(lowered_ir_record.fields_size(), 3);
     EXPECT_EQ(lowered_ir_record.fields(0).name(), "mode");
     EXPECT_EQ(lowered_ir_record.fields(1).name(), "count");

@@ -238,7 +238,7 @@ fields:
 
     EXPECT_FALSE(result.succeeded());
     EXPECT_FALSE(diagnostics.empty());
-    EXPECT_TRUE(has_diagnostic(diagnostics, "yaml-source-lowering", "BC2403"));
+    EXPECT_TRUE(has_diagnostic(diagnostics, "source-schema-normalization", "BC2403"));
 }
 
 TEST(YamlCompilerTest, StopsAfterSemanticFailure) {

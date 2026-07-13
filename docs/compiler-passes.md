@@ -53,27 +53,30 @@ YamlDocument
 schema decoder
     |
     v
-source-schema lowering
+source-schema normalization
     |
     v
-AST
+Symbol Model / Semantic Model
 ```
 
 The existing legacy declaration parser remains available for transitional test
 coverage and produces the same AST-shaped input that later passes already
-consume. The YAML frontend does not replace the legacy parser yet; it feeds the
-same downstream pipeline through an explicit lowering boundary.
+consume. The YAML frontend does not replace the legacy parser yet; it feeds a
+normalized source-schema model into the same downstream pipeline through an
+explicit normalization boundary.
 
 Scalar- and enum-shaped YAML schemas can currently traverse the complete
 legacy pipeline. Bounded-variable arrays are preserved through YAML decoding,
-source-schema lowering, semantic validation, and Schema IR, but downstream
-layout and runtime policy still do not interpret the full bounded-array
-contract yet.
+source-schema normalization, semantic validation, and Schema IR, but
+downstream layout and runtime policy still do not interpret the full
+bounded-array contract yet.
 
 The `compiler/frontend` orchestration layer now exposes a production-facing
-import-free YAML compilation path through validated Schema IR. That layer still
-uses the transitional AST boundary internally, and the legacy declaration
-parser remains available during the migration.
+import-free YAML compilation path through validated Schema IR. That layer now
+builds symbols and semantic state directly from the normalized source-schema
+model, then uses a compatibility AST projection only immediately before
+`SchemaIrBuilder`. The legacy declaration parser remains available during the
+migration.
 
 ---
 
@@ -222,13 +225,15 @@ complete source set and never need to perform file discovery.
 
 ### Purpose
 
-The namespace builder converts the Compilation Unit into the Symbol Model.
+The namespace builder converts the Compilation Unit or the normalized
+source-schema document into the Symbol Model.
 
 This pass establishes logical declaration identity using fully qualified names.
 
 ### Input Representation
 
 * Compilation Unit
+* normalized source-schema document
 
 ### Output Representation
 
@@ -251,7 +256,9 @@ Required by:
 ### Assumptions on Input
 
 All ASTs are syntactically valid and all imports required for the compilation
-have been resolved.
+have been resolved. For the normalized source-schema path, the schema has
+already had unsupported YAML imports rejected and normalized identifiers
+validated.
 
 ### Responsibilities
 
@@ -291,12 +298,13 @@ and conflicting declarations before resolving references between declarations.
 ### Purpose
 
 The semantic validator checks that the schema is meaningful according to the
-Breadcrumbs schema language and converts the Symbol Model into the Semantic
-Model.
+Breadcrumbs schema language and converts either the legacy AST path or the
+normalized source-schema model into the Semantic Model.
 
 ### Input Representation
 
 * Symbol Model
+* normalized source-schema document
 
 ### Output Representation
 

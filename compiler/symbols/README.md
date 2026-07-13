@@ -4,9 +4,9 @@ Owns the compiler's namespace hierarchy and symbol tables.
 
 ## Responsibilities
 
-The symbols layer collects named declarations from the parsed AST and builds a
-tree of lexical scopes. It is the groundwork for later name resolution and
-semantic analysis.
+The symbols layer collects named declarations from either the legacy parsed
+AST or the normalized source-schema model and builds a tree of lexical scopes.
+It is the groundwork for later name resolution and semantic analysis.
 
 It:
 
@@ -19,21 +19,21 @@ It:
 
 ## Ownership Model
 
-Symbols are non-owning views over the existing AST. They refer back to AST
-declarations through raw pointers because the AST owns the declaration tree.
+`SymbolTable` owns the scope tree and the symbol records it contains. Symbols
+carry canonical fully qualified names, source ranges, and child namespace
+scopes, but they no longer retain AST declaration pointers.
 
-Scopes own symbol records and nested child scopes, but they do not own the AST
-nodes they describe.
+Scopes own symbol records and nested child scopes.
 
-`SymbolTable` is the public name for the symbol model. It owns the scope tree
-and exposes lookup behavior directly to later passes. `NamespaceBuilder::build`
-consumes the parsed AST and constructs the scope tree from that syntax tree.
+`NamespaceBuilder::build` can consume the parsed AST or the normalized
+source-schema model and constructs the same scope tree from either input.
 
 ## Name Model
 
-The AST's `QualifiedNameSyntax` is used directly for lookup. The symbols layer
-does not build an alternate fully qualified name hierarchy or concatenate names
-into a separate identity string.
+The AST's `QualifiedNameSyntax` and the normalized source-schema qualified name
+both feed the same canonical lookup rules. The symbols layer does not build an
+alternate fully qualified name hierarchy or concatenate names into a separate
+identity string beyond the stored canonical FQN on each symbol.
 
 Unqualified lookup walks the current scope and enclosing scopes. Qualified
 lookup resolves the first component with unqualified lookup and then walks
@@ -54,6 +54,7 @@ the previous declaration as related source context.
 Allowed dependencies:
 
 * `compiler/ast`
+* `compiler/source_schema`
 * `compiler/diagnostics`
 * `compiler/support`
 

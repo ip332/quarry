@@ -64,18 +64,22 @@ The compiler pipeline is:
 * Legacy declaration-syntax source files flow through the lexer/parser into
   Parsed AST.
 * YAML source files flow through `YamlParser`, `YamlDocument`, source-schema
-  decoding, and source-schema lowering into the same AST boundary.
+  decoding, and source-schema normalization into the neutral source-schema
+  model.
 * The production-facing YAML frontend orchestrates the import-free YAML path
-  through validated Schema IR while still reusing the transitional AST
-  boundary internally.
-* AST flows into import resolution, symbol construction, semantic validation,
-  layout computation, Schema IR, and backends.
+  through validated Schema IR by feeding the normalized source schema directly
+  into symbol construction and semantic validation, then projecting to AST
+  only immediately before `SchemaIrBuilder`.
+* AST flows into import resolution, legacy symbol construction, legacy
+  semantic validation, layout computation, compatibility Schema IR
+  construction, and backends.
 
 The current migration boundary is intentionally uneven: scalar- and
 enum-shaped schemas can flow through the existing downstream pipeline today,
-and bounded-variable arrays are now preserved through YAML decoding,
-source-schema lowering, semantic validation, and Schema IR. The remaining work
-is downstream policy and runtime support rather than representation.
+and bounded-variable arrays are preserved through YAML decoding,
+source-schema normalization, semantic validation, and Schema IR. The
+remaining work is downstream policy and runtime support rather than
+representation.
 
 During migration, the legacy declaration-syntax frontend and the normative YAML
 frontend both remain available. Legacy declaration-syntax tests continue to

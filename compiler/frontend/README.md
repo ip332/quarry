@@ -9,10 +9,11 @@ YAML `.brd` compilation.
 
 * `YamlParser`
 * schema decoder
-* source-schema lowering
+* source-schema normalization
 * `NamespaceBuilder`
 * `SemanticValidator`
 * `LayoutComputer`
+* compatibility AST projection
 * `SchemaIrBuilder`
 * `SchemaIrValidator`
 
@@ -21,13 +22,13 @@ failure. It does not invoke backend generation.
 
 ## Migration Boundary
 
-The current YAML path still lowers into the transitional AST boundary before
-the existing compiler passes consume it. The legacy declaration parser remains
-available and is still used by existing declaration-syntax tests. The
-SourceSchemaDocument-to-SemanticModel migration has not happened yet.
+The YAML path now builds the symbol table and semantic model directly from the
+normalized source-schema model. The legacy declaration parser remains available
+and is still used by existing declaration-syntax tests. The compatibility AST
+projection is retained only immediately before `SchemaIrBuilder`.
 
 Non-empty YAML imports remain unsupported and continue to fail in the existing
-source-schema lowering pass. Import resolution is not implemented here.
+source-schema normalization layer. Import resolution is not implemented here.
 
 ## Dependencies
 

@@ -63,6 +63,19 @@ set_target_properties(breadcrumbs_yaml::yaml PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${BREADCRUMBS_LIBYAML_INCLUDE_DIR}"
 )
 
+add_library(breadcrumbs_compiler_source_schema
+    source_schema/source_schema.cpp
+    source_schema/source_schema_lowering.cpp
+)
+target_include_directories(breadcrumbs_compiler_source_schema PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(breadcrumbs_compiler_source_schema
+    PUBLIC
+        breadcrumbs_compiler_ast
+        breadcrumbs_compiler_diagnostics
+        breadcrumbs_compiler_support
+        breadcrumbs_project_options
+)
+
 add_library(breadcrumbs_compiler_yaml
     yaml/yaml_document.cpp
     yaml/schema_decoder.cpp
@@ -76,8 +89,8 @@ set_source_files_properties(
 target_include_directories(breadcrumbs_compiler_yaml PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(breadcrumbs_compiler_yaml
     PUBLIC
-        breadcrumbs_compiler_ast
         breadcrumbs_compiler_diagnostics
+        breadcrumbs_compiler_source_schema
         breadcrumbs_compiler_support
         breadcrumbs_project_options
     PRIVATE
@@ -105,6 +118,7 @@ target_link_libraries(breadcrumbs_compiler_symbols
     PUBLIC
         breadcrumbs_compiler_ast
         breadcrumbs_compiler_diagnostics
+        breadcrumbs_compiler_source_schema
         breadcrumbs_compiler_support
         breadcrumbs_project_options
 )
@@ -118,6 +132,7 @@ target_link_libraries(breadcrumbs_compiler_semantic
         breadcrumbs_compiler_ast
         breadcrumbs_compiler_symbols
         breadcrumbs_compiler_diagnostics
+        breadcrumbs_compiler_source_schema
         breadcrumbs_compiler_support
         breadcrumbs_project_options
 )
@@ -232,6 +247,7 @@ target_link_libraries(breadcrumbs_compiler_frontend
         breadcrumbs_compiler_layout
         breadcrumbs_compiler_semantic
         breadcrumbs_compiler_symbols
+        breadcrumbs_compiler_source_schema
         breadcrumbs_compiler_yaml
         breadcrumbs_schema_ir_warning_tweaks
 )

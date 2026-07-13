@@ -335,6 +335,269 @@ void emit_invalid_bound_position(diagnostics::DiagnosticEngine& diagnostics,
         type);
 }
 
+[[nodiscard]] ast::QualifiedNameSyntax
+to_ast_qualified_name(const source_schema::SourceSchemaQualifiedName& name) {
+    ast::QualifiedNameSyntax lowered;
+    lowered.source_range = name.source_range;
+    lowered.parts.reserve(name.parts.size());
+    for (const source_schema::SourceSchemaIdentifier& part : name.parts) {
+        lowered.parts.push_back(ast::IdentifierSyntax{
+            .source_range = part.source_range,
+            .text = part.text,
+        });
+    }
+    return lowered;
+}
+
+[[nodiscard]] ast::TypeReferenceSyntax
+to_ast_type_reference(const source_schema::NormalizedSourceSchemaTypeReference& type_reference) {
+    return ast::TypeReferenceSyntax{
+        .source_range = type_reference.source_range,
+        .name = to_ast_qualified_name(type_reference.name),
+    };
+}
+
+[[nodiscard]] std::optional<SemanticType>
+resolve_named_type(const source_schema::NormalizedSourceSchemaTypeReference& type_reference,
+                   const symbols::Scope& scope, const symbols::SymbolTable& symbol_model,
+                   diagnostics::DiagnosticEngine& diagnostics) {
+    if (const std::optional<SemanticPrimitiveType> primitive =
+            canonical_primitive_type(type_reference.name.text());
+        primitive.has_value()) {
+        return SemanticType(*primitive);
+    }
+
+    const symbols::Symbol* symbol = symbol_model.resolve(type_reference.name, scope);
+    if (symbol == nullptr) {
+        emit_unresolved_type(diagnostics, to_ast_type_reference(type_reference));
+        return std::nullopt;
+    }
+
+    if (!is_type_symbol(symbol)) {
+        emit_invalid_type_position(diagnostics, to_ast_type_reference(type_reference), *symbol);
+        return std::nullopt;
+    }
+
+    if (symbol->kind == symbols::SymbolKind::Record) {
+        return SemanticType(SemanticRecordReferenceType{.canonical_target_fqn = symbol->fqn});
+    }
+
+    if (symbol->kind == symbols::SymbolKind::Enum) {
+        return SemanticType(SemanticEnumReferenceType{.canonical_target_fqn = symbol->fqn});
+    }
+
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<SemanticType>
+resolve_type(const source_schema::NormalizedSourceSchemaField& field,
+             const source_schema::NormalizedSourceSchemaType& type, const symbols::Scope& scope,
+             const symbols::SymbolTable& symbol_model,
+             diagnostics::DiagnosticEngine& diagnostics) {
+    return std::visit(
+        [&](const auto& typed) -> std::optional<SemanticType> {
+            using Type = std::decay_t<decltype(typed)>;
+            if constexpr (std::is_same_v<Type, source_schema::NormalizedSourceSchemaTypeReference>) {
+                if (typed.name.text() == "string") {
+                    const std::optional<std::uint32_t> max_bytes = validate_positive_u32(
+                        field.max_bytes, field.max_bytes_range, diagnostics,
+                        "field '" + field.name.text + "'", "max_bytes");
+                    if (!max_bytes.has_value()) {
+                        return std::nullopt;
+                    }
+                    if (field.max_elements.has_value()) {
+                        emit_invalid_bound_position(diagnostics, field.max_elements_range,
+                                                    "field '" + field.name.text + "'",
+                                                    "max_elements");
+                        return std::nullopt;
+                    }
+                    return SemanticType(SemanticStringType{.max_bytes = *max_bytes});
+                }
+
+                if (typed.name.text() == "bytes") {
+                    const std::optional<std::uint32_t> max_bytes = validate_positive_u32(
+                        field.max_bytes, field.max_bytes_range, diagnostics,
+                        "field '" + field.name.text + "'", "max_bytes");
+                    if (!max_bytes.has_value()) {
+                        return std::nullopt;
+                    }
+                    if (field.max_elements.has_value()) {
+                        emit_invalid_bound_position(diagnostics, field.max_elements_range,
+                                                    "field '" + field.name.text + "'",
+                                                    "max_elements");
+                        return std::nullopt;
+                    }
+                    return SemanticType(SemanticBytesType{.max_bytes = *max_bytes});
+                }
+
+                if (field.max_bytes.has_value()) {
+                    emit_invalid_bound_position(diagnostics, field.max_bytes_range,
+                                                "field '" + field.name.text + "'", "max_bytes");
+                    return std::nullopt;
+                }
+                if (field.max_elements.has_value()) {
+                    emit_invalid_bound_position(diagnostics, field.max_elements_range,
+                                                "field '" + field.name.text + "'", "max_elements");
+                    return std::nullopt;
+                }
+                return resolve_named_type(typed, scope, symbol_model, diagnostics);
+            } else {
+                if (field.max_bytes.has_value()) {
+                    emit_invalid_bound_position(diagnostics, field.max_bytes_range,
+                                                "field '" + field.name.text + "'", "max_bytes");
+                    return std::nullopt;
+                }
+
+                if (typed.element_type == nullptr) {
+                    diagnostics.emit(diagnostics::Diagnostic::create(
+                                         diagnostic_id("BC1004"),
+                                         diagnostics::Severity::InternalCompilerError,
+                                         "source schema array is missing an element type")
+                                         .from_pass(std::string(semantic_pass))
+                                         .at(field.source_range)
+                                         .build());
+                    return std::nullopt;
+                }
+                if (typed.element_type->is_array()) {
+                    emit_invalid_array(diagnostics,
+                                       ast::ArrayTypeSyntax{
+                                           .source_range = typed.source_range,
+                                           .element_type = ast::TypeReferenceSyntax{
+                                               .source_range = typed.source_range,
+                                               .name = ast::QualifiedNameSyntax{},
+                                           },
+                                           .kind = ast::ArrayTypeSyntaxKind::BoundedVariableLength,
+                                           .fixed_size = std::nullopt,
+                                           .fixed_size_source_range =
+                                               support::SourceRange::invalid(),
+                                       },
+                                       "nested arrays are not supported in version 0.1");
+                    return std::nullopt;
+                }
+
+                const std::optional<std::uint32_t> max_elements = validate_positive_u32(
+                    field.max_elements, field.max_elements_range, diagnostics,
+                    "field '" + field.name.text + "'", "max_elements");
+                if (!max_elements.has_value()) {
+                    return std::nullopt;
+                }
+
+                source_schema::NormalizedSourceSchemaField element_field = field;
+                element_field.max_bytes = std::nullopt;
+                element_field.max_bytes_range = support::SourceRange::invalid();
+                element_field.max_elements = std::nullopt;
+                element_field.max_elements_range = support::SourceRange::invalid();
+
+                const std::optional<SemanticType> element_type =
+                    resolve_type(element_field, *typed.element_type, scope, symbol_model,
+                                 diagnostics);
+                if (!element_type.has_value()) {
+                    return std::nullopt;
+                }
+                if (element_type->is_array()) {
+                    emit_invalid_array(diagnostics, ast::ArrayTypeSyntax{
+                                              .source_range = typed.source_range,
+                                              .element_type = ast::TypeReferenceSyntax{
+                                                  .source_range = typed.source_range,
+                                                  .name = ast::QualifiedNameSyntax{},
+                                              },
+                                              .kind = ast::ArrayTypeSyntaxKind::BoundedVariableLength,
+                                              .fixed_size = std::nullopt,
+                                              .fixed_size_source_range =
+                                                  support::SourceRange::invalid(),
+                                          },
+                                       "nested arrays are not supported in version 0.1");
+                    return std::nullopt;
+                }
+
+                SemanticArrayType array;
+                array.max_elements = *max_elements;
+                array.element_type = std::make_unique<SemanticType>(*element_type);
+                return SemanticType(std::move(array));
+            }
+        },
+        type.value);
+}
+
+const symbols::Scope* scope_for_namespace(const source_schema::SourceSchemaQualifiedName& declaration,
+                                          const symbols::Scope& current_scope,
+                                          const symbols::SymbolTable& symbol_model) {
+    const symbols::Symbol* symbol = symbol_model.resolve(declaration, current_scope);
+    if (symbol == nullptr || symbol->kind != symbols::SymbolKind::Namespace ||
+        symbol->child_scope == nullptr) {
+        return nullptr;
+    }
+
+    return symbol->child_scope;
+}
+
+void collect_semantic_record(const source_schema::NormalizedSourceSchemaDocument& schema,
+                             const symbols::Scope& scope,
+                             const symbols::SymbolTable& symbol_model,
+                             diagnostics::DiagnosticEngine& diagnostics, SemanticModel& model) {
+    SemanticRecord record;
+    record.source_range = schema.record_source_range;
+    record.fqn = qualify_fqn(schema.namespace_name.text(), schema.record_name.text);
+
+    const std::optional<std::uint32_t> version =
+        validate_positive_u32(schema.version, schema.version_range, diagnostics,
+                              "record '" + record.fqn + "'", "version");
+    if (version.has_value()) {
+        record.version = *version;
+    }
+
+    const std::optional<SemanticRecordType> record_type =
+        canonical_record_type(schema.record_type_spelling);
+    if (record_type.has_value()) {
+        record.record_type = *record_type;
+    } else {
+        auto builder = diagnostics::Diagnostic::create(
+            diagnostic_id("BC5005"), diagnostics::Severity::Error,
+            "record '" + record.fqn + "' has an invalid logical record type '" +
+                schema.record_type_spelling + "'");
+        builder.from_pass(std::string(semantic_pass));
+        if (schema.record_type_range.is_valid()) {
+            builder.at(schema.record_type_range);
+        }
+        diagnostics.emit(builder.build());
+    }
+
+    record.fields.reserve(schema.fields.size());
+    for (const source_schema::NormalizedSourceSchemaField& field : schema.fields) {
+        const std::optional<SemanticType> resolved =
+            resolve_type(field, field.type, scope, symbol_model, diagnostics);
+        if (!resolved.has_value()) {
+            continue;
+        }
+
+        record.fields.push_back(SemanticField{
+            .source_range = field.source_range, .name = field.name.text, .type = *resolved});
+    }
+    model.records.push_back(std::move(record));
+}
+
+SemanticModel validate_source_schema(const source_schema::NormalizedSourceSchemaDocument& schema,
+                                     const symbols::SymbolTable& symbol_model,
+                                     diagnostics::DiagnosticEngine& diagnostics) {
+    SemanticModel model;
+    const symbols::Scope& global_scope = symbol_model.global_scope();
+    const symbols::Scope* namespace_scope =
+        scope_for_namespace(schema.namespace_name, global_scope, symbol_model);
+    if (namespace_scope == nullptr) {
+        diagnostics.emit(diagnostics::Diagnostic::create(
+                             diagnostic_id("BC1004"), diagnostics::Severity::InternalCompilerError,
+                             "semantic analysis could not resolve source schema namespace '" +
+                                 schema.namespace_name.text() + "'")
+                             .from_pass(std::string(semantic_pass))
+                             .at(schema.namespace_name.source_range)
+                             .build());
+        return model;
+    }
+
+    collect_semantic_record(schema, *namespace_scope, symbol_model, diagnostics, model);
+    return model;
+}
+
 const symbols::Scope* scope_for_namespace(const ast::NamespaceDeclarationSyntax& declaration,
                                           const symbols::Scope& current_scope,
                                           const symbols::SymbolTable& symbol_model) {
@@ -472,6 +735,13 @@ SemanticModel SemanticValidator::validate(const ast::Ast& ast,
                                           const symbols::SymbolTable& symbol_model,
                                           diagnostics::DiagnosticCollection& diagnostics) const {
     return validate_schema_file(ast, symbol_model, diagnostics);
+}
+
+SemanticModel SemanticValidator::validate(
+    const source_schema::NormalizedSourceSchemaDocument& schema,
+    const symbols::SymbolTable& symbol_model,
+    diagnostics::DiagnosticEngine& diagnostics) const {
+    return validate_source_schema(schema, symbol_model, diagnostics);
 }
 
 SemanticArrayType::SemanticArrayType() = default;

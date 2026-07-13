@@ -6,7 +6,6 @@
 #include "compiler/yaml/yaml_document.hpp"
 #include "compiler/yaml/yaml_parser.hpp"
 
-#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -56,12 +55,6 @@ struct PipelineOutput {
     }
     return output;
 }
-
-[[nodiscard]] const breadcrumbs::compiler::yaml::YamlScalarNode& scalar(const YamlNode& node) {
-    return std::get<breadcrumbs::compiler::yaml::YamlScalarNode>(node.value);
-}
-
-[[nodiscard]] const YamlNode& node(const std::unique_ptr<YamlNode>& ptr) { return *ptr; }
 
 [[nodiscard]] std::string diagnostic_summary(const DiagnosticEngine& diagnostics) {
     std::ostringstream stream;
@@ -376,7 +369,7 @@ fields:
     EXPECT_TRUE(schema.fields[0].annotations.empty());
     EXPECT_TRUE(schema.enums.empty());
     EXPECT_TRUE(schema.annotations.empty());
-    EXPECT_EQ(schema.imports, nullptr);
+    EXPECT_FALSE(schema.imports.has_value());
     EXPECT_TRUE(output.diagnostics.empty()) << diagnostic_summary(output.diagnostics);
 }
 
@@ -414,14 +407,9 @@ enums:
     ASSERT_TRUE(output.decode_result.schema.has_value()) << diagnostic_summary(output.diagnostics);
 
     const SourceSchemaDocument& schema = *output.decode_result.schema;
-    ASSERT_NE(schema.imports, nullptr);
-    ASSERT_TRUE(std::holds_alternative<breadcrumbs::compiler::yaml::YamlSequenceNode>(
-        schema.imports->value));
-    const auto& import_sequence =
-        std::get<breadcrumbs::compiler::yaml::YamlSequenceNode>(schema.imports->value);
-    ASSERT_EQ(import_sequence.elements.size(), 2U);
-    EXPECT_EQ(scalar(node(import_sequence.elements[0])).value, "breadcrumbs.shared");
-    EXPECT_EQ(scalar(node(import_sequence.elements[1])).value, "breadcrumbs.motion");
+    ASSERT_TRUE(schema.imports.has_value());
+    EXPECT_FALSE(schema.imports->empty);
+    EXPECT_TRUE(schema.imports->source_range.is_valid());
 
     ASSERT_EQ(schema.annotations.size(), 2U);
     EXPECT_EQ(schema.annotations[0].name, "owner");

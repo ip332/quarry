@@ -56,13 +56,14 @@ Current implementation status:
 * the current AST still carries legacy fixed-size array representation and
   annotation nodes from the temporary parser
 * those nodes are transitional scaffolding and do not redefine the language
-* the YAML source-schema lowering pass also populates this AST with record
-  version, logical record type, `max_bytes`, `max_elements`, and bounded-array
-  source metadata during the migration path
-* the production YAML frontend still lowers through this AST boundary before
-  the existing Semantic, Layout, and Schema IR passes consume the schema
-* later compiler stages now carry the validated record metadata and
-  bounded-array metadata through the Semantic and Schema IR models
+* the YAML source-schema compatibility projection still populates this AST with
+  record version, logical record type, `max_bytes`, `max_elements`, and
+  bounded-array source metadata for the remaining AST-based Schema IR builder
+* the production YAML frontend now builds symbols and semantic state directly
+  from the normalized source-schema model and only projects to AST immediately
+  before `SchemaIrBuilder`
+* later compiler stages carry the validated record metadata and bounded-array
+  metadata through the Semantic and Schema IR models
 
 ## Debug Support
 
@@ -71,10 +72,11 @@ not a serialization format and should not be consumed as compiler input.
 
 ## Relationship To Compiler Passes
 
-The parser produces ASTs from source text. The import resolver consumes ASTs to
-expand the compilation boundary. The namespace builder consumes ASTs to build
-symbol information. The semantic validator consumes later symbol structures,
-not raw syntax, except where source metadata is needed for diagnostics.
+The legacy parser produces ASTs from source text. The import resolver consumes
+ASTs to expand the compilation boundary. The namespace builder can consume
+either ASTs or the normalized source-schema model to build symbol information.
+The semantic validator likewise consumes either the legacy AST path or the
+normalized source-schema model together with symbol information.
 
 ## Dependency Restrictions
 

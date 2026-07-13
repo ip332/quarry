@@ -10,7 +10,6 @@
 #include <string_view>
 #include <system_error>
 #include <type_traits>
-#include <variant>
 #include <utility>
 #include <vector>
 
@@ -36,45 +35,25 @@ constexpr std::string_view schema_pass = "yaml-schema-decoder";
     return support::SourceRange(begin.begin(), end.end());
 }
 
-[[nodiscard]] std::unique_ptr<YamlNode> clone_node(const YamlNode& node) {
-    auto clone = std::make_unique<YamlNode>();
-    clone->source_range = node.source_range;
-
-    std::visit(
-        [&](const auto& value) {
-            using Value = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<Value, YamlScalarNode>) {
-                clone->value = value;
-            } else if constexpr (std::is_same_v<Value, YamlSequenceNode>) {
-                YamlSequenceNode copy;
-                copy.elements.reserve(value.elements.size());
-                for (const auto& element : value.elements) {
-                    copy.elements.push_back(clone_node(*element));
-                }
-                clone->value = std::move(copy);
-            } else if constexpr (std::is_same_v<Value, YamlMappingNode>) {
-                YamlMappingNode copy;
-                copy.entries.reserve(value.entries.size());
-                for (const auto& entry : value.entries) {
-                    YamlMappingEntry copy_entry;
-                    copy_entry.key = clone_node(*entry.key);
-                    copy_entry.value = clone_node(*entry.value);
-                    copy.entries.push_back(std::move(copy_entry));
-                }
-                clone->value = std::move(copy);
-            }
-        },
-        node.value);
-
-    return clone;
-}
-
 [[nodiscard]] const YamlScalarNode* scalar_value(const YamlNode& node) {
     return std::get_if<YamlScalarNode>(&node.value);
 }
 
 [[nodiscard]] const YamlMappingNode* mapping_value(const YamlNode& node) {
     return std::get_if<YamlMappingNode>(&node.value);
+}
+
+[[nodiscard]] bool imports_are_empty(const YamlNode& imports) {
+    if (const auto* sequence = std::get_if<YamlSequenceNode>(&imports.value)) {
+        return sequence->elements.empty();
+    }
+    if (const auto* mapping = std::get_if<YamlMappingNode>(&imports.value)) {
+        return mapping->entries.empty();
+    }
+    if (const auto* scalar = std::get_if<YamlScalarNode>(&imports.value)) {
+        return scalar->value.empty();
+    }
+    return false;
 }
 
 [[nodiscard]] std::optional<std::int64_t> parse_integer(std::string_view text) {
@@ -677,7 +656,10 @@ decode_root_mapping(const YamlMappingNode& mapping, const YamlDocument& document
         }
 
         if (key->value == "imports") {
-            schema.imports = clone_node(*entry.value);
+            schema.imports = SourceSchemaImports{
+                .source_range = entry.value->source_range,
+                .empty = imports_are_empty(*entry.value),
+            };
             schema.imports_range = entry.value->source_range;
             continue;
         }

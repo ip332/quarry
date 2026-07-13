@@ -1,1 +1,1 @@
-- PR-027: Add an import-free YAML compilation pipeline through validated Schema IR
+- PR-028: Validate decoded YAML directly into the semantic model and reduce the YAML-to-legacy-AST bridge

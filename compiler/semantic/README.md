@@ -19,7 +19,7 @@ It:
   type when the source model provides it
 * carries validated `max_elements` for bounded variable-length arrays
 * validates type-bearing syntax in the current transitional declaration-parser
-  AST
+  AST and the normalized source-schema model
 * reports unresolved type references
 * reports declarations that resolve successfully but are invalid in type
   position
@@ -36,7 +36,8 @@ AST nodes and does not introduce a semantic side table because no downstream
 consumer needs one yet.
 
 The layer consumes `SymbolTable` to resolve names but does not own symbol
-collection.
+collection. The normalized source-schema path uses the same semantic policy as
+the legacy AST path.
 
 Invalid field types do not enter the returned `SemanticModel`. Semantic
 diagnostics may still be emitted for later fields and declarations in the same
@@ -53,16 +54,13 @@ The normative `.brd` YAML contract is defined in
 `docs/specifications/schema-language.md`.
 
 The current semantic implementation still consumes the transitional
-declaration-parser AST and validates that shape.
+declaration-parser AST and also accepts the normalized source-schema model.
 
-The frontend migration path now carries YAML-decoded schema version, logical
-record type, string/bytes bounds, and bounded-array counts into the Semantic
-Model so later passes can consume the resolved values directly.
+The production YAML frontend now passes normalized YAML source schema directly
+into symbol construction and semantic validation. The compatibility AST
+projection is still used immediately before `SchemaIrBuilder` only.
 
-The production YAML frontend now reaches validated Schema IR through the
-transitional AST boundary, but semantic analysis still consumes the transitional
-AST shape today. Direct `SourceSchemaDocument`-to-SemanticModel migration has
-not happened yet.
+Direct source-schema-to-SchemaIrBuilder migration has not happened yet.
 
 ## Dependency Restrictions
 
@@ -70,6 +68,7 @@ Allowed dependencies:
 
 * `compiler/ast`
 * `compiler/symbols`
+* `compiler/source_schema`
 * `compiler/diagnostics`
 * `compiler/support`
 

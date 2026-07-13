@@ -1,6 +1,8 @@
 #include "compiler/frontend/yaml_compiler.hpp"
 
 #include "compiler/layout/layout.hpp"
+#include "compiler/source_schema/source_schema.hpp"
+#include "compiler/source_schema/source_schema_lowering.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "compiler/schema_ir/validation.hpp"
 #include "compiler/semantic/semantic.hpp"
@@ -38,22 +40,22 @@ YamlCompilationResult YamlCompiler::compile(support::SourceFileId source_file_id
         return result;
     }
 
-    const yaml::SourceSchemaLoweringResult lowering_result =
-        yaml::lower_source_schema(*decode_result.schema, diagnostics);
-    if (has_fatal_diagnostics(diagnostics) || !lowering_result.ast.has_value()) {
+    const source_schema::SourceSchemaNormalizationResult normalization_result =
+        source_schema::normalize_source_schema(*decode_result.schema, diagnostics);
+    if (has_fatal_diagnostics(diagnostics) || !normalization_result.document.has_value()) {
         return result;
     }
 
     symbols::NamespaceBuilder namespace_builder;
     const symbols::SymbolTable symbol_table =
-        namespace_builder.build(*lowering_result.ast, diagnostics);
+        namespace_builder.build(*normalization_result.document, diagnostics);
     if (has_fatal_diagnostics(diagnostics)) {
         return result;
     }
 
     semantic::SemanticValidator semantic_validator;
     const semantic::SemanticModel semantic_model =
-        semantic_validator.validate(*lowering_result.ast, symbol_table, diagnostics);
+        semantic_validator.validate(*normalization_result.document, symbol_table, diagnostics);
     if (has_fatal_diagnostics(diagnostics)) {
         return result;
     }
@@ -62,6 +64,12 @@ YamlCompilationResult YamlCompiler::compile(support::SourceFileId source_file_id
     const layout::LayoutModel layout_model =
         layout_computer.compute(semantic_model, context, diagnostics);
     if (has_fatal_diagnostics(diagnostics)) {
+        return result;
+    }
+
+    const source_schema::SourceSchemaLoweringResult lowering_result =
+        source_schema::lower_source_schema(*normalization_result.document, diagnostics);
+    if (has_fatal_diagnostics(diagnostics) || !lowering_result.ast.has_value()) {
         return result;
     }
 
