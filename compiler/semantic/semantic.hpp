@@ -27,9 +27,21 @@ enum class SemanticPrimitiveType {
     F64,
 };
 
-struct SemanticStringType {};
+enum class SemanticRecordType {
+    Data,
+    Command,
+    Event,
+    Configuration,
+    Diagnostics,
+};
 
-struct SemanticBytesType {};
+struct SemanticStringType {
+    std::uint32_t max_bytes = 0;
+};
+
+struct SemanticBytesType {
+    std::uint32_t max_bytes = 0;
+};
 
 struct SemanticRecordReferenceType {
     std::string canonical_target_fqn;
@@ -42,6 +54,7 @@ struct SemanticEnumReferenceType {
 struct SemanticType;
 
 struct SemanticArrayType {
+    std::uint32_t max_elements = 0;
     std::unique_ptr<SemanticType> element_type;
 
     SemanticArrayType();
@@ -88,6 +101,8 @@ struct SemanticField {
 struct SemanticRecord {
     support::SourceRange source_range;
     std::string fqn;
+    std::optional<std::uint32_t> version = std::nullopt;
+    std::optional<SemanticRecordType> record_type = std::nullopt;
     std::vector<SemanticField> fields;
 
     [[nodiscard]] const SemanticField* find_field(std::string_view name) const;

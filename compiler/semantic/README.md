@@ -12,8 +12,12 @@ It:
 * walks the parsed AST
 * resolves type references against the symbol table
 * canonicalizes builtin scalar aliases into resolved semantic types
-* preserves distinct string and bytes semantic kinds
+* preserves distinct string and bytes semantic kinds together with validated
+  `max_bytes`
 * records canonical record and enum reference FQNs
+* carries normalized record metadata such as schema version and logical record
+  type when the source model provides it
+* carries validated `max_elements` for bounded variable-length arrays
 * validates type-bearing syntax in the current transitional declaration-parser
   AST
 * reports unresolved type references
@@ -50,6 +54,10 @@ The normative `.brd` YAML contract is defined in
 
 The current semantic implementation still consumes the transitional
 declaration-parser AST and validates that shape.
+
+The frontend migration path now carries YAML-decoded schema version, logical
+record type, string/bytes bounds, and bounded-array counts into the Semantic
+Model so later passes can consume the resolved values directly.
 
 After the frontend migration lands, semantic analysis will consume the source
 model produced from normative YAML decoding rather than the transitional AST

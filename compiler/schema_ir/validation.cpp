@@ -346,6 +346,31 @@ private:
     }
 
     void validate_record(const ::breadcrumbs::schema_ir::RecordIR& record) {
+        if (record.has_schema_version() && record.schema_version() == 0U) {
+            emit_diagnostic(diagnostics_, diagnostic_id("BC6012"), diagnostics::Severity::Error,
+                            "schema IR record '" + std::string(record.name()) +
+                                "' has a zero schema_version",
+                            source_range_from_origin(record.source_origin(), source_manager_));
+        }
+
+        if (record.has_record_type()) {
+            switch (record.record_type()) {
+            case ::breadcrumbs::schema_ir::RECORD_TYPE_UNSPECIFIED:
+            case ::breadcrumbs::schema_ir::RECORD_TYPE_DATA:
+            case ::breadcrumbs::schema_ir::RECORD_TYPE_COMMAND:
+            case ::breadcrumbs::schema_ir::RECORD_TYPE_EVENT:
+            case ::breadcrumbs::schema_ir::RECORD_TYPE_CONFIGURATION:
+            case ::breadcrumbs::schema_ir::RECORD_TYPE_DIAGNOSTICS:
+                break;
+            default:
+                emit_diagnostic(diagnostics_, diagnostic_id("BC6013"), diagnostics::Severity::Error,
+                                "schema IR record '" + std::string(record.name()) +
+                                    "' has an invalid record_type",
+                                source_range_from_origin(record.source_origin(), source_manager_));
+                break;
+            }
+        }
+
         std::unordered_map<std::string, std::optional<support::SourceRange>> field_names;
         field_names.reserve(static_cast<std::size_t>(record.fields_size()));
         std::unordered_map<std::uint32_t, std::optional<support::SourceRange>> field_indexes;
@@ -443,7 +468,19 @@ private:
             return;
         }
 
-        if (field_type.has_bytes() || field_type.has_string()) {
+        if (field_type.has_bytes()) {
+            if (field_type.bytes().max_bytes() == 0U) {
+                emit_diagnostic(diagnostics_, diagnostic_id("BC6014"), diagnostics::Severity::Error,
+                                "schema IR bytes field type has a zero max_bytes", field_range);
+            }
+            return;
+        }
+
+        if (field_type.has_string()) {
+            if (field_type.string().max_bytes() == 0U) {
+                emit_diagnostic(diagnostics_, diagnostic_id("BC6014"), diagnostics::Severity::Error,
+                                "schema IR string field type has a zero max_bytes", field_range);
+            }
             return;
         }
 
@@ -453,6 +490,10 @@ private:
 
     void validate_array_type(const ::breadcrumbs::schema_ir::ArrayType& array_type,
                              const std::optional<support::SourceRange>& field_range) {
+        if (array_type.max_elements() == 0U) {
+            emit_diagnostic(diagnostics_, diagnostic_id("BC6014"), diagnostics::Severity::Error,
+                            "schema IR array type has a zero max_elements", field_range);
+        }
         validate_field_type(array_type.element_type(), field_range);
     }
 

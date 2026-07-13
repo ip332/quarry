@@ -96,6 +96,10 @@ TEST(AstTest, ConstructsNamespaceWithNestedDeclarations) {
     namespace_declaration.declarations.push_back(make_declaration(RecordDeclarationSyntax{
         .source_range = range(26, 50),
         .name = identifier("Location", 33, 41),
+        .version = 0,
+        .version_source_range = range(0, 0),
+        .record_type_spelling = {},
+        .record_type_source_range = range(0, 0),
         .fields = {},
         .annotations = {},
     }));
@@ -124,10 +128,18 @@ TEST(AstTest, ConstructsRecordWithFields) {
         .name = identifier("latitude", 14, 22),
         .type = int32_type,
         .annotations = {},
+        .max_bytes = std::nullopt,
+        .max_bytes_source_range = range(0, 0),
+        .max_elements = std::nullopt,
+        .max_elements_source_range = range(0, 0),
     };
     const RecordDeclarationSyntax record{
         .source_range = range(0, 30),
         .name = identifier("Location", 7, 15),
+        .version = 0,
+        .version_source_range = range(0, 0),
+        .record_type_spelling = {},
+        .record_type_source_range = range(0, 0),
         .fields = {latitude},
         .annotations = {},
     };
@@ -186,7 +198,9 @@ TEST(AstTest, ConstructsFixedArrayTypeSyntax) {
     const ArrayTypeSyntax array_type{
         .source_range = range(0, 13),
         .element_type = type_reference(qualified_name({identifier("Satellite", 0, 9)}, 0, 9), 0, 9),
+        .kind = breadcrumbs::compiler::ast::ArrayTypeSyntaxKind::LegacyFixedSize,
         .fixed_size = 64,
+        .fixed_size_source_range = range(0, 13),
     };
     const TypeSyntax type = array_type;
 
@@ -203,6 +217,10 @@ TEST(AstTest, PreservesSourceRangesOnDeclarationsAndTypes) {
         .name = identifier("altitude", 10, 18),
         .type = type_reference(qualified_name({identifier("int32", 19, 24)}, 19, 24), 19, 24),
         .annotations = {},
+        .max_bytes = std::nullopt,
+        .max_bytes_source_range = range(0, 0),
+        .max_elements = std::nullopt,
+        .max_elements_source_range = range(0, 0),
     };
 
     EXPECT_EQ(field.source_range, range(10, 20));

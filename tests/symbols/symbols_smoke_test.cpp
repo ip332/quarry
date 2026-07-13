@@ -53,6 +53,10 @@ using breadcrumbs::compiler::symbols::SymbolKind;
     return breadcrumbs::compiler::ast::make_declaration(RecordDeclarationSyntax{
         .source_range = range(begin, end),
         .name = identifier(name, begin + 7, begin + 7 + name.size()),
+        .version = 0,
+        .version_source_range = range(0, 0),
+        .record_type_spelling = {},
+        .record_type_source_range = range(0, 0),
         .fields = {},
         .annotations = {},
     });
@@ -118,6 +122,10 @@ TEST(SymbolsSmokeTest, BuildsNestedNamespaceScopes) {
         breadcrumbs::compiler::ast::make_declaration(RecordDeclarationSyntax{
             .source_range = range(26, 44),
             .name = identifier("Location", 33, 41),
+            .version = 0,
+            .version_source_range = range(0, 0),
+            .record_type_spelling = {},
+            .record_type_source_range = range(0, 0),
             .fields = {},
             .annotations = {},
         }));
@@ -158,6 +166,10 @@ TEST(SymbolsSmokeTest, ResolvesCurrentAndEnclosingScopeNames) {
         breadcrumbs::compiler::ast::make_declaration(RecordDeclarationSyntax{
             .source_range = range(26, 44),
             .name = identifier("Location", 33, 41),
+            .version = 0,
+            .version_source_range = range(0, 0),
+            .record_type_spelling = {},
+            .record_type_source_range = range(0, 0),
             .fields = {},
             .annotations = {},
         }));
@@ -193,6 +205,10 @@ TEST(SymbolsSmokeTest, ResolvesQualifiedNames) {
         breadcrumbs::compiler::ast::make_declaration(RecordDeclarationSyntax{
             .source_range = range(26, 44),
             .name = identifier("Location", 33, 41),
+            .version = 0,
+            .version_source_range = range(0, 0),
+            .record_type_spelling = {},
+            .record_type_source_range = range(0, 0),
             .fields = {},
             .annotations = {},
         }));
@@ -225,6 +241,10 @@ TEST(SymbolsSmokeTest, ResolvesQualifiedNamesLexicallyFromEnclosingScopes) {
         breadcrumbs::compiler::ast::make_declaration(RecordDeclarationSyntax{
             .source_range = range(62, 80),
             .name = identifier("Route", 69, 74),
+            .version = 0,
+            .version_source_range = range(0, 0),
+            .record_type_spelling = {},
+            .record_type_source_range = range(0, 0),
             .fields = {},
             .annotations = {},
         }));
@@ -234,6 +254,10 @@ TEST(SymbolsSmokeTest, ResolvesQualifiedNamesLexicallyFromEnclosingScopes) {
     geo_declarations.push_back(breadcrumbs::compiler::ast::make_declaration(RecordDeclarationSyntax{
         .source_range = range(40, 58),
         .name = identifier("Location", 47, 55),
+        .version = 0,
+        .version_source_range = range(0, 0),
+        .record_type_spelling = {},
+        .record_type_source_range = range(0, 0),
         .fields = {},
         .annotations = {},
     }));
@@ -290,6 +314,10 @@ TEST(SymbolsSmokeTest, QualifiedNamesRespectLexicalShadowing) {
     geo_declarations.push_back(breadcrumbs::compiler::ast::make_declaration(RecordDeclarationSyntax{
         .source_range = range(40, 58),
         .name = identifier("Location", 47, 55),
+        .version = 0,
+        .version_source_range = range(0, 0),
+        .record_type_spelling = {},
+        .record_type_source_range = range(0, 0),
         .fields = {},
         .annotations = {},
     }));
@@ -380,6 +408,10 @@ TEST(SymbolsSmokeTest, AllowsSameNameInDifferentNamespaces) {
     geo_declarations.push_back(breadcrumbs::compiler::ast::make_declaration(RecordDeclarationSyntax{
         .source_range = range(26, 44),
         .name = identifier("Location", 33, 41),
+        .version = 0,
+        .version_source_range = range(0, 0),
+        .record_type_spelling = {},
+        .record_type_source_range = range(0, 0),
         .fields = {},
         .annotations = {},
     }));
@@ -396,6 +428,10 @@ TEST(SymbolsSmokeTest, AllowsSameNameInDifferentNamespaces) {
         breadcrumbs::compiler::ast::make_declaration(RecordDeclarationSyntax{
             .source_range = range(113, 131),
             .name = identifier("Location", 120, 128),
+            .version = 0,
+            .version_source_range = range(0, 0),
+            .record_type_spelling = {},
+            .record_type_source_range = range(0, 0),
             .fields = {},
             .annotations = {},
         }));

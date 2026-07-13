@@ -7,10 +7,14 @@ Responsibilities:
 
 * lower resolved Semantic Model field types into protobuf Schema IR field
   types
+* copy Semantic Model record metadata such as schema version and logical
+  record type when available
 * preserve the parsed namespace hierarchy exactly as represented by the AST and
   `SymbolTable`
 * represent resolved record and enum references using compiler-assigned IR
   identifiers
+* copy validated string/bytes `max_bytes` and array `max_elements` values from
+  the Semantic Model into protobuf Schema IR
 * preserve compiler-only source metadata where available
 * avoid semantic validation, import resolution, and backend policy
 
@@ -66,12 +70,12 @@ Type lowering:
 
 * resolved `SemanticType` values are lowered into protobuf `FieldType`
 * semantic analysis owns builtin alias normalization and named-type resolution
-* `string` and `bytes` use the dedicated protobuf message kinds
+* `string` and `bytes` use the dedicated protobuf message kinds and carry exact
+  validated `max_bytes`
 * named record and enum references use the canonical target FQNs stored in the
   Semantic Model and are translated to compiler IR identifiers here
-* semantic arrays are lowered recursively as `ArrayType`
-* the current builder still mirrors transitional array shape information from
-  the frontend until bounded-array migration work lands
+* semantic arrays are lowered recursively as bounded-variable `ArrayType`
+  values and carry exact validated `max_elements`
 * `field_index` is copied from the Layout Model and is not invented here
 * record IDs are computed in the Layout Model and are copied into `RecordIR`
 * `record_id` and `ir_id` remain separate compiler-owned identifiers

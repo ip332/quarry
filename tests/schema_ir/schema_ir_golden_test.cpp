@@ -10,6 +10,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -74,13 +75,18 @@ void trim_trailing_newlines(std::string& text) {
     }
 }
 
-[[nodiscard]] FrontendOutput run_frontend(const std::string& text) {
+[[nodiscard]] FrontendOutput run_frontend(
+    const std::string& text,
+    const std::function<void(breadcrumbs::compiler::ast::SchemaFileSyntax&)>& ast_mutator = {}) {
     FrontendOutput output;
     output.source_file_id = output.context.source_manager().add_source("/test/schema.brd", text);
 
     auto parse_result = Parser::parse(output.context.source_manager(), output.source_file_id,
                                       output.parser_diagnostics);
     output.ast = std::move(parse_result.ast);
+    if (ast_mutator) {
+        ast_mutator(output.ast);
+    }
 
     NamespaceBuilder namespace_builder;
     output.symbol_table = std::make_unique<SymbolTable>(
@@ -174,7 +180,19 @@ void expect_fixture_matches_golden(std::string_view fixture_name) {
     const std::string source = fixture_text(fixture_name);
     const std::string expected = golden_text(fixture_name);
 
-    const FrontendOutput output = run_frontend(source);
+    const FrontendOutput output =
+        fixture_name == "builtin_fields"
+            ? run_frontend(
+                  source,
+                  [](auto& ast) {
+                      auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                          ast.declarations[0]->value);
+                      record.fields[2].max_bytes = 16;
+                      record.fields[2].max_bytes_source_range = record.fields[2].source_range;
+                      record.fields[3].max_bytes = 4;
+                      record.fields[3].max_bytes_source_range = record.fields[3].source_range;
+                  })
+            : run_frontend(source);
     ASSERT_TRUE(output.parser_diagnostics.empty());
     ASSERT_TRUE(output.symbol_diagnostics.empty());
     ASSERT_TRUE(output.semantic_diagnostics.empty());

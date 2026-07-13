@@ -38,10 +38,10 @@ The decoder performs structural YAML-to-schema decoding only. It does not
 perform semantic validation, name resolution, layout computation, or Schema IR
 construction.
 
-The migration bridge currently supports a fully traversable scalar- and
-enum-shaped YAML subset. Bounded variable-length arrays are preserved through
-YAML decoding and source-schema lowering, but the existing downstream compiler
-stages still reject them until later propagation work lands.
+The migration bridge currently supports a fully traversable scalar-, enum-, and
+bounded-array-shaped YAML subset. Bounded variable-length arrays are preserved
+through YAML decoding and source-schema lowering so later compiler stages can
+validate and lower the carried bounds.
 
 ## Source Schema Lowerer
 
@@ -62,8 +62,8 @@ computation, or Schema IR construction. It is a migration bridge from the
 normative YAML frontend into the existing AST-based compiler stages.
 
 Its current boundary is explicit: bounded variable-length arrays remain
-represented in the lowered AST, but they are not yet accepted by the existing
-Semantic, Layout, or Schema IR stages.
+represented in the lowered AST, and the existing Semantic, Layout, and Schema
+IR stages now carry the validated bounds forward.
 
 ## Restricted YAML Profile
 

@@ -48,6 +48,12 @@ message RecordIR {
   // Compiler-assigned binary/runtime record identifier.
   uint32 record_id = 6;
 
+  // Declared schema version, when known.
+  optional uint32 schema_version = 7;
+
+  // Normalized logical record type, when known.
+  optional RecordType record_type = 8;
+
   // Local record name.
   string name = 2;
 
@@ -59,6 +65,16 @@ message RecordIR {
 
   // Fields owned by this record.
   repeated FieldIR fields = 5;
+}
+
+// RecordType classifies the logical record role.
+enum RecordType {
+  RECORD_TYPE_UNSPECIFIED = 0;
+  RECORD_TYPE_DATA = 1;
+  RECORD_TYPE_COMMAND = 2;
+  RECORD_TYPE_EVENT = 3;
+  RECORD_TYPE_CONFIGURATION = 4;
+  RECORD_TYPE_DIAGNOSTICS = 5;
 }
 
 // EnumIR represents a resolved enum declaration.
@@ -147,13 +163,13 @@ message EnumRef {
   uint64 target_enum_ir_id = 1;
 }
 
-// ArrayType represents a fixed-size array.
+// ArrayType represents a bounded variable-length array.
 message ArrayType {
   // Resolved element type.
   FieldType element_type = 1;
 
-  // Exact number of elements.
-  uint32 count = 2;
+  // Maximum number of elements.
+  uint32 max_elements = 2;
 }
 
 // BytesType represents an opaque byte sequence.

@@ -316,19 +316,19 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
 
     auto* counts_field = example->add_fields();
     counts_field->set_name("counts");
-    counts_field->mutable_type()->mutable_array()->set_count(4);
+    counts_field->mutable_type()->mutable_array()->set_max_elements(4);
     counts_field->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
         ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
 
     auto* distances_field = example->add_fields();
     distances_field->set_name("distances");
-    distances_field->mutable_type()->mutable_array()->set_count(2);
+    distances_field->mutable_type()->mutable_array()->set_max_elements(2);
     distances_field->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
         ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_F64);
 
     auto* modes_field = example->add_fields();
     modes_field->set_name("modes");
-    modes_field->mutable_type()->mutable_array()->set_count(2);
+    modes_field->mutable_type()->mutable_array()->set_max_elements(2);
     modes_field->mutable_type()
         ->mutable_array()
         ->mutable_element_type()
@@ -337,7 +337,7 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
 
     auto* children_field = example->add_fields();
     children_field->set_name("children");
-    children_field->mutable_type()->mutable_array()->set_count(3);
+    children_field->mutable_type()->mutable_array()->set_max_elements(3);
     children_field->mutable_type()
         ->mutable_array()
         ->mutable_element_type()
@@ -401,7 +401,7 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
 
     auto* elements_field = basket->add_fields();
     elements_field->set_name("elements");
-    elements_field->mutable_type()->mutable_array()->set_count(2);
+    elements_field->mutable_type()->mutable_array()->set_max_elements(2);
     elements_field->mutable_type()
         ->mutable_array()
         ->mutable_element_type()
@@ -410,7 +410,7 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
 
     auto* modes_field = basket->add_fields();
     modes_field->set_name("modes");
-    modes_field->mutable_type()->mutable_array()->set_count(2);
+    modes_field->mutable_type()->mutable_array()->set_max_elements(2);
     modes_field->mutable_type()
         ->mutable_array()
         ->mutable_element_type()
@@ -472,7 +472,7 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
 
     auto* wrapper_children = wrapper->add_fields();
     wrapper_children->set_name("children");
-    wrapper_children->mutable_type()->mutable_array()->set_count(2);
+    wrapper_children->mutable_type()->mutable_array()->set_max_elements(2);
     wrapper_children->mutable_type()
         ->mutable_array()
         ->mutable_element_type()
@@ -481,7 +481,7 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
 
     auto* wrapper_modes = wrapper->add_fields();
     wrapper_modes->set_name("modes");
-    wrapper_modes->mutable_type()->mutable_array()->set_count(2);
+    wrapper_modes->mutable_type()->mutable_array()->set_max_elements(2);
     wrapper_modes->mutable_type()
         ->mutable_array()
         ->mutable_element_type()
@@ -533,7 +533,7 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
 
     auto* children_ref = envelope->add_fields();
     children_ref->set_name("children");
-    children_ref->mutable_type()->mutable_array()->set_count(2);
+    children_ref->mutable_type()->mutable_array()->set_max_elements(2);
     children_ref->mutable_type()
         ->mutable_array()
         ->mutable_element_type()
@@ -542,7 +542,7 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
 
     auto* modes_ref = envelope->add_fields();
     modes_ref->set_name("modes");
-    modes_ref->mutable_type()->mutable_array()->set_count(2);
+    modes_ref->mutable_type()->mutable_array()->set_max_elements(2);
     modes_ref->mutable_type()
         ->mutable_array()
         ->mutable_element_type()
@@ -551,14 +551,18 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
 
     auto* samples = envelope->add_fields();
     samples->set_name("samples");
-    samples->mutable_type()->mutable_array()->set_count(3);
+    samples->mutable_type()->mutable_array()->set_max_elements(3);
     samples->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
         ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
 
     auto* nested = envelope->add_fields();
     nested->set_name("nested");
-    nested->mutable_type()->mutable_array()->set_count(2);
-    nested->mutable_type()->mutable_array()->mutable_element_type()->mutable_array()->set_count(3);
+    nested->mutable_type()->mutable_array()->set_max_elements(2);
+    nested->mutable_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->mutable_array()
+        ->set_max_elements(3);
     nested->mutable_type()
         ->mutable_array()
         ->mutable_element_type()

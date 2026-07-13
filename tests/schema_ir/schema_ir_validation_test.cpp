@@ -10,6 +10,7 @@
 #include "compiler/symbols/symbols.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -56,7 +57,9 @@ struct FrontendOutput {
     return context.source_manager().add_source("/test/schema.brd", "");
 }
 
-[[nodiscard]] FrontendOutput run_frontend(std::string text, bool run_semantic) {
+[[nodiscard]] FrontendOutput run_frontend(
+    std::string text, bool run_semantic,
+    const std::function<void(breadcrumbs::compiler::ast::SchemaFileSyntax&)>& ast_mutator = {}) {
     FrontendOutput output;
     output.source_file_id =
         output.context.source_manager().add_source("/test/schema.brd", std::move(text));
@@ -64,6 +67,9 @@ struct FrontendOutput {
     auto parse_result = Parser::parse(output.context.source_manager(), output.source_file_id,
                                       output.parser_diagnostics);
     output.ast = std::move(parse_result.ast);
+    if (ast_mutator) {
+        ast_mutator(output.ast);
+    }
 
     NamespaceBuilder namespace_builder;
     output.symbol_table = std::make_unique<SymbolTable>(
@@ -90,8 +96,10 @@ struct FrontendOutput {
     return output;
 }
 
-[[nodiscard]] FrontendOutput run_valid_frontend(std::string text) {
-    return run_frontend(std::move(text), true);
+[[nodiscard]] FrontendOutput run_valid_frontend(
+    std::string text,
+    const std::function<void(breadcrumbs::compiler::ast::SchemaFileSyntax&)>& ast_mutator) {
+    return run_frontend(std::move(text), true, ast_mutator);
 }
 
 [[nodiscard]] std::string diagnostics_summary(const DiagnosticEngine& diagnostics,
@@ -142,12 +150,19 @@ void validate_schema_ir(const SchemaIrModel& schema_ir, CompilerContext& context
 }
 
 TEST(SchemaIrValidationTest, AcceptsValidatedFrontendOutput) {
-    FrontendOutput output = run_valid_frontend(R"(record Example {
+    FrontendOutput output = run_valid_frontend(
+        R"(record Example {
   active: bool
   count: u32
   label: string
 }
-)");
+)",
+        [](breadcrumbs::compiler::ast::SchemaFileSyntax& ast) {
+            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                ast.declarations[0]->value);
+            record.fields[2].max_bytes = 16;
+            record.fields[2].max_bytes_source_range = record.fields[2].source_range;
+        });
 
     ASSERT_TRUE(output.parser_diagnostics.empty());
     ASSERT_TRUE(output.symbol_diagnostics.empty());
@@ -231,6 +246,104 @@ TEST(SchemaIrValidationTest, RejectsMissingRecordId) {
 
     ASSERT_EQ(diagnostics.diagnostics().size(), 1U);
     EXPECT_EQ(diagnostics.diagnostics()[0].id().str(), "BC6010");
+}
+
+TEST(SchemaIrValidationTest, RejectsPresentZeroSchemaVersion) {
+    CompilerContext context;
+    (void)add_test_source(context);
+
+    SchemaIrModel schema_ir = make_schema_ir();
+    auto* record = schema_ir.mutable_root_namespace()->add_records();
+    record->set_ir_id(2);
+    record->set_record_id(2);
+    record->set_schema_version(0);
+    record->set_name("Route");
+    record->set_fqn("Route");
+    set_origin(record, "/test/schema.brd", 0, 0);
+
+    DiagnosticEngine diagnostics;
+    validate_schema_ir(schema_ir, context, diagnostics);
+
+    ASSERT_EQ(diagnostics.diagnostics().size(), 1U);
+    EXPECT_EQ(diagnostics.diagnostics()[0].id().str(), "BC6012");
+}
+
+TEST(SchemaIrValidationTest, RejectsUnknownNumericRecordType) {
+    CompilerContext context;
+    (void)add_test_source(context);
+
+    SchemaIrModel schema_ir = make_schema_ir();
+    auto* record = schema_ir.mutable_root_namespace()->add_records();
+    record->set_ir_id(2);
+    record->set_record_id(2);
+    record->set_schema_version(1);
+    record->set_record_type(static_cast<breadcrumbs::schema_ir::RecordType>(1234));
+    record->set_name("Route");
+    record->set_fqn("Route");
+    set_origin(record, "/test/schema.brd", 0, 0);
+
+    DiagnosticEngine diagnostics;
+    validate_schema_ir(schema_ir, context, diagnostics);
+
+    ASSERT_EQ(diagnostics.diagnostics().size(), 1U);
+    EXPECT_EQ(diagnostics.diagnostics()[0].id().str(), "BC6013");
+}
+
+TEST(SchemaIrValidationTest, AcceptsAbsentSchemaVersion) {
+    CompilerContext context;
+    (void)add_test_source(context);
+
+    SchemaIrModel schema_ir = make_schema_ir();
+    auto* record = schema_ir.mutable_root_namespace()->add_records();
+    record->set_ir_id(2);
+    record->set_record_id(2);
+    record->set_name("Route");
+    record->set_fqn("Route");
+    set_origin(record, "/test/schema.brd", 0, 0);
+
+    DiagnosticEngine diagnostics;
+    validate_schema_ir(schema_ir, context, diagnostics);
+
+    EXPECT_TRUE(diagnostics.empty()) << diagnostics_summary(diagnostics, context.source_manager());
+}
+
+TEST(SchemaIrValidationTest, AcceptsAbsentRecordType) {
+    CompilerContext context;
+    (void)add_test_source(context);
+
+    SchemaIrModel schema_ir = make_schema_ir();
+    auto* record = schema_ir.mutable_root_namespace()->add_records();
+    record->set_ir_id(2);
+    record->set_record_id(2);
+    record->set_schema_version(1);
+    record->set_name("Route");
+    record->set_fqn("Route");
+    set_origin(record, "/test/schema.brd", 0, 0);
+
+    DiagnosticEngine diagnostics;
+    validate_schema_ir(schema_ir, context, diagnostics);
+
+    EXPECT_TRUE(diagnostics.empty()) << diagnostics_summary(diagnostics, context.source_manager());
+}
+
+TEST(SchemaIrValidationTest, AcceptsExplicitUnspecifiedRecordType) {
+    CompilerContext context;
+    (void)add_test_source(context);
+
+    SchemaIrModel schema_ir = make_schema_ir();
+    auto* record = schema_ir.mutable_root_namespace()->add_records();
+    record->set_ir_id(2);
+    record->set_record_id(2);
+    record->set_schema_version(1);
+    record->set_record_type(breadcrumbs::schema_ir::RECORD_TYPE_UNSPECIFIED);
+    record->set_name("Route");
+    record->set_fqn("Route");
+    set_origin(record, "/test/schema.brd", 0, 0);
+
+    DiagnosticEngine diagnostics;
+    validate_schema_ir(schema_ir, context, diagnostics);
+
+    EXPECT_TRUE(diagnostics.empty()) << diagnostics_summary(diagnostics, context.source_manager());
 }
 
 TEST(SchemaIrValidationTest, AllowsTheSameNameInDifferentNamespaces) {
@@ -665,7 +778,7 @@ TEST(SchemaIrValidationTest, RejectsInvalidArrayElementTypes) {
     auto* field = record->add_fields();
     field->set_name("samples");
     set_origin(field, "/test/schema.brd", 0, 0);
-    field->mutable_type()->mutable_array();
+    field->mutable_type()->mutable_array()->set_max_elements(1);
 
     DiagnosticEngine diagnostics;
     validate_schema_ir(schema_ir, context, diagnostics);

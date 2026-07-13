@@ -385,7 +385,7 @@ render_field_validation_statements(const ::breadcrumbs::schema_ir::FieldType& fi
         return true;
     }
     case ::breadcrumbs::schema_ir::FieldType::kArray: {
-        const std::uint32_t max_count = field_type.array().count();
+        const std::uint32_t max_count = field_type.array().max_elements();
         const std::string element_name = "element_" + std::to_string(element_depth);
         stream << indent(indent_level) << "if (" << value_expression << ".size() > " << max_count
                << ") {\n";

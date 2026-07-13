@@ -27,9 +27,13 @@ Current layout behavior:
   stored as `uint8` in the binary record format
 * the Layout Model stores canonical record FQNs so later passes can locate the
   correct layout without depending on traversal order
+* the Layout Model does not own schema version, logical record type,
+  `max_bytes`, or `max_elements`
 
 Current implementation status:
 
 * the normative YAML source contract is defined in
   `docs/specifications/schema-language.md`
-* bounded-array frontend support is not implemented by this documentation PR
+* bounded-variable arrays are now carried through Semantic Model and Schema IR;
+  layout remains focused on `recordId` and `fieldIndex` ownership and does not
+  duplicate the bound metadata

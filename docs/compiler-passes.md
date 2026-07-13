@@ -65,9 +65,10 @@ consume. The YAML frontend does not replace the legacy parser yet; it feeds the
 same downstream pipeline through an explicit lowering boundary.
 
 Scalar- and enum-shaped YAML schemas can currently traverse the complete
-legacy pipeline. Bounded-variable arrays are preserved through YAML decoding
-and source-schema lowering, but the existing Semantic, Layout, and Schema IR
-passes still reject them until the downstream models are extended.
+legacy pipeline. Bounded-variable arrays are preserved through YAML decoding,
+source-schema lowering, semantic validation, and Schema IR, but downstream
+layout and runtime policy still do not interpret the full bounded-array
+contract yet.
 
 ---
 

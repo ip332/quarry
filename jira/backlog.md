@@ -1,1 +1,1 @@
-- PR-026: Propagate YAML record metadata and field bounds through downstream compiler models
+- PR-026: Carry resolved record metadata and variable-length field bounds through the semantic pipeline

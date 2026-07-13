@@ -68,10 +68,11 @@ The compiler pipeline is:
 * AST flows into import resolution, symbol construction, semantic validation,
   layout computation, Schema IR, and backends.
 
-The current migration boundary is intentionally uneven: scalar- and enum-shaped
-schemas can flow through the existing downstream pipeline today, while
-bounded-variable arrays remain preserved only through the YAML decoding and
-source-schema lowering stages until later compiler models adopt `max_elements`.
+The current migration boundary is intentionally uneven: scalar- and
+enum-shaped schemas can flow through the existing downstream pipeline today,
+and bounded-variable arrays are now preserved through YAML decoding,
+source-schema lowering, semantic validation, and Schema IR. The remaining work
+is downstream policy and runtime support rather than representation.
 
 During migration, the legacy declaration-syntax frontend and the normative YAML
 frontend both remain available. Legacy declaration-syntax tests continue to

@@ -103,6 +103,11 @@ using breadcrumbs::compiler::yaml::YamlScalarKind;
         .name_range = range(begin, begin + 1),
         .type_spelling = std::move(type_spelling),
         .type_range = range(begin + 2, begin + 2 + type_spelling.size()),
+        .max_bytes = std::nullopt,
+        .max_bytes_range = range(0, 0),
+        .max_elements = std::nullopt,
+        .max_elements_range = range(0, 0),
+        .annotations = {},
     };
 }
 
@@ -652,7 +657,7 @@ annotations:
               lowered_ir_enum.ir_id());
 }
 
-TEST(YamlCompilerPipelineTest, BoundedVariableArrayStopsAtSemanticBoundary) {
+TEST(YamlCompilerPipelineTest, BoundedVariableArrayReachesSchemaIr) {
     const std::string source = R"(namespace: breadcrumbs.telemetry
 record: Samples
 version: 1
@@ -716,16 +721,55 @@ fields:
     SemanticValidator semantic_validator;
     output.semantic_model =
         semantic_validator.validate(ast, *output.symbol_table, output.semantic_diagnostics);
-    ASSERT_FALSE(output.semantic_diagnostics.empty());
-    EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5003");
-    EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().compiler_pass(), "semantic");
+    ASSERT_TRUE(output.semantic_diagnostics.empty())
+        << diagnostics_summary(output.semantic_diagnostics);
 
     const SemanticRecord* semantic_record =
         output.semantic_model.find_record("breadcrumbs.telemetry.Samples");
     ASSERT_NE(semantic_record, nullptr);
-    EXPECT_EQ(semantic_record->fields.size(), 1U);
-    EXPECT_EQ(semantic_record->fields[0].name, "label");
-    EXPECT_TRUE(semantic_record->fields[0].type.is_string());
+    ASSERT_TRUE(semantic_record->version.has_value());
+    EXPECT_EQ(*semantic_record->version, 1U);
+    ASSERT_TRUE(semantic_record->record_type.has_value());
+    EXPECT_EQ(*semantic_record->record_type, breadcrumbs::compiler::semantic::SemanticRecordType::Data);
+    EXPECT_EQ(semantic_record->fields.size(), 2U);
+    EXPECT_TRUE(semantic_record->fields[0].type.is_array());
+    EXPECT_EQ(semantic_record->fields[0].type.array().max_elements, 64U);
+    EXPECT_TRUE(semantic_record->fields[1].type.is_string());
+    EXPECT_EQ(
+        std::get<breadcrumbs::compiler::semantic::SemanticStringType>(semantic_record->fields[1].type.value)
+            .max_bytes,
+        16U);
+
+    LayoutComputer layout_computer;
+    output.layout_model =
+        layout_computer.compute(output.semantic_model, output.context, output.layout_diagnostics);
+    ASSERT_TRUE(output.layout_diagnostics.empty())
+        << diagnostics_summary(output.layout_diagnostics);
+
+    SchemaIrBuilder schema_ir_builder;
+    output.schema_ir =
+        schema_ir_builder.build(ast, output.semantic_model, output.layout_model,
+                                *output.symbol_table, output.context, output.schema_ir_diagnostics);
+    ASSERT_TRUE(output.schema_ir_diagnostics.empty())
+        << diagnostics_summary(output.schema_ir_diagnostics);
+
+    SchemaIrValidator schema_ir_validator;
+    schema_ir_validator.validate(output.schema_ir, output.context, output.validation_diagnostics);
+    ASSERT_TRUE(output.validation_diagnostics.empty())
+        << diagnostics_summary(output.validation_diagnostics);
+
+    const auto& schema_ir_record =
+        output.schema_ir.root_namespace().namespaces(0).namespaces(0).records(0);
+    EXPECT_TRUE(schema_ir_record.has_schema_version());
+    EXPECT_EQ(schema_ir_record.schema_version(), 1U);
+    EXPECT_TRUE(schema_ir_record.has_record_type());
+    EXPECT_EQ(schema_ir_record.record_type(),
+              breadcrumbs::schema_ir::RECORD_TYPE_DATA);
+    ASSERT_EQ(schema_ir_record.fields_size(), 2);
+    EXPECT_TRUE(schema_ir_record.fields(0).type().has_array());
+    EXPECT_EQ(schema_ir_record.fields(0).type().array().max_elements(), 64U);
+    EXPECT_TRUE(schema_ir_record.fields(1).type().has_string());
+    EXPECT_EQ(schema_ir_record.fields(1).type().string().max_bytes(), 16U);
 }
 
 } // namespace

@@ -92,6 +92,10 @@ It owns its fields.
 from the Layout Model. It is distinct from `RecordIR.ir_id`, which remains a
 compiler-internal object handle used for references inside Schema IR.
 
+`RecordIR.schema_version`, when present, carries the normalized schema version
+resolved by the Semantic Model. `RecordIR.record_type`, when present, carries
+the normalized logical record type resolved by the Semantic Model.
+
 ### EnumIR
 
 `EnumIR` represents one resolved enum declaration.
@@ -142,7 +146,7 @@ message FieldType {
 
 message ArrayType {
   FieldType element_type = 1;
-  uint32 count = 2;
+  uint32 max_elements = 2;
 }
 ```
 
@@ -204,7 +208,8 @@ Array types represent bounded variable-length arrays from the source-language
 contract. They recursively contain a `FieldType` element type and carry the
 validated maximum element count as compiler metadata.
 
-String and bytes remain the bounded variable-length types when supported.
+String and bytes remain the bounded variable-length types when supported and
+carry their validated `max_bytes` values as compiler metadata.
 
 ---
 

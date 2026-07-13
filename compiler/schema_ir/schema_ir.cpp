@@ -4,7 +4,6 @@
 #include <cassert>
 #include <cstdint>
 #include <exception>
-#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -62,6 +61,24 @@ primitive_type_for_semantic(semantic::SemanticPrimitiveType primitive) {
     }
 
     return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_UNSPECIFIED;
+}
+
+[[nodiscard]] ::breadcrumbs::schema_ir::RecordType
+record_type_for_semantic(semantic::SemanticRecordType record_type) {
+    switch (record_type) {
+    case semantic::SemanticRecordType::Data:
+        return ::breadcrumbs::schema_ir::RECORD_TYPE_DATA;
+    case semantic::SemanticRecordType::Command:
+        return ::breadcrumbs::schema_ir::RECORD_TYPE_COMMAND;
+    case semantic::SemanticRecordType::Event:
+        return ::breadcrumbs::schema_ir::RECORD_TYPE_EVENT;
+    case semantic::SemanticRecordType::Configuration:
+        return ::breadcrumbs::schema_ir::RECORD_TYPE_CONFIGURATION;
+    case semantic::SemanticRecordType::Diagnostics:
+        return ::breadcrumbs::schema_ir::RECORD_TYPE_DIAGNOSTICS;
+    }
+
+    return ::breadcrumbs::schema_ir::RECORD_TYPE_UNSPECIFIED;
 }
 
 void emit_internal_error(diagnostics::DiagnosticCollection& diagnostics, std::string message,
@@ -350,8 +367,7 @@ private:
     }
 
     [[nodiscard]] ::breadcrumbs::schema_ir::FieldType
-    lower_semantic_type(const semantic::SemanticType& semantic_type,
-                        const ast::TypeSyntax* source_type, std::string_view record_fqn,
+    lower_semantic_type(const semantic::SemanticType& semantic_type, std::string_view record_fqn,
                         std::string_view field_name, support::SourceRange field_range) {
         ::breadcrumbs::schema_ir::FieldType field_type;
         if (!semantic_type.is_valid()) {
@@ -366,10 +382,10 @@ private:
                     field_type.set_primitive(primitive_type_for_semantic(typed));
                     return field_type;
                 } else if constexpr (std::is_same_v<Type, semantic::SemanticStringType>) {
-                    field_type.mutable_string()->set_max_bytes(0);
+                    field_type.mutable_string()->set_max_bytes(typed.max_bytes);
                     return field_type;
                 } else if constexpr (std::is_same_v<Type, semantic::SemanticBytesType>) {
-                    field_type.mutable_bytes()->set_max_bytes(0);
+                    field_type.mutable_bytes()->set_max_bytes(typed.max_bytes);
                     return field_type;
                 } else if constexpr (std::is_same_v<Type, semantic::SemanticRecordReferenceType>) {
                     const std::optional<std::uint64_t> target_ir_id =
@@ -404,38 +420,14 @@ private:
                         return {};
                     }
 
-                    const auto* source_array_type =
-                        source_type != nullptr ? std::get_if<ast::ArrayTypeSyntax>(source_type)
-                                               : nullptr;
                     ::breadcrumbs::schema_ir::FieldType element_type = lower_semantic_type(
-                        *typed.element_type, nullptr, record_fqn, field_name, field_range);
+                        *typed.element_type, record_fqn, field_name, field_range);
                     if (layout_failed_) {
                         return {};
                     }
 
                     ::breadcrumbs::schema_ir::ArrayType* array_type = field_type.mutable_array();
-                    if (source_array_type != nullptr) {
-                        if (!source_array_type->fixed_size.has_value()) {
-                            emit_internal_error(diagnostics_,
-                                                "schema IR lowering encountered an array without a "
-                                                "fixed size",
-                                                source_array_type->source_range);
-                            layout_failed_ = true;
-                            return {};
-                        }
-                        if (*source_array_type->fixed_size >
-                            std::numeric_limits<std::uint32_t>::max()) {
-                            emit_internal_error(diagnostics_,
-                                                "schema IR lowering encountered an array size that "
-                                                "does not fit in uint32_t",
-                                                source_array_type->source_range);
-                            layout_failed_ = true;
-                            return {};
-                        }
-
-                        array_type->set_count(
-                            static_cast<std::uint32_t>(*source_array_type->fixed_size));
-                    }
+                    array_type->set_max_elements(typed.max_elements);
 
                     array_type->mutable_element_type()->CopyFrom(std::move(element_type));
                     return field_type;
@@ -488,6 +480,13 @@ private:
             return false;
         }
 
+        if (semantic_record->version.has_value()) {
+            record.set_schema_version(*semantic_record->version);
+        }
+        if (semantic_record->record_type.has_value()) {
+            record.set_record_type(record_type_for_semantic(*semantic_record->record_type));
+        }
+
         if (semantic_record->fields.size() != declaration.fields.size() ||
             layout_record->fields.size() != declaration.fields.size()) {
             emit_internal_error(
@@ -518,7 +517,7 @@ private:
             field_ir->set_name(field.name.text);
             field_ir->set_field_index(layout_field.field_index);
             field_ir->mutable_type()->CopyFrom(lower_semantic_type(
-                semantic_field.type, &field.type, record_fqn, field.name.text, field.source_range));
+                semantic_field.type, record_fqn, field.name.text, field.source_range));
             if (layout_failed_) {
                 return false;
             }

@@ -24,6 +24,7 @@ root_namespace {
       field_index: 2
       type {
         string {
+          max_bytes: 16
         }
       }
     }
@@ -32,6 +33,7 @@ root_namespace {
       field_index: 3
       type {
         bytes {
+          max_bytes: 4
         }
       }
     }

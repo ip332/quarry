@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -54,6 +55,25 @@ constexpr std::string_view semantic_pass = "semantic";
     }
     if (name == "float64" || name == "f64") {
         return SemanticPrimitiveType::F64;
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<SemanticRecordType> canonical_record_type(std::string_view name) {
+    if (name == "data") {
+        return SemanticRecordType::Data;
+    }
+    if (name == "command") {
+        return SemanticRecordType::Command;
+    }
+    if (name == "event") {
+        return SemanticRecordType::Event;
+    }
+    if (name == "configuration") {
+        return SemanticRecordType::Configuration;
+    }
+    if (name == "diagnostics") {
+        return SemanticRecordType::Diagnostics;
     }
     return std::nullopt;
 }
@@ -112,10 +132,9 @@ void emit_invalid_type_position(diagnostics::DiagnosticEngine& diagnostics,
 }
 
 void emit_invalid_array(diagnostics::DiagnosticEngine& diagnostics,
-                        const ast::ArrayTypeSyntax& array_type) {
-    diagnostics.emit(diagnostics::Diagnostic::create(diagnostic_id("BC5003"),
-                                                     diagnostics::Severity::Error,
-                                                     "array types are not supported yet")
+                        const ast::ArrayTypeSyntax& array_type, std::string_view reason) {
+    diagnostics.emit(diagnostics::Diagnostic::create(
+                         diagnostic_id("BC5003"), diagnostics::Severity::Error, std::string(reason))
                          .at(array_type.source_range)
                          .from_pass(std::string(semantic_pass))
                          .build());
@@ -129,14 +148,6 @@ resolve_named_type(const ast::TypeReferenceSyntax& type_reference, const symbols
             canonical_primitive_type(type_reference.name.text());
         primitive.has_value()) {
         return SemanticType(*primitive);
-    }
-
-    if (type_reference.name.text() == "string") {
-        return SemanticType(SemanticStringType{});
-    }
-
-    if (type_reference.name.text() == "bytes") {
-        return SemanticType(SemanticBytesType{});
     }
 
     ast::QualifiedNameSyntax normalized_name{
@@ -165,7 +176,66 @@ resolve_named_type(const ast::TypeReferenceSyntax& type_reference, const symbols
     return std::nullopt;
 }
 
-[[nodiscard]] std::optional<SemanticType> resolve_type(const ast::TypeSyntax& type,
+[[nodiscard]] std::optional<std::uint32_t>
+validate_positive_u32(std::optional<std::int64_t> value, support::SourceRange range,
+                      diagnostics::DiagnosticEngine& diagnostics, std::string_view context,
+                      std::string_view property_name) {
+    if (!value.has_value()) {
+        auto builder = diagnostics::Diagnostic::create(
+            diagnostic_id("BC5004"), diagnostics::Severity::Error,
+            std::string(context) + " is missing required property '" + std::string(property_name) +
+                "'");
+        builder.from_pass(std::string(semantic_pass));
+        if (range.is_valid()) {
+            builder.at(range);
+        }
+        diagnostics.emit(builder.build());
+        return std::nullopt;
+    }
+
+    if (*value <= 0) {
+        auto builder = diagnostics::Diagnostic::create(
+            diagnostic_id("BC5004"), diagnostics::Severity::Error,
+            std::string(context) + " property '" + std::string(property_name) +
+                "' must be a positive integer");
+        builder.from_pass(std::string(semantic_pass));
+        if (range.is_valid()) {
+            builder.at(range);
+        }
+        diagnostics.emit(builder.build());
+        return std::nullopt;
+    }
+
+    if (*value > std::numeric_limits<std::uint32_t>::max()) {
+        auto builder = diagnostics::Diagnostic::create(
+            diagnostic_id("BC5004"), diagnostics::Severity::Error,
+            std::string(context) + " property '" + std::string(property_name) +
+                "' does not fit in uint32");
+        builder.from_pass(std::string(semantic_pass));
+        if (range.is_valid()) {
+            builder.at(range);
+        }
+        diagnostics.emit(builder.build());
+        return std::nullopt;
+    }
+
+    return static_cast<std::uint32_t>(*value);
+}
+
+void emit_invalid_bound_position(diagnostics::DiagnosticEngine& diagnostics,
+                                 support::SourceRange range, std::string_view context,
+                                 std::string_view property_name) {
+    diagnostics.emit(
+        diagnostics::Diagnostic::create(diagnostic_id("BC5004"), diagnostics::Severity::Error,
+                                        std::string(context) + " cannot use property '" +
+                                            std::string(property_name) + "'")
+            .at(range)
+            .from_pass(std::string(semantic_pass))
+            .build());
+}
+
+[[nodiscard]] std::optional<SemanticType> resolve_type(const ast::FieldDeclarationSyntax& field,
+                                                       const ast::TypeSyntax& type,
                                                        const symbols::Scope& scope,
                                                        const symbols::SymbolTable& symbol_model,
                                                        diagnostics::DiagnosticEngine& diagnostics) {
@@ -173,11 +243,92 @@ resolve_named_type(const ast::TypeReferenceSyntax& type_reference, const symbols
         [&](const auto& typed) -> std::optional<SemanticType> {
             using Type = std::decay_t<decltype(typed)>;
             if constexpr (std::is_same_v<Type, ast::TypeReferenceSyntax>) {
+                if (typed.name.text() == "string") {
+                    const std::optional<std::uint32_t> max_bytes = validate_positive_u32(
+                        field.max_bytes, field.max_bytes_source_range, diagnostics,
+                        "field '" + field.name.text + "'", "max_bytes");
+                    if (!max_bytes.has_value()) {
+                        return std::nullopt;
+                    }
+                    if (field.max_elements.has_value()) {
+                        emit_invalid_bound_position(diagnostics, field.max_elements_source_range,
+                                                    "field '" + field.name.text + "'",
+                                                    "max_elements");
+                        return std::nullopt;
+                    }
+                    return SemanticType(SemanticStringType{.max_bytes = *max_bytes});
+                }
+
+                if (typed.name.text() == "bytes") {
+                    const std::optional<std::uint32_t> max_bytes = validate_positive_u32(
+                        field.max_bytes, field.max_bytes_source_range, diagnostics,
+                        "field '" + field.name.text + "'", "max_bytes");
+                    if (!max_bytes.has_value()) {
+                        return std::nullopt;
+                    }
+                    if (field.max_elements.has_value()) {
+                        emit_invalid_bound_position(diagnostics, field.max_elements_source_range,
+                                                    "field '" + field.name.text + "'",
+                                                    "max_elements");
+                        return std::nullopt;
+                    }
+                    return SemanticType(SemanticBytesType{.max_bytes = *max_bytes});
+                }
+
+                if (field.max_bytes.has_value()) {
+                    emit_invalid_bound_position(diagnostics, field.max_bytes_source_range,
+                                                "field '" + field.name.text + "'", "max_bytes");
+                    return std::nullopt;
+                }
+                if (field.max_elements.has_value()) {
+                    emit_invalid_bound_position(diagnostics, field.max_elements_source_range,
+                                                "field '" + field.name.text + "'", "max_elements");
+                    return std::nullopt;
+                }
                 return resolve_named_type(typed, scope, symbol_model, diagnostics);
             } else if constexpr (std::is_same_v<Type, ast::ArrayTypeSyntax>) {
-                emit_invalid_array(diagnostics, typed);
-                (void)resolve_named_type(typed.element_type, scope, symbol_model, diagnostics);
-                return std::nullopt;
+                if (typed.kind == ast::ArrayTypeSyntaxKind::LegacyFixedSize) {
+                    emit_invalid_array(diagnostics, typed,
+                                       "fixed-size arrays are not supported in version 0.1");
+                    return std::nullopt;
+                }
+
+                if (field.max_bytes.has_value()) {
+                    emit_invalid_bound_position(diagnostics, field.max_bytes_source_range,
+                                                "field '" + field.name.text + "'", "max_bytes");
+                    return std::nullopt;
+                }
+
+                const std::optional<std::uint32_t> max_elements = validate_positive_u32(
+                    field.max_elements, field.max_elements_source_range, diagnostics,
+                    "field '" + field.name.text + "'", "max_elements");
+                if (!max_elements.has_value()) {
+                    return std::nullopt;
+                }
+
+                const std::optional<SemanticType> element_type =
+                    [&]() -> std::optional<SemanticType> {
+                    ast::FieldDeclarationSyntax element_field = field;
+                    element_field.max_bytes = std::nullopt;
+                    element_field.max_bytes_source_range = support::SourceRange::invalid();
+                    element_field.max_elements = std::nullopt;
+                    element_field.max_elements_source_range = support::SourceRange::invalid();
+                    return resolve_type(element_field, typed.element_type, scope, symbol_model,
+                                        diagnostics);
+                }();
+                if (!element_type.has_value()) {
+                    return std::nullopt;
+                }
+                if (element_type->is_array()) {
+                    emit_invalid_array(diagnostics, typed,
+                                       "nested arrays are not supported in version 0.1");
+                    return std::nullopt;
+                }
+
+                SemanticArrayType array;
+                array.max_elements = *max_elements;
+                array.element_type = std::make_unique<SemanticType>(*element_type);
+                return SemanticType(std::move(array));
             }
             return std::nullopt;
         },
@@ -203,10 +354,39 @@ void collect_semantic_record(const ast::RecordDeclarationSyntax& declaration,
     SemanticRecord record;
     record.source_range = declaration.source_range;
     record.fqn = qualify_fqn(current_namespace_fqn, declaration.name.text);
+
+    if (declaration.version != 0 || declaration.version_source_range.is_valid()) {
+        const std::optional<std::uint32_t> version =
+            validate_positive_u32(declaration.version, declaration.version_source_range,
+                                  diagnostics, "record '" + record.fqn + "'", "version");
+        if (version.has_value()) {
+            record.version = *version;
+        }
+    }
+
+    if (!declaration.record_type_spelling.empty() ||
+        declaration.record_type_source_range.is_valid()) {
+        const std::optional<SemanticRecordType> record_type =
+            canonical_record_type(declaration.record_type_spelling);
+        if (record_type.has_value()) {
+            record.record_type = *record_type;
+        } else {
+            auto builder = diagnostics::Diagnostic::create(
+                diagnostic_id("BC5005"), diagnostics::Severity::Error,
+                "record '" + record.fqn + "' has an invalid logical record type '" +
+                    declaration.record_type_spelling + "'");
+            builder.from_pass(std::string(semantic_pass));
+            if (declaration.record_type_source_range.is_valid()) {
+                builder.at(declaration.record_type_source_range);
+            }
+            diagnostics.emit(builder.build());
+        }
+    }
+
     record.fields.reserve(declaration.fields.size());
     for (const ast::FieldDeclarationSyntax& field : declaration.fields) {
         const std::optional<SemanticType> resolved =
-            resolve_type(field.type, scope, symbol_model, diagnostics);
+            resolve_type(field, field.type, scope, symbol_model, diagnostics);
         if (!resolved.has_value()) {
             continue;
         }
@@ -297,6 +477,7 @@ SemanticModel SemanticValidator::validate(const ast::Ast& ast,
 SemanticArrayType::SemanticArrayType() = default;
 
 SemanticArrayType::SemanticArrayType(const SemanticArrayType& other) {
+    max_elements = other.max_elements;
     if (other.element_type != nullptr) {
         element_type = std::make_unique<SemanticType>(*other.element_type);
     }
@@ -304,6 +485,7 @@ SemanticArrayType::SemanticArrayType(const SemanticArrayType& other) {
 
 SemanticArrayType& SemanticArrayType::operator=(const SemanticArrayType& other) {
     if (this != &other) {
+        max_elements = other.max_elements;
         element_type.reset();
         if (other.element_type != nullptr) {
             element_type = std::make_unique<SemanticType>(*other.element_type);

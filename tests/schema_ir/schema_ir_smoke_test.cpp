@@ -7,6 +7,7 @@
 #include "compiler/support/source_manager.hpp"
 #include "compiler/symbols/symbols.hpp"
 
+#include <functional>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -26,14 +27,13 @@ using breadcrumbs::compiler::parser::Parser;
 using breadcrumbs::compiler::schema_ir::SchemaIrBuilder;
 using breadcrumbs::compiler::schema_ir::SchemaIrModel;
 using breadcrumbs::compiler::semantic::SemanticArrayType;
-using breadcrumbs::compiler::semantic::SemanticBytesType;
 using breadcrumbs::compiler::semantic::SemanticEnumReferenceType;
 using breadcrumbs::compiler::semantic::SemanticField;
 using breadcrumbs::compiler::semantic::SemanticModel;
 using breadcrumbs::compiler::semantic::SemanticPrimitiveType;
 using breadcrumbs::compiler::semantic::SemanticRecord;
 using breadcrumbs::compiler::semantic::SemanticRecordReferenceType;
-using breadcrumbs::compiler::semantic::SemanticStringType;
+using breadcrumbs::compiler::semantic::SemanticRecordType;
 using breadcrumbs::compiler::semantic::SemanticType;
 using breadcrumbs::compiler::semantic::SemanticValidator;
 using breadcrumbs::compiler::support::SourceFileId;
@@ -55,7 +55,9 @@ struct FrontendOutput {
     SourceFileId source_file_id;
 };
 
-[[nodiscard]] FrontendOutput run_frontend(std::string text) {
+[[nodiscard]] FrontendOutput run_frontend(
+    std::string text,
+    const std::function<void(breadcrumbs::compiler::ast::SchemaFileSyntax&)>& ast_mutator) {
     FrontendOutput output;
     output.source_file_id =
         output.context.source_manager().add_source("/test/schema.brd", std::move(text));
@@ -63,6 +65,9 @@ struct FrontendOutput {
     auto parse_result = Parser::parse(output.context.source_manager(), output.source_file_id,
                                       output.parser_diagnostics);
     output.ast = std::move(parse_result.ast);
+    if (ast_mutator) {
+        ast_mutator(output.ast);
+    }
 
     NamespaceBuilder namespace_builder;
     output.symbol_table = std::make_unique<SymbolTable>(
@@ -83,6 +88,10 @@ struct FrontendOutput {
                                                    output.context, output.lowering_diagnostics);
     }
     return output;
+}
+
+[[nodiscard]] FrontendOutput run_frontend(std::string text) {
+    return run_frontend(std::move(text), {});
 }
 
 [[nodiscard]] FrontendOutput run_clean_frontend(std::string text) {
@@ -133,12 +142,6 @@ find_record(const breadcrumbs::schema_ir::NamespaceIR& parent, std::string_view 
 [[nodiscard]] const SemanticField* find_semantic_field(const SemanticRecord& record,
                                                        std::string_view name) {
     return record.find_field(name);
-}
-
-[[nodiscard]] SemanticType make_array_type(SemanticType element_type) {
-    SemanticArrayType array;
-    array.element_type = std::make_unique<SemanticType>(std::move(element_type));
-    return SemanticType(std::move(array));
 }
 
 [[nodiscard]] SchemaIrModel lower_schema_ir(FrontendOutput& output,
@@ -193,14 +196,24 @@ namespace beta.two {
 }
 
 TEST(SchemaIrSmokeTest, LowersSingleRecordWithBuiltinFieldsAndSourceMetadata) {
-    const FrontendOutput output = run_clean_frontend(R"(
+    const FrontendOutput output =
+        run_frontend(R"(
 record Example {
   active: bool
   count: u32
   label: string
   blob: bytes
 }
-)");
+)",
+                     [](breadcrumbs::compiler::ast::SchemaFileSyntax& ast) {
+                         auto& record =
+                             std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                                 ast.declarations[0]->value);
+                         record.fields[2].max_bytes = 16;
+                         record.fields[2].max_bytes_source_range = record.fields[2].source_range;
+                         record.fields[3].max_bytes = 4;
+                         record.fields[3].max_bytes_source_range = record.fields[3].source_range;
+                     });
 
     ASSERT_TRUE(clean(output)) << diagnostics_summary(output.lowering_diagnostics);
 
@@ -225,10 +238,10 @@ record Example {
     EXPECT_EQ(record.fields(1).type().primitive(), ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
     EXPECT_EQ(record.fields(1).field_index(), 1U);
     EXPECT_TRUE(record.fields(2).type().has_string());
-    EXPECT_EQ(record.fields(2).type().string().max_bytes(), 0U);
+    EXPECT_EQ(record.fields(2).type().string().max_bytes(), 16U);
     EXPECT_EQ(record.fields(2).field_index(), 2U);
     EXPECT_TRUE(record.fields(3).type().has_bytes());
-    EXPECT_EQ(record.fields(3).type().bytes().max_bytes(), 0U);
+    EXPECT_EQ(record.fields(3).type().bytes().max_bytes(), 4U);
     EXPECT_EQ(record.fields(3).field_index(), 3U);
 }
 
@@ -381,69 +394,39 @@ record Route {
               lowered_location->ir_id());
 }
 
-TEST(SchemaIrSmokeTest, LowersArrayTypeSyntax) {
-    FrontendOutput output = run_frontend(R"(record Route {
-  samples: bytes[16]
+TEST(SchemaIrSmokeTest, LowersBoundedVariableLengthArrayTypeSyntax) {
+    FrontendOutput output = run_frontend(
+        R"(record Route {
+  samples: u32
 }
-)");
-
-    ASSERT_TRUE(output.parser_diagnostics.empty())
-        << diagnostics_summary(output.parser_diagnostics);
-    ASSERT_TRUE(output.symbol_diagnostics.empty())
-        << diagnostics_summary(output.symbol_diagnostics);
-    ASSERT_EQ(output.layout_model.records.size(), 1U);
-    ASSERT_EQ(output.layout_model.records[0].fqn, "Route");
-
-    const auto& route_ast = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-        output.ast.declarations[0]->value);
-    SemanticRecord* route =
-        const_cast<SemanticRecord*>(find_semantic_record(output.semantic_model, "Route"));
-    if (route == nullptr) {
-        output.semantic_model.records.push_back(SemanticRecord{
-            .source_range = route_ast.source_range,
-            .fqn = "Route",
-            .fields =
-                {
-                    SemanticField{
-                        .source_range = route_ast.fields[0].source_range,
-                        .name = "samples",
-                        .type = make_array_type(SemanticType(SemanticBytesType{})),
+)",
+        [](breadcrumbs::compiler::ast::SchemaFileSyntax& ast) {
+            auto& route = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                ast.declarations[0]->value);
+            route.fields[0].type = breadcrumbs::compiler::ast::ArrayTypeSyntax{
+                .source_range = route.fields[0].source_range,
+                .element_type =
+                    breadcrumbs::compiler::ast::TypeReferenceSyntax{
+                        .source_range = route.fields[0].source_range,
+                        .name =
+                            breadcrumbs::compiler::ast::QualifiedNameSyntax{
+                                .source_range = route.fields[0].source_range,
+                                .parts =
+                                    {
+                                        breadcrumbs::compiler::ast::IdentifierSyntax{
+                                            .source_range = route.fields[0].source_range,
+                                            .text = "u32",
+                                        },
+                                    },
+                            },
                     },
-                },
+                .kind = breadcrumbs::compiler::ast::ArrayTypeSyntaxKind::BoundedVariableLength,
+                .fixed_size = std::nullopt,
+                .fixed_size_source_range = breadcrumbs::compiler::support::SourceRange::invalid(),
+            };
+            route.fields[0].max_elements = 16;
+            route.fields[0].max_elements_source_range = route.fields[0].source_range;
         });
-        route = &output.semantic_model.records.back();
-    } else {
-        route->fields.clear();
-        route->fields.push_back(SemanticField{
-            .source_range = route_ast.fields[0].source_range,
-            .name = "samples",
-            .type = make_array_type(SemanticType(SemanticBytesType{})),
-        });
-    }
-
-    output.layout_model.records[0].fields.clear();
-    output.layout_model.records[0].fields.push_back(FieldLayout{.field_index = 0U});
-
-    DiagnosticEngine lowering_diagnostics;
-    const SchemaIrModel lowered = lower_schema_ir(output, lowering_diagnostics);
-
-    ASSERT_TRUE(lowering_diagnostics.empty()) << diagnostics_summary(lowering_diagnostics);
-
-    const auto& root = lowered.root_namespace();
-    ASSERT_EQ(root.records_size(), 1);
-    const auto& record = root.records(0);
-    ASSERT_EQ(record.fields_size(), 1);
-    EXPECT_TRUE(record.fields(0).type().has_array());
-    EXPECT_EQ(record.fields(0).type().array().count(), 16U);
-    EXPECT_TRUE(record.fields(0).type().array().element_type().has_bytes());
-    EXPECT_EQ(record.fields(0).field_index(), 0U);
-}
-
-TEST(SchemaIrSmokeTest, LowersRecursiveSemanticArraysAndPreservesCounts) {
-    FrontendOutput output = run_clean_frontend(R"(record Route {
-  samples: bool
-}
-)");
 
     ASSERT_TRUE(output.parser_diagnostics.empty())
         << diagnostics_summary(output.parser_diagnostics);
@@ -453,46 +436,28 @@ TEST(SchemaIrSmokeTest, LowersRecursiveSemanticArraysAndPreservesCounts) {
         << diagnostics_summary(output.semantic_diagnostics);
     ASSERT_TRUE(output.layout_diagnostics.empty())
         << diagnostics_summary(output.layout_diagnostics);
+    ASSERT_TRUE(output.lowering_diagnostics.empty())
+        << diagnostics_summary(output.lowering_diagnostics);
 
-    SemanticRecord* route =
-        const_cast<SemanticRecord*>(find_semantic_record(output.semantic_model, "Route"));
+    const SemanticRecord* route = find_semantic_record(output.semantic_model, "Route");
     ASSERT_NE(route, nullptr);
-    SemanticField* samples = const_cast<SemanticField*>(find_semantic_field(*route, "samples"));
-    ASSERT_NE(samples, nullptr);
-    samples->type = make_array_type(SemanticType(SemanticBytesType{}));
+    ASSERT_EQ(route->fields.size(), 1U);
+    ASSERT_TRUE(route->fields[0].type.is_array());
+    EXPECT_EQ(route->fields[0].type.array().max_elements, 16U);
+    ASSERT_TRUE(route->fields[0].type.array().element_type != nullptr);
+    EXPECT_TRUE(route->fields[0].type.array().element_type->is_primitive());
+    EXPECT_EQ(route->fields[0].type.array().element_type->primitive(),
+              breadcrumbs::compiler::semantic::SemanticPrimitiveType::U32);
 
-    auto& route_ast = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-        output.ast.declarations[0]->value);
-    route_ast.fields[0].type = breadcrumbs::compiler::ast::ArrayTypeSyntax{
-        .source_range = route_ast.fields[0].source_range,
-        .element_type =
-            breadcrumbs::compiler::ast::TypeReferenceSyntax{
-                .source_range = route_ast.fields[0].source_range,
-                .name =
-                    breadcrumbs::compiler::ast::QualifiedNameSyntax{
-                        .source_range = route_ast.fields[0].source_range,
-                        .parts =
-                            {
-                                breadcrumbs::compiler::ast::IdentifierSyntax{
-                                    .source_range = route_ast.fields[0].source_range,
-                                    .text = "bytes",
-                                },
-                            },
-                    },
-            },
-        .fixed_size = 16U,
-    };
-
-    DiagnosticEngine lowering_diagnostics;
-    const SchemaIrModel schema_ir = lower_schema_ir(output, lowering_diagnostics);
-
-    ASSERT_TRUE(lowering_diagnostics.empty()) << diagnostics_summary(lowering_diagnostics);
-    const auto* lowered_route = find_record(schema_ir.root_namespace(), "Route");
+    const auto* lowered_route = find_record(output.schema_ir.root_namespace(), "Route");
     ASSERT_NE(lowered_route, nullptr);
     ASSERT_EQ(lowered_route->fields_size(), 1);
     EXPECT_TRUE(lowered_route->fields(0).type().has_array());
-    EXPECT_TRUE(lowered_route->fields(0).type().array().element_type().has_bytes());
-    EXPECT_EQ(lowered_route->fields(0).type().array().count(), 16U);
+    EXPECT_TRUE(lowered_route->fields(0).type().array().element_type().has_primitive());
+    EXPECT_EQ(lowered_route->fields(0).type().array().element_type().primitive(),
+              ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+    EXPECT_EQ(lowered_route->fields(0).type().array().max_elements(), 16U);
+    EXPECT_EQ(lowered_route->fields(0).field_index(), 0U);
 }
 
 TEST(SchemaIrSmokeTest, LowersMultipleSemanticFieldsAfterRepairingTheModel) {

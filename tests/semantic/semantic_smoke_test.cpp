@@ -6,6 +6,9 @@
 #include "compiler/symbols/symbols.hpp"
 
 #include <algorithm>
+#include <array>
+#include <functional>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -24,6 +27,7 @@ using breadcrumbs::compiler::semantic::SemanticField;
 using breadcrumbs::compiler::semantic::SemanticModel;
 using breadcrumbs::compiler::semantic::SemanticPrimitiveType;
 using breadcrumbs::compiler::semantic::SemanticRecord;
+using breadcrumbs::compiler::semantic::SemanticRecordType;
 using breadcrumbs::compiler::semantic::SemanticType;
 using breadcrumbs::compiler::semantic::SemanticValidator;
 using breadcrumbs::compiler::support::SourceFileId;
@@ -42,13 +46,22 @@ struct AnalysisOutput {
     SemanticModel semantic_model;
 };
 
-[[nodiscard]] AnalysisOutput analyze(std::string text) {
+[[nodiscard]] AnalysisOutput analyze(std::string text,
+                                     const std::function<void(SchemaFileSyntax&)>& ast_mutator);
+
+[[nodiscard]] AnalysisOutput analyze(std::string text) { return analyze(std::move(text), {}); }
+
+[[nodiscard]] AnalysisOutput analyze(std::string text,
+                                     const std::function<void(SchemaFileSyntax&)>& ast_mutator) {
     AnalysisOutput output;
     output.source_file_id = output.source_manager.add_source("/test/schema.brd", std::move(text));
 
     auto parse_result =
         Parser::parse(output.source_manager, output.source_file_id, output.parser_diagnostics);
     output.ast = std::move(parse_result.ast);
+    if (ast_mutator) {
+        ast_mutator(output.ast);
+    }
 
     NamespaceBuilder namespace_builder;
     output.symbol_table = std::make_unique<SymbolTable>(
@@ -109,14 +122,16 @@ void expect_enum_reference_type(const SemanticField& field, std::string_view exp
     EXPECT_EQ(field.type.enum_reference().canonical_target_fqn, expected_fqn) << field.name;
 }
 
-[[nodiscard]] SemanticType make_array_type(SemanticType element_type) {
+[[nodiscard]] SemanticType make_array_type(SemanticType element_type, std::uint32_t max_elements) {
     SemanticArrayType array;
+    array.max_elements = max_elements;
     array.element_type = std::make_unique<SemanticType>(std::move(element_type));
     return SemanticType(std::move(array));
 }
 
 TEST(SemanticSmokeTest, AcceptsBuiltinFieldTypes) {
-    const AnalysisOutput output = analyze(R"(record Example {
+    const AnalysisOutput output =
+        analyze(R"(record Example {
   active: bool
   count: int32
   total: uint64
@@ -124,7 +139,15 @@ TEST(SemanticSmokeTest, AcceptsBuiltinFieldTypes) {
   label: string
   payload: bytes
 }
-)");
+)",
+                [](SchemaFileSyntax& ast) {
+                    auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                        ast.declarations[0]->value);
+                    record.fields[4].max_bytes = 16;
+                    record.fields[4].max_bytes_source_range = record.fields[4].source_range;
+                    record.fields[5].max_bytes = 4;
+                    record.fields[5].max_bytes_source_range = record.fields[5].source_range;
+                });
 
     ASSERT_TRUE(expect_clean_pipeline(output));
     ASSERT_EQ(output.semantic_model.records.size(), 1U);
@@ -146,7 +169,8 @@ TEST(SemanticSmokeTest, AcceptsBuiltinFieldTypes) {
 }
 
 TEST(SemanticSmokeTest, NormalizesPrimitiveAliasesToCanonicalKinds) {
-    const AnalysisOutput output = analyze(R"(record Example {
+    const AnalysisOutput output =
+        analyze(R"(record Example {
   bool_value: bool
   i8_short: i8
   i8_long: int8
@@ -171,7 +195,15 @@ TEST(SemanticSmokeTest, NormalizesPrimitiveAliasesToCanonicalKinds) {
   text: string
   payload: bytes
 }
-)");
+)",
+                [](SchemaFileSyntax& ast) {
+                    auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                        ast.declarations[0]->value);
+                    record.fields[21].max_bytes = 16;
+                    record.fields[21].max_bytes_source_range = record.fields[21].source_range;
+                    record.fields[22].max_bytes = 4;
+                    record.fields[22].max_bytes_source_range = record.fields[22].source_range;
+                });
 
     ASSERT_TRUE(expect_clean_pipeline(output));
     const SemanticRecord* record = find_record(output.semantic_model, "Example");
@@ -202,6 +234,442 @@ TEST(SemanticSmokeTest, NormalizesPrimitiveAliasesToCanonicalKinds) {
     expect_bytes_type(record->fields[22]);
     EXPECT_TRUE(output.semantic_diagnostics.empty())
         << diagnostics_summary(output.semantic_diagnostics);
+}
+
+TEST(SemanticSmokeTest, PreservesRecordMetadataAndBoundedFieldTypes) {
+    const AnalysisOutput output = analyze(
+        R"(record Example {
+  active: bool
+  label: string
+  payload: bytes
+  samples: u32
+}
+)",
+        [](SchemaFileSyntax& ast) {
+            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                ast.declarations[0]->value);
+            record.version = 7;
+            record.version_source_range = record.source_range;
+            record.record_type_spelling = "data";
+            record.record_type_source_range = record.source_range;
+
+            record.fields[1].max_bytes = 16;
+            record.fields[1].max_bytes_source_range = record.fields[1].source_range;
+
+            record.fields[2].max_bytes = 4;
+            record.fields[2].max_bytes_source_range = record.fields[2].source_range;
+
+            record.fields[3].type = breadcrumbs::compiler::ast::ArrayTypeSyntax{
+                .source_range = record.fields[3].source_range,
+                .element_type =
+                    breadcrumbs::compiler::ast::TypeReferenceSyntax{
+                        .source_range = record.fields[3].source_range,
+                        .name =
+                            breadcrumbs::compiler::ast::QualifiedNameSyntax{
+                                .source_range = record.fields[3].source_range,
+                                .parts =
+                                    {
+                                        breadcrumbs::compiler::ast::IdentifierSyntax{
+                                            .source_range = record.fields[3].source_range,
+                                            .text = "u32",
+                                        },
+                                    },
+                            },
+                    },
+                .kind = breadcrumbs::compiler::ast::ArrayTypeSyntaxKind::BoundedVariableLength,
+                .fixed_size = std::nullopt,
+                .fixed_size_source_range = breadcrumbs::compiler::support::SourceRange::invalid(),
+            };
+            record.fields[3].max_elements = 64;
+            record.fields[3].max_elements_source_range = record.fields[3].source_range;
+        });
+
+    ASSERT_TRUE(expect_clean_pipeline(output));
+    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    ASSERT_NE(record, nullptr);
+    ASSERT_TRUE(record->version.has_value());
+    EXPECT_EQ(record->version, 7U);
+    ASSERT_TRUE(record->record_type.has_value());
+    EXPECT_EQ(record->record_type, SemanticRecordType::Data);
+    ASSERT_EQ(record->fields.size(), 4U);
+    ASSERT_TRUE(record->fields[1].type.is_string());
+    ASSERT_TRUE(record->fields[2].type.is_bytes());
+    ASSERT_TRUE(record->fields[3].type.is_array());
+    EXPECT_EQ(
+        std::get<breadcrumbs::compiler::semantic::SemanticStringType>(record->fields[1].type.value)
+            .max_bytes,
+        16U);
+    EXPECT_EQ(
+        std::get<breadcrumbs::compiler::semantic::SemanticBytesType>(record->fields[2].type.value)
+            .max_bytes,
+        4U);
+    EXPECT_EQ(record->fields[3].type.array().max_elements, 64U);
+}
+
+TEST(SemanticSmokeTest, RecognizesVersionWithoutAValidSourceRange) {
+    const AnalysisOutput output = analyze(
+        R"(record Example {
+  active: bool
+}
+)",
+        [](SchemaFileSyntax& ast) {
+            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                ast.declarations[0]->value);
+            record.version = 7;
+            record.version_source_range = breadcrumbs::compiler::support::SourceRange::invalid();
+        });
+
+    ASSERT_TRUE(expect_clean_pipeline(output));
+    ASSERT_TRUE(output.semantic_diagnostics.empty())
+        << diagnostics_summary(output.semantic_diagnostics);
+    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    ASSERT_NE(record, nullptr);
+    ASSERT_TRUE(record->version.has_value());
+    EXPECT_EQ(*record->version, 7U);
+    EXPECT_FALSE(record->record_type.has_value());
+}
+
+TEST(SemanticSmokeTest, RejectsZeroVersionWithAValidSourceRange) {
+    const AnalysisOutput output = analyze(
+        R"(record Example {
+  active: bool
+}
+)",
+        [](SchemaFileSyntax& ast) {
+            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                ast.declarations[0]->value);
+            record.version = 0;
+            record.version_source_range = record.source_range;
+        });
+
+    ASSERT_TRUE(expect_clean_pipeline(output));
+    ASSERT_FALSE(output.semantic_diagnostics.empty());
+    EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004");
+    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    ASSERT_NE(record, nullptr);
+    EXPECT_FALSE(record->version.has_value());
+}
+
+TEST(SemanticSmokeTest, RejectsNegativeVersion) {
+    const AnalysisOutput output = analyze(
+        R"(record Example {
+  active: bool
+}
+)",
+        [](SchemaFileSyntax& ast) {
+            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                ast.declarations[0]->value);
+            record.version = -1;
+            record.version_source_range = record.source_range;
+        });
+
+    ASSERT_TRUE(expect_clean_pipeline(output));
+    ASSERT_FALSE(output.semantic_diagnostics.empty());
+    EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004");
+    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    ASSERT_NE(record, nullptr);
+    EXPECT_FALSE(record->version.has_value());
+}
+
+TEST(SemanticSmokeTest, RejectsVersionGreaterThanUint32) {
+    const AnalysisOutput output = analyze(
+        R"(record Example {
+  active: bool
+}
+)",
+        [](SchemaFileSyntax& ast) {
+            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                ast.declarations[0]->value);
+            record.version = static_cast<std::int64_t>(std::numeric_limits<std::uint32_t>::max()) +
+                            1;
+            record.version_source_range = record.source_range;
+        });
+
+    ASSERT_TRUE(expect_clean_pipeline(output));
+    ASSERT_FALSE(output.semantic_diagnostics.empty());
+    EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004");
+    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    ASSERT_NE(record, nullptr);
+    EXPECT_FALSE(record->version.has_value());
+}
+
+TEST(SemanticSmokeTest, RejectsInvalidLogicalRecordTypeWithAValidSourceRange) {
+    const AnalysisOutput output = analyze(
+        R"(record Example {
+  active: bool
+}
+)",
+        [](SchemaFileSyntax& ast) {
+            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                ast.declarations[0]->value);
+            record.version = 1;
+            record.version_source_range = record.source_range;
+            record.record_type_spelling = "bogus";
+            record.record_type_source_range = record.source_range;
+        });
+
+    ASSERT_TRUE(expect_clean_pipeline(output));
+    ASSERT_FALSE(output.semantic_diagnostics.empty());
+    EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5005");
+    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    ASSERT_NE(record, nullptr);
+    ASSERT_TRUE(record->version.has_value());
+    EXPECT_FALSE(record->record_type.has_value());
+}
+
+TEST(SemanticSmokeTest, RejectsInvalidLogicalRecordTypeWithoutAValidSourceRange) {
+    const AnalysisOutput output = analyze(
+        R"(record Example {
+  active: bool
+}
+)",
+        [](SchemaFileSyntax& ast) {
+            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                ast.declarations[0]->value);
+            record.version = 1;
+            record.version_source_range = record.source_range;
+            record.record_type_spelling = "bogus";
+            record.record_type_source_range = breadcrumbs::compiler::support::SourceRange::invalid();
+        });
+
+    ASSERT_TRUE(expect_clean_pipeline(output));
+    ASSERT_FALSE(output.semantic_diagnostics.empty());
+    EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5005");
+    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    ASSERT_NE(record, nullptr);
+    ASSERT_TRUE(record->version.has_value());
+    EXPECT_FALSE(record->record_type.has_value());
+}
+
+TEST(SemanticSmokeTest, PreservesLegacyAbsentVersionAndRecordTypeWithoutDiagnostics) {
+    const AnalysisOutput output = analyze(
+        R"(record Example {
+  active: bool
+}
+)",
+        [](SchemaFileSyntax& ast) {
+            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                ast.declarations[0]->value);
+            record.version = 0;
+            record.version_source_range = breadcrumbs::compiler::support::SourceRange::invalid();
+            record.record_type_spelling.clear();
+            record.record_type_source_range = breadcrumbs::compiler::support::SourceRange::invalid();
+        });
+
+    ASSERT_TRUE(expect_clean_pipeline(output));
+    ASSERT_TRUE(output.semantic_diagnostics.empty())
+        << diagnostics_summary(output.semantic_diagnostics);
+    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    ASSERT_NE(record, nullptr);
+    EXPECT_FALSE(record->version.has_value());
+    EXPECT_FALSE(record->record_type.has_value());
+}
+
+TEST(SemanticSmokeTest, NormalizesLogicalRecordTypesToCanonicalKinds) {
+    const std::array<std::pair<std::string_view, SemanticRecordType>, 5> cases = {
+        std::pair{"data", SemanticRecordType::Data},
+        std::pair{"command", SemanticRecordType::Command},
+        std::pair{"event", SemanticRecordType::Event},
+        std::pair{"configuration", SemanticRecordType::Configuration},
+        std::pair{"diagnostics", SemanticRecordType::Diagnostics},
+    };
+
+    for (const auto& [spelling, expected] : cases) {
+        const AnalysisOutput output = analyze(
+            R"(record Example {
+  value: bool
+}
+)",
+            [spelling](SchemaFileSyntax& ast) {
+                auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                    ast.declarations[0]->value);
+                record.version = 1;
+                record.version_source_range = record.source_range;
+                record.record_type_spelling = std::string(spelling);
+                record.record_type_source_range = record.source_range;
+            });
+
+        ASSERT_TRUE(expect_clean_pipeline(output)) << spelling;
+        const SemanticRecord* record = find_record(output.semantic_model, "Example");
+        ASSERT_NE(record, nullptr);
+        ASSERT_TRUE(record->record_type.has_value());
+        EXPECT_EQ(*record->record_type, expected) << spelling;
+    }
+}
+
+TEST(SemanticSmokeTest, ReportsMissingZeroAndOverflowingStringBounds) {
+    struct Case {
+        const char* name;
+        std::optional<std::int64_t> max_bytes;
+        std::optional<std::string> expected_id;
+    };
+
+    const std::array<Case, 3> cases = {
+        {{"missing", std::nullopt, std::string("BC5004")},
+         {"zero", 0, std::string("BC5004")},
+         {"overflow", static_cast<std::int64_t>(std::numeric_limits<std::uint32_t>::max()) + 1,
+          std::string("BC5004")}}};
+
+    for (const Case& test_case : cases) {
+        const AnalysisOutput output = analyze(
+            R"(record Example {
+  label: string
+}
+)",
+            [test_case](SchemaFileSyntax& ast) {
+                auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                    ast.declarations[0]->value);
+                if (test_case.max_bytes.has_value()) {
+                    record.fields[0].max_bytes = *test_case.max_bytes;
+                    record.fields[0].max_bytes_source_range = record.fields[0].source_range;
+                }
+            });
+
+        ASSERT_TRUE(expect_clean_pipeline(output)) << test_case.name;
+        ASSERT_FALSE(output.semantic_diagnostics.empty()) << test_case.name;
+        EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(),
+                  *test_case.expected_id)
+            << test_case.name;
+        const SemanticRecord* record = find_record(output.semantic_model, "Example");
+        ASSERT_NE(record, nullptr);
+        EXPECT_TRUE(record->fields.empty()) << test_case.name;
+    }
+}
+
+TEST(SemanticSmokeTest, ReportsMissingZeroAndOverflowingBytesBounds) {
+    struct Case {
+        const char* name;
+        std::optional<std::int64_t> max_bytes;
+    };
+
+    const std::array<Case, 3> cases = {
+        {{"missing", std::nullopt},
+         {"zero", 0},
+         {"overflow", static_cast<std::int64_t>(std::numeric_limits<std::uint32_t>::max()) + 1}}};
+
+    for (const Case& test_case : cases) {
+        const AnalysisOutput output = analyze(
+            R"(record Example {
+  payload: bytes
+}
+)",
+            [test_case](SchemaFileSyntax& ast) {
+                auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                    ast.declarations[0]->value);
+                if (test_case.max_bytes.has_value()) {
+                    record.fields[0].max_bytes = *test_case.max_bytes;
+                    record.fields[0].max_bytes_source_range = record.fields[0].source_range;
+                }
+            });
+
+        ASSERT_TRUE(expect_clean_pipeline(output)) << test_case.name;
+        ASSERT_FALSE(output.semantic_diagnostics.empty()) << test_case.name;
+        EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004")
+            << test_case.name;
+        const SemanticRecord* record = find_record(output.semantic_model, "Example");
+        ASSERT_NE(record, nullptr);
+        EXPECT_TRUE(record->fields.empty()) << test_case.name;
+    }
+}
+
+TEST(SemanticSmokeTest, ReportsMissingZeroAndOverflowingArrayBounds) {
+    struct Case {
+        const char* name;
+        std::optional<std::int64_t> max_elements;
+    };
+
+    const std::array<Case, 3> cases = {
+        {{"missing", std::nullopt},
+         {"zero", 0},
+         {"overflow", static_cast<std::int64_t>(std::numeric_limits<std::uint32_t>::max()) + 1}}};
+
+    for (const Case& test_case : cases) {
+        const AnalysisOutput output = analyze(
+            R"(record Example {
+  samples: u32
+}
+)",
+            [test_case](SchemaFileSyntax& ast) {
+                auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                    ast.declarations[0]->value);
+                record.fields[0].type = breadcrumbs::compiler::ast::ArrayTypeSyntax{
+                    .source_range = record.fields[0].source_range,
+                    .element_type =
+                        breadcrumbs::compiler::ast::TypeReferenceSyntax{
+                            .source_range = record.fields[0].source_range,
+                            .name =
+                                breadcrumbs::compiler::ast::QualifiedNameSyntax{
+                                    .source_range = record.fields[0].source_range,
+                                    .parts =
+                                        {
+                                            breadcrumbs::compiler::ast::IdentifierSyntax{
+                                                .source_range = record.fields[0].source_range,
+                                                .text = "u32",
+                                            },
+                                        },
+                                },
+                        },
+                    .kind = breadcrumbs::compiler::ast::ArrayTypeSyntaxKind::BoundedVariableLength,
+                    .fixed_size = std::nullopt,
+                    .fixed_size_source_range =
+                        breadcrumbs::compiler::support::SourceRange::invalid(),
+                };
+                if (test_case.max_elements.has_value()) {
+                    record.fields[0].max_elements = *test_case.max_elements;
+                    record.fields[0].max_elements_source_range = record.fields[0].source_range;
+                }
+            });
+
+        ASSERT_TRUE(expect_clean_pipeline(output)) << test_case.name;
+        ASSERT_FALSE(output.semantic_diagnostics.empty()) << test_case.name;
+        EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004")
+            << test_case.name;
+        const SemanticRecord* record = find_record(output.semantic_model, "Example");
+        ASSERT_NE(record, nullptr);
+        EXPECT_TRUE(record->fields.empty()) << test_case.name;
+    }
+}
+
+TEST(SemanticSmokeTest, ReportsInvalidBoundPlacementOnOtherFieldKinds) {
+    const AnalysisOutput output =
+        analyze(R"(record Example {
+  active: bool
+}
+)",
+                [](SchemaFileSyntax& ast) {
+                    auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                        ast.declarations[0]->value);
+                    record.fields[0].max_bytes = 16;
+                    record.fields[0].max_bytes_source_range = record.fields[0].source_range;
+                });
+
+    ASSERT_TRUE(expect_clean_pipeline(output));
+    ASSERT_FALSE(output.semantic_diagnostics.empty());
+    EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004");
+    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    ASSERT_NE(record, nullptr);
+    EXPECT_TRUE(record->fields.empty());
+}
+
+TEST(SemanticSmokeTest, ReportsInvalidMaxElementsOnNonArrayFields) {
+    const AnalysisOutput output =
+        analyze(R"(record Example {
+  count: u32
+}
+)",
+                [](SchemaFileSyntax& ast) {
+                    auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
+                        ast.declarations[0]->value);
+                    record.fields[0].max_elements = 4;
+                    record.fields[0].max_elements_source_range = record.fields[0].source_range;
+                });
+
+    ASSERT_TRUE(expect_clean_pipeline(output));
+    ASSERT_FALSE(output.semantic_diagnostics.empty());
+    EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004");
+    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    ASSERT_NE(record, nullptr);
+    EXPECT_TRUE(record->fields.empty());
 }
 
 TEST(SemanticSmokeTest, PreservesRecordAndFieldDeclarationOrder) {
@@ -621,9 +1089,9 @@ namespace breadcrumbs.vehicle {
 
 TEST(SemanticSmokeTest, SupportsRecursiveArraySemanticTypes) {
     SemanticType leaf(SemanticPrimitiveType::U32);
-    SemanticType middle = make_array_type(std::move(leaf));
-    SemanticType inner = make_array_type(std::move(middle));
-    const SemanticType recursive = make_array_type(std::move(inner));
+    SemanticType middle = make_array_type(std::move(leaf), 1);
+    SemanticType inner = make_array_type(std::move(middle), 2);
+    const SemanticType recursive = make_array_type(std::move(inner), 3);
 
     ASSERT_TRUE(recursive.is_array());
     ASSERT_TRUE(recursive.array().element_type != nullptr);
