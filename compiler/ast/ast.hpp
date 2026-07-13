@@ -58,9 +58,9 @@ struct FieldDeclarationSyntax {
     IdentifierSyntax name;
     TypeSyntax type;
     std::vector<AnnotationSyntax> annotations;
-    std::optional<std::int64_t> max_bytes;
+    std::optional<std::int64_t> max_bytes = std::nullopt;
     support::SourceRange max_bytes_source_range = support::SourceRange::invalid();
-    std::optional<std::int64_t> max_elements;
+    std::optional<std::int64_t> max_elements = std::nullopt;
     support::SourceRange max_elements_source_range = support::SourceRange::invalid();
 };
 
@@ -83,7 +83,7 @@ struct RecordDeclarationSyntax {
     IdentifierSyntax name;
     std::int64_t version = 0;
     support::SourceRange version_source_range = support::SourceRange::invalid();
-    std::string record_type_spelling;
+    std::string record_type_spelling{};
     support::SourceRange record_type_source_range = support::SourceRange::invalid();
     std::vector<FieldDeclarationSyntax> fields;
     std::vector<AnnotationSyntax> annotations;

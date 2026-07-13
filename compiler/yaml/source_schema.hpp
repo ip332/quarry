@@ -25,11 +25,11 @@ struct SourceSchemaField {
     support::SourceRange name_range = support::SourceRange::invalid();
     std::string type_spelling;
     support::SourceRange type_range = support::SourceRange::invalid();
-    std::optional<std::int64_t> max_bytes;
+    std::optional<std::int64_t> max_bytes = std::nullopt;
     support::SourceRange max_bytes_range = support::SourceRange::invalid();
-    std::optional<std::int64_t> max_elements;
+    std::optional<std::int64_t> max_elements = std::nullopt;
     support::SourceRange max_elements_range = support::SourceRange::invalid();
-    std::vector<SourceSchemaAnnotation> annotations;
+    std::vector<SourceSchemaAnnotation> annotations{};
 };
 
 struct SourceSchemaEnumValue {
@@ -56,7 +56,7 @@ struct SourceSchemaDocument {
     support::SourceRange record_range = support::SourceRange::invalid();
     std::int64_t version = 0;
     support::SourceRange version_range = support::SourceRange::invalid();
-    std::string record_type_spelling;
+    std::string record_type_spelling{};
     support::SourceRange record_type_range = support::SourceRange::invalid();
     YamlNodePtr imports;
     support::SourceRange imports_range = support::SourceRange::invalid();
