@@ -1,2 +1,2 @@
-- PR-023: Introduce the YAML syntax layer and ordered YAML document model
 - PR-024: Decode the YAML document into the Breadcrumbs source schema model
+- PR-025: Connect the YAML source schema model to the compiler pipeline

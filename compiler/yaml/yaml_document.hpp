@@ -10,11 +10,21 @@
 
 namespace breadcrumbs::compiler::yaml {
 
+enum class YamlScalarKind {
+    Plain,
+    SingleQuoted,
+    DoubleQuoted,
+    Literal,
+    Folded,
+    Unknown,
+};
+
 struct YamlNode;
 using YamlNodePtr = std::unique_ptr<YamlNode>;
 
 struct YamlScalarNode {
     std::string value;
+    YamlScalarKind kind = YamlScalarKind::Plain;
 };
 
 struct YamlSequenceNode {

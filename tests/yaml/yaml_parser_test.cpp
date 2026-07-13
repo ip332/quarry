@@ -28,6 +28,7 @@ using breadcrumbs::compiler::yaml::YamlNode;
 using breadcrumbs::compiler::yaml::YamlParseResult;
 using breadcrumbs::compiler::yaml::YamlParser;
 using breadcrumbs::compiler::yaml::YamlScalarNode;
+using breadcrumbs::compiler::yaml::YamlScalarKind;
 using breadcrumbs::compiler::yaml::YamlSequenceNode;
 
 struct ParseOutput {
@@ -80,9 +81,26 @@ TEST(YamlParserTest, ParsesScalarRoot) {
     ASSERT_TRUE(output.result.document.has_value()) << diagnostic_summary(output.diagnostics);
     ASSERT_NE(output.result.document->root, nullptr);
     EXPECT_EQ(scalar(*output.result.document->root).value, "hello");
+    EXPECT_EQ(scalar(*output.result.document->root).kind, YamlScalarKind::Plain);
     EXPECT_EQ(output.result.document->source_range, range(output.source_file_id, 0, 5));
     EXPECT_EQ(output.result.document->root->source_range, range(output.source_file_id, 0, 5));
     EXPECT_TRUE(output.diagnostics.empty());
+}
+
+TEST(YamlParserTest, ClassifiesNativeIntegersAndQuotedStrings) {
+    const ParseOutput plain = parse("1");
+    ASSERT_TRUE(plain.result.document.has_value()) << diagnostic_summary(plain.diagnostics);
+    EXPECT_EQ(scalar(*plain.result.document->root).kind, YamlScalarKind::Plain);
+
+    const ParseOutput double_quoted = parse("\"1\"");
+    ASSERT_TRUE(double_quoted.result.document.has_value())
+        << diagnostic_summary(double_quoted.diagnostics);
+    EXPECT_EQ(scalar(*double_quoted.result.document->root).kind, YamlScalarKind::DoubleQuoted);
+
+    const ParseOutput single_quoted = parse(R"('1')");
+    ASSERT_TRUE(single_quoted.result.document.has_value())
+        << diagnostic_summary(single_quoted.diagnostics);
+    EXPECT_EQ(scalar(*single_quoted.result.document->root).kind, YamlScalarKind::SingleQuoted);
 }
 
 TEST(YamlParserTest, ParsesSequenceAndPreservesOrder) {

@@ -65,6 +65,7 @@ set_target_properties(breadcrumbs_yaml::yaml PROPERTIES
 
 add_library(breadcrumbs_compiler_yaml
     yaml/yaml_document.cpp
+    yaml/schema_decoder.cpp
     yaml/yaml_parser.cpp
 )
 set_source_files_properties(
@@ -72,7 +73,6 @@ set_source_files_properties(
     PROPERTIES SKIP_LINTING ON
 )
 target_include_directories(breadcrumbs_compiler_yaml PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_include_directories(breadcrumbs_compiler_yaml PRIVATE ${BREADCRUMBS_LIBYAML_INCLUDE_DIR})
 target_link_libraries(breadcrumbs_compiler_yaml
     PUBLIC
         breadcrumbs_compiler_diagnostics

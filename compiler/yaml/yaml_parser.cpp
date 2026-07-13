@@ -45,6 +45,23 @@ constexpr std::string_view yaml_pass = "yaml-parser";
                        static_cast<std::size_t>(event.data.scalar.length));
 }
 
+[[nodiscard]] YamlScalarKind scalar_kind(yaml_scalar_style_t style) {
+    switch (style) {
+    case YAML_PLAIN_SCALAR_STYLE:
+        return YamlScalarKind::Plain;
+    case YAML_SINGLE_QUOTED_SCALAR_STYLE:
+        return YamlScalarKind::SingleQuoted;
+    case YAML_DOUBLE_QUOTED_SCALAR_STYLE:
+        return YamlScalarKind::DoubleQuoted;
+    case YAML_LITERAL_SCALAR_STYLE:
+        return YamlScalarKind::Literal;
+    case YAML_FOLDED_SCALAR_STYLE:
+        return YamlScalarKind::Folded;
+    default:
+        return YamlScalarKind::Unknown;
+    }
+}
+
 [[nodiscard]] bool has_anchor(const yaml_char_t* anchor) {
     return anchor != nullptr && anchor[0] != '\0';
 }
@@ -233,7 +250,8 @@ private:
 
         auto node = std::make_unique<YamlNode>();
         node->source_range = event_range();
-        node->value = YamlScalarNode{.value = scalar_text(event_)};
+        node->value = YamlScalarNode{.value = scalar_text(event_),
+                                     .kind = scalar_kind(event_.data.scalar.style)};
 
         if (!advance()) {
             return nullptr;

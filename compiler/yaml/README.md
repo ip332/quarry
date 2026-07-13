@@ -19,6 +19,25 @@ source-located YAML document model. It preserves:
 It does not decode Breadcrumbs schema vocabulary, build AST nodes, resolve
 names, validate schema semantics, compute layout, or construct Schema IR.
 
+## Source Schema Decoder
+
+The YAML module also contains the schema-specific decoder that turns a
+`YamlDocument` into a Breadcrumbs source schema model.
+
+That source schema model preserves:
+
+* namespace spelling
+* record name, version, and logical record type spelling
+* imports as source YAML
+* ordered fields and enum declarations
+* ordered enum values
+* string-valued annotations
+* field and enum source ranges
+
+The decoder performs structural YAML-to-schema decoding only. It does not
+perform semantic validation, name resolution, layout computation, or Schema IR
+construction.
+
 ## Restricted YAML Profile
 
 The parser accepts one YAML document and rejects unsupported profile features
@@ -50,5 +69,5 @@ repository migrates toward YAML decoding. That legacy frontend is still used by
 existing `.brd` tests and does not define the normative language contract.
 
 This module is the first step toward a later YAML-to-Breadcrumbs schema decoder
-that will consume the ordered document model and construct compiler-owned source
-schema structures.
+pipeline that will eventually feed semantic validation and later compiler
+stages.
