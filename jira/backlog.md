@@ -1,1 +1,2 @@
-- PR-022: Confirm YAML as the normative .brd format and define the frontend migration contract
+- PR-023: Introduce the YAML syntax layer and ordered YAML document model
+- PR-024: Decode the YAML document into the Breadcrumbs source schema model

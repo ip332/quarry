@@ -18,7 +18,7 @@ jobs:
       - name: Install Protobuf
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libprotobuf-dev libabsl-dev
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev libabsl-dev libyaml-dev
 
       - name: Configure
         run: cmake --preset debug

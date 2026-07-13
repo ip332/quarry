@@ -48,6 +48,9 @@ Current implementation status:
 * the normative `.brd` grammar is defined in `docs/specifications/schema-language.md`
 * the current parser implementation is transitional scaffolding for that YAML
   grammar
+* the repository also contains a separate generic YAML syntax layer under
+  `compiler/yaml`; it preserves YAML order and source ranges but does not yet
+  decode Breadcrumbs schema vocabulary
 * the current temporary declaration grammar, annotation parsing, and
   fixed-size array handling are not normative language contracts
 * current annotations are transitional string-valued metadata; the normative

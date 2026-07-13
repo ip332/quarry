@@ -50,6 +50,38 @@ target_link_libraries(breadcrumbs_compiler_parser
         breadcrumbs_project_options
 )
 
+find_path(BREADCRUMBS_LIBYAML_INCLUDE_DIR NAMES yaml.h)
+find_library(BREADCRUMBS_LIBYAML_LIBRARY NAMES yaml libyaml)
+
+if(NOT BREADCRUMBS_LIBYAML_INCLUDE_DIR OR NOT BREADCRUMBS_LIBYAML_LIBRARY)
+    message(FATAL_ERROR "Could not find libyaml")
+endif()
+
+add_library(breadcrumbs_yaml::yaml UNKNOWN IMPORTED)
+set_target_properties(breadcrumbs_yaml::yaml PROPERTIES
+    IMPORTED_LOCATION "${BREADCRUMBS_LIBYAML_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${BREADCRUMBS_LIBYAML_INCLUDE_DIR}"
+)
+
+add_library(breadcrumbs_compiler_yaml
+    yaml/yaml_document.cpp
+    yaml/yaml_parser.cpp
+)
+set_source_files_properties(
+    yaml/yaml_parser.cpp
+    PROPERTIES SKIP_LINTING ON
+)
+target_include_directories(breadcrumbs_compiler_yaml PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_include_directories(breadcrumbs_compiler_yaml PRIVATE ${BREADCRUMBS_LIBYAML_INCLUDE_DIR})
+target_link_libraries(breadcrumbs_compiler_yaml
+    PUBLIC
+        breadcrumbs_compiler_diagnostics
+        breadcrumbs_compiler_support
+        breadcrumbs_project_options
+    PRIVATE
+        breadcrumbs_yaml::yaml
+)
+
 add_library(breadcrumbs_compiler_imports
     imports/imports.cpp
 )
