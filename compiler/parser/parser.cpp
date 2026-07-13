@@ -268,10 +268,10 @@ private:
             .element_type = std::move(element_type),
             .kind = ast::ArrayTypeSyntaxKind::LegacyFixedSize,
             .fixed_size = fixed_size,
-            .fixed_size_source_range = fixed_size.has_value()
-                                            ? support::SourceRange(token.source_range.begin(),
-                                                                   token.source_range.end())
-                                            : support::SourceRange::invalid(),
+            .fixed_size_source_range =
+                fixed_size.has_value()
+                    ? support::SourceRange(token.source_range.begin(), token.source_range.end())
+                    : support::SourceRange::invalid(),
         });
     }
 
@@ -310,6 +310,10 @@ private:
             .name = std::move(name),
             .type = std::move(type),
             .annotations = annotations,
+            .max_bytes = std::nullopt,
+            .max_bytes_source_range = support::SourceRange::invalid(),
+            .max_elements = std::nullopt,
+            .max_elements_source_range = support::SourceRange::invalid(),
         };
     }
 
@@ -432,6 +436,10 @@ private:
         return ast::RecordDeclarationSyntax{
             .source_range = support::SourceRange(start_token.source_range.begin(), end),
             .name = name,
+            .version = 0,
+            .version_source_range = support::SourceRange::invalid(),
+            .record_type_spelling = {},
+            .record_type_source_range = support::SourceRange::invalid(),
             .fields = std::move(fields),
             .annotations = annotations,
         };
