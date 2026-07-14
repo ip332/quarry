@@ -29,7 +29,9 @@ Scopes own symbol records and nested child scopes.
 source-schema model and constructs the same scope tree from either input.
 The AST overload is legacy compatibility API retained for parser/AST tests
 and transitional callers; the supported production path is the normalized
-source-schema overload.
+source-schema overload. Keep the AST overload until the remaining
+parser/AST compatibility tests are either retired or reduced to parser/AST-
+only coverage that no longer needs symbol construction.
 Schema IR no longer consumes `SymbolTable` directly; the normalized
 source-schema path feeds Schema IR construction without a symbol-table input.
 

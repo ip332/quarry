@@ -1,1 +1,1 @@
-- PR-045: Reassess the AST-derived symbols, semantic, and layout compatibility suites, migrate representation-neutral coverage to normalized source schema or direct semantic fixtures, and keep only the remaining declaration-syntax compatibility tests that exercise unique parser/AST behavior
+- PR-046: Retain the AST-facing NamespaceBuilder and SemanticValidator overloads temporarily, with explicit retirement prerequisites tied to the remaining parser/AST compatibility tests and no change to the production YAML frontend
