@@ -1,1 +1,1 @@
-- PR-043: Classify the remaining declaration-syntax frontend as compatibility parser + AST rather than a supported standalone compiler frontend, keeping parser and AST APIs for lower-layer compatibility and tests while production compilation stays on the normalized YAML path
+- PR-044: Mark the AST-facing namespace and semantic overloads as legacy compatibility APIs retained for parser/AST tests and transitional callers, while leaving the normalized YAML production path unchanged

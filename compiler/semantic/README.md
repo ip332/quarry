@@ -55,6 +55,9 @@ The normative `.brd` YAML contract is defined in
 
 The current semantic implementation still consumes the transitional
 declaration-parser AST and also accepts the normalized source-schema model.
+The AST overload is legacy compatibility API retained for parser/AST tests
+and transitional callers; the supported production path is the normalized
+source-schema overload.
 
 The production YAML frontend now passes normalized YAML source schema directly
 into symbol construction and semantic validation. The production YAML frontend
