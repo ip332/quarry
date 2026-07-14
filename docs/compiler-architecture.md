@@ -7,7 +7,8 @@ compiler models and generated artifacts.
 
 The compiler architecture should:
 
-* resolve imports into a canonical namespace model
+* preserve source-level imports on the legacy AST path until a dedicated import
+  graph boundary exists
 * support a normative YAML source frontend during migration to the legacy
   declaration-syntax compiler pipeline
 * validate schema semantics before layout computation
@@ -71,7 +72,9 @@ The compiler pipeline is:
   into symbol construction, semantic validation, layout computation, and
   Schema IR lowering.
 * AST flows into import resolution, legacy symbol construction, legacy
-  semantic validation, and layout computation.
+  semantic validation, and layout computation. The current import-resolution
+  layer is a placeholder AST aggregation boundary rather than a canonical
+  import graph.
 
 The current migration boundary is intentionally uneven: scalar- and
 enum-shaped schemas can flow through the existing downstream pipeline today,

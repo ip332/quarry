@@ -72,7 +72,8 @@ not a serialization format and should not be consumed as compiler input.
 ## Relationship To Compiler Passes
 
 The legacy parser produces ASTs from source text. The import resolver consumes
-ASTs to expand the compilation boundary. The namespace builder can consume
+ASTs as a lightweight compilation-unit boundary for the legacy declaration-
+syntax pipeline; it does not yet perform import-graph resolution. The namespace builder can consume
 either ASTs or the normalized source-schema model to build symbol information.
 The semantic validator likewise consumes either the legacy AST path or the
 normalized source-schema model together with symbol information. The production

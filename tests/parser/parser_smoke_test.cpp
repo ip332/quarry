@@ -126,6 +126,50 @@ namespace breadcrumbs.geo {
     EXPECT_EQ(enum_declaration.values[1].value, std::optional<std::string>("1"));
 }
 
+TEST_F(ParserTest, ParsesImportInsideNamespaceAndPreservesOrder) {
+    const ParseOutput output = parse(R"(namespace breadcrumbs.geo {
+  import breadcrumbs.shared.Location
+  record Sample {
+    count: uint32
+  }
+}
+)");
+
+    ASSERT_TRUE(output.diagnostics.empty());
+    ASSERT_EQ(output.ast.declarations.size(), 1U);
+
+    const auto& top_level_namespace = as_namespace(*output.ast.declarations[0]);
+    ASSERT_EQ(top_level_namespace.declarations.size(), 2U);
+
+    const auto& import = as_import(*top_level_namespace.declarations[0]);
+    EXPECT_EQ(import.imported_name.text(), "breadcrumbs.shared.Location");
+    EXPECT_EQ(import.source_range, range(output.source_file_id, 30, 64));
+
+    const auto& record = as_record(*top_level_namespace.declarations[1]);
+    EXPECT_EQ(record.name.text, "Sample");
+}
+
+TEST_F(ParserTest, ReportsMalformedImportDeclarationAndRecovers) {
+    const ParseOutput output = parse(R"(@deprecated("old")
+import breadcrumbs.shared.Location
+record Sample {
+  count: uint32
+}
+)");
+
+    ASSERT_EQ(output.diagnostics.diagnostics().size(), 1U);
+    EXPECT_EQ(output.diagnostics.diagnostics()[0].id().str(), "BC3001");
+    EXPECT_EQ(output.diagnostics.diagnostics()[0].compiler_pass(), "parser");
+    EXPECT_EQ(output.diagnostics.diagnostics()[0].message(),
+              "annotations are not supported on import declarations");
+
+    ASSERT_EQ(output.ast.declarations.size(), 2U);
+    const auto& import = as_import(*output.ast.declarations[0]);
+    EXPECT_EQ(import.imported_name.text(), "breadcrumbs.shared.Location");
+    const auto& record = as_record(*output.ast.declarations[1]);
+    EXPECT_EQ(record.name.text, "Sample");
+}
+
 TEST_F(ParserTest, PreservesSourceRangesOnDeclarationsAndTypes) {
     const ParseOutput output = parse(R"(record Location {
   altitude: breadcrumbs.geo.Altitude

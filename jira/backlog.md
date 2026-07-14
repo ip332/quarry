@@ -1,1 +1,1 @@
-- PR-034: Remove the test-only AST-based SchemaIrBuilder overload and duplicated legacy Schema IR coverage so normalized source schema is the sole Schema IR input, while keeping multiple-top-level-namespace support covered through direct IR and backend fixtures
+- PR-036: Define the declaration-syntax import-resolution boundary, keep ImportResolver as the current AST-grouping stub, and stage follow-up work for real import-graph resolution without integrating symbols or semantic validation yet

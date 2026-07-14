@@ -1,14 +1,13 @@
 # Imports
 
-Owns import resolution and compilation unit construction.
+Owns the legacy declaration-syntax import boundary and compilation-unit
+construction.
 
 Responsibilities:
 
-* resolve source-level imports
-* build the import graph
-* detect missing, duplicate, ambiguous, and cyclic imports
-* produce a lightweight compilation unit for later pipeline stages that need
-  grouped ASTs
+* preserve already-parsed AST documents as a lightweight compilation unit
+* preserve import declarations as source syntax on the legacy AST path
+* provide the current placeholder boundary for future multi-file import work
 
 Allowed dependencies:
 
@@ -16,4 +15,10 @@ Allowed dependencies:
 * `compiler/diagnostics`
 * `compiler/support`
 
-Imports do not survive as first-class objects in later compiler models.
+Current implementation status:
+
+* `ImportResolver` currently returns the input AST documents in order as a
+  compilation unit wrapper
+* it does not load files, parse files, canonicalize paths, build a graph, or
+  detect missing, duplicate, or cyclic imports yet
+* imports remain AST-owned until a dedicated import-graph design is added

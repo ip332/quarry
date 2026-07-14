@@ -154,11 +154,11 @@ or layout computation.
 
 ### Purpose
 
-The import resolver expands the source-level compilation boundary into the full
-set of ASTs needed for one compilation.
+The import resolver currently acts as a lightweight AST grouping boundary for
+the legacy declaration-syntax pipeline.
 
-Imports are source-level compiler directives only. They do not survive as
-first-class objects in later compiler representations.
+Imports are source-level compiler directives only. They remain AST-owned until
+the repository defines a dedicated import-graph boundary.
 
 ### Input Representation
 
@@ -189,35 +189,25 @@ source-level AST nodes.
 
 ### Responsibilities
 
-* locate imported files
-* detect duplicate imports
-* detect missing imports
-* detect ambiguous imports
-* build the import graph
-* detect import cycles
-* produce the Compilation Unit containing all source ASTs for the compilation
+* preserve the input AST documents in a deterministic compilation unit
+* provide the current boundary for future import-graph work
 
 ### Invariants Established on Output
 
-* the import graph is complete
-* every import resolves to exactly one source unit
-* duplicate imports are either normalized or reported
-* import cycles are reported before namespace construction
-* all source units required by the compilation are available
+* input AST document order is preserved
+* input AST identity is preserved by pointer
+* import declarations remain AST syntax
 
 ### Diagnostics Emitted
 
-* missing file
-* ambiguous import
-* duplicate import, when not normalized by policy
-* cyclic import
-* unreadable source unit
+* none in the current implementation
 
 ### Why This Pass Exists Separately
 
-Import resolution depends on source files and the compilation environment, but
-not on schema semantics. Keeping it separate ensures later passes operate on a
-complete source set and never need to perform file discovery.
+This pass exists to preserve the legacy declaration-syntax pipeline boundary
+for future multi-file import work. It keeps AST grouping separate from
+namespace construction and semantic validation even though it does not yet
+resolve an import graph.
 
 ---
 
