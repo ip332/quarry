@@ -1,1 +1,1 @@
-- PR-032: Decouple backend code-generation tests from source frontends by feeding validated Schema IR fixtures directly into Backend::generate while keeping the legacy AST-based SchemaIrBuilder overload available
+- PR-033: Separate representation-neutral Schema IR validator tests from legacy AST-based SchemaIrBuilder compatibility coverage, consolidate duplicated builder tests around the normalized-source-schema path, and keep the AST overload available pending a dedicated legacy-frontend decision

@@ -62,7 +62,17 @@ Implementation status:
   pipeline through validated Schema IR directly from the normalized
   source-schema model
 * the legacy AST-based Schema IR path remains available for transitional
-  callers and tests
+  callers and narrowly scoped legacy compatibility tests
+* direct normalized-source-schema tests under
+  `tests/yaml/normalized_source_schema_pipeline_test.cpp` provide the primary
+  Schema IR builder unit coverage
+* `tests/schema_ir/schema_ir_validation_test.cpp` constructs representation-
+  neutral protobuf Schema IR directly for validator coverage
+* `tests/schema_ir/schema_ir_legacy_builder_test.cpp` retains only the
+  compatibility behavior that still depends on the AST-based builder overload
+* `tests/schema_ir/schema_ir_legacy_golden_test.cpp` remains as the
+  declaration-syntax integration test for the multiple-top-level-namespace
+  fixture shape that the current YAML document contract does not represent
 * the independent legacy declaration-syntax frontend continues to use
   parser/AST contracts, including its legacy array representation. The
   production YAML frontend does not depend on those contracts and remains
@@ -104,11 +114,12 @@ Golden tests:
 * the production golden suite compiles YAML fixtures through
   `frontend::YamlCompiler` and compares a normalized text-format rendering of
   the resulting Schema IR
-* a small separate legacy-only golden test remains for the one fixture shape
-  that the current YAML contract does not represent
+* the legacy-only golden test remains for the one fixture shape that the
+  current YAML contract does not represent
 * compiler-only source metadata is stripped from the comparison so the golden
   files stay stable and reviewable
-* schema IR smoke tests still cover source metadata behavior separately
+* direct builder compatibility tests now live in
+  `tests/schema_ir/schema_ir_legacy_builder_test.cpp`
 
 Deferred work:
 

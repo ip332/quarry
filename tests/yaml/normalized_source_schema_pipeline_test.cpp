@@ -30,14 +30,14 @@ using breadcrumbs::compiler::layout::LayoutModel;
 using breadcrumbs::compiler::schema_ir::SchemaIrBuilder;
 using breadcrumbs::compiler::schema_ir::SchemaIrModel;
 using breadcrumbs::compiler::schema_ir::SchemaIrValidator;
-using breadcrumbs::compiler::semantic::SemanticField;
+using breadcrumbs::compiler::semantic::SemanticArrayType;
 using breadcrumbs::compiler::semantic::SemanticModel;
 using breadcrumbs::compiler::semantic::SemanticRecord;
+using breadcrumbs::compiler::semantic::SemanticRecordReferenceType;
 using breadcrumbs::compiler::semantic::SemanticValidator;
+using breadcrumbs::compiler::semantic::SemanticType;
 using breadcrumbs::compiler::support::SourceFileId;
-using breadcrumbs::compiler::support::SourceLocation;
 using breadcrumbs::compiler::support::SourceManager;
-using breadcrumbs::compiler::support::SourceRange;
 using breadcrumbs::compiler::symbols::NamespaceBuilder;
 using breadcrumbs::compiler::symbols::SymbolTable;
 using breadcrumbs::compiler::yaml::YamlDecodeResult;
@@ -290,6 +290,32 @@ enums:
 }
 
 TEST(SchemaIrBuilderDirectNormalizedSourceTest,
+     LowersSemanticRecordReferencesToTheTargetRecordIrId) {
+    DirectPipelineOutput output = make_direct_builder_fixture();
+    auto* record = const_cast<SemanticRecord*>(
+        output.semantic_model.find_record("breadcrumbs.telemetry.deep.Sample"));
+    ASSERT_NE(record, nullptr);
+    ASSERT_GE(record->fields.size(), 1U);
+    record->fields[0].type = SemanticType(SemanticRecordReferenceType{
+        .canonical_target_fqn = "breadcrumbs.telemetry.deep.Sample",
+    });
+
+    DiagnosticEngine lowering_diagnostics;
+    const SchemaIrModel schema_ir = build_direct_schema_ir(output, lowering_diagnostics);
+
+    ASSERT_TRUE(lowering_diagnostics.empty()) << diagnostics_summary(lowering_diagnostics);
+    const auto& root = schema_ir.root_namespace();
+    const auto* breadcrumbs_ns = find_namespace(root, "breadcrumbs");
+    ASSERT_NE(breadcrumbs_ns, nullptr);
+    const auto& telemetry_ns = breadcrumbs_ns->namespaces(0);
+    const auto& deep_ns = telemetry_ns.namespaces(0);
+    const auto& lowered_record = deep_ns.records(0);
+    ASSERT_TRUE(lowered_record.fields(0).type().has_record());
+    EXPECT_EQ(lowered_record.fields(0).type().record().target_record_ir_id(),
+              lowered_record.ir_id());
+}
+
+TEST(SchemaIrBuilderDirectNormalizedSourceTest,
      BuildsSyntheticRootHierarchyMetadataAndBoundsWithoutAST) {
     DirectPipelineOutput output = make_direct_builder_fixture();
 
@@ -470,6 +496,43 @@ TEST(SchemaIrBuilderDirectNormalizedSourceTest, FailsWhenLayoutFieldIndexDiffers
     ASSERT_NE(layout_record, nullptr);
     ASSERT_GE(layout_record->fields.size(), 2U);
     layout_record->fields[1].field_index = 7U;
+
+    DiagnosticEngine lowering_diagnostics;
+    const SchemaIrModel schema_ir = build_direct_schema_ir(output, lowering_diagnostics);
+
+    expect_direct_builder_failure(schema_ir, lowering_diagnostics);
+    ASSERT_TRUE(lowering_diagnostics.diagnostics().front().source_range().has_value());
+    EXPECT_EQ(*lowering_diagnostics.diagnostics().front().source_range(),
+              output.normalization_result.document->fields[1].source_range);
+}
+
+TEST(SchemaIrBuilderDirectNormalizedSourceTest, FailsWhenSemanticTypeIsInvalid) {
+    DirectPipelineOutput output = make_direct_builder_fixture();
+    auto* record = const_cast<SemanticRecord*>(
+        output.semantic_model.find_record("breadcrumbs.telemetry.deep.Sample"));
+    ASSERT_NE(record, nullptr);
+    ASSERT_GE(record->fields.size(), 2U);
+    record->fields[1].type = SemanticType();
+
+    DiagnosticEngine lowering_diagnostics;
+    const SchemaIrModel schema_ir = build_direct_schema_ir(output, lowering_diagnostics);
+
+    expect_direct_builder_failure(schema_ir, lowering_diagnostics);
+    ASSERT_TRUE(lowering_diagnostics.diagnostics().front().source_range().has_value());
+    EXPECT_EQ(*lowering_diagnostics.diagnostics().front().source_range(),
+              output.normalization_result.document->fields[1].source_range);
+}
+
+TEST(SchemaIrBuilderDirectNormalizedSourceTest,
+     FailsWhenRecursiveSemanticArrayElementIsNull) {
+    DirectPipelineOutput output = make_direct_builder_fixture();
+    auto* record = const_cast<SemanticRecord*>(
+        output.semantic_model.find_record("breadcrumbs.telemetry.deep.Sample"));
+    ASSERT_NE(record, nullptr);
+    ASSERT_GE(record->fields.size(), 5U);
+    SemanticArrayType array;
+    array.max_elements = 64U;
+    record->fields[4].type = SemanticType(std::move(array));
 
     DiagnosticEngine lowering_diagnostics;
     const SchemaIrModel schema_ir = build_direct_schema_ir(output, lowering_diagnostics);

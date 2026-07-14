@@ -1,17 +1,10 @@
-#include "compiler/ast/ast.hpp"
 #include "compiler/context/compiler_context.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
-#include "compiler/layout/layout.hpp"
-#include "compiler/parser/parser.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "compiler/schema_ir/validation.hpp"
-#include "compiler/semantic/semantic.hpp"
 #include "compiler/support/source_manager.hpp"
-#include "compiler/symbols/symbols.hpp"
 
 #include <cstdint>
-#include <functional>
-#include <memory>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -24,82 +17,13 @@ namespace {
 using breadcrumbs::compiler::context::CompilerContext;
 using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
 using breadcrumbs::compiler::diagnostics::DiagnosticFormatter;
-using breadcrumbs::compiler::layout::LayoutComputer;
-using breadcrumbs::compiler::layout::LayoutModel;
-using breadcrumbs::compiler::parser::Parser;
-using breadcrumbs::compiler::schema_ir::SchemaIrBuilder;
 using breadcrumbs::compiler::schema_ir::SchemaIrModel;
 using breadcrumbs::compiler::schema_ir::SchemaIrValidator;
-using breadcrumbs::compiler::semantic::SemanticModel;
-using breadcrumbs::compiler::semantic::SemanticValidator;
 using breadcrumbs::compiler::support::SourceFileId;
 using breadcrumbs::compiler::support::SourceManager;
-using breadcrumbs::compiler::symbols::NamespaceBuilder;
-using breadcrumbs::compiler::symbols::SymbolTable;
-
-struct FrontendOutput {
-    CompilerContext context;
-    breadcrumbs::compiler::ast::SchemaFileSyntax ast;
-    DiagnosticEngine parser_diagnostics;
-    DiagnosticEngine symbol_diagnostics;
-    DiagnosticEngine semantic_diagnostics;
-    DiagnosticEngine layout_diagnostics;
-    DiagnosticEngine lowering_diagnostics;
-    DiagnosticEngine validation_diagnostics;
-    std::unique_ptr<SymbolTable> symbol_table;
-    SemanticModel semantic_model;
-    LayoutModel layout_model;
-    SchemaIrModel schema_ir;
-    SourceFileId source_file_id;
-};
 
 [[nodiscard]] SourceFileId add_test_source(CompilerContext& context) {
-    return context.source_manager().add_source("/test/schema.brd", "");
-}
-
-[[nodiscard]] FrontendOutput run_frontend(
-    std::string text, bool run_semantic,
-    const std::function<void(breadcrumbs::compiler::ast::SchemaFileSyntax&)>& ast_mutator = {}) {
-    FrontendOutput output;
-    output.source_file_id =
-        output.context.source_manager().add_source("/test/schema.brd", std::move(text));
-
-    auto parse_result = Parser::parse(output.context.source_manager(), output.source_file_id,
-                                      output.parser_diagnostics);
-    output.ast = std::move(parse_result.ast);
-    if (ast_mutator) {
-        ast_mutator(output.ast);
-    }
-
-    NamespaceBuilder namespace_builder;
-    output.symbol_table = std::make_unique<SymbolTable>(
-        namespace_builder.build(output.ast, output.symbol_diagnostics));
-
-    if (run_semantic) {
-        SemanticValidator validator;
-        output.semantic_model =
-            validator.validate(output.ast, *output.symbol_table, output.semantic_diagnostics);
-    }
-
-    if (output.semantic_diagnostics.empty()) {
-        LayoutComputer layout_computer;
-        output.layout_model = layout_computer.compute(output.semantic_model, output.context,
-                                                      output.layout_diagnostics);
-    }
-
-    SchemaIrBuilder schema_ir_builder;
-    if (output.semantic_diagnostics.empty() && output.layout_diagnostics.empty()) {
-        output.schema_ir = schema_ir_builder.build(output.ast, output.semantic_model,
-                                                   output.layout_model, *output.symbol_table,
-                                                   output.context, output.lowering_diagnostics);
-    }
-    return output;
-}
-
-[[nodiscard]] FrontendOutput run_valid_frontend(
-    std::string text,
-    const std::function<void(breadcrumbs::compiler::ast::SchemaFileSyntax&)>& ast_mutator) {
-    return run_frontend(std::move(text), true, ast_mutator);
+    return context.source_manager().add_source("/test/schema.ir", "");
 }
 
 [[nodiscard]] std::string diagnostics_summary(const DiagnosticEngine& diagnostics,
@@ -149,31 +73,96 @@ void validate_schema_ir(const SchemaIrModel& schema_ir, CompilerContext& context
     validator.validate(schema_ir, context, diagnostics);
 }
 
-TEST(SchemaIrValidationTest, AcceptsValidatedFrontendOutput) {
-    FrontendOutput output = run_valid_frontend(
-        R"(record Example {
-  active: bool
-  count: u32
-  label: string
-}
-)",
-        [](breadcrumbs::compiler::ast::SchemaFileSyntax& ast) {
-            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                ast.declarations[0]->value);
-            record.fields[2].max_bytes = 16;
-            record.fields[2].max_bytes_source_range = record.fields[2].source_range;
-        });
+TEST(SchemaIrValidationTest, AcceptsDirectRepresentativeSchemaIr) {
+    CompilerContext context;
+    (void)add_test_source(context);
 
-    ASSERT_TRUE(output.parser_diagnostics.empty());
-    ASSERT_TRUE(output.symbol_diagnostics.empty());
-    ASSERT_TRUE(output.semantic_diagnostics.empty());
-    ASSERT_TRUE(output.layout_diagnostics.empty());
-    ASSERT_TRUE(output.lowering_diagnostics.empty())
-        << diagnostics_summary(output.lowering_diagnostics, output.context.source_manager());
+    SchemaIrModel schema_ir = make_schema_ir();
+    auto* root = schema_ir.mutable_root_namespace();
+    auto* breadcrumbs = root->add_namespaces();
+    breadcrumbs->set_ir_id(2);
+    breadcrumbs->set_name("breadcrumbs");
+    breadcrumbs->set_fqn("breadcrumbs");
+    set_origin(breadcrumbs, "/test/schema.ir", 0, 12);
 
-    validate_schema_ir(output.schema_ir, output.context, output.validation_diagnostics);
-    EXPECT_TRUE(output.validation_diagnostics.empty())
-        << diagnostics_summary(output.validation_diagnostics, output.context.source_manager());
+    auto* telemetry = breadcrumbs->add_namespaces();
+    telemetry->set_ir_id(3);
+    telemetry->set_name("telemetry");
+    telemetry->set_fqn("breadcrumbs.telemetry");
+    set_origin(telemetry, "/test/schema.ir", 0, 23);
+
+    auto* mode = telemetry->add_enums();
+    mode->set_ir_id(4);
+    mode->set_name("Mode");
+    mode->set_fqn("breadcrumbs.telemetry.Mode");
+    set_origin(mode, "/test/schema.ir", 24, 28);
+    auto* off = mode->add_values();
+    off->set_name("Off");
+    off->set_value(0);
+    set_origin(off, "/test/schema.ir", 30, 33);
+    auto* on = mode->add_values();
+    on->set_name("On");
+    on->set_value(1);
+    set_origin(on, "/test/schema.ir", 34, 36);
+
+    auto* location = telemetry->add_records();
+    location->set_ir_id(5);
+    location->set_record_id(2);
+    location->set_name("Location");
+    location->set_fqn("breadcrumbs.telemetry.Location");
+    set_origin(location, "/test/schema.ir", 38, 46);
+    location->set_schema_version(1);
+    location->set_record_type(::breadcrumbs::schema_ir::RECORD_TYPE_CONFIGURATION);
+    auto* latitude = location->add_fields();
+    latitude->set_name("latitude");
+    latitude->set_field_index(0);
+    set_origin(latitude, "/test/schema.ir", 48, 56);
+    latitude->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_F64);
+
+    auto* sample = telemetry->add_records();
+    sample->set_ir_id(6);
+    sample->set_record_id(3);
+    sample->set_name("Sample");
+    sample->set_fqn("breadcrumbs.telemetry.Sample");
+    set_origin(sample, "/test/schema.ir", 58, 64);
+    sample->set_schema_version(7);
+    sample->set_record_type(::breadcrumbs::schema_ir::RECORD_TYPE_DATA);
+
+    auto* active = sample->add_fields();
+    active->set_name("active");
+    active->set_field_index(0);
+    set_origin(active, "/test/schema.ir", 66, 72);
+    active->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL);
+
+    auto* current_mode = sample->add_fields();
+    current_mode->set_name("mode");
+    current_mode->set_field_index(1);
+    set_origin(current_mode, "/test/schema.ir", 74, 78);
+    current_mode->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(mode->ir_id());
+
+    auto* destination = sample->add_fields();
+    destination->set_name("destination");
+    destination->set_field_index(2);
+    set_origin(destination, "/test/schema.ir", 80, 91);
+    destination->mutable_type()->mutable_record()->set_target_record_ir_id(location->ir_id());
+
+    auto* label = sample->add_fields();
+    label->set_name("label");
+    label->set_field_index(3);
+    set_origin(label, "/test/schema.ir", 93, 98);
+    label->mutable_type()->mutable_string()->set_max_bytes(16);
+
+    auto* samples = sample->add_fields();
+    samples->set_name("samples");
+    samples->set_field_index(4);
+    set_origin(samples, "/test/schema.ir", 100, 107);
+    samples->mutable_type()->mutable_array()->set_max_elements(64);
+    samples->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
+        ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+
+    DiagnosticEngine diagnostics;
+    validate_schema_ir(schema_ir, context, diagnostics);
+    EXPECT_TRUE(diagnostics.empty()) << diagnostics_summary(diagnostics, context.source_manager());
 }
 
 TEST(SchemaIrValidationTest, RejectsDuplicateNamespaceNamesInTheSameScope) {
@@ -397,23 +386,26 @@ TEST(SchemaIrValidationTest, RejectsDuplicateRecordIdsInTheSameNamespace) {
     first->set_record_id(10);
     first->set_name("Location");
     first->set_fqn("Location");
-    set_origin(first, "/test/schema.brd", 0, 0, 1, 1, 1, 8);
+    set_origin(first, "/test/schema.ir", 0, 0);
 
     auto* second = root->add_records();
     second->set_ir_id(3);
     second->set_record_id(10);
     second->set_name("Route");
     second->set_fqn("Route");
-    set_origin(second, "/test/schema.brd", 9, 17, 2, 1, 2, 8);
+    set_origin(second, "/test/schema.ir", 0, 0);
 
     DiagnosticEngine diagnostics;
     validate_schema_ir(schema_ir, context, diagnostics);
 
     ASSERT_EQ(diagnostics.diagnostics().size(), 1U);
     EXPECT_EQ(diagnostics.diagnostics()[0].id().str(), "BC6011");
-    const std::string formatted =
-        DiagnosticFormatter::format(diagnostics.diagnostics()[0], context.source_manager());
-    EXPECT_NE(formatted.find("previous record with this id is here"), std::string::npos);
+    ASSERT_EQ(diagnostics.diagnostics()[0].related_locations().size(), 1U);
+    const auto& related_location = diagnostics.diagnostics()[0].related_locations()[0];
+    ASSERT_TRUE(related_location.range().has_value());
+    EXPECT_EQ(related_location.message(), "previous record with this id is here");
+    EXPECT_EQ(related_location.range()->begin().byte_offset(), 0U);
+    EXPECT_EQ(related_location.range()->end().byte_offset(), 0U);
 }
 
 TEST(SchemaIrValidationTest, RejectsDuplicateRecordIdsInDifferentNamespaces) {
@@ -797,18 +789,18 @@ TEST(SchemaIrValidationTest, UsesSourceMetadataInDiagnosticsWhenAvailable) {
     record->set_record_id(18);
     record->set_name("Route");
     record->set_fqn("Route");
-    set_origin(record, "/test/schema.brd", 0, 0, 1, 1, 1, 1);
+    set_origin(record, "/test/schema.ir", 0, 0, 1, 1, 1, 1);
 
     auto* field = record->add_fields();
     field->set_name("origin");
     field->set_field_index(0);
-    set_origin(field, "/test/schema.brd", 0, 0, 1, 1, 1, 1);
+    set_origin(field, "/test/schema.ir", 0, 0, 1, 1, 1, 1);
     field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL);
 
     auto* duplicate = record->add_fields();
     duplicate->set_name("origin");
     duplicate->set_field_index(1);
-    set_origin(duplicate, "/test/schema.brd", 0, 0, 1, 1, 1, 1);
+    set_origin(duplicate, "/test/schema.ir", 0, 0, 1, 1, 1, 1);
     duplicate->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
 
     DiagnosticEngine diagnostics;
@@ -817,7 +809,7 @@ TEST(SchemaIrValidationTest, UsesSourceMetadataInDiagnosticsWhenAvailable) {
     ASSERT_EQ(diagnostics.diagnostics().size(), 1U);
     const std::string formatted =
         DiagnosticFormatter::format(diagnostics.diagnostics()[0], context.source_manager());
-    EXPECT_NE(formatted.find("/test/schema.brd:1:1"), std::string::npos);
+    EXPECT_NE(formatted.find("/test/schema.ir:1:1"), std::string::npos);
     EXPECT_NE(formatted.find("BC6003"), std::string::npos);
 }
 
