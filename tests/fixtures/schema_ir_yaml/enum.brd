@@ -1,0 +1,12 @@
+namespace: breadcrumbs.enums
+record: Example
+version: 1
+type: data
+enums:
+  FixType:
+    values:
+      one: 1
+      two: 2
+fields:
+  fix_type:
+    type: FixType

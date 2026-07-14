@@ -19,6 +19,12 @@ YAML `.brd` compilation.
 The frontend returns validated Schema IR on success and no Schema IR on
 failure. It does not invoke backend generation.
 
+The Schema IR exact-output golden suite now runs through this production YAML
+frontend against the YAML fixture tree under `tests/fixtures/schema_ir_yaml`.
+The legacy declaration-syntax parser remains available for its own test
+coverage, and one legacy-only companion golden still covers the single fixture
+shape that the current YAML contract does not represent.
+
 ## Migration Boundary
 
 The YAML path now builds the symbol table and semantic model directly from the

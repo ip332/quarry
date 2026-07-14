@@ -1,0 +1,53 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  namespaces {
+    ir_id: 2
+    name: "breadcrumbs"
+    fqn: "breadcrumbs"
+    namespaces {
+      ir_id: 3
+      name: "example"
+      fqn: "breadcrumbs.example"
+      records {
+        ir_id: 4
+        record_id: 1
+        schema_version: 1
+        record_type: RECORD_TYPE_DATA
+        name: "Example"
+        fqn: "breadcrumbs.example.Example"
+        fields {
+          name: "active"
+          type {
+            primitive: PRIMITIVE_TYPE_BOOL
+          }
+        }
+        fields {
+          name: "count"
+          field_index: 1
+          type {
+            primitive: PRIMITIVE_TYPE_U32
+          }
+        }
+        fields {
+          name: "label"
+          field_index: 2
+          type {
+            string {
+              max_bytes: 16
+            }
+          }
+        }
+        fields {
+          name: "blob"
+          field_index: 3
+          type {
+            bytes {
+              max_bytes: 4
+            }
+          }
+        }
+      }
+    }
+  }
+}

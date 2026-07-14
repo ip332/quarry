@@ -1,0 +1,12 @@
+namespace: breadcrumbs.geo
+record: Route
+version: 1
+type: event
+enums:
+  Mode:
+    values:
+      inactive: 0
+      active: 1
+fields:
+  mode:
+    type: Mode

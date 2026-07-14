@@ -1,0 +1,5 @@
+namespace: breadcrumbs.empty
+record: Empty
+version: 1
+type: data
+fields: {}

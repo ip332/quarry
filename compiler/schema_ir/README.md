@@ -98,9 +98,14 @@ Source metadata:
 
 Golden tests:
 
-* fixture-backed golden tests live under `tests/fixtures/schema_ir`
-* each fixture pairs a `.brd` source file with a `.textproto` expectation
-* goldens compare a normalized text-format rendering of the lowered IR
+* fixture-backed golden tests live under `tests/fixtures/schema_ir_yaml` for
+  the production YAML path and `tests/fixtures/schema_ir` for the single
+  legacy-only exception
+* the production golden suite compiles YAML fixtures through
+  `frontend::YamlCompiler` and compares a normalized text-format rendering of
+  the resulting Schema IR
+* a small separate legacy-only golden test remains for the one fixture shape
+  that the current YAML contract does not represent
 * compiler-only source metadata is stripped from the comparison so the golden
   files stay stable and reviewable
 * schema IR smoke tests still cover source metadata behavior separately

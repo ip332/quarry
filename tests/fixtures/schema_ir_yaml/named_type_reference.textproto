@@ -1,0 +1,42 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  namespaces {
+    ir_id: 2
+    name: "breadcrumbs"
+    fqn: "breadcrumbs"
+    namespaces {
+      ir_id: 3
+      name: "geo"
+      fqn: "breadcrumbs.geo"
+      records {
+        ir_id: 5
+        record_id: 1
+        schema_version: 1
+        record_type: RECORD_TYPE_EVENT
+        name: "Route"
+        fqn: "breadcrumbs.geo.Route"
+        fields {
+          name: "mode"
+          type {
+            enum_type {
+              target_enum_ir_id: 4
+            }
+          }
+        }
+      }
+      enums {
+        ir_id: 4
+        name: "Mode"
+        fqn: "breadcrumbs.geo.Mode"
+        values {
+          name: "inactive"
+        }
+        values {
+          name: "active"
+          value: 1
+        }
+      }
+    }
+  }
+}

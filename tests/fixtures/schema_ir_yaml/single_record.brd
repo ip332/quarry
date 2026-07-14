@@ -1,0 +1,7 @@
+namespace: breadcrumbs.single
+record: Example
+version: 1
+type: command
+fields:
+  count:
+    type: u32

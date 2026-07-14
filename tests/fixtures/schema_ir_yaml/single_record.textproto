@@ -1,0 +1,28 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  namespaces {
+    ir_id: 2
+    name: "breadcrumbs"
+    fqn: "breadcrumbs"
+    namespaces {
+      ir_id: 3
+      name: "single"
+      fqn: "breadcrumbs.single"
+      records {
+        ir_id: 4
+        record_id: 1
+        schema_version: 1
+        record_type: RECORD_TYPE_COMMAND
+        name: "Example"
+        fqn: "breadcrumbs.single.Example"
+        fields {
+          name: "count"
+          type {
+            primitive: PRIMITIVE_TYPE_U32
+          }
+        }
+      }
+    }
+  }
+}

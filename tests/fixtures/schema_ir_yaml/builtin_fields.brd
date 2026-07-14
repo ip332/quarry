@@ -1,0 +1,15 @@
+namespace: breadcrumbs.example
+record: Example
+version: 1
+type: data
+fields:
+  active:
+    type: bool
+  count:
+    type: u32
+  label:
+    type: string
+    max_bytes: 16
+  blob:
+    type: bytes
+    max_bytes: 4
