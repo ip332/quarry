@@ -85,13 +85,14 @@ class ParserImpl {
 public:
     ParserImpl(const support::SourceManager& source_manager, support::SourceFileId source_file_id,
                diagnostics::DiagnosticEngine& diagnostics)
-        : diagnostics_(diagnostics) {
+        : diagnostics_(diagnostics), source_file_id_(source_file_id) {
         Lexer lexer(source_manager, source_file_id, diagnostics_);
         tokens_ = lexer.lex_all();
     }
 
     [[nodiscard]] ParseResult parse() {
         ParseResult result;
+        result.source_file_id = source_file_id_;
         result.ast.declarations = parse_declarations();
         result.ast.source_range = compute_schema_file_range();
         return result;
@@ -622,6 +623,7 @@ private:
     }
 
     diagnostics::DiagnosticEngine& diagnostics_;
+    support::SourceFileId source_file_id_;
     std::vector<Token> tokens_;
     std::size_t current_ = 0;
 };

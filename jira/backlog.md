@@ -1,1 +1,1 @@
-- PR-037: Define the declaration-syntax source-loading and document-identity boundary, keep source loading caller-owned through SourceManager, and document the current AST-grouping import resolver stub without adding import-graph traversal yet
+- PR-038: Establish the first production boundary for parsed declaration-syntax documents by adding explicit manager-local source identity to Parser::ParseResult and pinning the current parser/source-manager contract without adding import resolution or filesystem loading

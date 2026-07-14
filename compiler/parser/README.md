@@ -60,8 +60,8 @@ Current implementation status:
   YAML contract uses native typed field properties
 * each parser invocation consumes exactly one `SourceFileId` registered in a
   caller-owned `SourceManager`
-* parser output is an AST plus source ranges, not a durable document-identity
-  wrapper
+* parser output is a `ParseResult` containing the parsed AST together with the
+  manager-local `SourceFileId` for the source that was parsed
 * the parser does not load files or resolve import names to paths
 
 ## Source Ranges

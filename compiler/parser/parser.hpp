@@ -7,6 +7,7 @@
 namespace breadcrumbs::compiler::parser {
 
 struct ParseResult {
+    support::SourceFileId source_file_id;
     ast::Ast ast;
 };
 

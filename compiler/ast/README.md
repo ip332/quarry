@@ -12,6 +12,8 @@ accidental aliasing or mutation through multiple owners.
 
 The AST does not own source buffers. Source text and source paths are owned by
 `SourceManager`.
+Parser results carry the manager-local `SourceFileId` for the parsed source,
+but the AST itself remains independent of source-manager lifetime.
 
 ## Syntax Only
 

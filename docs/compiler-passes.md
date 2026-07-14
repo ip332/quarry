@@ -103,6 +103,7 @@ types, build namespaces, compute layout, or assign compiler-managed identifiers.
 ### Output Representation
 
 * AST
+* manager-local parsed-source identity
 
 ### Consumes / Produces / Required by
 
@@ -128,6 +129,7 @@ The parser does not assume that the source is syntactically valid.
 * perform lexical analysis
 * parse tokens into AST nodes
 * attach source locations to AST nodes
+* preserve the parsed source file id alongside the AST result
 * ignore comments for semantic purposes
 * preserve source structure needed by later diagnostics
 * avoid semantic validation
@@ -136,6 +138,7 @@ The parser does not assume that the source is syntactically valid.
 
 * every emitted AST is syntactically valid
 * every AST node has source location metadata where practical
+* the parse result retains the parsed source file id
 * syntax-level import declarations remain represented in the AST
 * comments do not affect compiler semantics
 * no semantic names or type references are resolved

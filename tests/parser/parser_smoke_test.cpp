@@ -35,6 +35,7 @@ using breadcrumbs::compiler::support::SourceRange;
 class ParserTest : public testing::Test {
 protected:
     struct ParseOutput {
+        breadcrumbs::compiler::parser::ParseResult parse_result;
         SchemaFileSyntax ast;
         DiagnosticEngine diagnostics;
         SourceManager source_manager;
@@ -46,9 +47,9 @@ protected:
         output.source_file_id =
             output.source_manager.add_source("/test/schema.bc", std::move(text));
 
-        auto result =
+        output.parse_result =
             Parser::parse(output.source_manager, output.source_file_id, output.diagnostics);
-        output.ast = std::move(result.ast);
+        output.ast = std::move(output.parse_result.ast);
         return output;
     }
 };
@@ -77,8 +78,19 @@ TEST_F(ParserTest, ParsesEmptyFile) {
     const ParseOutput output = parse("");
 
     EXPECT_TRUE(output.diagnostics.empty());
+    EXPECT_EQ(output.parse_result.source_file_id, output.source_file_id);
     EXPECT_TRUE(output.ast.declarations.empty());
     EXPECT_EQ(output.ast.source_range, range(output.source_file_id, 0, 0));
+}
+
+TEST_F(ParserTest, PreservesSourceIdentityAcrossParseResultMoves) {
+    ParseOutput output = parse("record Sample {\n}\n");
+
+    ASSERT_TRUE(output.diagnostics.empty());
+    EXPECT_EQ(output.parse_result.source_file_id, output.source_file_id);
+
+    const auto moved_result = std::move(output.parse_result);
+    EXPECT_EQ(moved_result.source_file_id, output.source_file_id);
 }
 
 TEST_F(ParserTest, ParsesMultipleSourcesThroughOneSourceManagerAndPreservesFileIds) {
@@ -96,6 +108,8 @@ TEST_F(ParserTest, ParsesMultipleSourcesThroughOneSourceManagerAndPreservesFileI
     ASSERT_TRUE(diagnostics.empty());
     ASSERT_EQ(first_result.ast.declarations.size(), 1U);
     ASSERT_EQ(second_result.ast.declarations.size(), 1U);
+    EXPECT_EQ(first_result.source_file_id, first_file);
+    EXPECT_EQ(second_result.source_file_id, second_file);
 
     const auto& first_record = as_record(*first_result.ast.declarations[0]);
     const auto& second_record = as_record(*second_result.ast.declarations[0]);
@@ -189,6 +203,7 @@ record Sample {
     EXPECT_EQ(output.diagnostics.diagnostics()[0].compiler_pass(), "parser");
     EXPECT_EQ(output.diagnostics.diagnostics()[0].message(),
               "annotations are not supported on import declarations");
+    EXPECT_EQ(output.parse_result.source_file_id, output.source_file_id);
 
     ASSERT_EQ(output.ast.declarations.size(), 2U);
     const auto& import = as_import(*output.ast.declarations[0]);
@@ -204,6 +219,7 @@ TEST_F(ParserTest, PreservesSourceRangesOnDeclarationsAndTypes) {
 )");
 
     ASSERT_TRUE(output.diagnostics.empty());
+    EXPECT_EQ(output.parse_result.source_file_id, output.source_file_id);
     ASSERT_EQ(output.ast.declarations.size(), 1U);
 
     const auto& record = as_record(*output.ast.declarations[0]);
