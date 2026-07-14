@@ -4,9 +4,9 @@ Owns the compiler's namespace hierarchy and symbol tables.
 
 ## Responsibilities
 
-The symbols layer collects named declarations from either the legacy parsed
-AST or the normalized source-schema model and builds a tree of lexical scopes.
-It is the groundwork for later name resolution and semantic analysis.
+The symbols layer collects named declarations from the normalized
+source-schema model and builds a tree of lexical scopes. It is the groundwork
+for later name resolution and semantic analysis.
 
 It:
 
@@ -25,25 +25,18 @@ scopes, but they no longer retain AST declaration pointers.
 
 Scopes own symbol records and nested child scopes.
 
-`NamespaceBuilder::build` can consume the parsed AST or the normalized
-source-schema model and constructs the same scope tree from either input.
-The AST overload is legacy compatibility API retained for transitional callers
-and symbols-layer smoke coverage; the supported production path is the
-normalized source-schema overload. PR-047 reassessed the parser/AST
-compatibility tests and found they are parser/AST-only: the tests that still
-invoke AST symbol construction are symbols coverage, not parser compatibility
-blockers. This means the AST overload can be removed in the follow-up API
-retirement once that symbols coverage is either migrated to normalized
-source-schema fixtures or deleted with the legacy AST path.
-Schema IR no longer consumes `SymbolTable` directly; the normalized
-source-schema path feeds Schema IR construction without a symbol-table input.
+`NamespaceBuilder::build` consumes the normalized source-schema model. The
+legacy AST overload was removed in PR-049 after the remaining AST-derived
+symbols tests were migrated or retired. Schema IR no longer consumes
+`SymbolTable` directly; the normalized source-schema path feeds Schema IR
+construction without a symbol-table input.
 
 ## Name Model
 
-The AST's `QualifiedNameSyntax` and the normalized source-schema qualified name
-both feed the same canonical lookup rules. The symbols layer does not build an
-alternate fully qualified name hierarchy or concatenate names into a separate
-identity string beyond the stored canonical FQN on each symbol.
+The normalized source-schema qualified name feeds the canonical lookup rules.
+The symbols layer does not build an alternate fully qualified name hierarchy
+or concatenate names into a separate identity string beyond the stored
+canonical FQN on each symbol.
 
 Unqualified lookup walks the current scope and enclosing scopes. Qualified
 lookup resolves the first component with unqualified lookup and then walks
@@ -63,7 +56,6 @@ the previous declaration as related source context.
 
 Allowed dependencies:
 
-* `compiler/ast`
 * `compiler/source_schema`
 * `compiler/diagnostics`
 * `compiler/support`

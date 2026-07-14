@@ -1,3 +1,4 @@
-- PR-046: Retain the AST-facing NamespaceBuilder and SemanticValidator overloads temporarily, with explicit retirement prerequisites tied to the remaining parser/AST compatibility tests and no change to the production YAML frontend
-- PR-047: Reassess the remaining parser/AST compatibility tests; parser/AST compatibility is now parser/AST-only and no longer requires symbols or semantic validation
-- PR-048: Retire the legacy AST-facing NamespaceBuilder and SemanticValidator overloads, their AST-only implementations, and resulting AST dependencies from symbols and semantic
+- PR-046: Document the temporary AST-facing NamespaceBuilder and SemanticValidator overloads while preserving the production YAML frontend
+- PR-047: Reassess parser/AST compatibility tests; parser/AST compatibility is parser/AST-only and does not require symbols or semantic validation
+- PR-048: Reassess AST-derived symbols and semantic tests; classify them as temporary transition coverage, not production or long-term compatibility contracts
+- PR-049: Retire the legacy AST-facing symbols and semantic compatibility path after migrating representation-neutral diagnostics and retiring unsupported AST-only behavior

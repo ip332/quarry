@@ -62,9 +62,7 @@ Current implementation status:
   directly from the normalized source-schema model without a compatibility AST
   projection
 * Schema IR construction no longer consumes AST input
-* remaining parser/AST compatibility coverage is parser/AST-only; tests that
-  still exercise symbol construction or semantic validation are coverage for
-  those layers' legacy AST overloads, not parser compatibility blockers
+* remaining parser/AST compatibility coverage is parser/AST-only
 * later compiler stages carry the validated record metadata and bounded-array
   metadata through the Semantic and Schema IR models
 
@@ -81,11 +79,7 @@ import-resolver pass or document-graph boundary in the current repository. The
 remaining parser/AST compatibility tests inspect AST shape, source identity,
 source ranges, parser diagnostics, annotations, and temporary declaration
 syntax recovery without invoking symbols or semantic validation. The namespace
-builder can still consume either ASTs or the normalized source-schema model to
-build symbol information, and the semantic validator likewise still consumes
-either the legacy AST path or the normalized source-schema model together with
-symbol information. Those AST-facing overloads are legacy coverage in the
-symbols and semantic layers rather than parser compatibility requirements. The
+builder and semantic validator consume the normalized source-schema model. The
 production YAML path no longer routes through a compatibility AST after
 source-schema normalization, and Schema IR construction is driven by the
 normalized source-schema model rather than AST input. The AST-specific

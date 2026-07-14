@@ -75,8 +75,8 @@ The `compiler/frontend` orchestration layer now exposes a production-facing
 import-free YAML compilation path through validated Schema IR. That layer now
 builds symbols, semantic state, and Schema IR directly from the normalized
 source-schema model. AST remains in use only for the independent legacy
-declaration-syntax pipeline. The legacy declaration parser remains available
-during the migration.
+declaration-syntax parser and AST tests. The legacy declaration parser remains
+available during the migration.
 
 Source loading remains outside the compiler passes. Callers register source
 text with `SourceManager`, receive a `SourceFileId`, and parse exactly one
@@ -182,14 +182,13 @@ or builds a document graph.
 
 ### Purpose
 
-The namespace builder converts the parsed AST or the normalized source-schema
-document into the Symbol Model.
+The namespace builder converts the normalized source-schema document into the
+Symbol Model.
 
 This pass establishes logical declaration identity using fully qualified names.
 
 ### Input Representation
 
-* AST
 * normalized source-schema document
 
 ### Output Representation
@@ -255,8 +254,8 @@ and conflicting declarations before resolving references between declarations.
 ### Purpose
 
 The semantic validator checks that the schema is meaningful according to the
-Breadcrumbs schema language and converts either the legacy AST path or the
-normalized source-schema model into the Semantic Model.
+Breadcrumbs schema language and converts the normalized source-schema model
+into the Semantic Model.
 
 ### Input Representation
 

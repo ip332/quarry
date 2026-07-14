@@ -9,8 +9,8 @@ The compiler architecture should:
 
 * preserve source-level import declarations on the legacy AST path as
   compatibility syntax only
-* support a normative YAML source frontend during migration to the legacy
-  declaration-syntax compiler pipeline
+* support a normative YAML source frontend while the legacy declaration parser
+  remains parser/AST compatibility infrastructure
 * validate schema semantics before layout computation
 * compute deterministic binary layout metadata
 * preserve compiler-managed identifiers such as `recordId` and `fieldIndex`

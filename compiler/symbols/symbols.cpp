@@ -4,7 +4,6 @@
 #include <cassert>
 #include <optional>
 #include <sstream>
-#include <type_traits>
 #include <utility>
 
 namespace breadcrumbs::compiler::symbols {
@@ -28,10 +27,6 @@ constexpr std::string_view symbol_pass = "symbols";
         return "enum";
     }
     return "symbol";
-}
-
-[[nodiscard]] std::string qualified_name_text(const ast::QualifiedNameSyntax& name) {
-    return name.text();
 }
 
 [[nodiscard]] std::string scope_fqn(const Scope& scope) {
@@ -67,10 +62,10 @@ void emit_duplicate(diagnostics::DiagnosticEngine& diagnostics, SymbolKind kind,
 }
 
 void emit_unresolved(diagnostics::DiagnosticEngine& diagnostics,
-                     const ast::QualifiedNameSyntax& name) {
+                     const source_schema::SourceSchemaQualifiedName& name) {
     diagnostics.emit(
         diagnostics::Diagnostic::create(diagnostic_id("BC4002"), diagnostics::Severity::Error,
-                                        "unresolved name '" + qualified_name_text(name) + "'")
+                                        "unresolved name '" + name.text() + "'")
             .at(name.source_range)
             .from_pass(std::string(symbol_pass))
             .build());
@@ -154,38 +149,6 @@ const Symbol* SymbolTable::resolve_unqualified(std::string_view name, const Scop
     return scope.find_enclosing(name);
 }
 
-const Symbol* SymbolTable::resolve_qualified(const ast::QualifiedNameSyntax& name,
-                                             const Scope& scope) const {
-    if (name.parts.empty()) {
-        return nullptr;
-    }
-
-    const Symbol* symbol = resolve_unqualified(name.parts.front().text, scope);
-    if (symbol == nullptr) {
-        return nullptr;
-    }
-
-    for (std::size_t index = 1; index < name.parts.size(); ++index) {
-        if (!is_namespace_symbol(symbol)) {
-            return nullptr;
-        }
-
-        symbol = symbol->child_scope->find_local(name.parts[index].text);
-        if (symbol == nullptr) {
-            return nullptr;
-        }
-    }
-
-    return symbol;
-}
-
-const Symbol* SymbolTable::resolve(const ast::QualifiedNameSyntax& name, const Scope& scope) const {
-    if (name.parts.size() == 1) {
-        return resolve_unqualified(name.parts.front().text, scope);
-    }
-    return resolve_qualified(name, scope);
-}
-
 const Symbol* SymbolTable::resolve_qualified(const source_schema::SourceSchemaQualifiedName& name,
                                              const Scope& scope) const {
     if (name.parts.empty()) {
@@ -219,24 +182,6 @@ const Symbol* SymbolTable::resolve(const source_schema::SourceSchemaQualifiedNam
     return resolve_qualified(name, scope);
 }
 
-const Symbol* SymbolTable::resolve_or_diagnostic(const ast::QualifiedNameSyntax& name,
-                                                 const Scope& scope,
-                                                 diagnostics::DiagnosticEngine& diagnostics) const {
-    const Symbol* symbol = resolve(name, scope);
-    if (symbol != nullptr) {
-        return symbol;
-    }
-
-    emit_unresolved(diagnostics, name);
-    return nullptr;
-}
-
-const Symbol* SymbolTable::lookup_or_diagnostic(const ast::QualifiedNameSyntax& name,
-                                                const Scope& scope,
-                                                diagnostics::DiagnosticEngine& diagnostics) const {
-    return resolve_or_diagnostic(name, scope, diagnostics);
-}
-
 const Symbol*
 SymbolTable::resolve_or_diagnostic(const source_schema::SourceSchemaQualifiedName& name,
                                    const Scope& scope,
@@ -246,16 +191,7 @@ SymbolTable::resolve_or_diagnostic(const source_schema::SourceSchemaQualifiedNam
         return symbol;
     }
 
-    ast::QualifiedNameSyntax qualified_name;
-    qualified_name.source_range = name.source_range;
-    qualified_name.parts.reserve(name.parts.size());
-    for (const source_schema::SourceSchemaIdentifier& part : name.parts) {
-        qualified_name.parts.push_back(ast::IdentifierSyntax{
-            .source_range = part.source_range,
-            .text = part.text,
-        });
-    }
-    emit_unresolved(diagnostics, qualified_name);
+    emit_unresolved(diagnostics, name);
     return nullptr;
 }
 
@@ -266,53 +202,11 @@ SymbolTable::lookup_or_diagnostic(const source_schema::SourceSchemaQualifiedName
     return resolve_or_diagnostic(name, scope, diagnostics);
 }
 
-SymbolTable NamespaceBuilder::build(const ast::Ast& ast,
-                                    diagnostics::DiagnosticEngine& diagnostics) const {
-    SymbolTable model;
-    collect_schema_file(ast, model.global_scope(), diagnostics);
-    return model;
-}
-
 SymbolTable NamespaceBuilder::build(const source_schema::NormalizedSourceSchemaDocument& schema,
                                     diagnostics::DiagnosticEngine& diagnostics) const {
     SymbolTable model;
     collect_source_schema(schema, model.global_scope(), diagnostics);
     return model;
-}
-
-void NamespaceBuilder::collect_schema_file(const ast::SchemaFileSyntax& schema_file, Scope& scope,
-                                           diagnostics::DiagnosticEngine& diagnostics) const {
-    for (const ast::DeclarationPtr& declaration : schema_file.declarations) {
-        if (declaration != nullptr) {
-            collect_declaration(*declaration, scope, diagnostics);
-        }
-    }
-}
-
-void NamespaceBuilder::collect_declaration(const ast::DeclarationSyntax& declaration, Scope& scope,
-                                           diagnostics::DiagnosticEngine& diagnostics) const {
-    std::visit(
-        [&](const auto& typed) {
-            using Type = std::decay_t<decltype(typed)>;
-            if constexpr (std::is_same_v<Type, ast::NamespaceDeclarationSyntax>) {
-                Scope& namespace_scope =
-                    ensure_namespace_path(scope, typed.name, typed.source_range, diagnostics);
-                for (const ast::DeclarationPtr& nested : typed.declarations) {
-                    if (nested != nullptr) {
-                        collect_declaration(*nested, namespace_scope, diagnostics);
-                    }
-                }
-            } else if constexpr (std::is_same_v<Type, ast::RecordDeclarationSyntax>) {
-                register_named_declaration(scope, SymbolKind::Record, typed.name.text,
-                                           typed.source_range, diagnostics);
-            } else if constexpr (std::is_same_v<Type, ast::EnumDeclarationSyntax>) {
-                register_named_declaration(scope, SymbolKind::Enum, typed.name.text,
-                                           typed.source_range, diagnostics);
-            } else if constexpr (std::is_same_v<Type, ast::ImportDeclarationSyntax>) {
-                (void)typed;
-            }
-        },
-        declaration.value);
 }
 
 void NamespaceBuilder::collect_source_schema(
@@ -329,54 +223,6 @@ void NamespaceBuilder::collect_source_schema(
 
     register_named_declaration(namespace_scope, SymbolKind::Record, schema.record_name,
                                schema.record_source_range, diagnostics);
-}
-
-Scope& NamespaceBuilder::ensure_namespace_path(Scope& scope,
-                                               const ast::QualifiedNameSyntax& declaration,
-                                               support::SourceRange declaration_range,
-                                               diagnostics::DiagnosticEngine& diagnostics) const {
-    Scope* current_scope = &scope;
-
-    for (std::size_t index = 0; index < declaration.parts.size(); ++index) {
-        const ast::IdentifierSyntax& part = declaration.parts[index];
-        const bool is_last = index + 1 == declaration.parts.size();
-        const Symbol* existing = current_scope->find_local(part.text);
-
-        if (existing == nullptr) {
-            const std::string namespace_fqn = current_scope->kind() == ScopeKind::Global
-                                                  ? std::string()
-                                                  : scope_fqn(*current_scope);
-            const std::string part_fqn = namespace_fqn.empty()
-                                             ? std::string(part.text)
-                                             : namespace_fqn + "." + std::string(part.text);
-            Symbol& symbol = current_scope->add_symbol(Symbol{
-                .kind = SymbolKind::Namespace,
-                .name = part.text,
-                .fqn = part_fqn,
-                .source_range = declaration_range,
-                .child_scope = nullptr,
-            });
-            Scope& child_scope = current_scope->add_child_scope(part.text);
-            symbol.child_scope = &child_scope;
-            current_scope = &child_scope;
-            continue;
-        }
-
-        if (!is_namespace_symbol(existing)) {
-            emit_duplicate(diagnostics, SymbolKind::Namespace, part.text, declaration_range,
-                           existing->source_range);
-            return *current_scope;
-        }
-
-        if (is_last) {
-            emit_duplicate(diagnostics, SymbolKind::Namespace, part.text, declaration_range,
-                           existing->source_range);
-        }
-
-        current_scope = const_cast<Scope*>(existing->child_scope);
-    }
-
-    return *current_scope;
 }
 
 Scope& NamespaceBuilder::ensure_namespace_path(
@@ -427,28 +273,22 @@ Scope& NamespaceBuilder::ensure_namespace_path(
 }
 
 void NamespaceBuilder::register_named_declaration(
-    Scope& scope, SymbolKind kind, const std::string& name, support::SourceRange declaration_range,
-    diagnostics::DiagnosticEngine& diagnostics) const {
-    const Symbol* existing = scope.find_local(name);
+    Scope& scope, SymbolKind kind, const source_schema::SourceSchemaIdentifier& name,
+    support::SourceRange declaration_range, diagnostics::DiagnosticEngine& diagnostics) const {
+    const Symbol* existing = scope.find_local(name.text);
     if (existing != nullptr) {
-        emit_duplicate(diagnostics, kind, name, declaration_range, existing->source_range);
+        emit_duplicate(diagnostics, kind, name.text, declaration_range, existing->source_range);
         return;
     }
 
     const std::string scope_name = scope_fqn(scope);
     (void)scope.add_symbol(Symbol{
         .kind = kind,
-        .name = name,
-        .fqn = scope_name.empty() ? name : scope_name + "." + name,
+        .name = name.text,
+        .fqn = scope_name.empty() ? name.text : scope_name + "." + name.text,
         .source_range = declaration_range,
         .child_scope = nullptr,
     });
-}
-
-void NamespaceBuilder::register_named_declaration(
-    Scope& scope, SymbolKind kind, const source_schema::SourceSchemaIdentifier& name,
-    support::SourceRange declaration_range, diagnostics::DiagnosticEngine& diagnostics) const {
-    register_named_declaration(scope, kind, name.text, declaration_range, diagnostics);
 }
 
 } // namespace breadcrumbs::compiler::symbols

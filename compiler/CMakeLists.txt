@@ -100,7 +100,6 @@ add_library(breadcrumbs_compiler_symbols
 target_include_directories(breadcrumbs_compiler_symbols PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(breadcrumbs_compiler_symbols
     PUBLIC
-        breadcrumbs_compiler_ast
         breadcrumbs_compiler_diagnostics
         breadcrumbs_compiler_source_schema
         breadcrumbs_compiler_support
@@ -113,7 +112,6 @@ add_library(breadcrumbs_compiler_semantic
 target_include_directories(breadcrumbs_compiler_semantic PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
 target_link_libraries(breadcrumbs_compiler_semantic
     PUBLIC
-        breadcrumbs_compiler_ast
         breadcrumbs_compiler_symbols
         breadcrumbs_compiler_diagnostics
         breadcrumbs_compiler_source_schema

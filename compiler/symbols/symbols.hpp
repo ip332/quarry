@@ -2,7 +2,6 @@
 
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/source_schema/source_schema.hpp"
-#include "compiler/ast/ast.hpp"
 #include "compiler/support/source_location.hpp"
 
 #include <deque>
@@ -73,18 +72,11 @@ public:
 
     [[nodiscard]] const Symbol* resolve_unqualified(std::string_view name,
                                                     const Scope& scope) const;
-    [[nodiscard]] const Symbol* resolve_qualified(const ast::QualifiedNameSyntax& name,
-                                                  const Scope& scope) const;
-    [[nodiscard]] const Symbol* resolve(const ast::QualifiedNameSyntax& name,
-                                        const Scope& scope) const;
     [[nodiscard]] const Symbol*
     resolve_qualified(const source_schema::SourceSchemaQualifiedName& name,
                       const Scope& scope) const;
     [[nodiscard]] const Symbol* resolve(const source_schema::SourceSchemaQualifiedName& name,
                                         const Scope& scope) const;
-    [[nodiscard]] const Symbol*
-    resolve_or_diagnostic(const ast::QualifiedNameSyntax& name, const Scope& scope,
-                          diagnostics::DiagnosticEngine& diagnostics) const;
     [[nodiscard]] const Symbol*
     resolve_or_diagnostic(const source_schema::SourceSchemaQualifiedName& name,
                           const Scope& scope, diagnostics::DiagnosticEngine& diagnostics) const;
@@ -93,21 +85,10 @@ public:
                                                    const Scope& scope) const {
         return resolve_unqualified(name, scope);
     }
-    [[nodiscard]] const Symbol* lookup_qualified(const ast::QualifiedNameSyntax& name,
-                                                 const Scope& scope) const {
-        return resolve_qualified(name, scope);
-    }
-    [[nodiscard]] const Symbol* lookup(const ast::QualifiedNameSyntax& name,
-                                       const Scope& scope) const {
-        return resolve(name, scope);
-    }
     [[nodiscard]] const Symbol*
     lookup(const source_schema::SourceSchemaQualifiedName& name, const Scope& scope) const {
         return resolve(name, scope);
     }
-    [[nodiscard]] const Symbol*
-    lookup_or_diagnostic(const ast::QualifiedNameSyntax& name, const Scope& scope,
-                         diagnostics::DiagnosticEngine& diagnostics) const;
     [[nodiscard]] const Symbol*
     lookup_or_diagnostic(const source_schema::SourceSchemaQualifiedName& name,
                          const Scope& scope, diagnostics::DiagnosticEngine& diagnostics) const;
@@ -118,23 +99,11 @@ private:
 
 class NamespaceBuilder {
 public:
-    [[nodiscard]] SymbolTable build(const ast::Ast& ast,
-                                    diagnostics::DiagnosticEngine& diagnostics) const;
     [[nodiscard]] SymbolTable
     build(const source_schema::NormalizedSourceSchemaDocument& schema,
           diagnostics::DiagnosticEngine& diagnostics) const;
 
 private:
-    void collect_schema_file(const ast::SchemaFileSyntax& schema_file, Scope& scope,
-                             diagnostics::DiagnosticEngine& diagnostics) const;
-    void collect_declaration(const ast::DeclarationSyntax& declaration, Scope& scope,
-                             diagnostics::DiagnosticEngine& diagnostics) const;
-    Scope& ensure_namespace_path(Scope& scope, const ast::QualifiedNameSyntax& name,
-                                 support::SourceRange declaration_range,
-                                 diagnostics::DiagnosticEngine& diagnostics) const;
-    void register_named_declaration(Scope& scope, SymbolKind kind, const std::string& name,
-                                    support::SourceRange declaration_range,
-                                    diagnostics::DiagnosticEngine& diagnostics) const;
     void collect_source_schema(const source_schema::NormalizedSourceSchemaDocument& schema,
                                Scope& scope, diagnostics::DiagnosticEngine& diagnostics) const;
     Scope& ensure_namespace_path(Scope& scope, const source_schema::SourceSchemaQualifiedName& name,

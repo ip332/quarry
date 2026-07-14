@@ -1,6 +1,5 @@
 #pragma once
 
-#include "compiler/ast/ast.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/source_schema/source_schema.hpp"
 #include "compiler/support/source_location.hpp"
@@ -117,9 +116,6 @@ struct SemanticModel {
 
 class SemanticValidator {
 public:
-    [[nodiscard]] SemanticModel validate(const ast::Ast& ast,
-                                         const symbols::SymbolTable& symbol_model,
-                                         diagnostics::DiagnosticEngine& diagnostics) const;
     [[nodiscard]] SemanticModel
     validate(const source_schema::NormalizedSourceSchemaDocument& schema,
              const symbols::SymbolTable& symbol_model,

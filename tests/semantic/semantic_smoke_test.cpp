@@ -1,14 +1,10 @@
-#include "compiler/ast/ast.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
-#include "compiler/parser/parser.hpp"
 #include "compiler/semantic/semantic.hpp"
 #include "compiler/source_schema/source_schema.hpp"
-#include "compiler/support/source_manager.hpp"
 #include "compiler/symbols/symbols.hpp"
 
 #include <algorithm>
 #include <array>
-#include <functional>
 #include <limits>
 #include <memory>
 #include <sstream>
@@ -21,9 +17,7 @@
 
 namespace {
 
-using breadcrumbs::compiler::ast::SchemaFileSyntax;
 using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
-using breadcrumbs::compiler::parser::Parser;
 using breadcrumbs::compiler::semantic::SemanticArrayType;
 using breadcrumbs::compiler::semantic::SemanticField;
 using breadcrumbs::compiler::semantic::SemanticModel;
@@ -33,53 +27,15 @@ using breadcrumbs::compiler::semantic::SemanticRecordType;
 using breadcrumbs::compiler::semantic::SemanticType;
 using breadcrumbs::compiler::semantic::SemanticValidator;
 using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaDocument;
+using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaEnum;
 using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaField;
 using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaType;
 using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaTypeReference;
 using breadcrumbs::compiler::source_schema::SourceSchemaIdentifier;
 using breadcrumbs::compiler::source_schema::SourceSchemaQualifiedName;
 using breadcrumbs::compiler::support::SourceFileId;
-using breadcrumbs::compiler::support::SourceManager;
 using breadcrumbs::compiler::symbols::NamespaceBuilder;
 using breadcrumbs::compiler::symbols::SymbolTable;
-
-struct AnalysisOutput {
-    SchemaFileSyntax ast;
-    SourceManager source_manager;
-    SourceFileId source_file_id;
-    DiagnosticEngine parser_diagnostics;
-    DiagnosticEngine symbol_diagnostics;
-    DiagnosticEngine semantic_diagnostics;
-    std::unique_ptr<SymbolTable> symbol_table;
-    SemanticModel semantic_model;
-};
-
-[[nodiscard]] AnalysisOutput analyze(std::string text,
-                                     const std::function<void(SchemaFileSyntax&)>& ast_mutator);
-
-[[nodiscard]] AnalysisOutput analyze(std::string text) { return analyze(std::move(text), {}); }
-
-[[nodiscard]] AnalysisOutput analyze(std::string text,
-                                     const std::function<void(SchemaFileSyntax&)>& ast_mutator) {
-    AnalysisOutput output;
-    output.source_file_id = output.source_manager.add_source("/test/schema.brd", std::move(text));
-
-    auto parse_result =
-        Parser::parse(output.source_manager, output.source_file_id, output.parser_diagnostics);
-    output.ast = std::move(parse_result.ast);
-    if (ast_mutator) {
-        ast_mutator(output.ast);
-    }
-
-    NamespaceBuilder namespace_builder;
-    output.symbol_table = std::make_unique<SymbolTable>(
-        namespace_builder.build(output.ast, output.symbol_diagnostics));
-
-    SemanticValidator validator;
-    output.semantic_model =
-        validator.validate(output.ast, *output.symbol_table, output.semantic_diagnostics);
-    return output;
-}
 
 struct NormalizedAnalysisOutput {
     DiagnosticEngine symbol_diagnostics;
@@ -175,6 +131,18 @@ struct NormalizedAnalysisOutput {
     return schema;
 }
 
+[[nodiscard]] NormalizedSourceSchemaEnum normalized_enum(std::string name, std::size_t begin,
+                                                         std::size_t end) {
+    return NormalizedSourceSchemaEnum{
+        .name = normalized_identifier(std::move(name), begin, end),
+        .source_range = breadcrumbs::compiler::support::SourceRange(
+            breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), begin),
+            breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), end)),
+        .values = {},
+        .annotations = {},
+    };
+}
+
 [[nodiscard]] NormalizedAnalysisOutput analyze_normalized(
     const NormalizedSourceSchemaDocument& schema) {
     NormalizedAnalysisOutput output;
@@ -186,10 +154,6 @@ struct NormalizedAnalysisOutput {
     output.semantic_model =
         validator.validate(schema, *output.symbol_table, output.semantic_diagnostics);
     return output;
-}
-
-[[nodiscard]] bool expect_clean_pipeline(const AnalysisOutput& output) {
-    return output.parser_diagnostics.empty() && output.symbol_diagnostics.empty();
 }
 
 [[nodiscard]] std::string diagnostics_summary(const DiagnosticEngine& diagnostics) {
@@ -382,29 +346,6 @@ TEST(SemanticSmokeTest, PreservesRecordMetadataAndBoundedFieldTypes) {
     EXPECT_EQ(record->fields[3].type.array().max_elements, 64U);
 }
 
-TEST(SemanticSmokeTest, RecognizesVersionWithoutAValidSourceRange) {
-    const AnalysisOutput output = analyze(
-        R"(record Example {
-  active: bool
-}
-)",
-        [](SchemaFileSyntax& ast) {
-            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                ast.declarations[0]->value);
-            record.version = 7;
-            record.version_source_range = breadcrumbs::compiler::support::SourceRange::invalid();
-        });
-
-    ASSERT_TRUE(expect_clean_pipeline(output));
-    ASSERT_TRUE(output.semantic_diagnostics.empty())
-        << diagnostics_summary(output.semantic_diagnostics);
-    const SemanticRecord* record = find_record(output.semantic_model, "Example");
-    ASSERT_NE(record, nullptr);
-    ASSERT_TRUE(record->version.has_value());
-    EXPECT_EQ(*record->version, 7U);
-    EXPECT_FALSE(record->record_type.has_value());
-}
-
 TEST(SemanticSmokeTest, RejectsZeroVersionWithAValidSourceRange) {
     auto schema = normalized_schema("breadcrumbs.geo", "Example");
     schema.version = 0;
@@ -487,30 +428,6 @@ TEST(SemanticSmokeTest, RejectsInvalidLogicalRecordTypeWithoutAValidSourceRange)
     EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5005");
     const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
     ASSERT_NE(record, nullptr);
-    EXPECT_FALSE(record->record_type.has_value());
-}
-
-TEST(SemanticSmokeTest, PreservesLegacyAbsentVersionAndRecordTypeWithoutDiagnostics) {
-    const AnalysisOutput output = analyze(
-        R"(record Example {
-  active: bool
-}
-)",
-        [](SchemaFileSyntax& ast) {
-            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                ast.declarations[0]->value);
-            record.version = 0;
-            record.version_source_range = breadcrumbs::compiler::support::SourceRange::invalid();
-            record.record_type_spelling.clear();
-            record.record_type_source_range = breadcrumbs::compiler::support::SourceRange::invalid();
-        });
-
-    ASSERT_TRUE(expect_clean_pipeline(output));
-    ASSERT_TRUE(output.semantic_diagnostics.empty())
-        << diagnostics_summary(output.semantic_diagnostics);
-    const SemanticRecord* record = find_record(output.semantic_model, "Example");
-    ASSERT_NE(record, nullptr);
-    EXPECT_FALSE(record->version.has_value());
     EXPECT_FALSE(record->record_type.has_value());
 }
 
@@ -678,65 +595,6 @@ TEST(SemanticSmokeTest, ReportsInvalidMaxElementsOnNonArrayFields) {
     EXPECT_TRUE(record->fields.empty());
 }
 
-TEST(SemanticSmokeTest, PreservesRecordAndFieldDeclarationOrder) {
-    const AnalysisOutput output = analyze(R"(record Beta {
-  second: u32
-  first: bool
-}
-
-record Alpha {
-  left: bool
-  right: bool
-}
-)");
-
-    ASSERT_TRUE(expect_clean_pipeline(output));
-    ASSERT_EQ(output.semantic_model.records.size(), 2U);
-    EXPECT_EQ(output.semantic_model.records[0].fqn, "Beta");
-    EXPECT_EQ(output.semantic_model.records[1].fqn, "Alpha");
-    ASSERT_EQ(output.semantic_model.records[0].fields.size(), 2U);
-    EXPECT_EQ(output.semantic_model.records[0].fields[0].name, "second");
-    EXPECT_EQ(output.semantic_model.records[0].fields[1].name, "first");
-    ASSERT_EQ(output.semantic_model.records[1].fields.size(), 2U);
-    EXPECT_EQ(output.semantic_model.records[1].fields[0].name, "left");
-    EXPECT_EQ(output.semantic_model.records[1].fields[1].name, "right");
-}
-
-TEST(SemanticSmokeTest, CollectsEmptyFileIntoEmptySymbolTable) {
-    const AnalysisOutput output = analyze("");
-
-    ASSERT_TRUE(expect_clean_pipeline(output));
-    EXPECT_TRUE(output.symbol_table->global_scope().symbols().empty());
-    EXPECT_TRUE(output.semantic_diagnostics.empty())
-        << diagnostics_summary(output.semantic_diagnostics);
-}
-
-TEST(SemanticSmokeTest, CollectsSingleTopLevelDeclaration) {
-    const AnalysisOutput output = analyze(R"(record Example {
-}
-)");
-
-    ASSERT_TRUE(expect_clean_pipeline(output));
-    const auto& global = output.symbol_table->global_scope();
-    ASSERT_EQ(global.symbols().size(), 1U);
-    EXPECT_EQ(global.symbols()[0].name, "Example");
-    EXPECT_NE(output.symbol_table->lookup(
-                  breadcrumbs::compiler::ast::QualifiedNameSyntax{
-                      .source_range = {},
-                      .parts =
-                          {
-                              breadcrumbs::compiler::ast::IdentifierSyntax{
-                                  .source_range = {},
-                                  .text = "Example",
-                              },
-                          },
-                  },
-                  global),
-              nullptr);
-    EXPECT_TRUE(output.semantic_diagnostics.empty())
-        << diagnostics_summary(output.semantic_diagnostics);
-}
-
 TEST(SemanticSmokeTest, CollectsNestedNamespaceDeclarations) {
     auto schema = normalized_schema("breadcrumbs.geo", "Location");
     schema.fields = {};
@@ -762,222 +620,39 @@ TEST(SemanticSmokeTest, CollectsNestedNamespaceDeclarations) {
 }
 
 TEST(SemanticSmokeTest, ReportsDuplicateDeclarationsInTheSameScope) {
-    const AnalysisOutput output = analyze(R"(record Example {
-}
+    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    schema.enums.push_back(normalized_enum("Example", 64, 71));
 
-record Example {
-}
-)");
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
 
-    EXPECT_TRUE(output.parser_diagnostics.empty());
     ASSERT_EQ(output.symbol_diagnostics.diagnostics().size(), 1U);
     EXPECT_EQ(output.symbol_diagnostics.diagnostics()[0].id().str(), "BC4001");
     EXPECT_EQ(output.symbol_diagnostics.diagnostics()[0].compiler_pass(), "symbols");
 }
 
-TEST(SemanticSmokeTest, ResolvesSimpleAndQualifiedNames) {
-    const AnalysisOutput output = analyze(R"(namespace breadcrumbs.geo {
-  record Location {
-  }
-
-  record Example {
-    simple: Location
-    qualified: breadcrumbs.geo.Location
-  }
-}
-)");
-
-    ASSERT_TRUE(expect_clean_pipeline(output));
-    const auto& global = output.symbol_table->global_scope();
-    const auto* breadcrumbs = global.find_local("breadcrumbs");
-    ASSERT_NE(breadcrumbs, nullptr);
-    ASSERT_NE(breadcrumbs->child_scope, nullptr);
-    const auto* geo = breadcrumbs->child_scope->find_local("geo");
-    ASSERT_NE(geo, nullptr);
-    ASSERT_NE(geo->child_scope, nullptr);
-
-    EXPECT_NE(output.symbol_table->lookup_unqualified("Location", *geo->child_scope), nullptr);
-    EXPECT_NE(output.symbol_table->lookup_unqualified("Example", *geo->child_scope), nullptr);
-    EXPECT_NE(output.symbol_table->lookup(
-                  breadcrumbs::compiler::ast::QualifiedNameSyntax{
-                      .source_range = {},
-                      .parts =
-                          {
-                              breadcrumbs::compiler::ast::IdentifierSyntax{
-                                  .source_range = {},
-                                  .text = "breadcrumbs",
-                              },
-                              breadcrumbs::compiler::ast::IdentifierSyntax{
-                                  .source_range = {},
-                                  .text = "geo",
-                              },
-                              breadcrumbs::compiler::ast::IdentifierSyntax{
-                                  .source_range = {},
-                                  .text = "Location",
-                              },
-                          },
-                  },
-                  global),
-              nullptr);
-    EXPECT_TRUE(output.semantic_diagnostics.empty())
-        << diagnostics_summary(output.semantic_diagnostics);
-}
-
-TEST(SemanticSmokeTest, ResolvesUnqualifiedNamedTypesInCurrentScope) {
-    const AnalysisOutput output = analyze(R"(namespace breadcrumbs.geo {
-  record Location {
-  }
-
-  record Route {
-    origin: Location
-  }
-}
-)");
-
-    ASSERT_TRUE(expect_clean_pipeline(output));
-    const SemanticRecord* route = find_record(output.semantic_model, "breadcrumbs.geo.Route");
-    ASSERT_NE(route, nullptr);
-    ASSERT_EQ(route->fields.size(), 1U);
-    expect_record_reference_type(route->fields[0], "breadcrumbs.geo.Location");
-    EXPECT_TRUE(output.semantic_diagnostics.empty())
-        << diagnostics_summary(output.semantic_diagnostics);
-}
-
-TEST(SemanticSmokeTest, ResolvesNamedTypesThroughEnclosingScopes) {
-    const AnalysisOutput output = analyze(R"(namespace breadcrumbs.geo {
-  record Location {
-  }
-
-  namespace detail {
-    record Path {
-      start: Location
-    }
-  }
-}
-)");
-
-    ASSERT_TRUE(expect_clean_pipeline(output));
-    const SemanticRecord* path = find_record(output.semantic_model, "breadcrumbs.geo.detail.Path");
-    ASSERT_NE(path, nullptr);
-    ASSERT_EQ(path->fields.size(), 1U);
-    expect_record_reference_type(path->fields[0], "breadcrumbs.geo.Location");
-    EXPECT_TRUE(output.semantic_diagnostics.empty())
-        << diagnostics_summary(output.semantic_diagnostics);
-}
-
-TEST(SemanticSmokeTest, ResolvesQualifiedNamedTypes) {
-    const AnalysisOutput output = analyze(R"(namespace breadcrumbs.vehicle {
-  record Journey {
-    destination: breadcrumbs.geo.Location
-  }
-}
-
-namespace breadcrumbs.geo {
-  record Location {
-  }
-}
-)");
-
-    ASSERT_TRUE(expect_clean_pipeline(output));
-    const auto* breadcrumbs = output.symbol_table->global_scope().find_local("breadcrumbs");
-    ASSERT_NE(breadcrumbs, nullptr);
-    ASSERT_NE(breadcrumbs->child_scope, nullptr);
-    const auto* vehicle = breadcrumbs->child_scope->find_local("vehicle");
-    ASSERT_NE(vehicle, nullptr);
-    ASSERT_NE(vehicle->child_scope, nullptr);
-
-    const breadcrumbs::compiler::ast::QualifiedNameSyntax name{
-        .source_range = {},
-        .parts =
-            {
-                breadcrumbs::compiler::ast::IdentifierSyntax{
-                    .source_range = {},
-                    .text = "breadcrumbs",
-                },
-                breadcrumbs::compiler::ast::IdentifierSyntax{
-                    .source_range = {},
-                    .text = "geo",
-                },
-                breadcrumbs::compiler::ast::IdentifierSyntax{
-                    .source_range = {},
-                    .text = "Location",
-                },
-            },
-    };
-    ASSERT_NE(output.symbol_table->resolve(name, *vehicle->child_scope), nullptr);
-
-    const SemanticRecord* journey =
-        find_record(output.semantic_model, "breadcrumbs.vehicle.Journey");
-    ASSERT_NE(journey, nullptr);
-    ASSERT_EQ(journey->fields.size(), 1U);
-    expect_record_reference_type(journey->fields[0], "breadcrumbs.geo.Location");
-
-    EXPECT_TRUE(output.semantic_diagnostics.empty())
-        << diagnostics_summary(output.semantic_diagnostics);
-}
-
 TEST(SemanticSmokeTest, ResolvesRecordAndEnumReferencesToCanonicalFQNs) {
-    const AnalysisOutput output = analyze(R"(namespace breadcrumbs.geo {
-  enum Mode {
-    automatic = 0
-    manual = 1
-  }
+    auto schema = normalized_schema("breadcrumbs.geo", "Route");
+    schema.enums.push_back(normalized_enum("Mode", 64, 68));
+    schema.fields = {
+        normalized_field("relative_location", "Route"),
+        normalized_field("qualified_location", "breadcrumbs.geo.Route"),
+        normalized_field("relative_mode", "Mode"),
+        normalized_field("qualified_mode", "breadcrumbs.geo.Mode"),
+    };
 
-  record Location {
-  }
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
 
-  record Route {
-    relative_location: Location
-    qualified_location: breadcrumbs.geo.Location
-    relative_mode: Mode
-    qualified_mode: breadcrumbs.geo.Mode
-  }
-}
-)");
-
-    ASSERT_TRUE(expect_clean_pipeline(output));
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
+    ASSERT_TRUE(output.semantic_diagnostics.empty())
+        << diagnostics_summary(output.semantic_diagnostics);
     const SemanticRecord* route = find_record(output.semantic_model, "breadcrumbs.geo.Route");
     ASSERT_NE(route, nullptr);
     ASSERT_EQ(route->fields.size(), 4U);
-    expect_record_reference_type(route->fields[0], "breadcrumbs.geo.Location");
-    expect_record_reference_type(route->fields[1], "breadcrumbs.geo.Location");
+    expect_record_reference_type(route->fields[0], "breadcrumbs.geo.Route");
+    expect_record_reference_type(route->fields[1], "breadcrumbs.geo.Route");
     expect_enum_reference_type(route->fields[2], "breadcrumbs.geo.Mode");
     expect_enum_reference_type(route->fields[3], "breadcrumbs.geo.Mode");
-    EXPECT_TRUE(output.semantic_diagnostics.empty())
-        << diagnostics_summary(output.semantic_diagnostics);
-}
-
-TEST(SemanticSmokeTest, AcceptsSameUnqualifiedTypeNameInDifferentNamespaces) {
-    const AnalysisOutput output = analyze(R"(namespace breadcrumbs.geo {
-  record Location {
-  }
-
-  record Route {
-    origin: Location
-  }
-}
-
-namespace breadcrumbs.telemetry {
-  record Location {
-  }
-
-  record Event {
-    source: Location
-  }
-}
-)");
-
-    ASSERT_TRUE(expect_clean_pipeline(output));
-    const SemanticRecord* route = find_record(output.semantic_model, "breadcrumbs.geo.Route");
-    ASSERT_NE(route, nullptr);
-    ASSERT_EQ(route->fields.size(), 1U);
-    expect_record_reference_type(route->fields[0], "breadcrumbs.geo.Location");
-    const SemanticRecord* event = find_record(output.semantic_model, "breadcrumbs.telemetry.Event");
-    ASSERT_NE(event, nullptr);
-    ASSERT_EQ(event->fields.size(), 1U);
-    expect_record_reference_type(event->fields[0], "breadcrumbs.telemetry.Location");
-    EXPECT_TRUE(output.semantic_diagnostics.empty())
-        << diagnostics_summary(output.semantic_diagnostics);
 }
 
 TEST(SemanticSmokeTest, ReportsUnresolvedNamedTypeDiagnostics) {
@@ -997,85 +672,60 @@ TEST(SemanticSmokeTest, ReportsUnresolvedNamedTypeDiagnostics) {
 }
 
 TEST(SemanticSmokeTest, ReportsNamespaceUsedAsTypeDiagnostics) {
-    const AnalysisOutput output = analyze(R"(namespace breadcrumbs.vehicle {
-  namespace geo {
-  }
+    auto schema = normalized_schema("breadcrumbs.vehicle.geo", "Journey");
+    schema.fields = {normalized_field("destination", "geo")};
 
-  record Journey {
-    destination: geo
-  }
-}
-)");
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
 
-    ASSERT_TRUE(expect_clean_pipeline(output));
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_EQ(output.semantic_diagnostics.diagnostics().size(), 1U);
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].id().str(), "BC5002");
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].compiler_pass(), "semantic");
     const SemanticRecord* journey =
-        find_record(output.semantic_model, "breadcrumbs.vehicle.Journey");
+        find_record(output.semantic_model, "breadcrumbs.vehicle.geo.Journey");
     ASSERT_NE(journey, nullptr);
     EXPECT_TRUE(journey->fields.empty());
 }
 
 TEST(SemanticSmokeTest, ReportsLexicalShadowingInQualifiedTypeResolution) {
-    const AnalysisOutput output = analyze(R"(namespace breadcrumbs.geo {
-  record Location {
-  }
-}
+    auto schema = normalized_schema("breadcrumbs.vehicle", "geo");
+    schema.fields = {normalized_field("destination", "geo.Location")};
 
-namespace breadcrumbs.vehicle {
-  record geo {
-  }
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
 
-  record Journey {
-    destination: geo.Location
-  }
-}
-)");
-
-    ASSERT_TRUE(expect_clean_pipeline(output));
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_EQ(output.semantic_diagnostics.diagnostics().size(), 1U);
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].id().str(), "BC5001");
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].compiler_pass(), "semantic");
-    const SemanticRecord* journey =
-        find_record(output.semantic_model, "breadcrumbs.vehicle.Journey");
-    ASSERT_NE(journey, nullptr);
-    EXPECT_TRUE(journey->fields.empty());
+    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.vehicle.geo");
+    ASSERT_NE(record, nullptr);
+    EXPECT_TRUE(record->fields.empty());
 }
 
 TEST(SemanticSmokeTest, ContinuesAfterMultipleSemanticErrors) {
-    const AnalysisOutput output = analyze(R"(namespace breadcrumbs.geo {
-  record Location {
-  }
-}
+    auto schema = normalized_schema("breadcrumbs.vehicle", "geo");
+    schema.fields = {
+        normalized_field("shadowed", "geo.Location"),
+        normalized_field("missing", "MissingType"),
+        normalized_field("payload", "bytes"),
+        normalized_field("home", "breadcrumbs.vehicle.geo"),
+    };
 
-namespace breadcrumbs.vehicle {
-  record geo {
-  }
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
 
-  record Journey {
-    destination: breadcrumbs.geo.Location
-    shadowed: geo.Location
-    missing: MissingType
-    samples: bytes[16]
-    home: breadcrumbs.geo.Location
-  }
-}
-)");
-
-    ASSERT_TRUE(expect_clean_pipeline(output));
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_EQ(output.semantic_diagnostics.diagnostics().size(), 3U);
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].id().str(), "BC5001");
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[1].id().str(), "BC5001");
-    EXPECT_EQ(output.semantic_diagnostics.diagnostics()[2].id().str(), "BC5003");
-    const SemanticRecord* journey =
-        find_record(output.semantic_model, "breadcrumbs.vehicle.Journey");
-    ASSERT_NE(journey, nullptr);
-    ASSERT_EQ(journey->fields.size(), 2U);
-    EXPECT_EQ(journey->fields[0].name, "destination");
-    expect_record_reference_type(journey->fields[0], "breadcrumbs.geo.Location");
-    EXPECT_EQ(journey->fields[1].name, "home");
-    expect_record_reference_type(journey->fields[1], "breadcrumbs.geo.Location");
+    EXPECT_EQ(output.semantic_diagnostics.diagnostics()[2].id().str(), "BC5004");
+    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.vehicle.geo");
+    ASSERT_NE(record, nullptr);
+    ASSERT_EQ(record->fields.size(), 1U);
+    EXPECT_EQ(record->fields[0].name, "home");
+    expect_record_reference_type(record->fields[0], "breadcrumbs.vehicle.geo");
 }
 
 TEST(SemanticSmokeTest, SupportsRecursiveArraySemanticTypes) {

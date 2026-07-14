@@ -1,6 +1,6 @@
 # Semantic
 
-Owns the first semantic-analysis pass over parsed ASTs.
+Owns the first semantic-analysis pass over normalized source schemas.
 
 ## Responsibilities
 
@@ -9,7 +9,7 @@ and reports semantic errors through the diagnostics framework.
 
 It:
 
-* walks the parsed AST
+* walks the normalized source-schema model
 * resolves type references against the symbol table
 * canonicalizes builtin scalar aliases into resolved semantic types
 * preserves distinct string and bytes semantic kinds together with validated
@@ -18,26 +18,23 @@ It:
 * carries normalized record metadata such as schema version and logical record
   type when the source model provides it
 * carries validated `max_elements` for bounded variable-length arrays
-* validates type-bearing syntax in the current transitional declaration-parser
-  AST and the normalized source-schema model
+* validates type-bearing normalized source-schema fields
 * reports unresolved type references
 * reports declarations that resolve successfully but are invalid in type
   position
-* reports unsupported fixed-size arrays in the current transitional parser
-  path
+* reports unsupported nested arrays in the normalized source-schema path
 
 ## Ownership Model
 
-Semantic analysis does not mutate the AST and does not build a second symbol
-table.
+Semantic analysis does not mutate the source-schema model and does not build a
+second symbol table.
 
 This pass is validation-only for now. It does not cache resolved symbols inside
 AST nodes and does not introduce a semantic side table because no downstream
 consumer needs one yet.
 
 The layer consumes `SymbolTable` to resolve names but does not own symbol
-collection. The normalized source-schema path uses the same semantic policy as
-the legacy AST path.
+collection.
 
 Invalid field types do not enter the returned `SemanticModel`. Semantic
 diagnostics may still be emitted for later fields and declarations in the same
@@ -53,16 +50,9 @@ remain layout responsibilities.
 The normative `.brd` YAML contract is defined in
 `docs/specifications/schema-language.md`.
 
-The current semantic implementation still consumes the transitional
-declaration-parser AST and also accepts the normalized source-schema model.
-The AST overload is legacy compatibility API retained for transitional callers
-and semantic-layer smoke coverage; the supported production path is the
-normalized source-schema overload. PR-047 reassessed the parser/AST
-compatibility tests and found they are parser/AST-only: the tests that still
-invoke AST semantic validation are semantic coverage, not parser compatibility
-blockers. This means the AST overload can be removed in the follow-up API
-retirement once that semantic coverage is either migrated to normalized
-source-schema fixtures or deleted with the legacy AST path.
+The semantic implementation consumes the normalized source-schema model. The
+legacy declaration-parser AST overload was removed in PR-049 after the
+remaining AST-derived semantic tests were migrated or retired.
 
 The production YAML frontend now passes normalized YAML source schema directly
 into symbol construction and semantic validation. The production YAML frontend
@@ -70,16 +60,10 @@ also passes the normalized source schema directly into `SchemaIrBuilder`, so
 the YAML pipeline no longer uses a source-schema-to-AST compatibility
 projection.
 
-The legacy AST path remains available for lower-layer compatibility and test
-coverage, but it no longer feeds Schema IR construction or Schema IR tests.
-That compatibility surface is intentionally temporary and no longer depends on
-parser/AST compatibility tests needing semantic validation.
-
 ## Dependency Restrictions
 
 Allowed dependencies:
 
-* `compiler/ast`
 * `compiler/symbols`
 * `compiler/source_schema`
 * `compiler/diagnostics`
