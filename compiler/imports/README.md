@@ -19,6 +19,9 @@ Current implementation status:
 
 * `ImportResolver` currently returns the input AST documents in order as a
   compilation unit wrapper
-* it does not load files, parse files, canonicalize paths, build a graph, or
-  detect missing, duplicate, or cyclic imports yet
+* it does not load files, parse files, canonicalize paths, build a graph,
+  resolve import names to files, or detect missing, duplicate, or cyclic
+  imports yet
 * imports remain AST-owned until a dedicated import-graph design is added
+* no production caller consumes this boundary yet; it exists as a legacy
+  declaration-syntax grouping stub

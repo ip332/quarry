@@ -39,9 +39,9 @@ state.
 
 ## SourceManager
 
-`SourceManager` owns source buffers for one compilation. It assigns stable,
-graph-local `SourceFileId` values, associates each buffer with a canonicalized
-or otherwise normalized path supplied by callers, and provides lookup of:
+`SourceManager` owns source buffers for one compilation. It assigns stable
+`SourceFileId` values within that manager, associates each buffer with the
+caller-supplied source label or path string, and provides lookup of:
 
 * source text by `SourceFileId`
 * source path by `SourceFileId`
@@ -49,7 +49,9 @@ or otherwise normalized path supplied by callers, and provides lookup of:
 * source text slices for valid `SourceRange` values
 
 Source buffers are immutable after registration. `SourceManager` does not read
-from the filesystem and has no global state.
+from the filesystem, canonicalize paths, resolve imports, or attach semantic
+meaning to source labels. The same source label may be registered more than
+once and still receives distinct `SourceFileId` values.
 
 Line and column numbering are one-based. Offsets are byte offsets. The manager
 caches line start offsets so line and column lookup does not rescan the entire
@@ -62,16 +64,17 @@ empty optional results or false validation helpers.
 
 ## FileSystem
 
-`FileSystem` is the minimal abstraction needed by later import resolution. It
-can:
+`FileSystem` is the minimal filesystem abstraction used by compiler context and
+future file-loading boundaries. It can:
 
 * read a source file
 * test whether a path exists
 * normalize a path
 
-`RealFileSystem` implements this interface with the C++ standard library.
-Import search paths, import resolution, caching, virtual include roots, and
-overlays are intentionally outside this layer.
+`RealFileSystem` implements this interface with the C++ standard library. This
+layer does not load source text into `SourceManager`; it only provides path and
+file access helpers for callers that choose to build a higher-level loading
+boundary.
 
 Allowed dependencies:
 

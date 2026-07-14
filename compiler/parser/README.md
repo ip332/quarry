@@ -58,6 +58,11 @@ Current implementation status:
   fixed-size array handling are not normative language contracts
 * current annotations are transitional string-valued metadata; the normative
   YAML contract uses native typed field properties
+* each parser invocation consumes exactly one `SourceFileId` registered in a
+  caller-owned `SourceManager`
+* parser output is an AST plus source ranges, not a durable document-identity
+  wrapper
+* the parser does not load files or resolve import names to paths
 
 ## Source Ranges
 

@@ -81,6 +81,33 @@ TEST_F(ParserTest, ParsesEmptyFile) {
     EXPECT_EQ(output.ast.source_range, range(output.source_file_id, 0, 0));
 }
 
+TEST_F(ParserTest, ParsesMultipleSourcesThroughOneSourceManagerAndPreservesFileIds) {
+    SourceManager source_manager;
+    DiagnosticEngine diagnostics;
+
+    const SourceFileId first_file =
+        source_manager.add_source("/project/first.bc", "record First {\n}\n");
+    const SourceFileId second_file =
+        source_manager.add_source("/project/second.bc", "record Second {\n}\n");
+
+    const auto first_result = Parser::parse(source_manager, first_file, diagnostics);
+    const auto second_result = Parser::parse(source_manager, second_file, diagnostics);
+
+    ASSERT_TRUE(diagnostics.empty());
+    ASSERT_EQ(first_result.ast.declarations.size(), 1U);
+    ASSERT_EQ(second_result.ast.declarations.size(), 1U);
+
+    const auto& first_record = as_record(*first_result.ast.declarations[0]);
+    const auto& second_record = as_record(*second_result.ast.declarations[0]);
+
+    EXPECT_EQ(first_record.name.text, "First");
+    EXPECT_EQ(second_record.name.text, "Second");
+    EXPECT_EQ(first_result.ast.source_range.begin().file_id(), first_file);
+    EXPECT_EQ(second_result.ast.source_range.begin().file_id(), second_file);
+    EXPECT_EQ(first_record.source_range.begin().file_id(), first_file);
+    EXPECT_EQ(second_record.source_range.begin().file_id(), second_file);
+}
+
 TEST_F(ParserTest, ParsesImportNamespaceRecordEnumAndArrays) {
     const ParseOutput output = parse(R"(import breadcrumbs.geo.Location
 namespace breadcrumbs.geo {

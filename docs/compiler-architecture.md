@@ -73,8 +73,8 @@ The compiler pipeline is:
   Schema IR lowering.
 * AST flows into import resolution, legacy symbol construction, legacy
   semantic validation, and layout computation. The current import-resolution
-  layer is a placeholder AST aggregation boundary rather than a canonical
-  import graph.
+  layer is a placeholder AST aggregation boundary that preserves already
+  parsed documents and their order; it is not yet a canonical import graph.
 
 The current migration boundary is intentionally uneven: scalar- and
 enum-shaped schemas can flow through the existing downstream pipeline today,
@@ -84,6 +84,11 @@ remaining work is downstream policy and runtime support rather than
 representation. The normalized YAML pipeline no longer routes through a
 source-schema-to-AST compatibility projection; AST remains owned by the
 independent legacy declaration-syntax pipeline.
+
+Source loading is intentionally caller-owned: `SourceManager` stores
+already-loaded source text and source labels, while the parser consumes one
+registered source file at a time. The repository does not yet define a
+multi-file declaration-syntax loader or an import-name-to-path mapping.
 
 During migration, the legacy declaration-syntax frontend and the normative YAML
 frontend both remain available. Legacy declaration-syntax tests continue to

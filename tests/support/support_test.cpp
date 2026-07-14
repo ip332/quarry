@@ -76,6 +76,34 @@ TEST(SourceManagerTest, RegistersSourcesAndLooksThemUpByStableId) {
     EXPECT_EQ(manager.sources().size(), 2U);
 }
 
+TEST(SourceManagerTest, AssignsDistinctIdsToDuplicateSourceLabels) {
+    SourceManager manager;
+
+    const SourceFileId first = manager.add_source("/project/shared.bc", "first");
+    const SourceFileId second = manager.add_source("/project/shared.bc", "second");
+
+    EXPECT_TRUE(first.is_valid());
+    EXPECT_TRUE(second.is_valid());
+    EXPECT_NE(first, second);
+    EXPECT_EQ(manager.source_path(first), std::optional<std::string_view>("/project/shared.bc"));
+    EXPECT_EQ(manager.source_path(second), std::optional<std::string_view>("/project/shared.bc"));
+    EXPECT_EQ(manager.source_text(first), std::optional<std::string_view>("first"));
+    EXPECT_EQ(manager.source_text(second), std::optional<std::string_view>("second"));
+    EXPECT_EQ(manager.sources().size(), 2U);
+}
+
+TEST(SourceManagerTest, UsesManagerLocalIdSpace) {
+    SourceManager first_manager;
+    SourceManager second_manager;
+
+    const SourceFileId first_id = first_manager.add_source("/project/first.bc", "first");
+    const SourceFileId second_id = second_manager.add_source("/project/second.bc", "second");
+
+    EXPECT_EQ(first_id, second_id);
+    EXPECT_EQ(first_manager.source_text(first_id), std::optional<std::string_view>("first"));
+    EXPECT_EQ(second_manager.source_text(second_id), std::optional<std::string_view>("second"));
+}
+
 TEST(SourceManagerTest, DerivesOneBasedLineAndColumn) {
     SourceManager manager;
     const SourceFileId file_id = manager.add_source("/project/source.bc", "abc\ndef");

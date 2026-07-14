@@ -1,1 +1,1 @@
-- PR-036: Define the declaration-syntax import-resolution boundary, keep ImportResolver as the current AST-grouping stub, and stage follow-up work for real import-graph resolution without integrating symbols or semantic validation yet
+- PR-037: Define the declaration-syntax source-loading and document-identity boundary, keep source loading caller-owned through SourceManager, and document the current AST-grouping import resolver stub without adding import-graph traversal yet

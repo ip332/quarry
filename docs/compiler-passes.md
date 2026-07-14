@@ -78,6 +78,12 @@ source-schema model. AST remains in use only for the independent legacy
 declaration-syntax pipeline. The legacy declaration parser remains available
 during the migration.
 
+Source loading remains outside the compiler passes. Callers register source
+text with `SourceManager`, receive a `SourceFileId`, and parse exactly one
+registered source file per parser invocation. Import resolution currently
+groups already-parsed AST documents only; it does not yet load files or
+construct a resolved document graph.
+
 ---
 
 ## 1. Parser
@@ -197,6 +203,10 @@ source-level AST nodes.
 * input AST document order is preserved
 * input AST identity is preserved by pointer
 * import declarations remain AST syntax
+
+`SourceManager` is not part of this pass. File loading, file identity
+assignment, and import-name-to-path mapping remain outside the current import
+resolver contract.
 
 ### Diagnostics Emitted
 
