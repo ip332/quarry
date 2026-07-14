@@ -62,6 +62,8 @@ Current implementation status:
   caller-owned `SourceManager`
 * parser output is a `ParseResult` containing the parsed AST together with the
   manager-local `SourceFileId` for the source that was parsed
+* that explicit parsed-source identity is parser-layer infrastructure only and
+  has no production consumer yet
 * the parser does not load files or resolve import names to paths
 
 ## Source Ranges

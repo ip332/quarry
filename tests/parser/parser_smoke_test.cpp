@@ -122,6 +122,27 @@ TEST_F(ParserTest, ParsesMultipleSourcesThroughOneSourceManagerAndPreservesFileI
     EXPECT_EQ(second_record.source_range.begin().file_id(), second_file);
 }
 
+TEST_F(ParserTest, StoresParseResultsInCollectionWithStableSourceIdentity) {
+    SourceManager source_manager;
+    DiagnosticEngine diagnostics;
+    std::vector<breadcrumbs::compiler::parser::ParseResult> parse_results;
+
+    const SourceFileId first_file =
+        source_manager.add_source("/project/first.bc", "record First {\n}\n");
+    const SourceFileId second_file =
+        source_manager.add_source("/project/second.bc", "record Second {\n}\n");
+
+    parse_results.push_back(
+        Parser::parse(source_manager, first_file, diagnostics));
+    parse_results.push_back(
+        Parser::parse(source_manager, second_file, diagnostics));
+
+    ASSERT_TRUE(diagnostics.empty());
+    ASSERT_EQ(parse_results.size(), 2U);
+    EXPECT_EQ(parse_results[0].source_file_id, first_file);
+    EXPECT_EQ(parse_results[1].source_file_id, second_file);
+}
+
 TEST_F(ParserTest, ParsesImportNamespaceRecordEnumAndArrays) {
     const ParseOutput output = parse(R"(import breadcrumbs.geo.Location
 namespace breadcrumbs.geo {

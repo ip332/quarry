@@ -19,6 +19,7 @@ Current implementation status:
 
 * `ImportResolver` currently returns the input AST documents in order as a
   compilation unit wrapper
+* it still consumes AST objects rather than `parser::ParseResult`
 * it does not load files, parse files, canonicalize paths, build a graph,
   resolve import names to files, or detect missing, duplicate, or cyclic
   imports yet

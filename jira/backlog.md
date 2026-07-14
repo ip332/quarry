@@ -1,1 +1,1 @@
-- PR-038: Establish the first production boundary for parsed declaration-syntax documents by adding explicit manager-local source identity to Parser::ParseResult and pinning the current parser/source-manager contract without adding import resolution or filesystem loading
+- PR-039: Define the first consumer boundary for explicit parsed-source identity by keeping ParseResult manager-local and parser-owned, documenting that no production consumer exists yet, and staging follow-up work without adding imports or filesystem loading

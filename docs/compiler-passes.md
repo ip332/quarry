@@ -105,6 +105,9 @@ types, build namespaces, compute layout, or assign compiler-managed identifiers.
 * AST
 * manager-local parsed-source identity
 
+That explicit identity is retained for future document-boundary work, but the
+current production declaration-syntax pipeline does not yet consume it.
+
 ### Consumes / Produces / Required by
 
 Consumes:
