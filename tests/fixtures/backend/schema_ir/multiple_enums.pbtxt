@@ -1,0 +1,30 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  enums {
+    ir_id: 2
+    name: "First"
+    fqn: "First"
+    values {
+      name: "Alpha"
+      value: 1
+    }
+    values {
+      name: "Beta"
+      value: 2
+    }
+  }
+  enums {
+    ir_id: 3
+    name: "Second"
+    fqn: "Second"
+    values {
+      name: "Gamma"
+      value: 3
+    }
+    values {
+      name: "Delta"
+      value: 4
+    }
+  }
+}

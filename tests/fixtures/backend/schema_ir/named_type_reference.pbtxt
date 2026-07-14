@@ -1,0 +1,43 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  namespaces {
+    ir_id: 2
+    name: "breadcrumbs"
+    fqn: "breadcrumbs"
+    namespaces {
+      ir_id: 3
+      name: "geo"
+      fqn: "breadcrumbs.geo"
+      records {
+        ir_id: 4
+        record_id: 1
+        name: "Location"
+        fqn: "breadcrumbs.geo.Location"
+      }
+      records {
+        ir_id: 5
+        record_id: 2
+        name: "Route"
+        fqn: "breadcrumbs.geo.Route"
+        fields {
+          name: "origin"
+          type {
+            record {
+              target_record_ir_id: 4
+            }
+          }
+        }
+        fields {
+          name: "fallback"
+          field_index: 1
+          type {
+            record {
+              target_record_ir_id: 4
+            }
+          }
+        }
+      }
+    }
+  }
+}

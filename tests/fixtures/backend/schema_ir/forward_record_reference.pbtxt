@@ -1,0 +1,30 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  records {
+    ir_id: 2
+    record_id: 1
+    name: "A"
+    fqn: "A"
+    fields {
+      name: "value"
+      type {
+        record {
+          target_record_ir_id: 3
+        }
+      }
+    }
+  }
+  records {
+    ir_id: 3
+    record_id: 2
+    name: "B"
+    fqn: "B"
+    fields {
+      name: "count"
+      type {
+        primitive: PRIMITIVE_TYPE_U32
+      }
+    }
+  }
+}

@@ -1,0 +1,31 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  enums {
+    ir_id: 2
+    name: "Color"
+    fqn: "Color"
+    values {
+      name: "Red"
+      value: 1
+    }
+    values {
+      name: "Green"
+      value: 2
+    }
+  }
+  records {
+    ir_id: 3
+    record_id: 1
+    name: "Paint"
+    fqn: "Paint"
+    fields {
+      name: "color"
+      type {
+        enum_type {
+          target_enum_ir_id: 2
+        }
+      }
+    }
+  }
+}

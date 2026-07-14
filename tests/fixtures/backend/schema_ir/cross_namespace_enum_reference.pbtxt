@@ -1,0 +1,51 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  namespaces {
+    ir_id: 2
+    name: "alpha"
+    fqn: "alpha"
+    namespaces {
+      ir_id: 3
+      name: "one"
+      fqn: "alpha.one"
+      enums {
+        ir_id: 4
+        name: "Mode"
+        fqn: "alpha.one.Mode"
+        values {
+          name: "Off"
+          value: 0
+        }
+        values {
+          name: "On"
+          value: 1
+        }
+      }
+    }
+  }
+  namespaces {
+    ir_id: 5
+    name: "beta"
+    fqn: "beta"
+    namespaces {
+      ir_id: 6
+      name: "two"
+      fqn: "beta.two"
+      records {
+        ir_id: 7
+        record_id: 1
+        name: "Config"
+        fqn: "beta.two.Config"
+        fields {
+          name: "mode"
+          type {
+            enum_type {
+              target_enum_ir_id: 4
+            }
+          }
+        }
+      }
+    }
+  }
+}

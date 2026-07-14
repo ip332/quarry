@@ -183,9 +183,15 @@ public:
 
 private:
   static bool validate_name(const std::string& value) {
+    if (value.size() > 16) {
+      return false;
+    }
     return true;
   }
   static bool validate_payload(const std::vector<std::byte>& value) {
+    if (value.size() > 4) {
+      return false;
+    }
     return true;
   }
   static bool validate_counts(const std::vector<std::uint32_t>& value) {

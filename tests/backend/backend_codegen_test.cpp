@@ -1,13 +1,8 @@
 #include "compiler/backend/backend.hpp"
 #include "compiler/context/compiler_context.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
-#include "compiler/layout/layout.hpp"
-#include "compiler/parser/parser.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "compiler/schema_ir/validation.hpp"
-#include "compiler/semantic/semantic.hpp"
-#include "compiler/support/source_manager.hpp"
-#include "compiler/symbols/symbols.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -15,13 +10,14 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
-#include <memory>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <utility>
+
+#include <google/protobuf/text_format.h>
 
 #include <gtest/gtest.h>
 
@@ -30,36 +26,17 @@ namespace {
 using breadcrumbs::compiler::backend::Backend;
 using breadcrumbs::compiler::backend::CodegenOptions;
 using breadcrumbs::compiler::backend::CodegenResult;
-using breadcrumbs::compiler::layout::LayoutComputer;
-using breadcrumbs::compiler::layout::LayoutModel;
-using breadcrumbs::compiler::parser::Parser;
-using breadcrumbs::compiler::schema_ir::SchemaIrBuilder;
 using breadcrumbs::compiler::schema_ir::SchemaIrModel;
 using breadcrumbs::compiler::schema_ir::SchemaIrValidator;
-using breadcrumbs::compiler::semantic::SemanticModel;
-using breadcrumbs::compiler::semantic::SemanticValidator;
-using breadcrumbs::compiler::support::SourceFileId;
-using breadcrumbs::compiler::symbols::NamespaceBuilder;
-using breadcrumbs::compiler::symbols::SymbolTable;
-
-struct FrontendOutput {
-    breadcrumbs::compiler::context::CompilerContext context;
-    breadcrumbs::compiler::ast::SchemaFileSyntax ast;
-    breadcrumbs::compiler::diagnostics::DiagnosticEngine parser_diagnostics;
-    breadcrumbs::compiler::diagnostics::DiagnosticEngine symbol_diagnostics;
-    breadcrumbs::compiler::diagnostics::DiagnosticEngine semantic_diagnostics;
-    breadcrumbs::compiler::diagnostics::DiagnosticEngine layout_diagnostics;
-    breadcrumbs::compiler::diagnostics::DiagnosticEngine lowering_diagnostics;
-    breadcrumbs::compiler::diagnostics::DiagnosticEngine validation_diagnostics;
-    std::unique_ptr<SymbolTable> symbol_table;
-    SemanticModel semantic_model;
-    LayoutModel layout_model;
-    SchemaIrModel schema_ir;
-    SourceFileId source_file_id;
-};
 
 [[nodiscard]] std::filesystem::path fixtures_root(std::string_view category) {
     return std::filesystem::path(__FILE__).parent_path().parent_path() / "fixtures" / category;
+}
+
+[[nodiscard]] std::filesystem::path backend_fixtures_root() { return fixtures_root("backend"); }
+
+[[nodiscard]] std::filesystem::path backend_schema_ir_fixtures_root() {
+    return backend_fixtures_root() / "schema_ir";
 }
 
 [[nodiscard]] std::string read_file(const std::filesystem::path& path) {
@@ -79,76 +56,71 @@ void trim_trailing_newlines(std::string& text) {
     }
 }
 
-[[nodiscard]] FrontendOutput run_frontend(const std::string& text) {
-    FrontendOutput output;
-    output.source_file_id = output.context.source_manager().add_source("/test/schema.brd", text);
-
-    auto parse_result = Parser::parse(output.context.source_manager(), output.source_file_id,
-                                      output.parser_diagnostics);
-    output.ast = std::move(parse_result.ast);
-
-    NamespaceBuilder namespace_builder;
-    output.symbol_table = std::make_unique<SymbolTable>(
-        namespace_builder.build(output.ast, output.symbol_diagnostics));
-
-    SemanticValidator semantic_validator;
-    output.semantic_model =
-        semantic_validator.validate(output.ast, *output.symbol_table, output.semantic_diagnostics);
-
-    if (output.semantic_diagnostics.empty()) {
-        LayoutComputer layout_computer;
-        output.layout_model = layout_computer.compute(output.semantic_model, output.context,
-                                                      output.layout_diagnostics);
+[[nodiscard]] std::string
+diagnostics_summary(const breadcrumbs::compiler::diagnostics::DiagnosticCollection& diagnostics) {
+    std::ostringstream stream;
+    for (const auto& diagnostic : diagnostics.diagnostics()) {
+        stream << diagnostic.compiler_pass() << ": " << diagnostic.id().str() << ": "
+               << diagnostic.message() << '\n';
     }
-
-    SchemaIrBuilder schema_ir_builder;
-    if (output.semantic_diagnostics.empty() && output.layout_diagnostics.empty()) {
-        output.schema_ir = schema_ir_builder.build(output.ast, output.semantic_model,
-                                                   output.layout_model, *output.symbol_table,
-                                                   output.context, output.lowering_diagnostics);
-    }
-
-    SchemaIrValidator schema_ir_validator;
-    if (output.semantic_diagnostics.empty() && output.layout_diagnostics.empty() &&
-        output.lowering_diagnostics.empty()) {
-        schema_ir_validator.validate(output.schema_ir, output.context,
-                                     output.validation_diagnostics);
-    }
-    return output;
+    return stream.str();
 }
 
-[[nodiscard]] CodegenResult run_backend(const std::string& source, const CodegenOptions& options) {
-    FrontendOutput frontend = run_frontend(source);
-
-    Backend backend;
-    CodegenResult result = backend.generate(frontend.schema_ir, options);
-    EXPECT_TRUE(frontend.parser_diagnostics.empty());
-    EXPECT_TRUE(frontend.symbol_diagnostics.empty());
-    EXPECT_TRUE(frontend.semantic_diagnostics.empty());
-    EXPECT_TRUE(frontend.layout_diagnostics.empty());
-    EXPECT_TRUE(frontend.lowering_diagnostics.empty());
-    EXPECT_TRUE(frontend.validation_diagnostics.empty());
-    return result;
-}
-
-[[nodiscard]] std::string fixture_text(std::string_view category, std::string_view name,
-                                       std::string_view extension) {
-    std::string text =
-        read_file(fixtures_root(category) / (std::string(name) + std::string(extension)));
+[[nodiscard]] std::string backend_fixture_text(std::string_view name) {
+    std::string text = read_file(backend_fixtures_root() / (std::string(name) + ".txt"));
     trim_trailing_newlines(text);
     return text;
 }
 
-[[nodiscard]] std::string schema_fixture_text(std::string_view name) {
-    return fixture_text("schema_ir", name, ".brd");
+[[nodiscard]] std::string schema_ir_fixture_text(std::string_view name) {
+    std::string text =
+        read_file(backend_schema_ir_fixtures_root() / (std::string(name) + ".pbtxt"));
+    trim_trailing_newlines(text);
+    return text;
 }
 
-[[nodiscard]] std::string backend_fixture_text(std::string_view name) {
-    return fixture_text("backend", name, ".brd");
+struct LoadedSchemaIrFixture {
+    std::optional<SchemaIrModel> schema_ir;
+    std::string error_message;
+};
+
+[[nodiscard]] LoadedSchemaIrFixture load_validated_schema_ir_fixture(std::string_view name) {
+    LoadedSchemaIrFixture output;
+    const std::string text = schema_ir_fixture_text(name);
+
+    SchemaIrModel schema_ir;
+    if (!google::protobuf::TextFormat::ParseFromString(text, &schema_ir)) {
+        output.error_message = "failed to parse Schema IR textproto fixture: " + std::string(name);
+        return output;
+    }
+
+    breadcrumbs::compiler::context::CompilerContext context;
+    breadcrumbs::compiler::diagnostics::DiagnosticCollection diagnostics;
+    SchemaIrValidator validator;
+    validator.validate(schema_ir, context, diagnostics);
+    if (!diagnostics.empty()) {
+        output.error_message = diagnostics_summary(diagnostics);
+        return output;
+    }
+
+    output.schema_ir = std::move(schema_ir);
+    return output;
+}
+
+[[nodiscard]] CodegenResult run_backend_fixture(std::string_view name,
+                                                const CodegenOptions& options) {
+    const LoadedSchemaIrFixture fixture = load_validated_schema_ir_fixture(name);
+    if (!fixture.schema_ir.has_value()) {
+        ADD_FAILURE() << "fixture: " << name << '\n' << fixture.error_message;
+        return {};
+    }
+
+    Backend backend;
+    return backend.generate(*fixture.schema_ir, options);
 }
 
 [[nodiscard]] std::string backend_golden_text(std::string_view name) {
-    return fixture_text("backend", name, ".txt");
+    return backend_fixture_text(name);
 }
 
 [[nodiscard]] std::string render_result(const CodegenResult& result) {
@@ -235,27 +207,6 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
     ASSERT_EQ(run_status, 0) << "command failed: " << executable_path.string();
 }
 
-[[nodiscard]] SchemaIrModel make_manual_negative_enum_schema_ir() {
-    SchemaIrModel schema_ir;
-    schema_ir.set_schema_ir_version(1);
-    auto* root = schema_ir.mutable_root_namespace();
-    root->set_ir_id(1);
-    root->set_name("");
-    root->set_fqn("");
-
-    auto* enum_ir = root->add_enums();
-    enum_ir->set_ir_id(2);
-    enum_ir->set_name("SignedValue");
-    enum_ir->set_fqn("SignedValue");
-    auto* first = enum_ir->add_values();
-    first->set_name("Zero");
-    first->set_value(0);
-    auto* second = enum_ir->add_values();
-    second->set_name("Negative");
-    second->set_value(-1);
-    return schema_ir;
-}
-
 [[nodiscard]] SchemaIrModel make_manual_unspecified_primitive_schema_ir() {
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
@@ -274,80 +225,7 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
     return schema_ir;
 }
 
-[[nodiscard]] SchemaIrModel make_manual_variable_length_schema_ir() {
-    SchemaIrModel schema_ir;
-    schema_ir.set_schema_ir_version(1);
-    auto* root = schema_ir.mutable_root_namespace();
-    root->set_ir_id(1);
-    root->set_name("");
-    root->set_fqn("");
-
-    auto* child = root->add_records();
-    child->set_ir_id(2);
-    child->set_name("Child");
-    child->set_fqn("Child");
-    auto* child_field = child->add_fields();
-    child_field->set_name("count");
-    child_field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
-
-    auto* mode = root->add_enums();
-    mode->set_ir_id(3);
-    mode->set_name("Mode");
-    mode->set_fqn("Mode");
-    auto* off = mode->add_values();
-    off->set_name("Off");
-    off->set_value(0);
-    auto* on = mode->add_values();
-    on->set_name("On");
-    on->set_value(1);
-
-    auto* example = root->add_records();
-    example->set_ir_id(4);
-    example->set_name("Example");
-    example->set_fqn("Example");
-
-    auto* name_field = example->add_fields();
-    name_field->set_name("name");
-    name_field->mutable_type()->mutable_string();
-
-    auto* payload_field = example->add_fields();
-    payload_field->set_name("payload");
-    payload_field->mutable_type()->mutable_bytes();
-
-    auto* counts_field = example->add_fields();
-    counts_field->set_name("counts");
-    counts_field->mutable_type()->mutable_array()->set_max_elements(4);
-    counts_field->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
-        ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
-
-    auto* distances_field = example->add_fields();
-    distances_field->set_name("distances");
-    distances_field->mutable_type()->mutable_array()->set_max_elements(2);
-    distances_field->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
-        ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_F64);
-
-    auto* modes_field = example->add_fields();
-    modes_field->set_name("modes");
-    modes_field->mutable_type()->mutable_array()->set_max_elements(2);
-    modes_field->mutable_type()
-        ->mutable_array()
-        ->mutable_element_type()
-        ->mutable_enum_type()
-        ->set_target_enum_ir_id(3);
-
-    auto* children_field = example->add_fields();
-    children_field->set_name("children");
-    children_field->mutable_type()->mutable_array()->set_max_elements(3);
-    children_field->mutable_type()
-        ->mutable_array()
-        ->mutable_element_type()
-        ->mutable_record()
-        ->set_target_record_ir_id(2);
-
-    return schema_ir;
-}
-
-[[nodiscard]] SchemaIrModel make_manual_cross_namespace_array_schema_ir() {
+[[nodiscard]] SchemaIrModel make_manual_cyclic_namespace_schema_ir() {
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     auto* root = schema_ir.mutable_root_namespace();
@@ -365,223 +243,45 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
     alpha_one->set_name("one");
     alpha_one->set_fqn("alpha.one");
 
-    auto* element = alpha_one->add_records();
-    element->set_ir_id(4);
-    element->set_name("Element");
-    element->set_fqn("alpha.one.Element");
-    auto* element_field = element->add_fields();
-    element_field->set_name("id");
-    element_field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
-
-    auto* mode = alpha_one->add_enums();
-    mode->set_ir_id(5);
-    mode->set_name("Mode");
-    mode->set_fqn("alpha.one.Mode");
-    auto* off = mode->add_values();
-    off->set_name("Off");
-    off->set_value(0);
-    auto* on = mode->add_values();
-    on->set_name("On");
-    on->set_value(1);
+    auto* first = alpha_one->add_records();
+    first->set_ir_id(4);
+    first->set_record_id(1);
+    first->set_name("First");
+    first->set_fqn("alpha.one.First");
+    auto* first_field = first->add_fields();
+    first_field->set_name("other");
+    first_field->mutable_type()->mutable_record()->set_target_record_ir_id(7);
 
     auto* beta = root->add_namespaces();
-    beta->set_ir_id(6);
+    beta->set_ir_id(5);
     beta->set_name("beta");
     beta->set_fqn("beta");
 
     auto* beta_two = beta->add_namespaces();
-    beta_two->set_ir_id(7);
+    beta_two->set_ir_id(6);
     beta_two->set_name("two");
     beta_two->set_fqn("beta.two");
 
-    auto* basket = beta_two->add_records();
-    basket->set_ir_id(8);
-    basket->set_name("Basket");
-    basket->set_fqn("beta.two.Basket");
-
-    auto* elements_field = basket->add_fields();
-    elements_field->set_name("elements");
-    elements_field->mutable_type()->mutable_array()->set_max_elements(2);
-    elements_field->mutable_type()
-        ->mutable_array()
-        ->mutable_element_type()
-        ->mutable_record()
-        ->set_target_record_ir_id(4);
-
-    auto* modes_field = basket->add_fields();
-    modes_field->set_name("modes");
-    modes_field->mutable_type()->mutable_array()->set_max_elements(2);
-    modes_field->mutable_type()
-        ->mutable_array()
-        ->mutable_element_type()
-        ->mutable_enum_type()
-        ->set_target_enum_ir_id(5);
-
-    return schema_ir;
-}
-
-[[nodiscard]] SchemaIrModel make_manual_bounded_builder_schema_ir() {
-    SchemaIrModel schema_ir;
-    schema_ir.set_schema_ir_version(1);
-    auto* root = schema_ir.mutable_root_namespace();
-    root->set_ir_id(1);
-    root->set_name("");
-    root->set_fqn("");
-
-    auto* alpha = root->add_namespaces();
-    alpha->set_ir_id(2);
-    alpha->set_name("alpha");
-    alpha->set_fqn("alpha");
-
-    auto* alpha_one = alpha->add_namespaces();
-    alpha_one->set_ir_id(3);
-    alpha_one->set_name("one");
-    alpha_one->set_fqn("alpha.one");
-
-    auto* child = alpha_one->add_records();
-    child->set_ir_id(4);
-    child->set_name("Child");
-    child->set_fqn("alpha.one.Child");
-    auto* child_count = child->add_fields();
-    child_count->set_name("count");
-    child_count->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
-
-    auto* mode = alpha_one->add_enums();
-    mode->set_ir_id(5);
-    mode->set_name("Mode");
-    mode->set_fqn("alpha.one.Mode");
-    auto* off = mode->add_values();
-    off->set_name("Off");
-    off->set_value(0);
-    auto* on = mode->add_values();
-    on->set_name("On");
-    on->set_value(1);
-
-    auto* wrapper = alpha_one->add_records();
-    wrapper->set_ir_id(6);
-    wrapper->set_name("Wrapper");
-    wrapper->set_fqn("alpha.one.Wrapper");
-
-    auto* wrapper_child = wrapper->add_fields();
-    wrapper_child->set_name("child");
-    wrapper_child->mutable_type()->mutable_record()->set_target_record_ir_id(4);
-
-    auto* wrapper_mode = wrapper->add_fields();
-    wrapper_mode->set_name("mode");
-    wrapper_mode->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(5);
-
-    auto* wrapper_children = wrapper->add_fields();
-    wrapper_children->set_name("children");
-    wrapper_children->mutable_type()->mutable_array()->set_max_elements(2);
-    wrapper_children->mutable_type()
-        ->mutable_array()
-        ->mutable_element_type()
-        ->mutable_record()
-        ->set_target_record_ir_id(4);
-
-    auto* wrapper_modes = wrapper->add_fields();
-    wrapper_modes->set_name("modes");
-    wrapper_modes->mutable_type()->mutable_array()->set_max_elements(2);
-    wrapper_modes->mutable_type()
-        ->mutable_array()
-        ->mutable_element_type()
-        ->mutable_enum_type()
-        ->set_target_enum_ir_id(5);
-
-    auto* beta = root->add_namespaces();
-    beta->set_ir_id(7);
-    beta->set_name("beta");
-    beta->set_fqn("beta");
-
-    auto* beta_two = beta->add_namespaces();
-    beta_two->set_ir_id(8);
-    beta_two->set_name("two");
-    beta_two->set_fqn("beta.two");
-
-    auto* envelope = beta_two->add_records();
-    envelope->set_ir_id(9);
-    envelope->set_name("Envelope");
-    envelope->set_fqn("beta.two.Envelope");
-
-    auto* active = envelope->add_fields();
-    active->set_name("active");
-    active->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL);
-
-    auto* count = envelope->add_fields();
-    count->set_name("count");
-    count->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
-
-    auto* ratio = envelope->add_fields();
-    ratio->set_name("ratio");
-    ratio->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_F64);
-
-    auto* label = envelope->add_fields();
-    label->set_name("label");
-    label->mutable_type()->mutable_string()->set_max_bytes(5);
-
-    auto* payload = envelope->add_fields();
-    payload->set_name("payload");
-    payload->mutable_type()->mutable_bytes()->set_max_bytes(4);
-
-    auto* child_ref = envelope->add_fields();
-    child_ref->set_name("child");
-    child_ref->mutable_type()->mutable_record()->set_target_record_ir_id(4);
-
-    auto* mode_ref = envelope->add_fields();
-    mode_ref->set_name("mode");
-    mode_ref->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(5);
-
-    auto* children_ref = envelope->add_fields();
-    children_ref->set_name("children");
-    children_ref->mutable_type()->mutable_array()->set_max_elements(2);
-    children_ref->mutable_type()
-        ->mutable_array()
-        ->mutable_element_type()
-        ->mutable_record()
-        ->set_target_record_ir_id(4);
-
-    auto* modes_ref = envelope->add_fields();
-    modes_ref->set_name("modes");
-    modes_ref->mutable_type()->mutable_array()->set_max_elements(2);
-    modes_ref->mutable_type()
-        ->mutable_array()
-        ->mutable_element_type()
-        ->mutable_enum_type()
-        ->set_target_enum_ir_id(5);
-
-    auto* samples = envelope->add_fields();
-    samples->set_name("samples");
-    samples->mutable_type()->mutable_array()->set_max_elements(3);
-    samples->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
-        ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
-
-    auto* nested = envelope->add_fields();
-    nested->set_name("nested");
-    nested->mutable_type()->mutable_array()->set_max_elements(2);
-    nested->mutable_type()
-        ->mutable_array()
-        ->mutable_element_type()
-        ->mutable_array()
-        ->set_max_elements(3);
-    nested->mutable_type()
-        ->mutable_array()
-        ->mutable_element_type()
-        ->mutable_array()
-        ->mutable_element_type()
-        ->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U16);
+    auto* second = beta_two->add_records();
+    second->set_ir_id(7);
+    second->set_record_id(2);
+    second->set_name("Second");
+    second->set_fqn("beta.two.Second");
+    auto* second_field = second->add_fields();
+    second_field->set_name("other");
+    second_field->mutable_type()->mutable_record()->set_target_record_ir_id(4);
 
     return schema_ir;
 }
 
 TEST(BackendCodegenTest, EmptySchemaGeneratesNoFiles) {
-    const CodegenResult result = run_backend("", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture("empty", CodegenOptions{});
     EXPECT_TRUE(result.success) << result.error_message;
     EXPECT_TRUE(result.files.empty());
 }
 
 TEST(BackendCodegenTest, SingleRecordMatchesGolden) {
-    const std::string source = backend_fixture_text("single_record");
-    const CodegenResult result = run_backend(source, CodegenOptions{});
+    const CodegenResult result = run_backend_fixture("single_record", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
@@ -589,8 +289,7 @@ TEST(BackendCodegenTest, SingleRecordMatchesGolden) {
 }
 
 TEST(BackendCodegenTest, GeneratedSingleRecordHeaderCompilesAndRuns) {
-    const std::string source = backend_fixture_text("single_record");
-    const CodegenResult result = run_backend(source, CodegenOptions{});
+    const CodegenResult result = run_backend_fixture("single_record", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
 
     const std::string header_include =
@@ -608,8 +307,7 @@ TEST(BackendCodegenTest, GeneratedSingleRecordHeaderCompilesAndRuns) {
 }
 
 TEST(BackendCodegenTest, BuiltinScalarFieldsMatchGolden) {
-    const std::string source = backend_fixture_text("builtin_scalar_fields");
-    const CodegenResult result = run_backend(source, CodegenOptions{});
+    const CodegenResult result = run_backend_fixture("builtin_scalar_fields", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
@@ -617,8 +315,7 @@ TEST(BackendCodegenTest, BuiltinScalarFieldsMatchGolden) {
 }
 
 TEST(BackendCodegenTest, GeneratedBuiltinScalarHeaderCompilesAndRuns) {
-    const std::string source = backend_fixture_text("builtin_scalar_fields");
-    const CodegenResult result = run_backend(source, CodegenOptions{});
+    const CodegenResult result = run_backend_fixture("builtin_scalar_fields", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
 
     const std::string header_include =
@@ -662,8 +359,7 @@ TEST(BackendCodegenTest, GeneratedBuiltinScalarHeaderCompilesAndRuns) {
 }
 
 TEST(BackendCodegenTest, EnumMatchesGolden) {
-    const std::string source = schema_fixture_text("enum");
-    const CodegenResult result = run_backend(source, CodegenOptions{});
+    const CodegenResult result = run_backend_fixture("enum", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
@@ -671,9 +367,7 @@ TEST(BackendCodegenTest, EnumMatchesGolden) {
 }
 
 TEST(BackendCodegenTest, NegativeEnumValuesArePreserved) {
-    Backend backend;
-    const CodegenResult result =
-        backend.generate(make_manual_negative_enum_schema_ir(), CodegenOptions{});
+    const CodegenResult result = run_backend_fixture("negative_enum_values", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
@@ -684,8 +378,7 @@ TEST(BackendCodegenTest, NegativeEnumValuesArePreserved) {
 }
 
 TEST(BackendCodegenTest, NamedTypeReferenceMatchesGolden) {
-    const std::string source = schema_fixture_text("named_type_reference");
-    const CodegenResult result = run_backend(source, CodegenOptions{});
+    const CodegenResult result = run_backend_fixture("named_type_reference", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/breadcrumbs/geo.generated.hpp");
@@ -693,8 +386,7 @@ TEST(BackendCodegenTest, NamedTypeReferenceMatchesGolden) {
 }
 
 TEST(BackendCodegenTest, SameFileForwardReferenceOrdersDefinitions) {
-    const std::string source = backend_fixture_text("forward_record_reference");
-    const CodegenResult result = run_backend(source, CodegenOptions{});
+    const CodegenResult result = run_backend_fixture("forward_record_reference", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
@@ -702,8 +394,8 @@ TEST(BackendCodegenTest, SameFileForwardReferenceOrdersDefinitions) {
 }
 
 TEST(BackendCodegenTest, MultipleTopLevelNamespacesMatchGolden) {
-    const std::string source = schema_fixture_text("multiple_top_level_namespaces");
-    const CodegenResult result = run_backend(source, CodegenOptions{});
+    const CodegenResult result =
+        run_backend_fixture("multiple_top_level_namespaces", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2u);
     EXPECT_EQ(result.files[0].path, "generated/alpha/one.generated.hpp");
@@ -712,8 +404,7 @@ TEST(BackendCodegenTest, MultipleTopLevelNamespacesMatchGolden) {
 }
 
 TEST(BackendCodegenTest, CrossNamespaceReferenceMatchesGolden) {
-    const std::string source = backend_fixture_text("cross_namespace_reference");
-    const CodegenResult result = run_backend(source, CodegenOptions{});
+    const CodegenResult result = run_backend_fixture("cross_namespace_reference", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2u);
     EXPECT_EQ(result.files[0].path, "generated/alpha/one.generated.hpp");
@@ -722,8 +413,8 @@ TEST(BackendCodegenTest, CrossNamespaceReferenceMatchesGolden) {
 }
 
 TEST(BackendCodegenTest, CrossNamespaceEnumReferenceMatchesGolden) {
-    const std::string source = backend_fixture_text("cross_namespace_enum_reference");
-    const CodegenResult result = run_backend(source, CodegenOptions{});
+    const CodegenResult result =
+        run_backend_fixture("cross_namespace_enum_reference", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2u);
     EXPECT_EQ(result.files[0].path, "generated/alpha/one.generated.hpp");
@@ -732,8 +423,8 @@ TEST(BackendCodegenTest, CrossNamespaceEnumReferenceMatchesGolden) {
 }
 
 TEST(BackendCodegenTest, CyclicNamespaceDependencyFailsClearly) {
-    const std::string source = backend_fixture_text("cyclic_namespace_reference");
-    const CodegenResult result = run_backend(source, CodegenOptions{});
+    const CodegenResult result =
+        Backend{}.generate(make_manual_cyclic_namespace_schema_ir(), CodegenOptions{});
     EXPECT_FALSE(result.success);
     EXPECT_TRUE(result.files.empty());
     EXPECT_NE(result.error_message.find("cycle"), std::string::npos);
@@ -749,8 +440,7 @@ TEST(BackendCodegenTest, MalformedFieldTypeFailsAtomically) {
 }
 
 TEST(BackendCodegenTest, EnumReferenceMatchesGolden) {
-    const std::string source = backend_fixture_text("enum_reference");
-    const CodegenResult result = run_backend(source, CodegenOptions{});
+    const CodegenResult result = run_backend_fixture("enum_reference", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
@@ -758,8 +448,8 @@ TEST(BackendCodegenTest, EnumReferenceMatchesGolden) {
 }
 
 TEST(BackendCodegenTest, EnumAndRecordSameNamespaceMatchGolden) {
-    const std::string source = backend_fixture_text("mixed_same_namespace_dependencies");
-    const CodegenResult result = run_backend(source, CodegenOptions{});
+    const CodegenResult result =
+        run_backend_fixture("mixed_same_namespace_dependencies", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
@@ -767,36 +457,31 @@ TEST(BackendCodegenTest, EnumAndRecordSameNamespaceMatchGolden) {
 }
 
 TEST(BackendCodegenTest, MultipleEnumsHaveStableOrder) {
-    const std::string source = backend_fixture_text("multiple_enums");
-    const CodegenResult result = run_backend(source, CodegenOptions{});
+    const CodegenResult result = run_backend_fixture("multiple_enums", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(render_result(result), backend_golden_text("multiple_enums"));
 
-    const CodegenResult second_result = run_backend(source, CodegenOptions{});
+    const CodegenResult second_result = run_backend_fixture("multiple_enums", CodegenOptions{});
     ASSERT_TRUE(second_result.success) << second_result.error_message;
     EXPECT_EQ(render_result(result), render_result(second_result));
 }
 
 TEST(BackendCodegenTest, VariableLengthFieldsMatchGolden) {
-    Backend backend;
-    const CodegenResult result =
-        backend.generate(make_manual_variable_length_schema_ir(), CodegenOptions{});
+    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
     EXPECT_EQ(render_result(result), backend_golden_text("variable_length_fields"));
 
     const CodegenResult second_result =
-        backend.generate(make_manual_variable_length_schema_ir(), CodegenOptions{});
+        run_backend_fixture("variable_length_fields", CodegenOptions{});
     ASSERT_TRUE(second_result.success) << second_result.error_message;
     EXPECT_EQ(render_result(result), render_result(second_result));
 }
 
 TEST(BackendCodegenTest, GeneratedVariableLengthHeaderCompilesAndRuns) {
-    Backend backend;
-    const CodegenResult result =
-        backend.generate(make_manual_variable_length_schema_ir(), CodegenOptions{});
+    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
@@ -846,9 +531,8 @@ TEST(BackendCodegenTest, GeneratedVariableLengthHeaderCompilesAndRuns) {
 }
 
 TEST(BackendCodegenTest, CrossNamespaceArrayReferenceMatchesGolden) {
-    Backend backend;
     const CodegenResult result =
-        backend.generate(make_manual_cross_namespace_array_schema_ir(), CodegenOptions{});
+        run_backend_fixture("cross_namespace_array_reference", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2u);
     EXPECT_EQ(result.files[0].path, "generated/alpha/one.generated.hpp");
@@ -857,138 +541,49 @@ TEST(BackendCodegenTest, CrossNamespaceArrayReferenceMatchesGolden) {
 }
 
 TEST(BackendCodegenTest, GeneratedBuilderBoundsHeaderCompilesAndRuns) {
-    Backend backend;
-    const CodegenResult result =
-        backend.generate(make_manual_bounded_builder_schema_ir(), CodegenOptions{});
+    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
-    ASSERT_EQ(result.files.size(), 2u);
-    ASSERT_EQ(result.files[0].path, "generated/alpha/one.generated.hpp");
-    ASSERT_EQ(result.files[1].path, "generated/beta/two.generated.hpp");
+    ASSERT_EQ(result.files.size(), 1u);
+    ASSERT_EQ(result.files[0].path, "generated/schema.generated.hpp");
 
     const std::string translation_source =
-        "#include \"beta/two.generated.hpp\"\n"
+        "#include \"schema.generated.hpp\"\n"
         "#include <cstddef>\n"
         "#include <cstdint>\n"
         "#include <string>\n"
         "#include <type_traits>\n"
         "#include <vector>\n"
         "int main() {\n"
-        "  ::alpha::one::ChildBuilder child_builder;\n"
-        "  if (!child_builder.set_count(7u)) {\n"
+        "  ::ExampleBuilder builder;\n"
+        "  if (!builder.set_name(\"example\")) {\n"
         "    return 1;\n"
         "  }\n"
-        "  const auto child = child_builder.build();\n"
-        "  ::alpha::one::WrapperBuilder wrapper_builder;\n"
-        "  if (!wrapper_builder.set_child(child) || "
-        "!wrapper_builder.set_mode(::alpha::one::Mode::On)) {\n"
+        "  if (!builder.set_payload(std::vector<std::byte>{std::byte{0x01}})) {\n"
         "    return 2;\n"
         "  }\n"
-        "  if (!wrapper_builder.set_children(std::vector<::alpha::one::Child>{child, child})) {\n"
+        "  if (!builder.set_counts(std::vector<std::uint32_t>{1u, 2u, 3u, 4u})) {\n"
         "    return 3;\n"
         "  }\n"
-        "  if (!wrapper_builder.set_modes(std::vector<::alpha::one::Mode>{::alpha::one::Mode::Off, "
-        "::alpha::one::Mode::On})) {\n"
+        "  if (!builder.set_distances(std::vector<double>{3.5, 4.5})) {\n"
         "    return 4;\n"
         "  }\n"
-        "  const auto wrapper = wrapper_builder.build();\n"
-        "  if (!wrapper.has_child() || !wrapper.has_mode() || !wrapper.has_children() || "
-        "!wrapper.has_modes()) {\n"
+        "  if (!builder.set_modes(std::vector<::Mode>{::Mode::On, ::Mode::Off})) {\n"
         "    return 5;\n"
         "  }\n"
-        "  ::beta::two::EnvelopeBuilder builder;\n"
-        "  if (builder.has_active() || builder.has_label() || builder.has_payload()) {\n"
+        "  if (!builder.set_children(std::vector<::Child>{::Child{}, ::Child{}})) {\n"
         "    return 6;\n"
         "  }\n"
-        "  if (!builder.set_active(false)) {\n"
+        "  const auto value = builder.build();\n"
+        "  if (!value.has_name() || !value.has_payload() || !value.has_counts()) {\n"
         "    return 7;\n"
         "  }\n"
-        "  if (!builder.set_count(0u) || !builder.set_ratio(0.0)) {\n"
+        "  if (value.name() == nullptr || *value.name() != \"example\") {\n"
         "    return 8;\n"
-        "  }\n"
-        "  if (!builder.set_child(child) || !builder.set_mode(::alpha::one::Mode::Off)) {\n"
-        "    return 9;\n"
-        "  }\n"
-        "  if (!builder.set_children(std::vector<::alpha::one::Child>{child, child})) {\n"
-        "    return 10;\n"
-        "  }\n"
-        "  if (!builder.set_modes(std::vector<::alpha::one::Mode>{::alpha::one::Mode::On, "
-        "::alpha::one::Mode::Off})) {\n"
-        "    return 11;\n"
-        "  }\n"
-        "  if (!builder.set_samples(std::vector<std::uint32_t>{1u, 2u, 3u})) {\n"
-        "    return 12;\n"
-        "  }\n"
-        "  if (!builder.set_nested(std::vector<std::vector<std::uint16_t>>{{1u, 2u, 3u}, {4u, 5u, "
-        "6u}})) {\n"
-        "    return 13;\n"
-        "  }\n"
-        "  if (builder.set_label(std::string(\"toolong\"))) {\n"
-        "    return 14;\n"
-        "  }\n"
-        "  if (builder.has_label()) {\n"
-        "    return 15;\n"
-        "  }\n"
-        "  if (!builder.set_label(std::string(\"hello\"))) {\n"
-        "    return 16;\n"
-        "  }\n"
-        "  if (builder.set_label(std::string(\"toolong\"))) {\n"
-        "    return 17;\n"
-        "  }\n"
-        "  if (!builder.has_label()) {\n"
-        "    return 18;\n"
-        "  }\n"
-        "  if (!builder.set_payload(std::vector<std::byte>{std::byte{0x01}, std::byte{0x02}, "
-        "std::byte{0x03}, std::byte{0x04}})) {\n"
-        "    return 19;\n"
-        "  }\n"
-        "  if (builder.set_payload(std::vector<std::byte>{std::byte{0x01}, std::byte{0x02}, "
-        "std::byte{0x03}, std::byte{0x04}, std::byte{0x05}})) {\n"
-        "    return 20;\n"
-        "  }\n"
-        "  if (!builder.has_payload()) {\n"
-        "    return 21;\n"
-        "  }\n"
-        "  if (builder.set_children(std::vector<::alpha::one::Child>{child, child, child})) {\n"
-        "    return 22;\n"
-        "  }\n"
-        "  if (builder.set_modes(std::vector<::alpha::one::Mode>{::alpha::one::Mode::Off, "
-        "::alpha::one::Mode::On, ::alpha::one::Mode::Off})) {\n"
-        "    return 23;\n"
-        "  }\n"
-        "  if (builder.set_samples(std::vector<std::uint32_t>{1u, 2u, 3u, 4u})) {\n"
-        "    return 24;\n"
-        "  }\n"
-        "  if (builder.set_nested(std::vector<std::vector<std::uint16_t>>{{1u, 2u, 3u, 4u}})) {\n"
-        "    return 25;\n"
-        "  }\n"
-        "  if (builder.set_nested(std::vector<std::vector<std::uint16_t>>{{1u, 2u, 3u}, {4u, 5u, "
-        "6u}, {7u, 8u, 9u}})) {\n"
-        "    return 26;\n"
-        "  }\n"
-        "  const auto value = builder.build();\n"
-        "  if (!value.has_active() || !value.has_count() || !value.has_ratio() || "
-        "!value.has_label() || !value.has_payload()) {\n"
-        "    return 27;\n"
-        "  }\n"
-        "  if (value.active() == nullptr || *value.active() != false) {\n"
-        "    return 28;\n"
-        "  }\n"
-        "  if (value.count() == nullptr || *value.count() != 0u) {\n"
-        "    return 29;\n"
-        "  }\n"
-        "  if (value.ratio() == nullptr || *value.ratio() != 0.0) {\n"
-        "    return 30;\n"
-        "  }\n"
-        "  if (value.label() == nullptr || *value.label() != std::string(\"hello\")) {\n"
-        "    return 31;\n"
-        "  }\n"
-        "  if (value.payload() == nullptr || value.payload()->size() != 4u) {\n"
-        "    return 32;\n"
         "  }\n"
         "  return 0;\n"
         "}\n";
 
-    compile_generated_header(result, "generated/beta/two.generated.hpp", translation_source);
+    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
 }
 
 } // namespace

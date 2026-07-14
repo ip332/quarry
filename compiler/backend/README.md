@@ -63,6 +63,8 @@ Current C++ generation behavior:
 * keeps enum formatting, parsing, reflection, codecs, accessors beyond the
   minimal const inspection API, and runtime serialization out of scope for
   this PR
+* backend code-generation tests consume validated Schema IR directly and do
+  not exercise either source frontend
 
 Allowed dependencies:
 

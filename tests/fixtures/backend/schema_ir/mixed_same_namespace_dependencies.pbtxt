@@ -1,0 +1,52 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  records {
+    ir_id: 2
+    record_id: 1
+    name: "Wrapper"
+    fqn: "Wrapper"
+    fields {
+      name: "child"
+      type {
+        record {
+          target_record_ir_id: 4
+        }
+      }
+    }
+    fields {
+      name: "state"
+      field_index: 1
+      type {
+        enum_type {
+          target_enum_ir_id: 5
+        }
+      }
+    }
+  }
+  records {
+    ir_id: 4
+    record_id: 2
+    name: "Child"
+    fqn: "Child"
+    fields {
+      name: "count"
+      type {
+        primitive: PRIMITIVE_TYPE_U32
+      }
+    }
+  }
+  enums {
+    ir_id: 5
+    name: "Status"
+    fqn: "Status"
+    values {
+      name: "Unknown"
+      value: 0
+    }
+    values {
+      name: "Ready"
+      value: 1
+    }
+  }
+}

@@ -1,0 +1,17 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  enums {
+    ir_id: 2
+    name: "FixType"
+    fqn: "FixType"
+    values {
+      name: "one"
+      value: 1
+    }
+    values {
+      name: "two"
+      value: 2
+    }
+  }
+}

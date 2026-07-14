@@ -1,0 +1,30 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  records {
+    ir_id: 2
+    record_id: 1
+    name: "Example"
+    fqn: "Example"
+    fields {
+      name: "active"
+      type {
+        primitive: PRIMITIVE_TYPE_BOOL
+      }
+    }
+    fields {
+      name: "count"
+      field_index: 1
+      type {
+        primitive: PRIMITIVE_TYPE_U32
+      }
+    }
+    fields {
+      name: "ratio"
+      field_index: 2
+      type {
+        primitive: PRIMITIVE_TYPE_F64
+      }
+    }
+  }
+}

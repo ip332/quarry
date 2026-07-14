@@ -71,8 +71,6 @@ add_breadcrumbs_gtest(backend_codegen_test backend/backend_codegen_test.cpp
                       breadcrumbs_compiler_backend)
 target_compile_definitions(backend_codegen_test PRIVATE
     BREADCRUMBS_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}")
-target_link_libraries(backend_codegen_test PRIVATE breadcrumbs_compiler_parser)
-target_link_libraries(backend_codegen_test PRIVATE breadcrumbs_compiler_layout)
 target_link_libraries(backend_codegen_test PRIVATE breadcrumbs_compiler_schema_ir)
 target_link_libraries(backend_codegen_test PRIVATE breadcrumbs_schema_ir_warning_tweaks)
 add_breadcrumbs_gtest(diagnostics_smoke_test diagnostics/diagnostics_smoke_test.cpp breadcrumbs_compiler_context)

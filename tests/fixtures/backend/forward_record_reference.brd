@@ -1,7 +1,0 @@
-record A {
-  value: B
-}
-
-record B {
-  count: u32
-}

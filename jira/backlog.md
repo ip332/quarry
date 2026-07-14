@@ -1,1 +1,1 @@
-- PR-030: Remove the retired normalized-source-schema-to-legacy-AST compatibility projection and its compatibility-only dependencies/tests while retaining the independent legacy declaration-syntax parser and AST pipeline
+- PR-032: Decouple backend code-generation tests from source frontends by feeding validated Schema IR fixtures directly into Backend::generate while keeping the legacy AST-based SchemaIrBuilder overload available

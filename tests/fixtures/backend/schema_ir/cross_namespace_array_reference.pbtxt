@@ -1,0 +1,82 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  namespaces {
+    ir_id: 2
+    name: "alpha"
+    fqn: "alpha"
+    namespaces {
+      ir_id: 3
+      name: "one"
+      fqn: "alpha.one"
+      records {
+        ir_id: 4
+        record_id: 1
+        name: "Element"
+        fqn: "alpha.one.Element"
+        fields {
+          name: "id"
+          type {
+            primitive: PRIMITIVE_TYPE_U32
+          }
+        }
+      }
+      enums {
+        ir_id: 5
+        name: "Mode"
+        fqn: "alpha.one.Mode"
+        values {
+          name: "Off"
+          value: 0
+        }
+        values {
+          name: "On"
+          value: 1
+        }
+      }
+    }
+  }
+  namespaces {
+    ir_id: 6
+    name: "beta"
+    fqn: "beta"
+    namespaces {
+      ir_id: 7
+      name: "two"
+      fqn: "beta.two"
+      records {
+        ir_id: 8
+        record_id: 2
+        name: "Basket"
+        fqn: "beta.two.Basket"
+        fields {
+          name: "elements"
+          type {
+            array {
+              max_elements: 2
+              element_type {
+                record {
+                  target_record_ir_id: 4
+                }
+              }
+            }
+          }
+        }
+        fields {
+          name: "modes"
+          field_index: 1
+          type {
+            array {
+              max_elements: 2
+              element_type {
+                enum_type {
+                  target_enum_ir_id: 5
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

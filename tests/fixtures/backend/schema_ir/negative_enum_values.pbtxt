@@ -1,0 +1,17 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  enums {
+    ir_id: 2
+    name: "SignedValue"
+    fqn: "SignedValue"
+    values {
+      name: "Zero"
+      value: 0
+    }
+    values {
+      name: "Negative"
+      value: -1
+    }
+  }
+}
