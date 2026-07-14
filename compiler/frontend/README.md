@@ -29,7 +29,9 @@ coverage.
 The YAML path now builds the symbol table and semantic model directly from the
 normalized source-schema model and lowers directly into `SchemaIrBuilder`
 without any compatibility AST hop. The legacy declaration parser remains
-available and is still used by existing declaration-syntax tests.
+available only as compatibility/test infrastructure and is still used by
+existing declaration-syntax tests. It is not a supported standalone compiler
+frontend.
 
 Non-empty YAML imports remain unsupported and continue to fail in the existing
 source-schema normalization layer. Import resolution is not implemented here.

@@ -73,7 +73,7 @@ Layout computation operates on a deterministic ordering of records.
 Records are processed in canonical fully qualified name order.
 
 Canonical fully qualified name order is based on the record's namespace path and
-record name after import resolution and namespace construction.
+record name after namespace construction.
 
 Deterministic record ordering is required so identical Semantic Models and
 identical compiler state produce identical Layout Models. It also makes

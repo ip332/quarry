@@ -23,7 +23,6 @@ AST nodes represent source syntax only. They must not:
 * assign compiler-managed IDs
 * compute layout
 * validate schema semantics
-* normalize imports
 * construct Schema IR
 
 A type name in the AST is just parsed name syntax. Later passes decide whether
@@ -73,18 +72,17 @@ not a serialization format and should not be consumed as compiler input.
 
 ## Relationship To Compiler Passes
 
-The legacy parser produces ASTs from source text. The import resolver consumes
-ASTs as a lightweight compilation-unit boundary for the legacy declaration-
-syntax pipeline; it does not yet perform import-graph resolution, file loading,
-or path canonicalization. The namespace builder can consume
-either ASTs or the normalized source-schema model to build symbol information.
-The semantic validator likewise consumes either the legacy AST path or the
-normalized source-schema model together with symbol information. The production
-YAML path no longer routes through a compatibility AST after source-schema
-normalization, and Schema IR construction is driven by the normalized
-source-schema model rather than AST input. The AST-specific SchemaIrBuilder
-overload has been removed; only the legacy declaration-syntax parser pipeline
-retains AST ownership and document-order grouping.
+The legacy parser produces ASTs from source text. Import declarations remain
+AST syntax only on the legacy declaration-syntax path; there is no active
+import-resolver pass or document-graph boundary in the current repository. The
+namespace builder can consume either ASTs or the normalized source-schema
+model to build symbol information. The semantic validator likewise consumes
+either the legacy AST path or the normalized source-schema model together with
+symbol information. The production YAML path no longer routes through a
+compatibility AST after source-schema normalization, and Schema IR
+construction is driven by the normalized source-schema model rather than AST
+input. The AST-specific SchemaIrBuilder overload has been removed; only the
+legacy declaration-syntax parser pipeline retains AST ownership.
 
 ## Dependency Restrictions
 

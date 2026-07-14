@@ -54,6 +54,12 @@ Current implementation status:
 * the production-facing YAML orchestration layer now compiles import-free YAML
   through validated Schema IR without a compatibility AST hop after source-
   schema normalization
+* the legacy declaration parser and AST remain compatibility infrastructure for
+  lower-layer tests and transitional APIs; they are not a standalone
+  production frontend
+* import declarations remain parser syntax only on the legacy declaration
+  path; there is no import resolver or multi-file import graph in the current
+  compiler
 * the current temporary declaration grammar, annotation parsing, and
   fixed-size array handling are not normative language contracts
 * current annotations are transitional string-valued metadata; the normative
@@ -67,6 +73,8 @@ Current implementation status:
 * source loading remains caller-owned; the parser does not provide a
   root-source parsing facade or read files from disk
 * the parser does not load files or resolve import names to paths
+* import declarations are accepted only as legacy syntax and are ignored by
+  downstream passes
 
 ## Source Ranges
 

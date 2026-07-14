@@ -80,11 +80,14 @@ during the migration.
 
 Source loading remains outside the compiler passes. Callers register source
 text with `SourceManager`, receive a `SourceFileId`, and parse exactly one
-registered source file per parser invocation. Import resolution currently
-groups already-parsed AST documents only; it does not yet load files or
-construct a resolved document graph.
+registered source file per parser invocation. There is no import-resolver
+pass in the current repository; import declarations remain syntax only on the
+legacy AST path and are ignored by downstream passes.
 There is no production root-source loading facade for declaration syntax yet;
 file loading and source registration remain caller-owned.
+The legacy declaration-syntax frontend is compatibility infrastructure rather
+than a supported standalone compiler frontend; the production compiler path
+is the normalized YAML frontend.
 
 ---
 
@@ -122,11 +125,12 @@ Produces:
 
 Required by:
 
-* Import Resolver
+* Namespace Builder
+* Semantic Validator
 
 ### Assumptions on Input
 
-The input is a source text unit selected for compilation or import resolution.
+The input is a source text unit selected for compilation.
 The parser does not assume that the source is syntactically valid.
 
 ### Responsibilities
@@ -164,68 +168,13 @@ or layout computation.
 
 ---
 
-## 2. Import Resolver
+## 2. Import Resolution Status
 
-### Purpose
-
-The import resolver currently acts as a lightweight AST grouping boundary for
-the legacy declaration-syntax pipeline.
-
-Imports are source-level compiler directives only. They remain AST-owned until
-the repository defines a dedicated import-graph boundary.
-
-### Input Representation
-
-* ASTs
-
-### Output Representation
-
-* Compilation Unit
-
-### Consumes / Produces / Required by
-
-Consumes:
-
-* AST
-
-Produces:
-
-* Compilation Unit
-
-Required by:
-
-* Namespace Builder
-
-### Assumptions on Input
-
-All input ASTs are syntactically valid. Import declarations are represented as
-source-level AST nodes.
-
-### Responsibilities
-
-* preserve the input AST documents in a deterministic compilation unit
-* provide the current boundary for future import-graph work
-
-### Invariants Established on Output
-
-* input AST document order is preserved
-* input AST identity is preserved by pointer
-* import declarations remain AST syntax
-
-`SourceManager` is not part of this pass. File loading, file identity
-assignment, and import-name-to-path mapping remain outside the current import
-resolver contract.
-
-### Diagnostics Emitted
-
-* none in the current implementation
-
-### Why This Pass Exists Separately
-
-This pass exists to preserve the legacy declaration-syntax pipeline boundary
-for future multi-file import work. It keeps AST grouping separate from
-namespace construction and semantic validation even though it does not yet
-resolve an import graph.
+There is no import-resolver pass in the current repository. Import
+declarations remain legacy AST syntax only. The parser retains them for
+compatibility with historical `.brd` files, but downstream passes ignore them
+and no production stage loads imported files, resolves import names to files,
+or builds a document graph.
 
 ---
 
@@ -233,14 +182,14 @@ resolve an import graph.
 
 ### Purpose
 
-The namespace builder converts the Compilation Unit or the normalized
-source-schema document into the Symbol Model.
+The namespace builder converts the parsed AST or the normalized source-schema
+document into the Symbol Model.
 
 This pass establishes logical declaration identity using fully qualified names.
 
 ### Input Representation
 
-* Compilation Unit
+* AST
 * normalized source-schema document
 
 ### Output Representation
@@ -251,7 +200,7 @@ This pass establishes logical declaration identity using fully qualified names.
 
 Consumes:
 
-* Compilation Unit
+* AST
 
 Produces:
 
@@ -263,10 +212,10 @@ Required by:
 
 ### Assumptions on Input
 
-All ASTs are syntactically valid and all imports required for the compilation
-have been resolved. For the normalized source-schema path, the schema has
-already had unsupported YAML imports rejected and normalized identifiers
-validated.
+All ASTs are syntactically valid. Import declarations, when present, are
+legacy syntax only and are ignored by downstream passes. For the normalized
+source-schema path, the schema has already had unsupported YAML imports
+rejected and normalized identifiers validated.
 
 ### Responsibilities
 
@@ -283,7 +232,7 @@ validated.
 * every registered declaration has a fully qualified name
 * namespace nesting is represented canonically
 * duplicate symbols have been rejected
-* source-level imports are no longer needed by downstream passes
+* import declarations remain syntax only and do not produce symbols
 
 ### Diagnostics Emitted
 

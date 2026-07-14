@@ -7,8 +7,8 @@ compiler models and generated artifacts.
 
 The compiler architecture should:
 
-* preserve source-level imports on the legacy AST path until a dedicated import
-  graph boundary exists
+* preserve source-level import declarations on the legacy AST path as
+  compatibility syntax only
 * support a normative YAML source frontend during migration to the legacy
   declaration-syntax compiler pipeline
 * validate schema semantics before layout computation
@@ -48,10 +48,13 @@ layers.
 Earlier layers remain available for diagnostics, debugging, and tooling. This
 keeps compiler behavior deterministic and easier to inspect.
 
-Imports are source-level compiler directives only.
+Import declarations are source-level syntax only on the legacy AST path. They
+are retained for compatibility parsing, but the current compiler does not
+resolve them into a document graph.
 
-After import resolution, imported declarations are represented as normal
-namespace, record, enum, or future semantic items with fully qualified names.
+The legacy declaration-syntax frontend is compatibility infrastructure, not a
+supported standalone compiler frontend. The production compiler front end is
+the normalized YAML pipeline.
 
 Source metadata supports diagnostics and developer tooling. It is not part of
 the binary record format.
@@ -71,10 +74,9 @@ The compiler pipeline is:
   through validated Schema IR by feeding the normalized source schema directly
   into symbol construction, semantic validation, layout computation, and
   Schema IR lowering.
-* AST flows into import resolution, legacy symbol construction, legacy
-  semantic validation, and layout computation. The current import-resolution
-  layer is a placeholder AST aggregation boundary that preserves already
-  parsed documents and their order; it is not yet a canonical import graph.
+* AST flows into legacy symbol construction, legacy semantic validation, and
+  layout computation. Import declarations remain parsed syntax only and are
+  ignored by the current downstream pipeline.
 
 The current migration boundary is intentionally uneven: scalar- and
 enum-shaped schemas can flow through the existing downstream pipeline today,
@@ -121,17 +123,17 @@ The Parsed AST may contain imports because imports are part of source syntax.
 
 ### Resolved IR
 
-Resolved IR is the canonical namespace tree and declaration graph after import
-resolution.
+Resolved IR is the canonical namespace tree and declaration graph that a
+future import-resolution stage would produce.
 
-It exists to resolve imports and names into a canonical declaration graph.
+It would resolve imports and names into a canonical declaration graph.
 
 Resolved IR contains fully qualified references.
 
 Resolved IR does not contain import objects.
 
-Imported declarations appear as normal namespace, record, enum, or future
-semantic items in the resolved namespace model.
+Imported declarations would appear as normal namespace, record, enum, or
+future semantic items in the resolved namespace model.
 
 ### Semantic IR
 
@@ -184,21 +186,9 @@ separate from the compact runtime manifest.
 
 ## Import Resolution Policy
 
-Imports are source-level compiler directives only.
-
-Imports must not survive as first-class entities in:
-
-* Resolved IR
-* Semantic IR
-* Layout IR
-* Schema IR
-* the binary record format
-
-After import resolution, imported declarations are represented as normal
-namespace/record/enum items with fully qualified names.
-
-Backends should not need to understand source imports in order to generate
-artifacts.
+There is no active import-resolution stage in the current repository.
+Import declarations remain legacy parser syntax only and are ignored by the
+current downstream compiler pipeline.
 
 ---
 

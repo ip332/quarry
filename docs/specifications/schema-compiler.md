@@ -29,7 +29,9 @@ The Schema Compiler SHALL parse schema files.
 
 ### REQ-SC-002
 
-The Schema Compiler SHALL resolve imports.
+The Schema Compiler SHALL accept legacy import declarations as syntax only and
+SHALL NOT require an import-resolution stage to compile the current supported
+schema pipeline.
 
 ### REQ-SC-003
 
@@ -125,7 +127,7 @@ detail.
 The Schema Compiler consumes:
 
 * `.brd` schema files
-* imported schema definitions
+* parsed AST documents that may contain legacy import declarations
 * compatibility metadata
 * reserved field metadata
 * target language configuration
@@ -159,13 +161,12 @@ artifacts directly.
 The conceptual compilation stages are:
 
 1. Parse schema files.
-2. Resolve imports.
-3. Validate syntax and semantics.
-4. Build a unified schema model.
-5. Compute binary layouts and serialization metadata.
-6. Produce an Intermediate Representation (IR).
-7. Invoke language generators.
-8. Produce compiler artifacts.
+2. Validate syntax and semantics.
+3. Build a unified schema model.
+4. Compute binary layouts and serialization metadata.
+5. Produce an Intermediate Representation (IR).
+6. Invoke language generators.
+7. Produce compiler artifacts.
 
 These stages describe the required compiler responsibilities, not a mandatory
 implementation algorithm or internal module structure.

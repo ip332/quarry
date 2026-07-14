@@ -1,1 +1,1 @@
-- PR-040: Define the declaration-syntax root-source orchestration boundary by documenting that source loading remains caller-owned, adding focused filesystem-injection coverage, and deferring a production root-source facade until a real consumer exists
+- PR-043: Classify the remaining declaration-syntax frontend as compatibility parser + AST rather than a supported standalone compiler frontend, keeping parser and AST APIs for lower-layer compatibility and tests while production compilation stays on the normalized YAML path

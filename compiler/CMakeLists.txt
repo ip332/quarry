@@ -94,19 +94,6 @@ target_link_libraries(breadcrumbs_compiler_yaml
         breadcrumbs_yaml::yaml
 )
 
-add_library(breadcrumbs_compiler_imports
-    imports/imports.cpp
-)
-target_include_directories(breadcrumbs_compiler_imports PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(breadcrumbs_compiler_imports
-    PUBLIC
-        breadcrumbs_compiler_ast
-        breadcrumbs_compiler_context
-        breadcrumbs_compiler_diagnostics
-        breadcrumbs_compiler_support
-        breadcrumbs_project_options
-)
-
 add_library(breadcrumbs_compiler_symbols
     symbols/symbols.cpp
 )
