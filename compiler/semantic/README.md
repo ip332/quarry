@@ -62,8 +62,8 @@ also passes the normalized source schema directly into `SchemaIrBuilder`, so
 the YAML pipeline no longer uses a source-schema-to-AST compatibility
 projection.
 
-The legacy AST path remains available for the independent declaration-syntax
-frontend and its tests.
+The legacy AST path remains available for lower-layer compatibility and test
+coverage, but it no longer feeds Schema IR construction or Schema IR tests.
 
 ## Dependency Restrictions
 

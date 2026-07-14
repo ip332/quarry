@@ -71,8 +71,7 @@ The compiler pipeline is:
   into symbol construction, semantic validation, layout computation, and
   Schema IR lowering.
 * AST flows into import resolution, legacy symbol construction, legacy
-  semantic validation, layout computation, legacy AST-based Schema IR
-  construction, and backends.
+  semantic validation, and layout computation.
 
 The current migration boundary is intentionally uneven: scalar- and
 enum-shaped schemas can flow through the existing downstream pipeline today,

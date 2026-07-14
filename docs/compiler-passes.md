@@ -60,10 +60,10 @@ Symbol Model / Semantic Model
 ```
 
 The existing legacy declaration parser remains available for transitional test
-coverage and produces the same AST-shaped input that later passes already
-consume. The YAML frontend does not replace the legacy parser yet; it feeds a
-normalized source-schema model into the same downstream pipeline through an
-explicit normalization boundary.
+coverage and produces the AST-shaped input consumed by legacy parser-facing
+pass overloads. The YAML frontend does not replace the legacy parser; it feeds
+a normalized source-schema model into the same downstream semantic and layout
+pipeline through an explicit normalization boundary.
 
 Scalar- and enum-shaped YAML schemas can currently traverse the complete
 legacy pipeline. Bounded-variable arrays are preserved through YAML decoding,

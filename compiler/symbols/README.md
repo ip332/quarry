@@ -27,6 +27,8 @@ Scopes own symbol records and nested child scopes.
 
 `NamespaceBuilder::build` can consume the parsed AST or the normalized
 source-schema model and constructs the same scope tree from either input.
+Schema IR no longer consumes `SymbolTable` directly; the normalized
+source-schema path feeds Schema IR construction without a symbol-table input.
 
 ## Name Model
 

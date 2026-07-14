@@ -60,7 +60,7 @@ Current implementation status:
 * the production YAML frontend builds symbols, semantic state, and Schema IR
   directly from the normalized source-schema model without a compatibility AST
   projection
-* the legacy AST-based `SchemaIrBuilder` path and tests remain available
+* Schema IR construction no longer consumes AST input
 * later compiler stages carry the validated record metadata and bounded-array
   metadata through the Semantic and Schema IR models
 
@@ -77,7 +77,10 @@ either ASTs or the normalized source-schema model to build symbol information.
 The semantic validator likewise consumes either the legacy AST path or the
 normalized source-schema model together with symbol information. The production
 YAML path no longer routes through a compatibility AST after source-schema
-normalization.
+normalization, and Schema IR construction is driven by the normalized
+source-schema model rather than AST input. The AST-specific SchemaIrBuilder
+overload has been removed; only the legacy declaration-syntax parser pipeline
+retains AST ownership.
 
 ## Dependency Restrictions
 

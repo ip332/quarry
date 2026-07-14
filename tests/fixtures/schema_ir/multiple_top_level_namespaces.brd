@@ -1,9 +1,0 @@
-namespace alpha.one {
-  record First {
-  }
-}
-
-namespace beta.two {
-  record Second {
-  }
-}

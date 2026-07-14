@@ -225,7 +225,6 @@ target_link_libraries(breadcrumbs_compiler_schema_ir
         breadcrumbs_compiler_context
         breadcrumbs_compiler_layout
         breadcrumbs_compiler_semantic
-        breadcrumbs_compiler_symbols
         breadcrumbs_compiler_diagnostics
         breadcrumbs_compiler_support
     PRIVATE

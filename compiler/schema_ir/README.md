@@ -1,6 +1,6 @@
 # Schema IR
 
-Owns lowering from syntax-oriented compiler inputs into the protobuf Schema IR
+Owns lowering from normalized source schema into the protobuf Schema IR
 defined by `proto/breadcrumbs/schema_ir.proto`.
 
 Responsibilities:
@@ -9,8 +9,8 @@ Responsibilities:
   types
 * copy Semantic Model record metadata such as schema version and logical
   record type when available
-* preserve the parsed namespace hierarchy exactly as represented by the AST or
-  the normalized source schema and corresponding symbol tree
+* preserve the parsed namespace hierarchy exactly as represented by the
+  normalized source schema
 * represent resolved record and enum references using compiler-assigned IR
   identifiers
 * copy validated string/bytes `max_bytes` and array `max_elements` values from
@@ -34,9 +34,6 @@ diagnostics for IR integrity issues. It does not mutate the IR.
 Public lowering surface:
 
 * `SchemaIrModel` aliases the protobuf `breadcrumbs::schema_ir::SchemaIR`
-* `SchemaIrBuilder::build(const ast::Ast&, const semantic::SemanticModel&,
-  const layout::LayoutModel&, const symbols::SymbolTable&, context::CompilerContext&,
-  diagnostics::DiagnosticCollection&)`
 * `SchemaIrBuilder::build(const source_schema::NormalizedSourceSchemaDocument&,
   const semantic::SemanticModel&, const layout::LayoutModel&,
   context::CompilerContext&, diagnostics::DiagnosticCollection&)`
@@ -45,13 +42,12 @@ Public lowering surface:
 
 Allowed dependencies:
 
-* `compiler/ast`
 * `compiler/context`
 * `compiler/diagnostics`
 * `compiler/layout`
 * `compiler/semantic`
 * `compiler/support`
-* `compiler/symbols`
+* `compiler/source_schema`
 * protobuf-generated Schema IR types
 
 Implementation status:
@@ -61,29 +57,21 @@ Implementation status:
 * the production-facing YAML frontend now orchestrates the import-free YAML
   pipeline through validated Schema IR directly from the normalized
   source-schema model
-* the legacy AST-based Schema IR path remains available for transitional
-  callers and narrowly scoped legacy compatibility tests
 * direct normalized-source-schema tests under
   `tests/yaml/normalized_source_schema_pipeline_test.cpp` provide the primary
   Schema IR builder unit coverage
 * `tests/schema_ir/schema_ir_validation_test.cpp` constructs representation-
   neutral protobuf Schema IR directly for validator coverage
-* `tests/schema_ir/schema_ir_legacy_builder_test.cpp` retains only the
-  compatibility behavior that still depends on the AST-based builder overload
-* `tests/schema_ir/schema_ir_legacy_golden_test.cpp` remains as the
-  declaration-syntax integration test for the multiple-top-level-namespace
-  fixture shape that the current YAML document contract does not represent
-* the independent legacy declaration-syntax frontend continues to use
-  parser/AST contracts, including its legacy array representation. The
-  production YAML frontend does not depend on those contracts and remains
-  normalized-source-schema-based through Schema IR.
+* multiple sibling top-level namespaces remain valid Schema IR and are covered
+  through direct protobuf/backend fixtures
+* parser/AST compatibility is not a Schema IR responsibility
 
 Namespace handling:
 
 * the protobuf model requires a single `root_namespace`
 * `root_namespace` is treated as a synthetic container
-* top-level YAML source-schema namespaces and legacy AST namespaces are lowered
-  as children of that synthetic root
+* top-level YAML source-schema namespaces are lowered as children of that
+  synthetic root
 * multi-component namespace declarations are lowered mechanically, one path
   component at a time
 
@@ -109,17 +97,12 @@ Source metadata:
 Golden tests:
 
 * fixture-backed golden tests live under `tests/fixtures/schema_ir_yaml` for
-  the production YAML path and `tests/fixtures/schema_ir` for the single
-  legacy-only exception
+  the production YAML path
 * the production golden suite compiles YAML fixtures through
   `frontend::YamlCompiler` and compares a normalized text-format rendering of
   the resulting Schema IR
-* the legacy-only golden test remains for the one fixture shape that the
-  current YAML contract does not represent
 * compiler-only source metadata is stripped from the comparison so the golden
   files stay stable and reviewable
-* direct builder compatibility tests now live in
-  `tests/schema_ir/schema_ir_legacy_builder_test.cpp`
 
 Deferred work:
 

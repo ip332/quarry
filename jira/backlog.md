@@ -1,1 +1,1 @@
-- PR-033: Separate representation-neutral Schema IR validator tests from legacy AST-based SchemaIrBuilder compatibility coverage, consolidate duplicated builder tests around the normalized-source-schema path, and keep the AST overload available pending a dedicated legacy-frontend decision
+- PR-034: Remove the test-only AST-based SchemaIrBuilder overload and duplicated legacy Schema IR coverage so normalized source schema is the sole Schema IR input, while keeping multiple-top-level-namespace support covered through direct IR and backend fixtures
