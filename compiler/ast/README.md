@@ -62,6 +62,9 @@ Current implementation status:
   directly from the normalized source-schema model without a compatibility AST
   projection
 * Schema IR construction no longer consumes AST input
+* remaining parser/AST compatibility coverage is parser/AST-only; tests that
+  still exercise symbol construction or semantic validation are coverage for
+  those layers' legacy AST overloads, not parser compatibility blockers
 * later compiler stages carry the validated record metadata and bounded-array
   metadata through the Semantic and Schema IR models
 
@@ -75,14 +78,19 @@ not a serialization format and should not be consumed as compiler input.
 The legacy parser produces ASTs from source text. Import declarations remain
 AST syntax only on the legacy declaration-syntax path; there is no active
 import-resolver pass or document-graph boundary in the current repository. The
-namespace builder can consume either ASTs or the normalized source-schema
-model to build symbol information. The semantic validator likewise consumes
+remaining parser/AST compatibility tests inspect AST shape, source identity,
+source ranges, parser diagnostics, annotations, and temporary declaration
+syntax recovery without invoking symbols or semantic validation. The namespace
+builder can still consume either ASTs or the normalized source-schema model to
+build symbol information, and the semantic validator likewise still consumes
 either the legacy AST path or the normalized source-schema model together with
-symbol information. The production YAML path no longer routes through a
-compatibility AST after source-schema normalization, and Schema IR
-construction is driven by the normalized source-schema model rather than AST
-input. The AST-specific SchemaIrBuilder overload has been removed; only the
-legacy declaration-syntax parser pipeline retains AST ownership.
+symbol information. Those AST-facing overloads are legacy coverage in the
+symbols and semantic layers rather than parser compatibility requirements. The
+production YAML path no longer routes through a compatibility AST after
+source-schema normalization, and Schema IR construction is driven by the
+normalized source-schema model rather than AST input. The AST-specific
+SchemaIrBuilder overload has been removed; only the legacy declaration-syntax
+parser pipeline retains AST ownership.
 
 ## Dependency Restrictions
 

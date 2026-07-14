@@ -57,6 +57,9 @@ Current implementation status:
 * the legacy declaration parser and AST remain compatibility infrastructure for
   lower-layer tests and transitional APIs; they are not a standalone
   production frontend
+* the remaining parser/AST compatibility tests stop at parser-owned syntax
+  shape, source identity, source ranges, and parser diagnostics; they do not
+  require symbol construction or semantic validation
 * import declarations remain parser syntax only on the legacy declaration
   path; there is no import resolver or multi-file import graph in the current
   compiler

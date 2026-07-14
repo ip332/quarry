@@ -55,11 +55,14 @@ The normative `.brd` YAML contract is defined in
 
 The current semantic implementation still consumes the transitional
 declaration-parser AST and also accepts the normalized source-schema model.
-The AST overload is legacy compatibility API retained for parser/AST tests
-and transitional callers; the supported production path is the normalized
-source-schema overload. Keep the AST overload until the remaining
-parser/AST compatibility tests are either retired or reduced to parser/AST-
-only coverage that no longer needs semantic validation.
+The AST overload is legacy compatibility API retained for transitional callers
+and semantic-layer smoke coverage; the supported production path is the
+normalized source-schema overload. PR-047 reassessed the parser/AST
+compatibility tests and found they are parser/AST-only: the tests that still
+invoke AST semantic validation are semantic coverage, not parser compatibility
+blockers. This means the AST overload can be removed in the follow-up API
+retirement once that semantic coverage is either migrated to normalized
+source-schema fixtures or deleted with the legacy AST path.
 
 The production YAML frontend now passes normalized YAML source schema directly
 into symbol construction and semantic validation. The production YAML frontend
@@ -69,8 +72,8 @@ projection.
 
 The legacy AST path remains available for lower-layer compatibility and test
 coverage, but it no longer feeds Schema IR construction or Schema IR tests.
-That compatibility surface is intentionally temporary and depends on the
-remaining parser/AST tests still needing semantic validation.
+That compatibility surface is intentionally temporary and no longer depends on
+parser/AST compatibility tests needing semantic validation.
 
 ## Dependency Restrictions
 
