@@ -89,6 +89,9 @@ Source loading is intentionally caller-owned: `SourceManager` stores
 already-loaded source text and source labels, while the parser consumes one
 registered source file at a time. The repository does not yet define a
 multi-file declaration-syntax loader or an import-name-to-path mapping.
+There is no production declaration-syntax root-source parsing facade yet; a
+caller that wants to parse a file path still performs source loading and
+registration itself.
 
 During migration, the legacy declaration-syntax frontend and the normative YAML
 frontend both remain available. Legacy declaration-syntax tests continue to

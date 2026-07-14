@@ -83,6 +83,8 @@ text with `SourceManager`, receive a `SourceFileId`, and parse exactly one
 registered source file per parser invocation. Import resolution currently
 groups already-parsed AST documents only; it does not yet load files or
 construct a resolved document graph.
+There is no production root-source loading facade for declaration syntax yet;
+file loading and source registration remain caller-owned.
 
 ---
 

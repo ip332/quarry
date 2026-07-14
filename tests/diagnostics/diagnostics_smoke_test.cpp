@@ -1,9 +1,11 @@
 #include "compiler/context/compiler_context.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
+#include "compiler/support/file_system.hpp"
 #include "compiler/support/source_location.hpp"
 #include "compiler/support/source_manager.hpp"
 
 #include <optional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -20,10 +22,39 @@ using breadcrumbs::compiler::diagnostics::DiagnosticId;
 using breadcrumbs::compiler::diagnostics::RelatedLocation;
 using breadcrumbs::compiler::diagnostics::Severity;
 using breadcrumbs::compiler::diagnostics::to_string;
+using breadcrumbs::compiler::support::FileReadResult;
+using breadcrumbs::compiler::support::FileSystem;
 using breadcrumbs::compiler::support::SourceFileId;
 using breadcrumbs::compiler::support::SourceLocation;
 using breadcrumbs::compiler::support::SourceManager;
 using breadcrumbs::compiler::support::SourceRange;
+
+class RecordingFileSystem final : public FileSystem {
+public:
+    [[nodiscard]] FileReadResult read_text_file(std::string_view path) const override {
+        ++read_count;
+        last_read_path = std::string(path);
+        return FileReadResult{
+            .found = true,
+            .text = std::string("read:") + std::string(path),
+        };
+    }
+
+    [[nodiscard]] bool exists(std::string_view path) const override {
+        last_exists_path = std::string(path);
+        return path == "/project/main.bc";
+    }
+
+    [[nodiscard]] std::string normalize_path(std::string_view path) const override {
+        last_normalized_path = std::string(path);
+        return std::string("/normalized") + std::string(path);
+    }
+
+    mutable int read_count = 0;
+    mutable std::string last_read_path;
+    mutable std::string last_exists_path;
+    mutable std::string last_normalized_path;
+};
 
 [[nodiscard]] DiagnosticId id(std::string_view value) {
     const auto parsed = DiagnosticId::parse(value);
@@ -220,6 +251,23 @@ TEST(CompilerContextTest, ProvidesAccessToDiagnosticEngine) {
         Diagnostic::create(id("BC1001"), Severity::Error, "context diagnostic").build());
     EXPECT_EQ(context.diagnostic_engine().error_count(), 1U);
     EXPECT_TRUE(context.diagnostic_engine().has_fatal_diagnostics());
+}
+
+TEST(CompilerContextTest, OwnsInjectedFileSystem) {
+    auto file_system = std::make_unique<RecordingFileSystem>();
+    RecordingFileSystem* const raw_file_system = file_system.get();
+
+    CompilerContext context(std::move(file_system));
+
+    const FileReadResult read = context.file_system().read_text_file("/project/main.bc");
+    EXPECT_TRUE(read.found);
+    EXPECT_EQ(read.text, "read:/project/main.bc");
+    EXPECT_EQ(raw_file_system->read_count, 1);
+    EXPECT_EQ(raw_file_system->last_read_path, "/project/main.bc");
+    EXPECT_TRUE(context.file_system().exists("/project/main.bc"));
+    EXPECT_EQ(context.file_system().normalize_path("main.bc"), "/normalizedmain.bc");
+    EXPECT_EQ(raw_file_system->last_exists_path, "/project/main.bc");
+    EXPECT_EQ(raw_file_system->last_normalized_path, "main.bc");
 }
 
 } // namespace

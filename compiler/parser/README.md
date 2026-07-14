@@ -64,6 +64,8 @@ Current implementation status:
   manager-local `SourceFileId` for the source that was parsed
 * that explicit parsed-source identity is parser-layer infrastructure only and
   has no production consumer yet
+* source loading remains caller-owned; the parser does not provide a
+  root-source parsing facade or read files from disk
 * the parser does not load files or resolve import names to paths
 
 ## Source Ranges

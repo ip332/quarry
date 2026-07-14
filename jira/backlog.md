@@ -1,1 +1,1 @@
-- PR-039: Define the first consumer boundary for explicit parsed-source identity by keeping ParseResult manager-local and parser-owned, documenting that no production consumer exists yet, and staging follow-up work without adding imports or filesystem loading
+- PR-040: Define the declaration-syntax root-source orchestration boundary by documenting that source loading remains caller-owned, adding focused filesystem-injection coverage, and deferring a production root-source facade until a real consumer exists
