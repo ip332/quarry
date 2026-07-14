@@ -166,6 +166,8 @@ TEST(SymbolsSmokeTest, BuildsNestedNamespaceScopes) {
     schema.enums.push_back(NormalizedSourceSchemaEnum{
         .name = source_identifier("FixType", 64, 71),
         .source_range = range(64, 71),
+        .values = {},
+        .annotations = {},
     });
 
     DiagnosticEngine diagnostics;
