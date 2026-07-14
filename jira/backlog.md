@@ -1,1 +1,1 @@
-- PR-044: Mark the AST-facing namespace and semantic overloads as legacy compatibility APIs retained for parser/AST tests and transitional callers, while leaving the normalized YAML production path unchanged
+- PR-045: Reassess the AST-derived symbols, semantic, and layout compatibility suites, migrate representation-neutral coverage to normalized source schema or direct semantic fixtures, and keep only the remaining declaration-syntax compatibility tests that exercise unique parser/AST behavior

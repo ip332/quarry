@@ -1,5 +1,6 @@
 #include "compiler/ast/ast.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
+#include "compiler/source_schema/source_schema.hpp"
 #include "compiler/symbols/symbols.hpp"
 
 #include <memory>
@@ -21,6 +22,10 @@ using breadcrumbs::compiler::ast::QualifiedNameSyntax;
 using breadcrumbs::compiler::ast::RecordDeclarationSyntax;
 using breadcrumbs::compiler::ast::SchemaFileSyntax;
 using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
+using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaDocument;
+using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaEnum;
+using breadcrumbs::compiler::source_schema::SourceSchemaIdentifier;
+using breadcrumbs::compiler::source_schema::SourceSchemaQualifiedName;
 using breadcrumbs::compiler::support::SourceFileId;
 using breadcrumbs::compiler::support::SourceLocation;
 using breadcrumbs::compiler::support::SourceRange;
@@ -94,6 +99,47 @@ using breadcrumbs::compiler::symbols::SymbolKind;
     return scope.find_local(name);
 }
 
+[[nodiscard]] SourceSchemaIdentifier source_identifier(std::string text, std::size_t begin,
+                                                      std::size_t end) {
+    return SourceSchemaIdentifier{
+        .text = std::move(text),
+        .source_range = range(begin, end),
+    };
+}
+
+[[nodiscard]] SourceSchemaQualifiedName source_qualified_name(std::string_view text,
+                                                              std::size_t begin,
+                                                              std::size_t end) {
+    SourceSchemaQualifiedName name;
+    name.source_range = range(begin, end);
+
+    std::size_t part_begin = 0;
+    while (part_begin <= text.size()) {
+        const std::size_t part_end = text.find('.', part_begin);
+        const std::string_view part = part_end == std::string_view::npos
+                                          ? text.substr(part_begin)
+                                          : text.substr(part_begin, part_end - part_begin);
+        name.parts.push_back(source_identifier(std::string(part), begin + part_begin,
+                                               begin + part_begin + part.size()));
+        if (part_end == std::string_view::npos) {
+            break;
+        }
+        part_begin = part_end + 1;
+    }
+
+    return name;
+}
+
+[[nodiscard]] NormalizedSourceSchemaDocument make_normalized_schema(std::string_view namespace_name,
+                                                                    std::string_view record_name) {
+    NormalizedSourceSchemaDocument schema;
+    schema.source_range = range(0, 128);
+    schema.namespace_name = source_qualified_name(namespace_name, 0, namespace_name.size());
+    schema.record_name = source_identifier(std::string(record_name), 0, record_name.size());
+    schema.record_source_range = range(32, 32 + record_name.size());
+    return schema;
+}
+
 TEST(SymbolsSmokeTest, CollectsTopLevelDeclarations) {
     std::vector<DeclarationPtr> declarations;
     declarations.push_back(make_namespace("breadcrumbs", 0, 31));
@@ -116,30 +162,15 @@ TEST(SymbolsSmokeTest, CollectsTopLevelDeclarations) {
 }
 
 TEST(SymbolsSmokeTest, BuildsNestedNamespaceScopes) {
-    std::vector<DeclarationPtr> declarations;
-    std::vector<DeclarationPtr> nested_declarations;
-    nested_declarations.push_back(
-        breadcrumbs::compiler::ast::make_declaration(RecordDeclarationSyntax{
-            .source_range = range(26, 44),
-            .name = identifier("Location", 33, 41),
-            .version = 0,
-            .version_source_range = range(0, 0),
-            .record_type_spelling = {},
-            .record_type_source_range = range(0, 0),
-            .fields = {},
-            .annotations = {},
-        }));
-    declarations.push_back(breadcrumbs::compiler::ast::make_declaration(NamespaceDeclarationSyntax{
-        .source_range = range(0, 62),
-        .name =
-            qualified_name({identifier("breadcrumbs", 10, 21), identifier("geo", 22, 25)}, 10, 25),
-        .declarations = std::move(nested_declarations),
-        .annotations = {},
-    }));
-    const auto ast = schema_file(std::move(declarations));
+    auto schema = make_normalized_schema("breadcrumbs.geo", "Location");
+    schema.enums.push_back(NormalizedSourceSchemaEnum{
+        .name = source_identifier("FixType", 64, 71),
+        .source_range = range(64, 71),
+    });
+
     DiagnosticEngine diagnostics;
     NamespaceBuilder builder;
-    const auto model = builder.build(ast, diagnostics);
+    const auto model = builder.build(schema, diagnostics);
 
     ASSERT_TRUE(diagnostics.empty());
     const Scope& global = model.global_scope();
@@ -157,33 +188,16 @@ TEST(SymbolsSmokeTest, BuildsNestedNamespaceScopes) {
     const Symbol* location = find_symbol(geo_scope, "Location");
     ASSERT_NE(location, nullptr);
     EXPECT_EQ(location->kind, SymbolKind::Record);
+    const Symbol* fix_type = find_symbol(geo_scope, "FixType");
+    ASSERT_NE(fix_type, nullptr);
+    EXPECT_EQ(fix_type->kind, SymbolKind::Enum);
 }
 
 TEST(SymbolsSmokeTest, ResolvesCurrentAndEnclosingScopeNames) {
-    std::vector<DeclarationPtr> declarations;
-    std::vector<DeclarationPtr> nested_declarations;
-    nested_declarations.push_back(
-        breadcrumbs::compiler::ast::make_declaration(RecordDeclarationSyntax{
-            .source_range = range(26, 44),
-            .name = identifier("Location", 33, 41),
-            .version = 0,
-            .version_source_range = range(0, 0),
-            .record_type_spelling = {},
-            .record_type_source_range = range(0, 0),
-            .fields = {},
-            .annotations = {},
-        }));
-    declarations.push_back(breadcrumbs::compiler::ast::make_declaration(NamespaceDeclarationSyntax{
-        .source_range = range(0, 70),
-        .name =
-            qualified_name({identifier("breadcrumbs", 10, 21), identifier("geo", 22, 25)}, 10, 25),
-        .declarations = std::move(nested_declarations),
-        .annotations = {},
-    }));
-    const auto ast = schema_file(std::move(declarations));
+    const auto schema = make_normalized_schema("breadcrumbs.geo", "Location");
     DiagnosticEngine diagnostics;
     NamespaceBuilder builder;
-    const auto model = builder.build(ast, diagnostics);
+    const auto model = builder.build(schema, diagnostics);
 
     const Scope& global = model.global_scope();
     const Symbol* breadcrumbs = find_symbol(global, "breadcrumbs");
@@ -199,37 +213,14 @@ TEST(SymbolsSmokeTest, ResolvesCurrentAndEnclosingScopeNames) {
 }
 
 TEST(SymbolsSmokeTest, ResolvesQualifiedNames) {
-    std::vector<DeclarationPtr> declarations;
-    std::vector<DeclarationPtr> nested_declarations;
-    nested_declarations.push_back(
-        breadcrumbs::compiler::ast::make_declaration(RecordDeclarationSyntax{
-            .source_range = range(26, 44),
-            .name = identifier("Location", 33, 41),
-            .version = 0,
-            .version_source_range = range(0, 0),
-            .record_type_spelling = {},
-            .record_type_source_range = range(0, 0),
-            .fields = {},
-            .annotations = {},
-        }));
-    declarations.push_back(breadcrumbs::compiler::ast::make_declaration(NamespaceDeclarationSyntax{
-        .source_range = range(0, 80),
-        .name =
-            qualified_name({identifier("breadcrumbs", 10, 21), identifier("geo", 22, 25)}, 10, 25),
-        .declarations = std::move(nested_declarations),
-        .annotations = {},
-    }));
-    const auto ast = schema_file(std::move(declarations));
+    const auto schema = make_normalized_schema("breadcrumbs.geo", "Location");
     DiagnosticEngine diagnostics;
     NamespaceBuilder builder;
-    const auto model = builder.build(ast, diagnostics);
+    const auto model = builder.build(schema, diagnostics);
 
     const Scope& global = model.global_scope();
-    const Symbol* result =
-        model.resolve(qualified_name({identifier("breadcrumbs", 0, 11), identifier("geo", 12, 15),
-                                      identifier("Location", 16, 24)},
-                                     0, 24),
-                      global);
+    const Symbol* result = model.resolve(source_qualified_name("breadcrumbs.geo.Location", 0, 24),
+                                         global);
     ASSERT_NE(result, nullptr);
     EXPECT_EQ(result->kind, SymbolKind::Record);
     EXPECT_EQ(result->name, "Location");
@@ -386,15 +377,13 @@ TEST(SymbolsSmokeTest, DetectsDuplicateDeclarationsInSameScope) {
 }
 
 TEST(SymbolsSmokeTest, DetectsUnresolvedNamesWhenAsked) {
-    std::vector<DeclarationPtr> declarations;
-    declarations.push_back(make_record("Location", 0, 18));
-    const auto ast = schema_file(std::move(declarations));
+    const auto schema = make_normalized_schema("breadcrumbs.geo", "Location");
     DiagnosticEngine diagnostics;
     NamespaceBuilder builder;
-    const auto model = builder.build(ast, diagnostics);
+    const auto model = builder.build(schema, diagnostics);
 
     const Scope& global = model.global_scope();
-    const auto name = qualified_name({identifier("Missing", 0, 7)}, 0, 7);
+    const auto name = source_qualified_name("Missing", 0, 7);
     EXPECT_EQ(model.resolve_or_diagnostic(name, global, diagnostics), nullptr);
     ASSERT_EQ(diagnostics.diagnostics().size(), 1U);
     EXPECT_EQ(diagnostics.diagnostics()[0].id().str(), "BC4002");

@@ -2,6 +2,7 @@
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/parser/parser.hpp"
 #include "compiler/semantic/semantic.hpp"
+#include "compiler/source_schema/source_schema.hpp"
 #include "compiler/support/source_manager.hpp"
 #include "compiler/symbols/symbols.hpp"
 
@@ -12,6 +13,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
 
@@ -30,6 +32,12 @@ using breadcrumbs::compiler::semantic::SemanticRecord;
 using breadcrumbs::compiler::semantic::SemanticRecordType;
 using breadcrumbs::compiler::semantic::SemanticType;
 using breadcrumbs::compiler::semantic::SemanticValidator;
+using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaDocument;
+using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaField;
+using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaType;
+using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaTypeReference;
+using breadcrumbs::compiler::source_schema::SourceSchemaIdentifier;
+using breadcrumbs::compiler::source_schema::SourceSchemaQualifiedName;
 using breadcrumbs::compiler::support::SourceFileId;
 using breadcrumbs::compiler::support::SourceManager;
 using breadcrumbs::compiler::symbols::NamespaceBuilder;
@@ -70,6 +78,113 @@ struct AnalysisOutput {
     SemanticValidator validator;
     output.semantic_model =
         validator.validate(output.ast, *output.symbol_table, output.semantic_diagnostics);
+    return output;
+}
+
+struct NormalizedAnalysisOutput {
+    DiagnosticEngine symbol_diagnostics;
+    DiagnosticEngine semantic_diagnostics;
+    std::unique_ptr<SymbolTable> symbol_table;
+    SemanticModel semantic_model;
+};
+
+[[nodiscard]] SourceSchemaIdentifier normalized_identifier(std::string text, std::size_t begin,
+                                                           std::size_t end) {
+    return SourceSchemaIdentifier{
+        .text = std::move(text),
+        .source_range = breadcrumbs::compiler::support::SourceRange(
+            breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), begin),
+            breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), end)),
+    };
+}
+
+[[nodiscard]] SourceSchemaQualifiedName normalized_qualified_name(std::string_view text,
+                                                                  std::size_t begin,
+                                                                  std::size_t end) {
+    SourceSchemaQualifiedName name;
+    name.source_range = breadcrumbs::compiler::support::SourceRange(
+        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), begin),
+        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), end));
+
+    std::size_t part_begin = 0;
+    while (part_begin <= text.size()) {
+        const std::size_t part_end = text.find('.', part_begin);
+        const std::string_view part = part_end == std::string_view::npos
+                                          ? text.substr(part_begin)
+                                          : text.substr(part_begin, part_end - part_begin);
+        name.parts.push_back(normalized_identifier(std::string(part), begin + part_begin,
+                                                   begin + part_begin + part.size()));
+        if (part_end == std::string_view::npos) {
+            break;
+        }
+        part_begin = part_end + 1;
+    }
+
+    return name;
+}
+
+[[nodiscard]] NormalizedSourceSchemaField normalized_field(std::string name,
+                                                           std::string type_spelling) {
+    NormalizedSourceSchemaField field;
+    field.name = normalized_identifier(name, 0, name.size());
+    field.source_range = breadcrumbs::compiler::support::SourceRange(
+        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), 0),
+        breadcrumbs::compiler::support::SourceLocation(
+            SourceFileId(0), name.size() + type_spelling.size() + 2U));
+    if (type_spelling.size() >= 2 && type_spelling.ends_with("[]")) {
+        const std::string_view element_spelling = std::string_view(type_spelling).substr(
+            0, type_spelling.size() - 2);
+        breadcrumbs::compiler::source_schema::NormalizedSourceSchemaArrayType array;
+        array.source_range = field.source_range;
+        NormalizedSourceSchemaTypeReference element_reference;
+        element_reference.name =
+            normalized_qualified_name(element_spelling, 0, element_spelling.size());
+        element_reference.source_range = array.source_range;
+        array.element_type = std::make_unique<NormalizedSourceSchemaType>(
+            NormalizedSourceSchemaType{std::move(element_reference)});
+        field.type = NormalizedSourceSchemaType{std::move(array)};
+        return field;
+    }
+
+    NormalizedSourceSchemaTypeReference type_reference;
+    type_reference.name = normalized_qualified_name(type_spelling, 0, type_spelling.size());
+    type_reference.source_range = field.source_range;
+    field.type = NormalizedSourceSchemaType{std::move(type_reference)};
+    return field;
+}
+
+[[nodiscard]] NormalizedSourceSchemaDocument normalized_schema(std::string_view namespace_name,
+                                                               std::string_view record_name) {
+    NormalizedSourceSchemaDocument schema;
+    schema.source_range = breadcrumbs::compiler::support::SourceRange(
+        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), 0),
+        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), 0));
+    schema.namespace_name = normalized_qualified_name(namespace_name, 0, namespace_name.size());
+    schema.record_name = normalized_identifier(std::string(record_name), 0, record_name.size());
+    schema.record_source_range = breadcrumbs::compiler::support::SourceRange(
+        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), 0),
+        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), record_name.size()));
+    schema.version = 1;
+    schema.version_range = breadcrumbs::compiler::support::SourceRange(
+        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), 0),
+        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), 1));
+    schema.record_type_spelling = "data";
+    schema.record_type_range = breadcrumbs::compiler::support::SourceRange(
+        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), 0),
+        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), 4));
+    return schema;
+}
+
+[[nodiscard]] NormalizedAnalysisOutput analyze_normalized(
+    const NormalizedSourceSchemaDocument& schema) {
+    NormalizedAnalysisOutput output;
+    NamespaceBuilder namespace_builder;
+    output.symbol_table = std::make_unique<SymbolTable>(
+        namespace_builder.build(schema, output.symbol_diagnostics));
+
+    SemanticValidator validator;
+    output.semantic_model =
+        validator.validate(schema, *output.symbol_table, output.semantic_diagnostics);
     return output;
 }
 
@@ -130,28 +245,28 @@ void expect_enum_reference_type(const SemanticField& field, std::string_view exp
 }
 
 TEST(SemanticSmokeTest, AcceptsBuiltinFieldTypes) {
-    const AnalysisOutput output =
-        analyze(R"(record Example {
-  active: bool
-  count: int32
-  total: uint64
-  ratio: float64
-  label: string
-  payload: bytes
-}
-)",
-                [](SchemaFileSyntax& ast) {
-                    auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                        ast.declarations[0]->value);
-                    record.fields[4].max_bytes = 16;
-                    record.fields[4].max_bytes_source_range = record.fields[4].source_range;
-                    record.fields[5].max_bytes = 4;
-                    record.fields[5].max_bytes_source_range = record.fields[5].source_range;
-                });
+    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    schema.fields = {
+        normalized_field("active", "bool"),
+        normalized_field("count", "int32"),
+        normalized_field("total", "uint64"),
+        normalized_field("ratio", "float64"),
+        normalized_field("label", "string"),
+        normalized_field("payload", "bytes"),
+    };
+    schema.fields[4].max_bytes = 16;
+    schema.fields[4].max_bytes_range = schema.fields[4].source_range;
+    schema.fields[5].max_bytes = 4;
+    schema.fields[5].max_bytes_range = schema.fields[5].source_range;
 
-    ASSERT_TRUE(expect_clean_pipeline(output));
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
+
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
+    ASSERT_TRUE(output.semantic_diagnostics.empty())
+        << diagnostics_summary(output.semantic_diagnostics);
     ASSERT_EQ(output.semantic_model.records.size(), 1U);
-    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
     ASSERT_NE(record, nullptr);
     ASSERT_EQ(record->fields.size(), 6U);
     const SemanticField* label = find_field(*record, "label");
@@ -169,44 +284,33 @@ TEST(SemanticSmokeTest, AcceptsBuiltinFieldTypes) {
 }
 
 TEST(SemanticSmokeTest, NormalizesPrimitiveAliasesToCanonicalKinds) {
-    const AnalysisOutput output =
-        analyze(R"(record Example {
-  bool_value: bool
-  i8_short: i8
-  i8_long: int8
-  u8_short: u8
-  u8_long: uint8
-  i16_short: i16
-  i16_long: int16
-  u16_short: u16
-  u16_long: uint16
-  i32_short: i32
-  i32_long: int32
-  u32_short: u32
-  u32_long: uint32
-  i64_short: i64
-  i64_long: int64
-  u64_short: u64
-  u64_long: uint64
-  f32_short: f32
-  f32_long: float32
-  f64_short: f64
-  f64_long: float64
-  text: string
-  payload: bytes
-}
-)",
-                [](SchemaFileSyntax& ast) {
-                    auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                        ast.declarations[0]->value);
-                    record.fields[21].max_bytes = 16;
-                    record.fields[21].max_bytes_source_range = record.fields[21].source_range;
-                    record.fields[22].max_bytes = 4;
-                    record.fields[22].max_bytes_source_range = record.fields[22].source_range;
-                });
+    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    schema.fields = {
+        normalized_field("bool_value", "bool"),      normalized_field("i8_short", "i8"),
+        normalized_field("i8_long", "int8"),         normalized_field("u8_short", "u8"),
+        normalized_field("u8_long", "uint8"),        normalized_field("i16_short", "i16"),
+        normalized_field("i16_long", "int16"),       normalized_field("u16_short", "u16"),
+        normalized_field("u16_long", "uint16"),      normalized_field("i32_short", "i32"),
+        normalized_field("i32_long", "int32"),       normalized_field("u32_short", "u32"),
+        normalized_field("u32_long", "uint32"),      normalized_field("i64_short", "i64"),
+        normalized_field("i64_long", "int64"),       normalized_field("u64_short", "u64"),
+        normalized_field("u64_long", "uint64"),      normalized_field("f32_short", "f32"),
+        normalized_field("f32_long", "float32"),      normalized_field("f64_short", "f64"),
+        normalized_field("f64_long", "float64"),      normalized_field("text", "string"),
+        normalized_field("payload", "bytes"),
+    };
+    schema.fields[21].max_bytes = 16;
+    schema.fields[21].max_bytes_range = schema.fields[21].source_range;
+    schema.fields[22].max_bytes = 4;
+    schema.fields[22].max_bytes_range = schema.fields[22].source_range;
 
-    ASSERT_TRUE(expect_clean_pipeline(output));
-    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
+
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
+    ASSERT_TRUE(output.semantic_diagnostics.empty())
+        << diagnostics_summary(output.semantic_diagnostics);
+    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
     ASSERT_NE(record, nullptr);
     ASSERT_EQ(record->fields.size(), 23U);
     expect_primitive_type(record->fields[0], SemanticPrimitiveType::Bool);
@@ -237,55 +341,27 @@ TEST(SemanticSmokeTest, NormalizesPrimitiveAliasesToCanonicalKinds) {
 }
 
 TEST(SemanticSmokeTest, PreservesRecordMetadataAndBoundedFieldTypes) {
-    const AnalysisOutput output = analyze(
-        R"(record Example {
-  active: bool
-  label: string
-  payload: bytes
-  samples: u32
-}
-)",
-        [](SchemaFileSyntax& ast) {
-            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                ast.declarations[0]->value);
-            record.version = 7;
-            record.version_source_range = record.source_range;
-            record.record_type_spelling = "data";
-            record.record_type_source_range = record.source_range;
+    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    schema.version = 7;
+    schema.version_range = schema.record_source_range;
+    schema.record_type_spelling = "data";
+    schema.record_type_range = schema.record_source_range;
+    schema.fields = {normalized_field("active", "bool"), normalized_field("label", "string"),
+                     normalized_field("payload", "bytes"), normalized_field("samples", "u32[]")};
+    schema.fields[1].max_bytes = 16;
+    schema.fields[1].max_bytes_range = schema.fields[1].source_range;
+    schema.fields[2].max_bytes = 4;
+    schema.fields[2].max_bytes_range = schema.fields[2].source_range;
+    schema.fields[3].max_elements = 64;
+    schema.fields[3].max_elements_range = schema.fields[3].source_range;
 
-            record.fields[1].max_bytes = 16;
-            record.fields[1].max_bytes_source_range = record.fields[1].source_range;
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
 
-            record.fields[2].max_bytes = 4;
-            record.fields[2].max_bytes_source_range = record.fields[2].source_range;
-
-            record.fields[3].type = breadcrumbs::compiler::ast::ArrayTypeSyntax{
-                .source_range = record.fields[3].source_range,
-                .element_type =
-                    breadcrumbs::compiler::ast::TypeReferenceSyntax{
-                        .source_range = record.fields[3].source_range,
-                        .name =
-                            breadcrumbs::compiler::ast::QualifiedNameSyntax{
-                                .source_range = record.fields[3].source_range,
-                                .parts =
-                                    {
-                                        breadcrumbs::compiler::ast::IdentifierSyntax{
-                                            .source_range = record.fields[3].source_range,
-                                            .text = "u32",
-                                        },
-                                    },
-                            },
-                    },
-                .kind = breadcrumbs::compiler::ast::ArrayTypeSyntaxKind::BoundedVariableLength,
-                .fixed_size = std::nullopt,
-                .fixed_size_source_range = breadcrumbs::compiler::support::SourceRange::invalid(),
-            };
-            record.fields[3].max_elements = 64;
-            record.fields[3].max_elements_source_range = record.fields[3].source_range;
-        });
-
-    ASSERT_TRUE(expect_clean_pipeline(output));
-    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
+    ASSERT_TRUE(output.semantic_diagnostics.empty())
+        << diagnostics_summary(output.semantic_diagnostics);
+    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
     ASSERT_NE(record, nullptr);
     ASSERT_TRUE(record->version.has_value());
     EXPECT_EQ(record->version, 7U);
@@ -330,114 +406,87 @@ TEST(SemanticSmokeTest, RecognizesVersionWithoutAValidSourceRange) {
 }
 
 TEST(SemanticSmokeTest, RejectsZeroVersionWithAValidSourceRange) {
-    const AnalysisOutput output = analyze(
-        R"(record Example {
-  active: bool
-}
-)",
-        [](SchemaFileSyntax& ast) {
-            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                ast.declarations[0]->value);
-            record.version = 0;
-            record.version_source_range = record.source_range;
-        });
+    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    schema.version = 0;
+    schema.version_range = schema.record_source_range;
+    schema.fields = {normalized_field("active", "bool")};
 
-    ASSERT_TRUE(expect_clean_pipeline(output));
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
+
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_FALSE(output.semantic_diagnostics.empty());
     EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004");
-    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
     ASSERT_NE(record, nullptr);
     EXPECT_FALSE(record->version.has_value());
 }
 
 TEST(SemanticSmokeTest, RejectsNegativeVersion) {
-    const AnalysisOutput output = analyze(
-        R"(record Example {
-  active: bool
-}
-)",
-        [](SchemaFileSyntax& ast) {
-            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                ast.declarations[0]->value);
-            record.version = -1;
-            record.version_source_range = record.source_range;
-        });
+    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    schema.version = -1;
+    schema.version_range = schema.record_source_range;
+    schema.fields = {normalized_field("active", "bool")};
 
-    ASSERT_TRUE(expect_clean_pipeline(output));
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
+
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_FALSE(output.semantic_diagnostics.empty());
     EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004");
-    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
     ASSERT_NE(record, nullptr);
     EXPECT_FALSE(record->version.has_value());
 }
 
 TEST(SemanticSmokeTest, RejectsVersionGreaterThanUint32) {
-    const AnalysisOutput output = analyze(
-        R"(record Example {
-  active: bool
-}
-)",
-        [](SchemaFileSyntax& ast) {
-            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                ast.declarations[0]->value);
-            record.version = static_cast<std::int64_t>(std::numeric_limits<std::uint32_t>::max()) +
-                            1;
-            record.version_source_range = record.source_range;
-        });
+    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    schema.version = static_cast<std::int64_t>(std::numeric_limits<std::uint32_t>::max()) + 1;
+    schema.version_range = schema.record_source_range;
+    schema.fields = {normalized_field("active", "bool")};
 
-    ASSERT_TRUE(expect_clean_pipeline(output));
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
+
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_FALSE(output.semantic_diagnostics.empty());
     EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004");
-    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
     ASSERT_NE(record, nullptr);
     EXPECT_FALSE(record->version.has_value());
 }
 
 TEST(SemanticSmokeTest, RejectsInvalidLogicalRecordTypeWithAValidSourceRange) {
-    const AnalysisOutput output = analyze(
-        R"(record Example {
-  active: bool
-}
-)",
-        [](SchemaFileSyntax& ast) {
-            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                ast.declarations[0]->value);
-            record.version = 1;
-            record.version_source_range = record.source_range;
-            record.record_type_spelling = "bogus";
-            record.record_type_source_range = record.source_range;
-        });
+    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    schema.record_type_spelling = "bogus";
+    schema.record_type_range = schema.record_source_range;
+    schema.fields = {normalized_field("active", "bool")};
 
-    ASSERT_TRUE(expect_clean_pipeline(output));
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
+
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_FALSE(output.semantic_diagnostics.empty());
     EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5005");
-    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
     ASSERT_NE(record, nullptr);
-    ASSERT_TRUE(record->version.has_value());
     EXPECT_FALSE(record->record_type.has_value());
 }
 
 TEST(SemanticSmokeTest, RejectsInvalidLogicalRecordTypeWithoutAValidSourceRange) {
-    const AnalysisOutput output = analyze(
-        R"(record Example {
-  active: bool
-}
-)",
-        [](SchemaFileSyntax& ast) {
-            auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                ast.declarations[0]->value);
-            record.version = 1;
-            record.version_source_range = record.source_range;
-            record.record_type_spelling = "bogus";
-            record.record_type_source_range = breadcrumbs::compiler::support::SourceRange::invalid();
-        });
+    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    schema.record_type_spelling = "bogus";
+    schema.record_type_range = breadcrumbs::compiler::support::SourceRange::invalid();
+    schema.fields = {normalized_field("active", "bool")};
 
-    ASSERT_TRUE(expect_clean_pipeline(output));
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
+
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_FALSE(output.semantic_diagnostics.empty());
     EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5005");
-    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
     ASSERT_NE(record, nullptr);
-    ASSERT_TRUE(record->version.has_value());
     EXPECT_FALSE(record->record_type.has_value());
 }
 
@@ -475,22 +524,18 @@ TEST(SemanticSmokeTest, NormalizesLogicalRecordTypesToCanonicalKinds) {
     };
 
     for (const auto& [spelling, expected] : cases) {
-        const AnalysisOutput output = analyze(
-            R"(record Example {
-  value: bool
-}
-)",
-            [spelling](SchemaFileSyntax& ast) {
-                auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                    ast.declarations[0]->value);
-                record.version = 1;
-                record.version_source_range = record.source_range;
-                record.record_type_spelling = std::string(spelling);
-                record.record_type_source_range = record.source_range;
-            });
+        auto schema = normalized_schema("breadcrumbs.geo", "Example");
+        schema.record_type_spelling = std::string(spelling);
+        schema.record_type_range = schema.record_source_range;
+        schema.fields = {normalized_field("value", "bool")};
 
-        ASSERT_TRUE(expect_clean_pipeline(output)) << spelling;
-        const SemanticRecord* record = find_record(output.semantic_model, "Example");
+        const NormalizedAnalysisOutput output = analyze_normalized(schema);
+
+        ASSERT_TRUE(output.symbol_diagnostics.empty())
+            << diagnostics_summary(output.symbol_diagnostics) << spelling;
+        ASSERT_TRUE(output.semantic_diagnostics.empty())
+            << diagnostics_summary(output.semantic_diagnostics) << spelling;
+        const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
         ASSERT_NE(record, nullptr);
         ASSERT_TRUE(record->record_type.has_value());
         EXPECT_EQ(*record->record_type, expected) << spelling;
@@ -511,26 +556,23 @@ TEST(SemanticSmokeTest, ReportsMissingZeroAndOverflowingStringBounds) {
           std::string("BC5004")}}};
 
     for (const Case& test_case : cases) {
-        const AnalysisOutput output = analyze(
-            R"(record Example {
-  label: string
-}
-)",
-            [test_case](SchemaFileSyntax& ast) {
-                auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                    ast.declarations[0]->value);
-                if (test_case.max_bytes.has_value()) {
-                    record.fields[0].max_bytes = *test_case.max_bytes;
-                    record.fields[0].max_bytes_source_range = record.fields[0].source_range;
-                }
-            });
+        auto schema = normalized_schema("breadcrumbs.geo", "Example");
+        schema.fields = {normalized_field("label", "string")};
+        if (test_case.max_bytes.has_value()) {
+            schema.fields[0].max_bytes = *test_case.max_bytes;
+            schema.fields[0].max_bytes_range = schema.fields[0].source_range;
+        }
 
-        ASSERT_TRUE(expect_clean_pipeline(output)) << test_case.name;
+        const NormalizedAnalysisOutput output = analyze_normalized(schema);
+
+        ASSERT_TRUE(output.symbol_diagnostics.empty())
+            << diagnostics_summary(output.symbol_diagnostics) << test_case.name;
         ASSERT_FALSE(output.semantic_diagnostics.empty()) << test_case.name;
         EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(),
                   *test_case.expected_id)
             << test_case.name;
-        const SemanticRecord* record = find_record(output.semantic_model, "Example");
+        const SemanticRecord* record =
+            find_record(output.semantic_model, "breadcrumbs.geo.Example");
         ASSERT_NE(record, nullptr);
         EXPECT_TRUE(record->fields.empty()) << test_case.name;
     }
@@ -548,25 +590,22 @@ TEST(SemanticSmokeTest, ReportsMissingZeroAndOverflowingBytesBounds) {
          {"overflow", static_cast<std::int64_t>(std::numeric_limits<std::uint32_t>::max()) + 1}}};
 
     for (const Case& test_case : cases) {
-        const AnalysisOutput output = analyze(
-            R"(record Example {
-  payload: bytes
-}
-)",
-            [test_case](SchemaFileSyntax& ast) {
-                auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                    ast.declarations[0]->value);
-                if (test_case.max_bytes.has_value()) {
-                    record.fields[0].max_bytes = *test_case.max_bytes;
-                    record.fields[0].max_bytes_source_range = record.fields[0].source_range;
-                }
-            });
+        auto schema = normalized_schema("breadcrumbs.geo", "Example");
+        schema.fields = {normalized_field("payload", "bytes")};
+        if (test_case.max_bytes.has_value()) {
+            schema.fields[0].max_bytes = *test_case.max_bytes;
+            schema.fields[0].max_bytes_range = schema.fields[0].source_range;
+        }
 
-        ASSERT_TRUE(expect_clean_pipeline(output)) << test_case.name;
+        const NormalizedAnalysisOutput output = analyze_normalized(schema);
+
+        ASSERT_TRUE(output.symbol_diagnostics.empty())
+            << diagnostics_summary(output.symbol_diagnostics) << test_case.name;
         ASSERT_FALSE(output.semantic_diagnostics.empty()) << test_case.name;
         EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004")
             << test_case.name;
-        const SemanticRecord* record = find_record(output.semantic_model, "Example");
+        const SemanticRecord* record =
+            find_record(output.semantic_model, "breadcrumbs.geo.Example");
         ASSERT_NE(record, nullptr);
         EXPECT_TRUE(record->fields.empty()) << test_case.name;
     }
@@ -584,90 +623,57 @@ TEST(SemanticSmokeTest, ReportsMissingZeroAndOverflowingArrayBounds) {
          {"overflow", static_cast<std::int64_t>(std::numeric_limits<std::uint32_t>::max()) + 1}}};
 
     for (const Case& test_case : cases) {
-        const AnalysisOutput output = analyze(
-            R"(record Example {
-  samples: u32
-}
-)",
-            [test_case](SchemaFileSyntax& ast) {
-                auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                    ast.declarations[0]->value);
-                record.fields[0].type = breadcrumbs::compiler::ast::ArrayTypeSyntax{
-                    .source_range = record.fields[0].source_range,
-                    .element_type =
-                        breadcrumbs::compiler::ast::TypeReferenceSyntax{
-                            .source_range = record.fields[0].source_range,
-                            .name =
-                                breadcrumbs::compiler::ast::QualifiedNameSyntax{
-                                    .source_range = record.fields[0].source_range,
-                                    .parts =
-                                        {
-                                            breadcrumbs::compiler::ast::IdentifierSyntax{
-                                                .source_range = record.fields[0].source_range,
-                                                .text = "u32",
-                                            },
-                                        },
-                                },
-                        },
-                    .kind = breadcrumbs::compiler::ast::ArrayTypeSyntaxKind::BoundedVariableLength,
-                    .fixed_size = std::nullopt,
-                    .fixed_size_source_range =
-                        breadcrumbs::compiler::support::SourceRange::invalid(),
-                };
-                if (test_case.max_elements.has_value()) {
-                    record.fields[0].max_elements = *test_case.max_elements;
-                    record.fields[0].max_elements_source_range = record.fields[0].source_range;
-                }
-            });
+        auto schema = normalized_schema("breadcrumbs.geo", "Example");
+        schema.fields = {normalized_field("samples", "u32[]")};
+        if (test_case.max_elements.has_value()) {
+            schema.fields[0].max_elements = *test_case.max_elements;
+            schema.fields[0].max_elements_range = schema.fields[0].source_range;
+        }
 
-        ASSERT_TRUE(expect_clean_pipeline(output)) << test_case.name;
+        const NormalizedAnalysisOutput output = analyze_normalized(schema);
+
+        ASSERT_TRUE(output.symbol_diagnostics.empty())
+            << diagnostics_summary(output.symbol_diagnostics) << test_case.name;
         ASSERT_FALSE(output.semantic_diagnostics.empty()) << test_case.name;
         EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004")
             << test_case.name;
-        const SemanticRecord* record = find_record(output.semantic_model, "Example");
+        const SemanticRecord* record =
+            find_record(output.semantic_model, "breadcrumbs.geo.Example");
         ASSERT_NE(record, nullptr);
         EXPECT_TRUE(record->fields.empty()) << test_case.name;
     }
 }
 
 TEST(SemanticSmokeTest, ReportsInvalidBoundPlacementOnOtherFieldKinds) {
-    const AnalysisOutput output =
-        analyze(R"(record Example {
-  active: bool
-}
-)",
-                [](SchemaFileSyntax& ast) {
-                    auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                        ast.declarations[0]->value);
-                    record.fields[0].max_bytes = 16;
-                    record.fields[0].max_bytes_source_range = record.fields[0].source_range;
-                });
+    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    schema.fields = {normalized_field("active", "bool")};
+    schema.fields[0].max_bytes = 16;
+    schema.fields[0].max_bytes_range = schema.fields[0].source_range;
 
-    ASSERT_TRUE(expect_clean_pipeline(output));
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
+
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_FALSE(output.semantic_diagnostics.empty());
     EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004");
-    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
     ASSERT_NE(record, nullptr);
     EXPECT_TRUE(record->fields.empty());
 }
 
 TEST(SemanticSmokeTest, ReportsInvalidMaxElementsOnNonArrayFields) {
-    const AnalysisOutput output =
-        analyze(R"(record Example {
-  count: u32
-}
-)",
-                [](SchemaFileSyntax& ast) {
-                    auto& record = std::get<breadcrumbs::compiler::ast::RecordDeclarationSyntax>(
-                        ast.declarations[0]->value);
-                    record.fields[0].max_elements = 4;
-                    record.fields[0].max_elements_source_range = record.fields[0].source_range;
-                });
+    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    schema.fields = {normalized_field("count", "u32")};
+    schema.fields[0].max_elements = 4;
+    schema.fields[0].max_elements_range = schema.fields[0].source_range;
 
-    ASSERT_TRUE(expect_clean_pipeline(output));
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
+
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_FALSE(output.semantic_diagnostics.empty());
     EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004");
-    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
     ASSERT_NE(record, nullptr);
     EXPECT_TRUE(record->fields.empty());
 }
@@ -732,13 +738,17 @@ TEST(SemanticSmokeTest, CollectsSingleTopLevelDeclaration) {
 }
 
 TEST(SemanticSmokeTest, CollectsNestedNamespaceDeclarations) {
-    const AnalysisOutput output = analyze(R"(namespace breadcrumbs.geo {
-  record Location {
-  }
-}
-)");
+    auto schema = normalized_schema("breadcrumbs.geo", "Location");
+    schema.fields = {};
 
-    ASSERT_TRUE(expect_clean_pipeline(output));
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
+
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
+    ASSERT_TRUE(output.semantic_diagnostics.empty())
+        << diagnostics_summary(output.semantic_diagnostics);
+    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Location");
+    ASSERT_NE(record, nullptr);
     const auto& global = output.symbol_table->global_scope();
     const auto* breadcrumbs = global.find_local("breadcrumbs");
     ASSERT_NE(breadcrumbs, nullptr);
@@ -746,29 +756,9 @@ TEST(SemanticSmokeTest, CollectsNestedNamespaceDeclarations) {
     const auto* geo = breadcrumbs->child_scope->find_local("geo");
     ASSERT_NE(geo, nullptr);
     ASSERT_NE(geo->child_scope, nullptr);
-    EXPECT_NE(output.symbol_table->lookup_qualified(
-                  breadcrumbs::compiler::ast::QualifiedNameSyntax{
-                      .source_range = {},
-                      .parts =
-                          {
-                              breadcrumbs::compiler::ast::IdentifierSyntax{
-                                  .source_range = {},
-                                  .text = "breadcrumbs",
-                              },
-                              breadcrumbs::compiler::ast::IdentifierSyntax{
-                                  .source_range = {},
-                                  .text = "geo",
-                              },
-                              breadcrumbs::compiler::ast::IdentifierSyntax{
-                                  .source_range = {},
-                                  .text = "Location",
-                              },
-                          },
-                  },
-                  global),
+    EXPECT_NE(output.symbol_table->lookup(
+                  normalized_qualified_name("breadcrumbs.geo.Location", 0, 24), global),
               nullptr);
-    EXPECT_TRUE(output.semantic_diagnostics.empty())
-        << diagnostics_summary(output.semantic_diagnostics);
 }
 
 TEST(SemanticSmokeTest, ReportsDuplicateDeclarationsInTheSameScope) {
@@ -991,16 +981,17 @@ namespace breadcrumbs.telemetry {
 }
 
 TEST(SemanticSmokeTest, ReportsUnresolvedNamedTypeDiagnostics) {
-    const AnalysisOutput output = analyze(R"(record Example {
-  missing: MissingType
-}
-)");
+    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    schema.fields = {normalized_field("missing", "MissingType")};
 
-    ASSERT_TRUE(expect_clean_pipeline(output));
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
+
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_EQ(output.semantic_diagnostics.diagnostics().size(), 1U);
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].id().str(), "BC5001");
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].compiler_pass(), "semantic");
-    const SemanticRecord* record = find_record(output.semantic_model, "Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
     ASSERT_NE(record, nullptr);
     EXPECT_TRUE(record->fields.empty());
 }

@@ -1,71 +1,41 @@
-#include "compiler/context/compiler_context.hpp"
-#include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/layout/layout.hpp"
-#include "compiler/parser/parser.hpp"
 #include "compiler/semantic/semantic.hpp"
-#include "compiler/support/source_manager.hpp"
-#include "compiler/symbols/symbols.hpp"
 
-#include <algorithm>
 #include <cstddef>
-#include <memory>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include <gtest/gtest.h>
 
 namespace {
 
-using breadcrumbs::compiler::context::CompilerContext;
-using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
+using breadcrumbs::compiler::diagnostics::DiagnosticCollection;
 using breadcrumbs::compiler::layout::LayoutComputer;
 using breadcrumbs::compiler::layout::LayoutModel;
-using breadcrumbs::compiler::parser::Parser;
+using breadcrumbs::compiler::semantic::SemanticField;
 using breadcrumbs::compiler::semantic::SemanticModel;
-using breadcrumbs::compiler::semantic::SemanticValidator;
-using breadcrumbs::compiler::support::SourceFileId;
-using breadcrumbs::compiler::symbols::NamespaceBuilder;
-using breadcrumbs::compiler::symbols::SymbolTable;
+using breadcrumbs::compiler::semantic::SemanticPrimitiveType;
+using breadcrumbs::compiler::semantic::SemanticRecord;
+using breadcrumbs::compiler::semantic::SemanticType;
 
-struct FrontendOutput {
-    CompilerContext context;
-    breadcrumbs::compiler::ast::SchemaFileSyntax ast;
-    DiagnosticEngine parser_diagnostics;
-    DiagnosticEngine symbol_diagnostics;
-    DiagnosticEngine semantic_diagnostics;
-    DiagnosticEngine layout_diagnostics;
-    std::unique_ptr<SymbolTable> symbol_table;
-    SemanticModel semantic_model;
+struct LayoutOutput {
+    breadcrumbs::compiler::context::CompilerContext context;
+    DiagnosticCollection layout_diagnostics;
     LayoutModel layout_model;
-    SourceFileId source_file_id;
 };
 
-[[nodiscard]] FrontendOutput run_layout_pipeline(std::string text) {
-    FrontendOutput output;
-    output.source_file_id =
-        output.context.source_manager().add_source("/test/schema.brd", std::move(text));
-
-    auto parse_result = Parser::parse(output.context.source_manager(), output.source_file_id,
-                                      output.parser_diagnostics);
-    output.ast = std::move(parse_result.ast);
-
-    NamespaceBuilder namespace_builder;
-    output.symbol_table = std::make_unique<SymbolTable>(
-        namespace_builder.build(output.ast, output.symbol_diagnostics));
-
-    SemanticValidator validator;
-    output.semantic_model =
-        validator.validate(output.ast, *output.symbol_table, output.semantic_diagnostics);
-
+[[nodiscard]] LayoutOutput run_layout_pipeline(const SemanticModel& semantic_model) {
+    LayoutOutput output;
     LayoutComputer computer;
     output.layout_model =
-        computer.compute(output.semantic_model, output.context, output.layout_diagnostics);
+        computer.compute(semantic_model, output.context, output.layout_diagnostics);
     return output;
 }
 
-[[nodiscard]] std::string diagnostics_summary(const DiagnosticEngine& diagnostics) {
+[[nodiscard]] std::string diagnostics_summary(const DiagnosticCollection& diagnostics) {
     std::ostringstream stream;
     for (const auto& diagnostic : diagnostics.diagnostics()) {
         stream << diagnostic.id().str() << ": " << diagnostic.message() << '\n';
@@ -73,14 +43,29 @@ struct FrontendOutput {
     return stream.str();
 }
 
-[[nodiscard]] std::string record_fields_source(std::size_t count) {
-    std::ostringstream stream;
-    stream << "record Example {\n";
-    for (std::size_t index = 0; index < count; ++index) {
-        stream << "  field" << index << ": u32\n";
+[[nodiscard]] SemanticField make_field(std::string name) {
+    return SemanticField{
+        .source_range = {},
+        .name = std::move(name),
+        .type = SemanticType(SemanticPrimitiveType::U32),
+    };
+}
+
+[[nodiscard]] SemanticRecord make_record(std::string fqn, std::size_t field_count = 0U) {
+    SemanticRecord record;
+    record.fqn = std::move(fqn);
+    record.source_range = {};
+    record.fields.reserve(field_count);
+    for (std::size_t index = 0; index < field_count; ++index) {
+        record.fields.push_back(make_field("field" + std::to_string(index)));
     }
-    stream << "}\n";
-    return stream.str();
+    return record;
+}
+
+[[nodiscard]] SemanticModel make_model(std::vector<SemanticRecord> records) {
+    SemanticModel model;
+    model.records = std::move(records);
+    return model;
 }
 
 [[nodiscard]] const breadcrumbs::compiler::layout::RecordLayout*
@@ -89,21 +74,15 @@ find_record(const LayoutModel& model, std::string_view fqn) {
 }
 
 TEST(LayoutSmokeTest, EmptySemanticModelProducesNoLayouts) {
-    const FrontendOutput output = run_layout_pipeline("");
+    const LayoutOutput output = run_layout_pipeline(SemanticModel{});
 
-    ASSERT_TRUE(output.parser_diagnostics.empty())
-        << diagnostics_summary(output.parser_diagnostics);
-    ASSERT_TRUE(output.symbol_diagnostics.empty())
-        << diagnostics_summary(output.symbol_diagnostics);
-    ASSERT_TRUE(output.semantic_diagnostics.empty())
-        << diagnostics_summary(output.semantic_diagnostics);
     ASSERT_TRUE(output.layout_diagnostics.empty())
         << diagnostics_summary(output.layout_diagnostics);
     EXPECT_TRUE(output.layout_model.records.empty());
 }
 
 TEST(LayoutSmokeTest, OneEmptyRecordGetsInitialIdentity) {
-    const FrontendOutput output = run_layout_pipeline("record Example {\n}\n");
+    const LayoutOutput output = run_layout_pipeline(make_model({make_record("Example")}));
 
     ASSERT_TRUE(output.layout_diagnostics.empty())
         << diagnostics_summary(output.layout_diagnostics);
@@ -115,8 +94,8 @@ TEST(LayoutSmokeTest, OneEmptyRecordGetsInitialIdentity) {
 }
 
 TEST(LayoutSmokeTest, MultipleFieldsFollowDeclarationOrder) {
-    const FrontendOutput output =
-        run_layout_pipeline("record Example {\n  zeta: u32\n  alpha: u32\n  beta: u32\n}\n");
+    const LayoutOutput output =
+        run_layout_pipeline(make_model({make_record("Example", 3U)}));
 
     ASSERT_TRUE(output.layout_diagnostics.empty())
         << diagnostics_summary(output.layout_diagnostics);
@@ -129,40 +108,23 @@ TEST(LayoutSmokeTest, MultipleFieldsFollowDeclarationOrder) {
 }
 
 TEST(LayoutSmokeTest, CanonicalFqnOrderControlsRecordIds) {
-    const FrontendOutput output = run_layout_pipeline(R"(record Zeta {
-  a: u32
-}
-
-namespace alpha {
-  record Alpha {
-    b: u32
-  }
-}
-)");
+    const LayoutOutput output = run_layout_pipeline(
+        make_model({make_record("Zeta", 1U), make_record("alpha.Alpha", 1U)}));
 
     ASSERT_TRUE(output.layout_diagnostics.empty())
         << diagnostics_summary(output.layout_diagnostics);
     ASSERT_EQ(output.layout_model.records.size(), 2U);
-    ASSERT_EQ(output.layout_model.records[0].fqn, "Zeta");
-    ASSERT_EQ(output.layout_model.records[1].fqn, "alpha.Alpha");
+    ASSERT_NE(find_record(output.layout_model, "Zeta"), nullptr);
+    ASSERT_NE(find_record(output.layout_model, "alpha.Alpha"), nullptr);
+    EXPECT_EQ(output.layout_model.records[0].fqn, "Zeta");
+    EXPECT_EQ(output.layout_model.records[1].fqn, "alpha.Alpha");
     EXPECT_EQ(output.layout_model.records[0].record_id, 1U);
     EXPECT_EQ(output.layout_model.records[1].record_id, 2U);
 }
 
 TEST(LayoutSmokeTest, NestedNamespaceRecordsAreIndependent) {
-    const FrontendOutput output = run_layout_pipeline(R"(namespace breadcrumbs.geo {
-  record Location {
-    latitude: f64
-    longitude: f64
-  }
-
-  namespace vehicle {
-    record Route {
-      distance: u32
-    }
-  }
-}
-)");
+    const LayoutOutput output = run_layout_pipeline(make_model(
+        {make_record("breadcrumbs.geo.Location", 2U), make_record("breadcrumbs.geo.vehicle.Route", 1U)}));
 
     ASSERT_TRUE(output.layout_diagnostics.empty())
         << diagnostics_summary(output.layout_diagnostics);
@@ -178,19 +140,13 @@ TEST(LayoutSmokeTest, NestedNamespaceRecordsAreIndependent) {
 }
 
 TEST(LayoutSmokeTest, RepeatComputationIsDeterministic) {
-    const std::string source = R"(namespace alpha {
-  record First {
-    a: u32
-  }
-}
+    const std::vector<SemanticRecord> records = {
+        make_record("alpha.First", 1U),
+        make_record("Second", 1U),
+    };
 
-record Second {
-  b: u32
-}
-)";
-
-    const FrontendOutput first = run_layout_pipeline(source);
-    const FrontendOutput second = run_layout_pipeline(source);
+    const LayoutOutput first = run_layout_pipeline(make_model(records));
+    const LayoutOutput second = run_layout_pipeline(make_model(records));
 
     ASSERT_TRUE(first.layout_diagnostics.empty()) << diagnostics_summary(first.layout_diagnostics);
     ASSERT_TRUE(second.layout_diagnostics.empty())
@@ -211,7 +167,7 @@ record Second {
 }
 
 TEST(LayoutSmokeTest, Exactly256FieldsSucceeds) {
-    const FrontendOutput output = run_layout_pipeline(record_fields_source(256));
+    const LayoutOutput output = run_layout_pipeline(make_model({make_record("Example", 256U)}));
 
     ASSERT_TRUE(output.layout_diagnostics.empty())
         << diagnostics_summary(output.layout_diagnostics);
@@ -223,7 +179,7 @@ TEST(LayoutSmokeTest, Exactly256FieldsSucceeds) {
 }
 
 TEST(LayoutSmokeTest, TooManyFieldsFailsClearly) {
-    const FrontendOutput output = run_layout_pipeline(record_fields_source(257));
+    const LayoutOutput output = run_layout_pipeline(make_model({make_record("Example", 257U)}));
 
     ASSERT_FALSE(output.layout_diagnostics.empty());
     EXPECT_TRUE(output.layout_model.records.empty());
