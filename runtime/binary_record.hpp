@@ -58,6 +58,24 @@ struct DecodeValueResult {
     DecodeError error = DecodeError::none;
 };
 
+inline ParseRecordResult parse_error(DecodeError error) {
+    return ParseRecordResult{.record = std::nullopt, .error = error};
+}
+
+inline ParseRecordResult parse_success(ParsedRecord record) {
+    return ParseRecordResult{.record = std::move(record), .error = DecodeError::none};
+}
+
+template <typename T>
+inline DecodeValueResult<T> decode_error(DecodeError error) {
+    return DecodeValueResult<T>{.value = std::nullopt, .error = error};
+}
+
+template <typename T>
+inline DecodeValueResult<T> decode_success(T value) {
+    return DecodeValueResult<T>{.value = std::move(value), .error = DecodeError::none};
+}
+
 inline bool append_u8(std::vector<std::byte>& output, std::uint8_t value) {
     output.push_back(static_cast<std::byte>(value));
     return true;
@@ -165,21 +183,21 @@ inline DecodeValueResult<std::uint64_t> read_varuint(std::span<const std::byte> 
     std::uint8_t shift = 0U;
     for (std::uint8_t index = 0U; index < 10U; ++index) {
         if (offset >= input.size()) {
-            return DecodeValueResult<std::uint64_t>{.error = DecodeError::malformed_varuint};
+            return decode_error<std::uint64_t>(DecodeError::malformed_varuint);
         }
         const std::uint8_t byte = byte_value(input[offset]);
         ++offset;
         const std::uint64_t payload = static_cast<std::uint64_t>(byte & 0x7FU);
         if (shift == 63U && payload > 1U) {
-            return DecodeValueResult<std::uint64_t>{.error = DecodeError::malformed_varuint};
+            return decode_error<std::uint64_t>(DecodeError::malformed_varuint);
         }
         value |= payload << shift;
         if ((byte & 0x80U) == 0U) {
-            return DecodeValueResult<std::uint64_t>{.value = value};
+            return decode_success<std::uint64_t>(value);
         }
         shift = static_cast<std::uint8_t>(shift + 7U);
     }
-    return DecodeValueResult<std::uint64_t>{.error = DecodeError::malformed_varuint};
+    return decode_error<std::uint64_t>(DecodeError::malformed_varuint);
 }
 
 inline const FieldView* find_field(const ParsedRecord& record, std::uint8_t field_index) {
@@ -196,11 +214,11 @@ inline const FieldView* find_field(const ParsedRecord& record, std::uint8_t fiel
 
 inline ParseRecordResult parse_record(std::span<const std::byte> input) {
     if (input.size() < kBinaryRecordHeaderSize) {
-        return ParseRecordResult{.error = DecodeError::truncated_header};
+        return parse_error(DecodeError::truncated_header);
     }
 
     if (byte_value(input[0]) != kBinaryRecordHeaderVersion) {
-        return ParseRecordResult{.error = DecodeError::unsupported_version};
+        return parse_error(DecodeError::unsupported_version);
     }
     const std::uint8_t flags = byte_value(input[1]);
     const std::uint8_t directory_entry_count = byte_value(input[2]);
@@ -209,13 +227,13 @@ inline ParseRecordResult parse_record(std::span<const std::byte> input) {
     const std::uint32_t reserved1 = read_raw_u32(input.subspan(8U, 4U));
     const std::uint32_t payload_length = read_raw_u32(input.subspan(12U, 4U));
     if (flags != 0U || reserved0 != 0U || reserved1 != 0U) {
-        return ParseRecordResult{.error = DecodeError::invalid_header};
+        return parse_error(DecodeError::invalid_header);
     }
     if (payload_length > input.size() - kBinaryRecordHeaderSize) {
-        return ParseRecordResult{.error = DecodeError::invalid_payload_length};
+        return parse_error(DecodeError::invalid_payload_length);
     }
     if (input.size() != kBinaryRecordHeaderSize + static_cast<std::size_t>(payload_length)) {
-        return ParseRecordResult{.error = DecodeError::invalid_payload_length};
+        return parse_error(DecodeError::invalid_payload_length);
     }
 
     struct DirectoryEntry {
@@ -231,7 +249,7 @@ inline ParseRecordResult parse_record(std::span<const std::byte> input) {
     std::size_t directory_offset = 0U;
     for (std::uint16_t index = 0U; index < directory_entry_count; ++index) {
         if (directory_offset >= body.size()) {
-            return ParseRecordResult{.error = DecodeError::malformed_directory};
+            return parse_error(DecodeError::malformed_directory);
         }
         DirectoryEntry entry;
         entry.field_index = byte_value(body[directory_offset]);
@@ -239,21 +257,21 @@ inline ParseRecordResult parse_record(std::span<const std::byte> input) {
 
         DecodeValueResult<std::uint64_t> field_offset = read_varuint(body, directory_offset);
         if (!field_offset.value.has_value()) {
-            return ParseRecordResult{.error = field_offset.error};
+            return parse_error(field_offset.error);
         }
         DecodeValueResult<std::uint64_t> field_length = read_varuint(body, directory_offset);
         if (!field_length.value.has_value()) {
-            return ParseRecordResult{.error = field_length.error};
+            return parse_error(field_length.error);
         }
         entry.field_offset = *field_offset.value;
         entry.field_length = *field_length.value;
 
         if (!entries.empty()) {
             if (entries.back().field_index == entry.field_index) {
-                return ParseRecordResult{.error = DecodeError::duplicate_field};
+                return parse_error(DecodeError::duplicate_field);
             }
             if (entries.back().field_index > entry.field_index) {
-                return ParseRecordResult{.error = DecodeError::unsorted_directory};
+                return parse_error(DecodeError::unsorted_directory);
             }
         }
         entries.push_back(entry);
@@ -268,14 +286,14 @@ inline ParseRecordResult parse_record(std::span<const std::byte> input) {
 
     for (const DirectoryEntry& entry : entries) {
         if (entry.field_offset > payload_size || entry.field_length > payload_size) {
-            return ParseRecordResult{.error = DecodeError::invalid_field_range};
+            return parse_error(DecodeError::invalid_field_range);
         }
         if (entry.field_offset > std::numeric_limits<std::uint64_t>::max() - entry.field_length) {
-            return ParseRecordResult{.error = DecodeError::invalid_field_range};
+            return parse_error(DecodeError::invalid_field_range);
         }
         const std::uint64_t field_end = entry.field_offset + entry.field_length;
         if (field_end > payload_size) {
-            return ParseRecordResult{.error = DecodeError::invalid_field_range};
+            return parse_error(DecodeError::invalid_field_range);
         }
         const auto start = static_cast<std::size_t>(entry.field_offset);
         const auto length = static_cast<std::size_t>(entry.field_length);
@@ -289,84 +307,84 @@ inline ParseRecordResult parse_record(std::span<const std::byte> input) {
     std::sort(ranges.begin(), ranges.end());
     for (std::size_t index = 1U; index < ranges.size(); ++index) {
         if (ranges[index - 1U].second > ranges[index].first) {
-            return ParseRecordResult{.error = DecodeError::overlapping_field_range};
+            return parse_error(DecodeError::overlapping_field_range);
         }
     }
 
-    return ParseRecordResult{.record = ParsedRecord{.record_id = record_id, .fields = fields}};
+    return parse_success(ParsedRecord{.record_id = record_id, .fields = fields});
 }
 
 inline DecodeValueResult<bool> read_bool(std::span<const std::byte> input) {
     if (input.size() != 1U) {
-        return DecodeValueResult<bool>{.error = DecodeError::invalid_field_length};
+        return decode_error<bool>(DecodeError::invalid_field_length);
     }
     if (byte_value(input[0]) == 0U) {
-        return DecodeValueResult<bool>{.value = false};
+        return decode_success<bool>(false);
     }
     if (byte_value(input[0]) == 1U) {
-        return DecodeValueResult<bool>{.value = true};
+        return decode_success<bool>(true);
     }
-    return DecodeValueResult<bool>{.error = DecodeError::invalid_bool};
+    return decode_error<bool>(DecodeError::invalid_bool);
 }
 
 inline DecodeValueResult<std::uint8_t> read_u8(std::span<const std::byte> input) {
     if (input.size() != 1U) {
-        return DecodeValueResult<std::uint8_t>{.error = DecodeError::invalid_field_length};
+        return decode_error<std::uint8_t>(DecodeError::invalid_field_length);
     }
-    return DecodeValueResult<std::uint8_t>{.value = byte_value(input[0])};
+    return decode_success<std::uint8_t>(byte_value(input[0]));
 }
 
 inline DecodeValueResult<std::uint16_t> read_u16(std::span<const std::byte> input) {
     if (input.size() != 2U) {
-        return DecodeValueResult<std::uint16_t>{.error = DecodeError::invalid_field_length};
+        return decode_error<std::uint16_t>(DecodeError::invalid_field_length);
     }
-    return DecodeValueResult<std::uint16_t>{.value = read_raw_u16(input)};
+    return decode_success<std::uint16_t>(read_raw_u16(input));
 }
 
 inline DecodeValueResult<std::uint32_t> read_u32(std::span<const std::byte> input) {
     if (input.size() != 4U) {
-        return DecodeValueResult<std::uint32_t>{.error = DecodeError::invalid_field_length};
+        return decode_error<std::uint32_t>(DecodeError::invalid_field_length);
     }
-    return DecodeValueResult<std::uint32_t>{.value = read_raw_u32(input)};
+    return decode_success<std::uint32_t>(read_raw_u32(input));
 }
 
 inline DecodeValueResult<std::uint64_t> read_u64(std::span<const std::byte> input) {
     if (input.size() != 8U) {
-        return DecodeValueResult<std::uint64_t>{.error = DecodeError::invalid_field_length};
+        return decode_error<std::uint64_t>(DecodeError::invalid_field_length);
     }
-    return DecodeValueResult<std::uint64_t>{.value = read_raw_u64(input)};
+    return decode_success<std::uint64_t>(read_raw_u64(input));
 }
 
 inline DecodeValueResult<std::int8_t> read_i8(std::span<const std::byte> input) {
     DecodeValueResult<std::uint8_t> value = read_u8(input);
     if (!value.value.has_value()) {
-        return DecodeValueResult<std::int8_t>{.error = value.error};
+        return decode_error<std::int8_t>(value.error);
     }
-    return DecodeValueResult<std::int8_t>{.value = static_cast<std::int8_t>(*value.value)};
+    return decode_success<std::int8_t>(static_cast<std::int8_t>(*value.value));
 }
 
 inline DecodeValueResult<std::int16_t> read_i16(std::span<const std::byte> input) {
     DecodeValueResult<std::uint16_t> value = read_u16(input);
     if (!value.value.has_value()) {
-        return DecodeValueResult<std::int16_t>{.error = value.error};
+        return decode_error<std::int16_t>(value.error);
     }
-    return DecodeValueResult<std::int16_t>{.value = static_cast<std::int16_t>(*value.value)};
+    return decode_success<std::int16_t>(static_cast<std::int16_t>(*value.value));
 }
 
 inline DecodeValueResult<std::int32_t> read_i32(std::span<const std::byte> input) {
     DecodeValueResult<std::uint32_t> value = read_u32(input);
     if (!value.value.has_value()) {
-        return DecodeValueResult<std::int32_t>{.error = value.error};
+        return decode_error<std::int32_t>(value.error);
     }
-    return DecodeValueResult<std::int32_t>{.value = static_cast<std::int32_t>(*value.value)};
+    return decode_success<std::int32_t>(static_cast<std::int32_t>(*value.value));
 }
 
 inline DecodeValueResult<std::int64_t> read_i64(std::span<const std::byte> input) {
     DecodeValueResult<std::uint64_t> value = read_u64(input);
     if (!value.value.has_value()) {
-        return DecodeValueResult<std::int64_t>{.error = value.error};
+        return decode_error<std::int64_t>(value.error);
     }
-    return DecodeValueResult<std::int64_t>{.value = static_cast<std::int64_t>(*value.value)};
+    return decode_success<std::int64_t>(static_cast<std::int64_t>(*value.value));
 }
 
 inline DecodeValueResult<float> read_f32(std::span<const std::byte> input) {
@@ -374,9 +392,9 @@ inline DecodeValueResult<float> read_f32(std::span<const std::byte> input) {
                   "Breadcrumbs f32 decoding requires IEEE 754 binary32 floats");
     DecodeValueResult<std::uint32_t> value = read_u32(input);
     if (!value.value.has_value()) {
-        return DecodeValueResult<float>{.error = value.error};
+        return decode_error<float>(value.error);
     }
-    return DecodeValueResult<float>{.value = std::bit_cast<float>(*value.value)};
+    return decode_success<float>(std::bit_cast<float>(*value.value));
 }
 
 inline DecodeValueResult<double> read_f64(std::span<const std::byte> input) {
@@ -384,9 +402,9 @@ inline DecodeValueResult<double> read_f64(std::span<const std::byte> input) {
                   "Breadcrumbs f64 decoding requires IEEE 754 binary64 floats");
     DecodeValueResult<std::uint64_t> value = read_u64(input);
     if (!value.value.has_value()) {
-        return DecodeValueResult<double>{.error = value.error};
+        return decode_error<double>(value.error);
     }
-    return DecodeValueResult<double>{.value = std::bit_cast<double>(*value.value)};
+    return decode_success<double>(std::bit_cast<double>(*value.value));
 }
 
 inline std::optional<std::vector<std::byte>>
