@@ -239,11 +239,11 @@ bytes using `fieldOffset` and `fieldLength`.
 Unknown fields do not affect decoding of known fields.
 
 The first generated C++ decoder materializes generated record values for the
-same scalar subset as the first generated encoder: `bool`, fixed-width signed
-and unsigned integers, `float32`, `float64`, and enum references whose declared
-values are all non-negative. A present known field with a type outside that
-subset causes generated decoding to fail. An absent unsupported known field does
-not affect decoding.
+same non-recursive leaf subset as the generated encoder: `bool`, fixed-width
+signed and unsigned integers, `float32`, `float64`, `string`, `bytes`, and enum
+references whose declared values are all non-negative. A present known field
+with a type outside that subset causes generated decoding to fail. An absent
+unsupported known field does not affect decoding.
 
 ---
 
@@ -360,6 +360,9 @@ or elements.
 
 No NUL terminator is encoded.
 
+No internal length prefix is encoded. The Field Directory is the only length
+source for `string` and `bytes` field values.
+
 The binary format encodes byte sequences. The schema defines whether those bytes
 are interpreted as text or opaque data.
 
@@ -371,6 +374,13 @@ String data bytes SHALL be valid UTF-8.
 
 UTF-8 validity is a string validation rule, not a different binary layout.
 
+The `max_bytes` bound for a `string` is measured in encoded UTF-8 bytes, not
+Unicode code points.
+
+Embedded U+0000 is valid string data.
+
+No Unicode normalization is performed by the Binary Record Format.
+
 ### bytes
 
 `bytes` uses variable-length data encoding.
@@ -378,6 +388,8 @@ UTF-8 validity is a string validation rule, not a different binary layout.
 Bytes data may contain any byte sequence.
 
 No UTF-8 validation applies.
+
+The `max_bytes` bound for `bytes` is measured in raw bytes.
 
 ---
 

@@ -7,6 +7,8 @@
 #include <limits>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -45,6 +47,7 @@ enum class DecodeError {
     overlapping_field_range,
     invalid_field_length,
     invalid_bool,
+    invalid_utf8,
 };
 
 struct ParseRecordResult {
@@ -127,6 +130,74 @@ inline bool append_bool(std::vector<std::byte>& output, bool value) {
     return append_u8(output, value ? 1U : 0U);
 }
 
+inline std::uint8_t byte_value(std::byte value) {
+    return static_cast<std::uint8_t>(value);
+}
+
+inline bool append_bytes(std::vector<std::byte>& output, std::span<const std::byte> value) {
+    output.insert(output.end(), value.begin(), value.end());
+    return true;
+}
+
+inline bool is_valid_utf8(std::span<const std::byte> input) {
+    std::size_t index = 0U;
+    while (index < input.size()) {
+        const std::uint8_t first = byte_value(input[index]);
+        if (first <= 0x7FU) {
+            ++index;
+            continue;
+        }
+
+        std::uint32_t code_point = 0U;
+        std::size_t continuation_count = 0U;
+        if (first >= 0xC2U && first <= 0xDFU) {
+            code_point = static_cast<std::uint32_t>(first & 0x1FU);
+            continuation_count = 1U;
+        } else if (first >= 0xE0U && first <= 0xEFU) {
+            code_point = static_cast<std::uint32_t>(first & 0x0FU);
+            continuation_count = 2U;
+        } else if (first >= 0xF0U && first <= 0xF4U) {
+            code_point = static_cast<std::uint32_t>(first & 0x07U);
+            continuation_count = 3U;
+        } else {
+            return false;
+        }
+
+        if (input.size() - index - 1U < continuation_count) {
+            return false;
+        }
+        for (std::size_t continuation = 0U; continuation < continuation_count; ++continuation) {
+            const std::uint8_t byte = byte_value(input[index + continuation + 1U]);
+            if ((byte & 0xC0U) != 0x80U) {
+                return false;
+            }
+            code_point = (code_point << 6U) | static_cast<std::uint32_t>(byte & 0x3FU);
+        }
+
+        if (continuation_count == 2U) {
+            if (code_point < 0x800U || (code_point >= 0xD800U && code_point <= 0xDFFFU)) {
+                return false;
+            }
+        }
+        if (continuation_count == 3U) {
+            if (code_point < 0x10000U || code_point > 0x10FFFFU) {
+                return false;
+            }
+        }
+
+        index += continuation_count + 1U;
+    }
+    return true;
+}
+
+inline bool append_string_utf8(std::vector<std::byte>& output, std::string_view value) {
+    const auto bytes = std::as_bytes(std::span<const char>(value.data(), value.size()));
+    if (!is_valid_utf8(bytes)) {
+        return false;
+    }
+    return append_bytes(output, bytes);
+}
+
 inline bool append_f32(std::vector<std::byte>& output, float value) {
     static_assert(std::numeric_limits<float>::is_iec559,
                   "Breadcrumbs f32 encoding requires IEEE 754 binary32 floats");
@@ -148,10 +219,6 @@ inline void append_varuint(std::vector<std::byte>& output, std::uint64_t value) 
         }
         (void)append_u8(output, byte);
     } while (value != 0U);
-}
-
-inline std::uint8_t byte_value(std::byte value) {
-    return static_cast<std::uint8_t>(value);
 }
 
 inline std::uint16_t read_raw_u16(std::span<const std::byte> input) {
@@ -353,6 +420,23 @@ inline DecodeValueResult<std::uint64_t> read_u64(std::span<const std::byte> inpu
         return decode_error<std::uint64_t>(DecodeError::invalid_field_length);
     }
     return decode_success<std::uint64_t>(read_raw_u64(input));
+}
+
+inline DecodeValueResult<std::vector<std::byte>> read_bytes(std::span<const std::byte> input) {
+    return decode_success<std::vector<std::byte>>(std::vector<std::byte>(input.begin(),
+                                                                         input.end()));
+}
+
+inline DecodeValueResult<std::string> read_string_utf8(std::span<const std::byte> input) {
+    if (!is_valid_utf8(input)) {
+        return decode_error<std::string>(DecodeError::invalid_utf8);
+    }
+    std::string output;
+    output.reserve(input.size());
+    for (std::byte byte : input) {
+        output.push_back(static_cast<char>(byte_value(byte)));
+    }
+    return decode_success<std::string>(std::move(output));
 }
 
 inline DecodeValueResult<std::int8_t> read_i8(std::span<const std::byte> input) {

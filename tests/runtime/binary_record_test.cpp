@@ -6,6 +6,7 @@
 #include <limits>
 #include <optional>
 #include <span>
+#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -15,20 +16,25 @@ namespace {
 using breadcrumbs::runtime::FieldBytes;
 using breadcrumbs::runtime::DecodeError;
 using breadcrumbs::runtime::append_bool;
+using breadcrumbs::runtime::append_bytes;
 using breadcrumbs::runtime::append_f32;
 using breadcrumbs::runtime::append_f64;
 using breadcrumbs::runtime::append_i16;
 using breadcrumbs::runtime::append_i32;
+using breadcrumbs::runtime::append_string_utf8;
 using breadcrumbs::runtime::append_u32;
 using breadcrumbs::runtime::append_varuint;
 using breadcrumbs::runtime::encode_record;
 using breadcrumbs::runtime::find_field;
+using breadcrumbs::runtime::is_valid_utf8;
 using breadcrumbs::runtime::parse_record;
+using breadcrumbs::runtime::read_bytes;
 using breadcrumbs::runtime::read_bool;
 using breadcrumbs::runtime::read_f32;
 using breadcrumbs::runtime::read_f64;
 using breadcrumbs::runtime::read_i16;
 using breadcrumbs::runtime::read_i32;
+using breadcrumbs::runtime::read_string_utf8;
 using breadcrumbs::runtime::read_u32;
 
 [[nodiscard]] std::byte b(unsigned int value) {
@@ -140,6 +146,39 @@ TEST(BinaryRecordRuntimeTest, EncodesScalarValuesBigEndian) {
                           b(0x00), b(0x00), b(0xC0), b(0x00), b(0x00), b(0x00), b(0x00),
                           b(0x00), b(0x00), b(0x00),
                       }));
+}
+
+TEST(BinaryRecordRuntimeTest, EncodesRawBytesAndUtf8Strings) {
+    std::vector<std::byte> output;
+    const std::vector<std::byte> arbitrary_bytes{b(0x00), b(0xFF), b(0x80)};
+
+    ASSERT_TRUE(append_bytes(output, arbitrary_bytes));
+    ASSERT_TRUE(append_string_utf8(output, std::string_view("hi\0", 3U)));
+    ASSERT_TRUE(append_string_utf8(output, std::string_view("\xC2\xA2\xE2\x82\xAC\xF0\x9F\x98\x80", 9U)));
+    EXPECT_FALSE(append_string_utf8(output, std::string_view("\xC0\x80", 2U)));
+
+    EXPECT_EQ(output, (std::vector<std::byte>{
+                          b(0x00), b(0xFF), b(0x80), b('h'), b('i'), b(0x00), b(0xC2),
+                          b(0xA2), b(0xE2), b(0x82), b(0xAC), b(0xF0), b(0x9F), b(0x98),
+                          b(0x80),
+                      }));
+}
+
+TEST(BinaryRecordRuntimeTest, ValidatesUtf8Precisely) {
+    EXPECT_TRUE(is_valid_utf8({}));
+    EXPECT_TRUE(is_valid_utf8(std::as_bytes(std::span<const char>("ascii", 5U))));
+    EXPECT_TRUE(is_valid_utf8(std::as_bytes(std::span<const char>("\0", 1U))));
+    EXPECT_TRUE(is_valid_utf8(std::as_bytes(std::span<const char>("\xC2\xA2", 2U))));
+    EXPECT_TRUE(is_valid_utf8(std::as_bytes(std::span<const char>("\xE2\x82\xAC", 3U))));
+    EXPECT_TRUE(is_valid_utf8(std::as_bytes(std::span<const char>("\xF0\x9F\x98\x80", 4U))));
+
+    EXPECT_FALSE(is_valid_utf8(std::as_bytes(std::span<const char>("\x80", 1U))));
+    EXPECT_FALSE(is_valid_utf8(std::as_bytes(std::span<const char>("\xC2", 1U))));
+    EXPECT_FALSE(is_valid_utf8(std::as_bytes(std::span<const char>("\xC2\x20", 2U))));
+    EXPECT_FALSE(is_valid_utf8(std::as_bytes(std::span<const char>("\xC0\x80", 2U))));
+    EXPECT_FALSE(is_valid_utf8(std::as_bytes(std::span<const char>("\xE0\x80\x80", 3U))));
+    EXPECT_FALSE(is_valid_utf8(std::as_bytes(std::span<const char>("\xED\xA0\x80", 3U))));
+    EXPECT_FALSE(is_valid_utf8(std::as_bytes(std::span<const char>("\xF4\x90\x80\x80", 4U))));
 }
 
 TEST(BinaryRecordRuntimeTest, ParsesValidEmptyRecord) {
@@ -293,6 +332,21 @@ TEST(BinaryRecordRuntimeTest, DecodesScalarValuesBigEndian) {
     EXPECT_EQ(read_f32(f32_value).value, 1.5F);
     EXPECT_EQ(read_f64(f64_value).value, -2.0);
     EXPECT_EQ(read_u32(short_u32).error, DecodeError::invalid_field_length);
+}
+
+TEST(BinaryRecordRuntimeTest, DecodesRawBytesAndUtf8Strings) {
+    const std::vector<std::byte> bytes{b(0x00), b(0xFF), b(0x80)};
+    const std::vector<std::byte> text{b('h'), b('i'), b(0x00), b(0xC2), b(0xA2)};
+    const std::vector<std::byte> invalid_text{b(0xED), b(0xA0), b(0x80)};
+
+    const auto decoded_bytes = read_bytes(bytes);
+    ASSERT_TRUE(decoded_bytes.value.has_value());
+    EXPECT_EQ(require_value(decoded_bytes.value), bytes);
+
+    const auto decoded_text = read_string_utf8(text);
+    ASSERT_TRUE(decoded_text.value.has_value());
+    EXPECT_EQ(require_value(decoded_text.value), std::string("hi\0\xC2\xA2", 5U));
+    EXPECT_EQ(read_string_utf8(invalid_text).error, DecodeError::invalid_utf8);
 }
 
 } // namespace

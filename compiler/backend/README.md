@@ -36,15 +36,17 @@ Current C++ generation behavior:
   * encoding is deterministic and returns `std::nullopt` on failure
   * successful results contain a complete top-level Binary Record Format v0.1
     record
-  * present scalar fields are encoded through the runtime library
+  * present supported fields are encoded through the runtime library
   * absent fields are omitted, including absent fields whose type is not yet
     encodable
   * present unsupported fields return `std::nullopt`
   * supported present field types are `bool`, fixed-width signed and unsigned
-    integers, `f32`, `f64`, and enum references whose declared values are all
-    non-negative
-  * strings, bytes, arrays, nested records, and unknown-field preservation
-    remain out of scope
+    integers, `f32`, `f64`, `string`, `bytes`, and enum references whose
+    declared values are all non-negative
+  * string encoding validates UTF-8 and returns `std::nullopt` for malformed
+    string bytes
+  * bytes encoding accepts arbitrary byte sequences
+  * arrays, nested records, and unknown-field preservation remain out of scope
 * generates `decode_RecordName(std::span<const std::byte>)` overloads that
   return `std::optional<RecordName>`
   * decoding structurally parses a complete top-level Binary Record Format v0.1
@@ -54,7 +56,11 @@ Current C++ generation behavior:
   * absent unsupported known fields are ignored
   * present unsupported known fields return `std::nullopt`
   * supported known field types match the encoder subset: `bool`, fixed-width
-    signed and unsigned integers, `f32`, `f64`, and non-negative enum references
+    signed and unsigned integers, `f32`, `f64`, `string`, `bytes`, and
+    non-negative enum references
+  * string decoding validates UTF-8 and returns `std::nullopt` for malformed
+    string bytes
+  * bytes decoding accepts arbitrary byte sequences
   * decoded values are materialized through the generated builder, preserving
     presence and existing bounds validation
 * preserves declaration order unless record dependencies force a deterministic
@@ -76,6 +82,8 @@ Current C++ generation behavior:
   * bytes `max_bytes` is measured in bytes
   * array `max_count` is measured in element count
   * invalid values are rejected atomically rather than truncated
+  * generated codecs recheck string and bytes bounds so decoded external bytes
+    cannot bypass builder validation
 * lowers named record and enum references to fully qualified C++ names
 * emits namespace blocks matching the Schema IR namespace hierarchy
 * includes standard headers only when required

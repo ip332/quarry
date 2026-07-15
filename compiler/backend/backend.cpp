@@ -67,9 +67,17 @@ struct RuntimeEnumEncoding {
     std::vector<std::int64_t> valid_values;
 };
 
+enum class RuntimeVariableEncoding {
+    Unsupported,
+    String,
+    Bytes,
+};
+
 struct RuntimeFieldEncoding {
     RuntimeScalarEncoder scalar = RuntimeScalarEncoder::Unsupported;
     std::optional<RuntimeEnumEncoding> enum_encoding;
+    RuntimeVariableEncoding variable = RuntimeVariableEncoding::Unsupported;
+    std::uint32_t max_bytes = 0U;
 };
 
 struct FieldPlan {
@@ -478,7 +486,13 @@ lower_runtime_field_encoding(const ::breadcrumbs::schema_ir::FieldType& field_ty
         return encoding;
     }
     case ::breadcrumbs::schema_ir::FieldType::kString:
+        encoding.variable = RuntimeVariableEncoding::String;
+        encoding.max_bytes = field_type.string().max_bytes();
+        return encoding;
     case ::breadcrumbs::schema_ir::FieldType::kBytes:
+        encoding.variable = RuntimeVariableEncoding::Bytes;
+        encoding.max_bytes = field_type.bytes().max_bytes();
+        return encoding;
     case ::breadcrumbs::schema_ir::FieldType::kRecord:
     case ::breadcrumbs::schema_ir::FieldType::kArray:
     case ::breadcrumbs::schema_ir::FieldType::KIND_NOT_SET:
@@ -1074,11 +1088,59 @@ void render_enum_field_encoding(const FieldPlan& field, const RuntimeEnumEncodin
     stream << indent(indent_level) << "}\n";
 }
 
+void render_string_field_encoding(const FieldPlan& field, std::size_t indent_level,
+                                  std::ostringstream& stream) {
+    stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
+    stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
+           << field.runtime_encoding.max_bytes << "U) {\n";
+    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
+    stream << indent(indent_level + 1)
+           << "if (!::breadcrumbs::runtime::append_string_utf8(field_bytes, *value."
+           << field.name << "())) {\n";
+    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level + 1) << "fields.push_back(::breadcrumbs::runtime::FieldBytes{\n";
+    stream << indent(indent_level + 2) << ".field_index = "
+           << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
+    stream << indent(indent_level + 2) << ".bytes = std::move(field_bytes),\n";
+    stream << indent(indent_level + 1) << "});\n";
+    stream << indent(indent_level) << "}\n";
+}
+
+void render_bytes_field_encoding(const FieldPlan& field, std::size_t indent_level,
+                                 std::ostringstream& stream) {
+    stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
+    stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
+           << field.runtime_encoding.max_bytes << "U) {\n";
+    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
+    stream << indent(indent_level + 1) << "::breadcrumbs::runtime::append_bytes(field_bytes, "
+           << "std::span<const std::byte>(value." << field.name << "()->data(), value."
+           << field.name << "()->size()));\n";
+    stream << indent(indent_level + 1) << "fields.push_back(::breadcrumbs::runtime::FieldBytes{\n";
+    stream << indent(indent_level + 2) << ".field_index = "
+           << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
+    stream << indent(indent_level + 2) << ".bytes = std::move(field_bytes),\n";
+    stream << indent(indent_level + 1) << "});\n";
+    stream << indent(indent_level) << "}\n";
+}
+
 void render_field_encoding(const FieldPlan& field, std::size_t indent_level,
                            std::ostringstream& stream) {
     if (field.runtime_encoding.enum_encoding.has_value()) {
         render_enum_field_encoding(field, *field.runtime_encoding.enum_encoding, indent_level,
                                    stream);
+        return;
+    }
+    if (field.runtime_encoding.variable == RuntimeVariableEncoding::String) {
+        render_string_field_encoding(field, indent_level, stream);
+        return;
+    }
+    if (field.runtime_encoding.variable == RuntimeVariableEncoding::Bytes) {
+        render_bytes_field_encoding(field, indent_level, stream);
         return;
     }
     if (field.runtime_encoding.scalar != RuntimeScalarEncoder::Unsupported) {
@@ -1166,11 +1228,57 @@ void render_enum_field_decoding(const FieldPlan& field, const RuntimeEnumEncodin
     stream << indent(indent_level) << "}\n";
 }
 
+void render_string_field_decoding(const FieldPlan& field, std::size_t indent_level,
+                                  std::ostringstream& stream) {
+    const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
+    stream << indent(indent_level) << "if (const auto* field = "
+           << "::breadcrumbs::runtime::find_field(*parsed.record, " << field_index
+           << "U); field != nullptr) {\n";
+    stream << indent(indent_level + 1) << "if (field->bytes.size() > "
+           << field.runtime_encoding.max_bytes << "U) {\n";
+    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level + 1)
+           << "const auto decoded = ::breadcrumbs::runtime::read_string_utf8(field->bytes);\n";
+    stream << indent(indent_level + 1) << "if (!decoded.value.has_value() || !builder.set_"
+           << field.name << "(*decoded.value)) {\n";
+    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level) << "}\n";
+}
+
+void render_bytes_field_decoding(const FieldPlan& field, std::size_t indent_level,
+                                 std::ostringstream& stream) {
+    const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
+    stream << indent(indent_level) << "if (const auto* field = "
+           << "::breadcrumbs::runtime::find_field(*parsed.record, " << field_index
+           << "U); field != nullptr) {\n";
+    stream << indent(indent_level + 1) << "if (field->bytes.size() > "
+           << field.runtime_encoding.max_bytes << "U) {\n";
+    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level + 1)
+           << "const auto decoded = ::breadcrumbs::runtime::read_bytes(field->bytes);\n";
+    stream << indent(indent_level + 1) << "if (!decoded.value.has_value() || !builder.set_"
+           << field.name << "(*decoded.value)) {\n";
+    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level) << "}\n";
+}
+
 void render_field_decoding(const FieldPlan& field, std::size_t indent_level,
                            std::ostringstream& stream) {
     if (field.runtime_encoding.enum_encoding.has_value()) {
         render_enum_field_decoding(field, *field.runtime_encoding.enum_encoding, indent_level,
                                    stream);
+        return;
+    }
+    if (field.runtime_encoding.variable == RuntimeVariableEncoding::String) {
+        render_string_field_decoding(field, indent_level, stream);
+        return;
+    }
+    if (field.runtime_encoding.variable == RuntimeVariableEncoding::Bytes) {
+        render_bytes_field_decoding(field, indent_level, stream);
         return;
     }
     if (field.runtime_encoding.scalar != RuntimeScalarEncoder::Unsupported) {

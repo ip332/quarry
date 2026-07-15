@@ -226,9 +226,14 @@ to the same canonical target FQN.
 
 `string` fields SHALL carry a `max_bytes` property.
 
+For `string`, `max_bytes` SHALL be measured in encoded UTF-8 bytes, not Unicode
+code points.
+
 ## REQ-SL-034
 
 `bytes` fields SHALL carry a `max_bytes` property.
+
+For `bytes`, `max_bytes` SHALL be measured in raw bytes.
 
 ## REQ-SL-035
 

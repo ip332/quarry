@@ -275,10 +275,28 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
   std::vector<::breadcrumbs::runtime::FieldBytes> fields;
   fields.reserve(6U);
   if (value.has_name()) {
-    return std::nullopt;
+    if (value.name()->size() > 16U) {
+      return std::nullopt;
+    }
+    std::vector<std::byte> field_bytes;
+    if (!::breadcrumbs::runtime::append_string_utf8(field_bytes, *value.name())) {
+      return std::nullopt;
+    }
+    fields.push_back(::breadcrumbs::runtime::FieldBytes{
+      .field_index = 0U,
+      .bytes = std::move(field_bytes),
+    });
   }
   if (value.has_payload()) {
-    return std::nullopt;
+    if (value.payload()->size() > 4U) {
+      return std::nullopt;
+    }
+    std::vector<std::byte> field_bytes;
+    ::breadcrumbs::runtime::append_bytes(field_bytes, std::span<const std::byte>(value.payload()->data(), value.payload()->size()));
+    fields.push_back(::breadcrumbs::runtime::FieldBytes{
+      .field_index = 1U,
+      .bytes = std::move(field_bytes),
+    });
   }
   if (value.has_counts()) {
     return std::nullopt;
@@ -302,11 +320,23 @@ std::optional<Example> decode_Example(std::span<const std::byte> input) {
     return std::nullopt;
   }
   ExampleBuilder builder;
-  if (::breadcrumbs::runtime::find_field(*parsed.record, 0U) != nullptr) {
-    return std::nullopt;
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
+    if (field->bytes.size() > 16U) {
+      return std::nullopt;
+    }
+    const auto decoded = ::breadcrumbs::runtime::read_string_utf8(field->bytes);
+    if (!decoded.value.has_value() || !builder.set_name(*decoded.value)) {
+      return std::nullopt;
+    }
   }
-  if (::breadcrumbs::runtime::find_field(*parsed.record, 1U) != nullptr) {
-    return std::nullopt;
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 1U); field != nullptr) {
+    if (field->bytes.size() > 4U) {
+      return std::nullopt;
+    }
+    const auto decoded = ::breadcrumbs::runtime::read_bytes(field->bytes);
+    if (!decoded.value.has_value() || !builder.set_payload(*decoded.value)) {
+      return std::nullopt;
+    }
   }
   if (::breadcrumbs::runtime::find_field(*parsed.record, 2U) != nullptr) {
     return std::nullopt;
