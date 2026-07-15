@@ -59,6 +59,10 @@ the normalized YAML pipeline.
 Source metadata supports diagnostics and developer tooling. It is not part of
 the binary record format.
 
+Compiler C++ headers and CMake targets currently define source-tree APIs, not
+an installed external compiler SDK. `compiler/README.md` owns the supported
+source-tree entry-point boundary.
+
 ---
 
 ## Compilation Pipeline
