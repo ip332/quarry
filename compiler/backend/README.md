@@ -43,8 +43,20 @@ Current C++ generation behavior:
   * supported present field types are `bool`, fixed-width signed and unsigned
     integers, `f32`, `f64`, and enum references whose declared values are all
     non-negative
-  * strings, bytes, arrays, nested records, decoding, and unknown-field
-    preservation remain out of scope
+  * strings, bytes, arrays, nested records, and unknown-field preservation
+    remain out of scope
+* generates `decode_RecordName(std::span<const std::byte>)` overloads that
+  return `std::optional<RecordName>`
+  * decoding structurally parses a complete top-level Binary Record Format v0.1
+    record through the runtime library
+  * a mismatched `record_id` returns `std::nullopt`
+  * unknown field indexes are ignored after structural validation
+  * absent unsupported known fields are ignored
+  * present unsupported known fields return `std::nullopt`
+  * supported known field types match the encoder subset: `bool`, fixed-width
+    signed and unsigned integers, `f32`, `f64`, and non-negative enum references
+  * decoded values are materialized through the generated builder, preserving
+    presence and existing bounds validation
 * preserves declaration order unless record dependencies force a deterministic
   reordering
 * fails clearly when record dependencies form a cycle instead of emitting
@@ -70,6 +82,7 @@ Current C++ generation behavior:
   * `<cstddef>` for `std::byte`
   * `<cstdint>` for fixed-width integers and enum underlying types
   * `<optional>` for generated record presence tracking
+  * `<span>` for generated decode inputs
   * `<utility>` for generated encoder moves
   * `<string>` for `std::string`
   * `<vector>` for arrays, `bytes`, and generated encoder results
@@ -77,7 +90,7 @@ Current C++ generation behavior:
 * returns `success = false`, a non-empty `error_message`, and no generated
   files for backend failures
 * keeps enum formatting, parsing, reflection, accessors beyond the minimal
-  const inspection API, and decoding out of scope for this PR
+  const inspection API, and richer decode diagnostics out of scope for this PR
 * backend code-generation tests consume validated Schema IR directly and do
   not exercise either source frontend
 

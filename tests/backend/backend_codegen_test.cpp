@@ -480,6 +480,143 @@ TEST(BackendCodegenTest, GeneratedScalarEncoderDistinguishesAbsentAndPresentDefa
     compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
 }
 
+TEST(BackendCodegenTest, GeneratedScalarDecoderReadsManualBytes) {
+    const CodegenResult result = run_backend_fixture("builtin_scalar_fields", CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+
+    const std::string header_include =
+        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string translation_source =
+        "#include \"" + header_include +
+        "\"\n"
+        "#include <cstddef>\n"
+        "#include <vector>\n"
+        "int main() {\n"
+        "  const auto byte = [](unsigned int value) {\n"
+        "    return static_cast<std::byte>(static_cast<unsigned char>(value));\n"
+        "  };\n"
+        "  const std::vector<std::byte> input{\n"
+        "      byte(0x01), byte(0x00), byte(0x03), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x01),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x16),\n"
+        "      byte(0x00), byte(0x00), byte(0x01),\n"
+        "      byte(0x01), byte(0x01), byte(0x04),\n"
+        "      byte(0x02), byte(0x05), byte(0x08),\n"
+        "      byte(0x00),\n"
+        "      byte(0x01), byte(0x02), byte(0x03), byte(0x04),\n"
+        "      byte(0x3F), byte(0xF8), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00)};\n"
+        "  const auto decoded = decode_Example(input);\n"
+        "  if (!decoded.has_value()) {\n"
+        "    return 1;\n"
+        "  }\n"
+        "  if (!decoded->has_active() || decoded->active() == nullptr || *decoded->active()) {\n"
+        "    return 2;\n"
+        "  }\n"
+        "  if (!decoded->has_count() || decoded->count() == nullptr || *decoded->count() != 0x01020304U) {\n"
+        "    return 3;\n"
+        "  }\n"
+        "  if (!decoded->has_ratio() || decoded->ratio() == nullptr || *decoded->ratio() != 1.5) {\n"
+        "    return 4;\n"
+        "  }\n"
+        "  return 0;\n"
+        "}\n";
+
+    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
+}
+
+TEST(BackendCodegenTest, GeneratedScalarDecoderRoundTripsAndPreservesPresence) {
+    const CodegenResult result = run_backend_fixture("builtin_scalar_fields", CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+
+    const std::string header_include =
+        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string translation_source =
+        "#include \"" + header_include +
+        "\"\n"
+        "int main() {\n"
+        "  ::ExampleBuilder builder;\n"
+        "  if (!builder.set_active(false) || !builder.set_count(0U)) {\n"
+        "    return 1;\n"
+        "  }\n"
+        "  const auto encoded = encode(builder.build());\n"
+        "  if (!encoded.has_value()) {\n"
+        "    return 2;\n"
+        "  }\n"
+        "  const auto decoded = decode_Example(*encoded);\n"
+        "  if (!decoded.has_value()) {\n"
+        "    return 3;\n"
+        "  }\n"
+        "  if (!decoded->has_active() || decoded->active() == nullptr || *decoded->active()) {\n"
+        "    return 4;\n"
+        "  }\n"
+        "  if (!decoded->has_count() || decoded->count() == nullptr || *decoded->count() != 0U) {\n"
+        "    return 5;\n"
+        "  }\n"
+        "  if (decoded->has_ratio()) {\n"
+        "    return 6;\n"
+        "  }\n"
+        "  return 0;\n"
+        "}\n";
+
+    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
+}
+
+TEST(BackendCodegenTest, GeneratedScalarDecoderRejectsInvalidKnownFieldsAndIgnoresUnknownFields) {
+    const CodegenResult result = run_backend_fixture("builtin_scalar_fields", CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+
+    const std::string header_include =
+        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string translation_source =
+        "#include \"" + header_include +
+        "\"\n"
+        "#include <cstddef>\n"
+        "#include <vector>\n"
+        "int main() {\n"
+        "  const auto byte = [](unsigned int value) {\n"
+        "    return static_cast<std::byte>(static_cast<unsigned char>(value));\n"
+        "  };\n"
+        "  const std::vector<std::byte> invalid_bool{\n"
+        "      byte(0x01), byte(0x00), byte(0x01), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x01),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x04),\n"
+        "      byte(0x00), byte(0x00), byte(0x01), byte(0x02)};\n"
+        "  if (decode_Example(invalid_bool).has_value()) {\n"
+        "    return 1;\n"
+        "  }\n"
+        "  const std::vector<std::byte> short_count{\n"
+        "      byte(0x01), byte(0x00), byte(0x01), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x01),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x04),\n"
+        "      byte(0x01), byte(0x00), byte(0x01), byte(0x00)};\n"
+        "  if (decode_Example(short_count).has_value()) {\n"
+        "    return 2;\n"
+        "  }\n"
+        "  const std::vector<std::byte> unknown_field{\n"
+        "      byte(0x01), byte(0x00), byte(0x01), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x01),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x04),\n"
+        "      byte(0x09), byte(0x00), byte(0x01), byte(0xFF)};\n"
+        "  const auto decoded = decode_Example(unknown_field);\n"
+        "  if (!decoded.has_value()) {\n"
+        "    return 3;\n"
+        "  }\n"
+        "  if (decoded->has_active() || decoded->has_count() || decoded->has_ratio()) {\n"
+        "    return 4;\n"
+        "  }\n"
+        "  std::vector<std::byte> unexpected_record = unknown_field;\n"
+        "  unexpected_record[7] = byte(0x02);\n"
+        "  return decode_Example(unexpected_record).has_value() ? 5 : 0;\n"
+        "}\n";
+
+    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
+}
+
 TEST(BackendCodegenTest, EnumMatchesGolden) {
     const CodegenResult result = run_backend_fixture("enum", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
@@ -694,6 +831,44 @@ TEST(BackendCodegenTest, GeneratedEnumEncoderEmitsExactBytesAndRejectsUnknownVal
     compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
 }
 
+TEST(BackendCodegenTest, GeneratedEnumDecoderReadsKnownValueAndRejectsUnknownValue) {
+    const CodegenResult result = run_backend_fixture("enum_reference", CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+
+    const std::string header_include =
+        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string translation_source =
+        "#include \"" + header_include +
+        "\"\n"
+        "#include <cstddef>\n"
+        "#include <vector>\n"
+        "int main() {\n"
+        "  const auto byte = [](unsigned int value) {\n"
+        "    return static_cast<std::byte>(static_cast<unsigned char>(value));\n"
+        "  };\n"
+        "  const std::vector<std::byte> known{\n"
+        "      byte(0x01), byte(0x00), byte(0x01), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x01),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x04),\n"
+        "      byte(0x00), byte(0x00), byte(0x01), byte(0x02)};\n"
+        "  const auto decoded = decode_Paint(known);\n"
+        "  if (!decoded.has_value() || !decoded->has_color() || decoded->color() == nullptr ||\n"
+        "      *decoded->color() != ::Color::Green) {\n"
+        "    return 1;\n"
+        "  }\n"
+        "  const std::vector<std::byte> unknown{\n"
+        "      byte(0x01), byte(0x00), byte(0x01), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x01),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x04),\n"
+        "      byte(0x00), byte(0x00), byte(0x01), byte(0x07)};\n"
+        "  return decode_Paint(unknown).has_value() ? 2 : 0;\n"
+        "}\n";
+
+    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
+}
+
 TEST(BackendCodegenTest, CrossNamespaceArrayReferenceMatchesGolden) {
     const CodegenResult result =
         run_backend_fixture("cross_namespace_array_reference", CodegenOptions{});
@@ -702,6 +877,46 @@ TEST(BackendCodegenTest, CrossNamespaceArrayReferenceMatchesGolden) {
     EXPECT_EQ(result.files[0].path, "generated/alpha/one.generated.hpp");
     EXPECT_EQ(result.files[1].path, "generated/beta/two.generated.hpp");
     EXPECT_EQ(render_result(result), backend_golden_text("cross_namespace_array_reference"));
+}
+
+TEST(BackendCodegenTest, GeneratedDecoderRejectsPresentUnsupportedKnownField) {
+    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+
+    const std::string header_include =
+        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string translation_source =
+        "#include \"" + header_include +
+        "\"\n"
+        "#include <cstddef>\n"
+        "#include <vector>\n"
+        "int main() {\n"
+        "  const auto byte = [](unsigned int value) {\n"
+        "    return static_cast<std::byte>(static_cast<unsigned char>(value));\n"
+        "  };\n"
+        "  const std::vector<std::byte> absent_unsupported{\n"
+        "      byte(0x01), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x02),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00)};\n"
+        "  const auto decoded = decode_Example(absent_unsupported);\n"
+        "  if (!decoded.has_value() || decoded->has_name() || decoded->has_payload() ||\n"
+        "      decoded->has_counts() || decoded->has_distances() || decoded->has_modes() ||\n"
+        "      decoded->has_children()) {\n"
+        "    return 1;\n"
+        "  }\n"
+        "  const std::vector<std::byte> present_unsupported{\n"
+        "      byte(0x01), byte(0x00), byte(0x01), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x02),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x07),\n"
+        "      byte(0x00), byte(0x00), byte(0x04),\n"
+        "      byte(0x74), byte(0x65), byte(0x73), byte(0x74)};\n"
+        "  return decode_Example(present_unsupported).has_value() ? 2 : 0;\n"
+        "}\n";
+
+    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
 }
 
 TEST(BackendCodegenTest, GeneratedBuilderBoundsHeaderCompilesAndRuns) {

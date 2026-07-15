@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -27,6 +28,16 @@ namespace one {
       return ::breadcrumbs::runtime::encode_record(1U, fields);
     }
 
+
+    std::optional<First> decode_First(std::span<const std::byte> input) {
+      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+      if (!parsed.record.has_value() || parsed.record->record_id != 1U) {
+        return std::nullopt;
+      }
+      FirstBuilder builder;
+      return builder.build();
+    }
+
 } // namespace one
 } // namespace alpha
 === generated/beta/two.generated.hpp ===
@@ -35,6 +46,7 @@ namespace one {
 
 #include <cstddef>
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -56,6 +68,16 @@ namespace two {
       std::vector<::breadcrumbs::runtime::FieldBytes> fields;
       (void)value;
       return ::breadcrumbs::runtime::encode_record(2U, fields);
+    }
+
+
+    std::optional<Second> decode_Second(std::span<const std::byte> input) {
+      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+      if (!parsed.record.has_value() || parsed.record->record_id != 2U) {
+        return std::nullopt;
+      }
+      SecondBuilder builder;
+      return builder.build();
     }
 
 } // namespace two

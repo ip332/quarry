@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -131,4 +132,32 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     });
   }
   return ::breadcrumbs::runtime::encode_record(1U, fields);
+}
+
+
+std::optional<Example> decode_Example(std::span<const std::byte> input) {
+  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+  if (!parsed.record.has_value() || parsed.record->record_id != 1U) {
+    return std::nullopt;
+  }
+  ExampleBuilder builder;
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
+    const auto decoded = ::breadcrumbs::runtime::read_bool(field->bytes);
+    if (!decoded.value.has_value() || !builder.set_active(*decoded.value)) {
+      return std::nullopt;
+    }
+  }
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 1U); field != nullptr) {
+    const auto decoded = ::breadcrumbs::runtime::read_u32(field->bytes);
+    if (!decoded.value.has_value() || !builder.set_count(*decoded.value)) {
+      return std::nullopt;
+    }
+  }
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 2U); field != nullptr) {
+    const auto decoded = ::breadcrumbs::runtime::read_f64(field->bytes);
+    if (!decoded.value.has_value() || !builder.set_ratio(*decoded.value)) {
+      return std::nullopt;
+    }
+  }
+  return builder.build();
 }

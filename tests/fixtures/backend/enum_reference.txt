@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -74,4 +75,27 @@ std::optional<std::vector<std::byte>> encode(const Paint& value) {
     });
   }
   return ::breadcrumbs::runtime::encode_record(1U, fields);
+}
+
+
+std::optional<Paint> decode_Paint(std::span<const std::byte> input) {
+  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+  if (!parsed.record.has_value() || parsed.record->record_id != 1U) {
+    return std::nullopt;
+  }
+  PaintBuilder builder;
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
+    const auto decoded = ::breadcrumbs::runtime::read_u8(field->bytes);
+    if (!decoded.value.has_value()) {
+      return std::nullopt;
+    }
+    const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);
+    if (!(enum_numeric == 1 || enum_numeric == 2)) {
+      return std::nullopt;
+    }
+    if (!builder.set_color(static_cast<::Color>(enum_numeric))) {
+      return std::nullopt;
+    }
+  }
+  return builder.build();
 }

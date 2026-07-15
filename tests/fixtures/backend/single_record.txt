@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -22,4 +23,14 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
   std::vector<::breadcrumbs::runtime::FieldBytes> fields;
   (void)value;
   return ::breadcrumbs::runtime::encode_record(1U, fields);
+}
+
+
+std::optional<Example> decode_Example(std::span<const std::byte> input) {
+  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+  if (!parsed.record.has_value() || parsed.record->record_id != 1U) {
+    return std::nullopt;
+  }
+  ExampleBuilder builder;
+  return builder.build();
 }

@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -77,6 +78,22 @@ namespace one {
       return ::breadcrumbs::runtime::encode_record(1U, fields);
     }
 
+
+    std::optional<Element> decode_Element(std::span<const std::byte> input) {
+      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+      if (!parsed.record.has_value() || parsed.record->record_id != 1U) {
+        return std::nullopt;
+      }
+      ElementBuilder builder;
+      if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
+        const auto decoded = ::breadcrumbs::runtime::read_u32(field->bytes);
+        if (!decoded.value.has_value() || !builder.set_id(*decoded.value)) {
+          return std::nullopt;
+        }
+      }
+      return builder.build();
+    }
+
 } // namespace one
 } // namespace alpha
 === generated/beta/two.generated.hpp ===
@@ -85,6 +102,7 @@ namespace one {
 
 #include <cstddef>
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -179,6 +197,22 @@ namespace two {
         return std::nullopt;
       }
       return ::breadcrumbs::runtime::encode_record(2U, fields);
+    }
+
+
+    std::optional<Basket> decode_Basket(std::span<const std::byte> input) {
+      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+      if (!parsed.record.has_value() || parsed.record->record_id != 2U) {
+        return std::nullopt;
+      }
+      BasketBuilder builder;
+      if (::breadcrumbs::runtime::find_field(*parsed.record, 0U) != nullptr) {
+        return std::nullopt;
+      }
+      if (::breadcrumbs::runtime::find_field(*parsed.record, 1U) != nullptr) {
+        return std::nullopt;
+      }
+      return builder.build();
     }
 
 } // namespace two

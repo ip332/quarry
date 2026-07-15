@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -72,6 +73,22 @@ std::optional<std::vector<std::byte>> encode(const Child& value) {
     });
   }
   return ::breadcrumbs::runtime::encode_record(2U, fields);
+}
+
+
+std::optional<Child> decode_Child(std::span<const std::byte> input) {
+  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+  if (!parsed.record.has_value() || parsed.record->record_id != 2U) {
+    return std::nullopt;
+  }
+  ChildBuilder builder;
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
+    const auto decoded = ::breadcrumbs::runtime::read_u32(field->bytes);
+    if (!decoded.value.has_value() || !builder.set_count(*decoded.value)) {
+      return std::nullopt;
+    }
+  }
+  return builder.build();
 }
 
 struct Wrapper {
@@ -158,4 +175,30 @@ std::optional<std::vector<std::byte>> encode(const Wrapper& value) {
     });
   }
   return ::breadcrumbs::runtime::encode_record(1U, fields);
+}
+
+
+std::optional<Wrapper> decode_Wrapper(std::span<const std::byte> input) {
+  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+  if (!parsed.record.has_value() || parsed.record->record_id != 1U) {
+    return std::nullopt;
+  }
+  WrapperBuilder builder;
+  if (::breadcrumbs::runtime::find_field(*parsed.record, 0U) != nullptr) {
+    return std::nullopt;
+  }
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 1U); field != nullptr) {
+    const auto decoded = ::breadcrumbs::runtime::read_u8(field->bytes);
+    if (!decoded.value.has_value()) {
+      return std::nullopt;
+    }
+    const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);
+    if (!(enum_numeric == 0 || enum_numeric == 1)) {
+      return std::nullopt;
+    }
+    if (!builder.set_state(static_cast<::Status>(enum_numeric))) {
+      return std::nullopt;
+    }
+  }
+  return builder.build();
 }

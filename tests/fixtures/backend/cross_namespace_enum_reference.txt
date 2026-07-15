@@ -20,6 +20,7 @@ namespace one {
 
 #include <cstddef>
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -88,6 +89,29 @@ namespace two {
         });
       }
       return ::breadcrumbs::runtime::encode_record(1U, fields);
+    }
+
+
+    std::optional<Config> decode_Config(std::span<const std::byte> input) {
+      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+      if (!parsed.record.has_value() || parsed.record->record_id != 1U) {
+        return std::nullopt;
+      }
+      ConfigBuilder builder;
+      if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
+        const auto decoded = ::breadcrumbs::runtime::read_u8(field->bytes);
+        if (!decoded.value.has_value()) {
+          return std::nullopt;
+        }
+        const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);
+        if (!(enum_numeric == 0 || enum_numeric == 1)) {
+          return std::nullopt;
+        }
+        if (!builder.set_mode(static_cast<::alpha::one::Mode>(enum_numeric))) {
+          return std::nullopt;
+        }
+      }
+      return builder.build();
     }
 
 } // namespace two

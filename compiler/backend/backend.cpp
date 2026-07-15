@@ -330,6 +330,7 @@ runtime_enum_encoding(const ::breadcrumbs::schema_ir::EnumIR& enum_ir, std::stri
 void add_record_requirements(std::set<std::string>& standard_includes) {
     standard_includes.insert("<cstddef>");
     standard_includes.insert("<optional>");
+    standard_includes.insert("<span>");
     standard_includes.insert("<utility>");
     standard_includes.insert("<vector>");
 }
@@ -949,6 +950,36 @@ void collect_emitted_files(const NamespacePlan& plan, std::vector<const Namespac
     return {};
 }
 
+[[nodiscard]] std::string runtime_read_function(RuntimeScalarEncoder encoder) {
+    switch (encoder) {
+    case RuntimeScalarEncoder::Bool:
+        return "read_bool";
+    case RuntimeScalarEncoder::I8:
+        return "read_i8";
+    case RuntimeScalarEncoder::U8:
+        return "read_u8";
+    case RuntimeScalarEncoder::I16:
+        return "read_i16";
+    case RuntimeScalarEncoder::U16:
+        return "read_u16";
+    case RuntimeScalarEncoder::I32:
+        return "read_i32";
+    case RuntimeScalarEncoder::U32:
+        return "read_u32";
+    case RuntimeScalarEncoder::I64:
+        return "read_i64";
+    case RuntimeScalarEncoder::U64:
+        return "read_u64";
+    case RuntimeScalarEncoder::F32:
+        return "read_f32";
+    case RuntimeScalarEncoder::F64:
+        return "read_f64";
+    case RuntimeScalarEncoder::Unsupported:
+        return {};
+    }
+    return {};
+}
+
 [[nodiscard]] std::string enum_append_function(std::uint8_t width_bytes) {
     if (width_bytes == 1U) {
         return "append_u8";
@@ -960,6 +991,19 @@ void collect_emitted_files(const NamespacePlan& plan, std::vector<const Namespac
         return "append_u32";
     }
     return "append_u64";
+}
+
+[[nodiscard]] std::string enum_read_function(std::uint8_t width_bytes) {
+    if (width_bytes == 1U) {
+        return "read_u8";
+    }
+    if (width_bytes == 2U) {
+        return "read_u16";
+    }
+    if (width_bytes == 4U) {
+        return "read_u32";
+    }
+    return "read_u64";
 }
 
 [[nodiscard]] std::string enum_unsigned_type(std::uint8_t width_bytes) {
@@ -1064,6 +1108,97 @@ void render_record_encoder_definition(const RecordPlan& record_plan, std::size_t
     stream << indent(indent_level) << "}\n";
 }
 
+void render_unsupported_present_field_decoding(const FieldPlan& field, std::size_t indent_level,
+                                               std::ostringstream& stream) {
+    stream << indent(indent_level) << "if (::breadcrumbs::runtime::find_field(*parsed.record, "
+           << static_cast<unsigned int>(field.field->field_index()) << "U) != nullptr) {\n";
+    stream << indent(indent_level + 1) << "return std::nullopt;\n";
+    stream << indent(indent_level) << "}\n";
+}
+
+void render_scalar_field_decoding(const FieldPlan& field, std::size_t indent_level,
+                                  std::ostringstream& stream) {
+    const std::string read_function = runtime_read_function(field.runtime_encoding.scalar);
+    const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
+    stream << indent(indent_level) << "if (const auto* field = "
+           << "::breadcrumbs::runtime::find_field(*parsed.record, " << field_index
+           << "U); field != nullptr) {\n";
+    stream << indent(indent_level + 1) << "const auto decoded = ::breadcrumbs::runtime::"
+           << read_function << "(field->bytes);\n";
+    stream << indent(indent_level + 1) << "if (!decoded.value.has_value() || !builder.set_"
+           << field.name << "(*decoded.value)) {\n";
+    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level) << "}\n";
+}
+
+void render_enum_field_decoding(const FieldPlan& field, const RuntimeEnumEncoding& enum_encoding,
+                                std::size_t indent_level, std::ostringstream& stream) {
+    const std::string read_function = enum_read_function(enum_encoding.width_bytes);
+    const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
+    stream << indent(indent_level) << "if (const auto* field = "
+           << "::breadcrumbs::runtime::find_field(*parsed.record, " << field_index
+           << "U); field != nullptr) {\n";
+    stream << indent(indent_level + 1) << "const auto decoded = ::breadcrumbs::runtime::"
+           << read_function << "(field->bytes);\n";
+    stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
+    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level + 1)
+           << "const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);\n";
+    stream << indent(indent_level + 1) << "if (!(";
+    for (std::size_t index = 0; index < enum_encoding.valid_values.size(); ++index) {
+        if (index > 0) {
+            stream << " || ";
+        }
+        stream << "enum_numeric == " << enum_encoding.valid_values[index];
+    }
+    if (enum_encoding.valid_values.empty()) {
+        stream << "false";
+    }
+    stream << ")) {\n";
+    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
+           << "(static_cast<" << enum_encoding.cpp_type << ">(enum_numeric))) {\n";
+    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level) << "}\n";
+}
+
+void render_field_decoding(const FieldPlan& field, std::size_t indent_level,
+                           std::ostringstream& stream) {
+    if (field.runtime_encoding.enum_encoding.has_value()) {
+        render_enum_field_decoding(field, *field.runtime_encoding.enum_encoding, indent_level,
+                                   stream);
+        return;
+    }
+    if (field.runtime_encoding.scalar != RuntimeScalarEncoder::Unsupported) {
+        render_scalar_field_decoding(field, indent_level, stream);
+        return;
+    }
+    render_unsupported_present_field_decoding(field, indent_level, stream);
+}
+
+void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t indent_level,
+                                      std::ostringstream& stream) {
+    const std::string& record_name = record_plan.record->name();
+    stream << indent(indent_level) << "std::optional<" << record_name
+           << "> decode_" << record_name << "(std::span<const std::byte> input) {\n";
+    stream << indent(indent_level + 1)
+           << "const auto parsed = ::breadcrumbs::runtime::parse_record(input);\n";
+    stream << indent(indent_level + 1) << "if (!parsed.record.has_value() || parsed.record->record_id != "
+           << record_plan.record->record_id() << "U) {\n";
+    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level + 1) << record_name << "Builder builder;\n";
+    for (const FieldPlan& field : record_plan.fields) {
+        render_field_decoding(field, indent_level + 1, stream);
+    }
+    stream << indent(indent_level + 1) << "return builder.build();\n";
+    stream << indent(indent_level) << "}\n";
+}
+
 [[nodiscard]] bool render_record_definition(const RecordPlan& record_plan, std::size_t indent_level,
                                             std::ostringstream& stream,
                                             std::string& error_message) {
@@ -1075,6 +1210,8 @@ void render_record_encoder_definition(const RecordPlan& record_plan, std::size_t
         }
         stream << '\n';
         render_record_encoder_definition(record_plan, indent_level, stream);
+        stream << "\n\n";
+        render_record_decoder_definition(record_plan, indent_level, stream);
         return true;
     }
 
@@ -1104,6 +1241,8 @@ void render_record_encoder_definition(const RecordPlan& record_plan, std::size_t
     }
     stream << '\n';
     render_record_encoder_definition(record_plan, indent_level, stream);
+    stream << "\n\n";
+    render_record_decoder_definition(record_plan, indent_level, stream);
     return true;
 }
 

@@ -65,8 +65,10 @@ source-tree entry-point boundary.
 
 Runtime binary-record mechanics live outside the compiler. Generated C++ schema
 artifacts may depend on the small `breadcrumbs_runtime` target for byte-level
-encoding, but runtime code must not depend on compiler IRs, YAML, Schema IR
-protobufs, semantic analysis, layout internals, or backend code.
+encoding and structural parsing, but runtime code must not depend on compiler
+IRs, YAML, Schema IR protobufs, semantic analysis, layout internals, or backend
+code. Generated C++ keeps schema-specific decode policy, including expected
+record IDs, field indexes, field types, and enum value sets.
 
 ---
 

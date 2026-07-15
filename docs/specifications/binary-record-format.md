@@ -219,6 +219,12 @@ No field value bytes are encoded for absent fields.
 
 Decoders read the Field Directory before decoding field values.
 
+For top-level v0.1 records, decoders determine the Field Directory length by
+reading exactly `directoryEntryCount` entries. Each entry contains one
+`fieldIndex` byte followed by one `fieldOffset` varuint and one `fieldLength`
+varuint. The Payload begins immediately after the last declared Field Directory
+entry and extends to the end of the Record Header's `payloadLength`.
+
 Decoders use `fieldOffset` and `fieldLength` to locate each field value within
 the Payload.
 
@@ -231,6 +237,13 @@ Unknown `fieldIndex` values are ignored. Decoders skip the corresponding payload
 bytes using `fieldOffset` and `fieldLength`.
 
 Unknown fields do not affect decoding of known fields.
+
+The first generated C++ decoder materializes generated record values for the
+same scalar subset as the first generated encoder: `bool`, fixed-width signed
+and unsigned integers, `float32`, `float64`, and enum references whose declared
+values are all non-negative. A present known field with a type outside that
+subset causes generated decoding to fail. An absent unsupported known field does
+not affect decoding.
 
 ---
 

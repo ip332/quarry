@@ -2,8 +2,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 #include <optional>
+#include <span>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -11,6 +13,7 @@
 namespace {
 
 using breadcrumbs::runtime::FieldBytes;
+using breadcrumbs::runtime::DecodeError;
 using breadcrumbs::runtime::append_bool;
 using breadcrumbs::runtime::append_f32;
 using breadcrumbs::runtime::append_f64;
@@ -19,20 +22,37 @@ using breadcrumbs::runtime::append_i32;
 using breadcrumbs::runtime::append_u32;
 using breadcrumbs::runtime::append_varuint;
 using breadcrumbs::runtime::encode_record;
+using breadcrumbs::runtime::find_field;
+using breadcrumbs::runtime::parse_record;
+using breadcrumbs::runtime::read_bool;
+using breadcrumbs::runtime::read_f32;
+using breadcrumbs::runtime::read_f64;
+using breadcrumbs::runtime::read_i16;
+using breadcrumbs::runtime::read_i32;
+using breadcrumbs::runtime::read_u32;
 
 [[nodiscard]] std::byte b(unsigned int value) {
     return static_cast<std::byte>(static_cast<std::uint8_t>(value));
+}
+
+template <typename T>
+[[nodiscard]] const T& require_value(const std::optional<T>& value) {
+    if (!value.has_value()) {
+        std::abort();
+    }
+    return value.value();
 }
 
 TEST(BinaryRecordRuntimeTest, EncodesEmptyTopLevelRecordHeader) {
     const std::optional<std::vector<std::byte>> encoded = encode_record(1U, {});
 
     ASSERT_TRUE(encoded.has_value());
-    EXPECT_EQ(*encoded, (std::vector<std::byte>{
-                            b(0x01), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00),
-                            b(0x01), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00),
-                            b(0x00), b(0x00),
-                        }));
+    EXPECT_EQ(require_value(encoded), (std::vector<std::byte>{
+                                          b(0x01), b(0x00), b(0x00), b(0x00), b(0x00),
+                                          b(0x00), b(0x00), b(0x01), b(0x00), b(0x00),
+                                          b(0x00), b(0x00), b(0x00), b(0x00), b(0x00),
+                                          b(0x00),
+                                      }));
 }
 
 TEST(BinaryRecordRuntimeTest, EncodesDirectoryAndPayloadForOneField) {
@@ -44,12 +64,13 @@ TEST(BinaryRecordRuntimeTest, EncodesDirectoryAndPayloadForOneField) {
     const std::optional<std::vector<std::byte>> encoded = encode_record(0x01020304U, fields);
 
     ASSERT_TRUE(encoded.has_value());
-    EXPECT_EQ(*encoded, (std::vector<std::byte>{
-                            b(0x01), b(0x00), b(0x01), b(0x00), b(0x01), b(0x02), b(0x03),
-                            b(0x04), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00),
-                            b(0x00), b(0x07), b(0x01), b(0x00), b(0x04), b(0xDE), b(0xAD),
-                            b(0xBE), b(0xEF),
-                        }));
+    EXPECT_EQ(require_value(encoded), (std::vector<std::byte>{
+                                          b(0x01), b(0x00), b(0x01), b(0x00), b(0x01),
+                                          b(0x02), b(0x03), b(0x04), b(0x00), b(0x00),
+                                          b(0x00), b(0x00), b(0x00), b(0x00), b(0x00),
+                                          b(0x07), b(0x01), b(0x00), b(0x04), b(0xDE),
+                                          b(0xAD), b(0xBE), b(0xEF),
+                                      }));
 }
 
 TEST(BinaryRecordRuntimeTest, SortsDirectoryByFieldIndexAndUsesSortedPayloadOrder) {
@@ -61,12 +82,13 @@ TEST(BinaryRecordRuntimeTest, SortsDirectoryByFieldIndexAndUsesSortedPayloadOrde
     const std::optional<std::vector<std::byte>> encoded = encode_record(1U, fields);
 
     ASSERT_TRUE(encoded.has_value());
-    EXPECT_EQ(*encoded, (std::vector<std::byte>{
-                            b(0x01), b(0x00), b(0x02), b(0x00), b(0x00), b(0x00), b(0x00),
-                            b(0x01), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00),
-                            b(0x00), b(0x09), b(0x00), b(0x00), b(0x02), b(0x02), b(0x02),
-                            b(0x01), b(0xBB), b(0xCC), b(0xAA),
-                        }));
+    EXPECT_EQ(require_value(encoded), (std::vector<std::byte>{
+                                          b(0x01), b(0x00), b(0x02), b(0x00), b(0x00),
+                                          b(0x00), b(0x00), b(0x01), b(0x00), b(0x00),
+                                          b(0x00), b(0x00), b(0x00), b(0x00), b(0x00),
+                                          b(0x09), b(0x00), b(0x00), b(0x02), b(0x02),
+                                          b(0x02), b(0x01), b(0xBB), b(0xCC), b(0xAA),
+                                      }));
 }
 
 TEST(BinaryRecordRuntimeTest, RejectsDuplicateFieldIndexesAndInvalidRecordId) {
@@ -118,6 +140,159 @@ TEST(BinaryRecordRuntimeTest, EncodesScalarValuesBigEndian) {
                           b(0x00), b(0x00), b(0xC0), b(0x00), b(0x00), b(0x00), b(0x00),
                           b(0x00), b(0x00), b(0x00),
                       }));
+}
+
+TEST(BinaryRecordRuntimeTest, ParsesValidEmptyRecord) {
+    const std::vector<std::byte> input{
+        b(0x01), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x2A),
+        b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00),
+    };
+
+    const auto parsed = parse_record(input);
+
+    ASSERT_TRUE(parsed.record.has_value());
+    const auto& record = require_value(parsed.record);
+    EXPECT_EQ(record.record_id, 42U);
+    EXPECT_TRUE(record.fields.empty());
+    EXPECT_EQ(parsed.error, DecodeError::none);
+}
+
+TEST(BinaryRecordRuntimeTest, ParsesDirectoryAndFindsFields) {
+    const std::vector<std::byte> input{
+        b(0x01), b(0x00), b(0x02), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+        b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x09),
+        b(0x00), b(0x01), b(0x01), b(0x02), b(0x00), b(0x01), b(0xBB), b(0xAA),
+        b(0xCC),
+    };
+
+    const auto parsed = parse_record(input);
+
+    ASSERT_TRUE(parsed.record.has_value());
+    const auto& record = require_value(parsed.record);
+    const auto* first = find_field(record, 0U);
+    const auto* second = find_field(record, 2U);
+    ASSERT_NE(first, nullptr);
+    ASSERT_NE(second, nullptr);
+    EXPECT_EQ(first->bytes.size(), 1U);
+    EXPECT_EQ(first->bytes[0], b(0xAA));
+    EXPECT_EQ(second->bytes.size(), 1U);
+    EXPECT_EQ(second->bytes[0], b(0xBB));
+    EXPECT_EQ(find_field(record, 1U), nullptr);
+}
+
+TEST(BinaryRecordRuntimeTest, ParsesZeroLengthFieldData) {
+    const std::vector<std::byte> input{
+        b(0x01), b(0x00), b(0x01), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+        b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x03),
+        b(0x00), b(0x00), b(0x00),
+    };
+
+    const auto parsed = parse_record(input);
+
+    ASSERT_TRUE(parsed.record.has_value());
+    const auto& record = require_value(parsed.record);
+    const auto* field = find_field(record, 0U);
+    ASSERT_NE(field, nullptr);
+    EXPECT_TRUE(field->bytes.empty());
+}
+
+TEST(BinaryRecordRuntimeTest, RejectsMalformedRecordStructure) {
+    const std::vector<std::byte> valid_empty{
+        b(0x01), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+        b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00),
+    };
+
+    EXPECT_EQ(parse_record(std::span<const std::byte>(valid_empty).first(15U)).error,
+              DecodeError::truncated_header);
+
+    std::vector<std::byte> unsupported_version = valid_empty;
+    unsupported_version[0] = b(0x02);
+    EXPECT_EQ(parse_record(unsupported_version).error, DecodeError::unsupported_version);
+
+    std::vector<std::byte> nonzero_reserved = valid_empty;
+    nonzero_reserved[3] = b(0x01);
+    EXPECT_EQ(parse_record(nonzero_reserved).error, DecodeError::invalid_header);
+
+    std::vector<std::byte> too_long_payload = valid_empty;
+    too_long_payload[15] = b(0x01);
+    EXPECT_EQ(parse_record(too_long_payload).error, DecodeError::invalid_payload_length);
+
+    std::vector<std::byte> trailing = valid_empty;
+    trailing.push_back(b(0x00));
+    EXPECT_EQ(parse_record(trailing).error, DecodeError::invalid_payload_length);
+}
+
+TEST(BinaryRecordRuntimeTest, RejectsMalformedDirectoryAndRanges) {
+    const auto expect_error = [](std::vector<std::byte> input, DecodeError error) {
+        EXPECT_EQ(parse_record(input).error, error);
+    };
+
+    expect_error({
+                     b(0x01), b(0x00), b(0x01), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+                     b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+                     b(0x00),
+                 },
+                 DecodeError::malformed_varuint);
+
+    expect_error({
+                     b(0x01), b(0x00), b(0x01), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+                     b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x0C),
+                     b(0x00), b(0x80), b(0x80), b(0x80), b(0x80), b(0x80), b(0x80), b(0x80),
+                     b(0x80), b(0x80), b(0x80), b(0x00),
+                 },
+                 DecodeError::malformed_varuint);
+
+    expect_error({
+                     b(0x01), b(0x00), b(0x02), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+                     b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x07),
+                     b(0x01), b(0x00), b(0x00), b(0x01), b(0x00), b(0x00), b(0xAA),
+                 },
+                 DecodeError::duplicate_field);
+
+    expect_error({
+                     b(0x01), b(0x00), b(0x02), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+                     b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x07),
+                     b(0x02), b(0x00), b(0x00), b(0x01), b(0x00), b(0x00), b(0xAA),
+                 },
+                 DecodeError::unsorted_directory);
+
+    expect_error({
+                     b(0x01), b(0x00), b(0x01), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+                     b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x04),
+                     b(0x00), b(0x01), b(0x04), b(0xAA),
+                 },
+                 DecodeError::invalid_field_range);
+
+    expect_error({
+                     b(0x01), b(0x00), b(0x02), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+                     b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x0A),
+                     b(0x00), b(0x00), b(0x02), b(0x01), b(0x01), b(0x02), b(0xAA), b(0xBB),
+                     b(0xCC), b(0xDD),
+                 },
+                 DecodeError::overlapping_field_range);
+}
+
+TEST(BinaryRecordRuntimeTest, DecodesScalarValuesBigEndian) {
+    const std::vector<std::byte> false_value{b(0x00)};
+    const std::vector<std::byte> true_value{b(0x01)};
+    const std::vector<std::byte> invalid_bool{b(0x02)};
+    const std::vector<std::byte> negative_i16{b(0xFF), b(0xFE)};
+    const std::vector<std::byte> negative_i32{b(0xFF), b(0xFF), b(0xFF), b(0xFF)};
+    const std::vector<std::byte> positive_u32{b(0x01), b(0x02), b(0x03), b(0x04)};
+    const std::vector<std::byte> f32_value{b(0x3F), b(0xC0), b(0x00), b(0x00)};
+    const std::vector<std::byte> f64_value{b(0xC0), b(0x00), b(0x00), b(0x00),
+                                           b(0x00), b(0x00), b(0x00), b(0x00)};
+    const std::vector<std::byte> short_u32{b(0x01)};
+
+    EXPECT_EQ(read_bool(false_value).value, false);
+    EXPECT_EQ(read_bool(true_value).value, true);
+    EXPECT_EQ(read_bool(invalid_bool).error, DecodeError::invalid_bool);
+    EXPECT_EQ(read_i16(negative_i16).value, static_cast<std::int16_t>(-2));
+    EXPECT_EQ(read_i32(negative_i32).value, static_cast<std::int32_t>(-1));
+    EXPECT_EQ(read_u32(positive_u32).value, 0x01020304U);
+    EXPECT_EQ(read_f32(f32_value).value, 1.5F);
+    EXPECT_EQ(read_f64(f64_value).value, -2.0);
+    EXPECT_EQ(read_u32(short_u32).error, DecodeError::invalid_field_length);
 }
 
 } // namespace
