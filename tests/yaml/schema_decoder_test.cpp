@@ -124,6 +124,15 @@ type: data
 fields: {}
 unknown: value
 )", "BC2305"},
+        StructuralFailureCase{"PluralRecordsProperty", R"(namespace: breadcrumbs.telemetry
+record: Sample
+version: 1
+type: data
+fields: {}
+records:
+  Position:
+    fields: {}
+)", "BC2305"},
         StructuralFailureCase{"NonScalarTopLevelPropertyKey", R"(? [bad]
 : value
 namespace: breadcrumbs.telemetry

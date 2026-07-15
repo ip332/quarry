@@ -35,6 +35,12 @@ That source schema model preserves:
 * string-valued annotations
 * field and enum source ranges
 
+The current YAML schema contract is one source schema unit per document: one
+dotted namespace path, one primary record, zero or more fields on that record,
+and zero or more enum declarations in the same namespace. The decoder does not
+accept a `records` collection, multiple top-level schema units, or multiple
+namespace roots in one YAML document.
+
 The decoder performs structural YAML-to-schema decoding only. It returns
 `source_schema::SourceSchemaDecodeResult` and does not own source-schema model
 types. It does not perform semantic validation, name resolution, layout

@@ -34,6 +34,14 @@ files, stale-output deletion, response files, configuration files, installed
 package integration, color diagnostics, and JSON diagnostics are intentionally
 out of scope.
 
+That input file contains one YAML document and one source schema unit. The
+current schema unit has one dotted namespace path and one primary record, with
+zero or more fields and zero or more enum declarations in that namespace.
+Multiple primary records, multiple namespace roots, YAML document streams, and
+imports remain unsupported. With the current YAML contract, successful
+compilation normally produces one generated namespace file; richer multi-file
+backend output is exercised through lower-level Schema IR inputs.
+
 Generated files are written from backend-provided in-memory `GeneratedFile`
 values. Compiler and backend failures do not write output files. Output writes
 create parent directories as needed and write each file through a temporary

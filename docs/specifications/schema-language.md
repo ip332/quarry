@@ -76,6 +76,11 @@ Version 0.1 `.brd` files SHALL use YAML as the source format.
 
 A `.brd` file SHALL be one YAML document describing one schema.
 
+Version 0.1 schema documents define one source schema unit. A source schema
+unit has one namespace path and one primary record. Fields belong to that
+record. Enum declarations belong to the same namespace and may be referenced by
+the record's fields.
+
 ## REQ-SL-003
 
 The document root SHALL be a YAML mapping containing the top-level keys
@@ -107,6 +112,9 @@ The `namespace` property SHALL be a dotted qualified-name string.
 ## REQ-SL-009
 
 The `record` property SHALL be the logical record name for the schema.
+
+The source language does not define a `records` collection or multiple record
+declarations in one schema document.
 
 ## REQ-SL-010
 

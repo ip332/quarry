@@ -144,9 +144,15 @@ enums:
     values:
       inactive: 0
       active: 1
+  Status:
+    values:
+      ok: 0
+      degraded: 1
 fields:
   mode:
     type: Mode
+  status:
+    type: Status
   label:
     type: string
     max_bytes: 16
@@ -172,20 +178,29 @@ fields:
     EXPECT_EQ(enumeration->values(0).value(), 0);
     EXPECT_EQ(enumeration->values(1).name(), "active");
     EXPECT_EQ(enumeration->values(1).value(), 1);
+    const auto* status = find_enum(*telemetry, "Status");
+    ASSERT_NE(status, nullptr);
+    ASSERT_EQ(status->values_size(), 2);
+    EXPECT_EQ(status->values(0).name(), "ok");
+    EXPECT_EQ(status->values(0).value(), 0);
+    EXPECT_EQ(status->values(1).name(), "degraded");
+    EXPECT_EQ(status->values(1).value(), 1);
 
     const auto* record = find_record(*telemetry, "Sample");
     ASSERT_NE(record, nullptr);
     EXPECT_EQ(record->schema_version(), 1U);
     EXPECT_EQ(record->record_type(), breadcrumbs::schema_ir::RECORD_TYPE_EVENT);
-    ASSERT_EQ(record->fields_size(), 3);
+    ASSERT_EQ(record->fields_size(), 4);
     EXPECT_TRUE(record->fields(0).type().has_enum_type());
     EXPECT_EQ(record->fields(0).type().enum_type().target_enum_ir_id(), enumeration->ir_id());
-    ASSERT_TRUE(record->fields(1).type().has_string());
-    EXPECT_EQ(record->fields(1).type().string().max_bytes(), 16U);
-    ASSERT_TRUE(record->fields(2).type().has_array());
-    EXPECT_EQ(record->fields(2).type().array().max_elements(), 64U);
-    ASSERT_TRUE(record->fields(2).type().array().element_type().has_primitive());
-    EXPECT_EQ(record->fields(2).type().array().element_type().primitive(),
+    EXPECT_TRUE(record->fields(1).type().has_enum_type());
+    EXPECT_EQ(record->fields(1).type().enum_type().target_enum_ir_id(), status->ir_id());
+    ASSERT_TRUE(record->fields(2).type().has_string());
+    EXPECT_EQ(record->fields(2).type().string().max_bytes(), 16U);
+    ASSERT_TRUE(record->fields(3).type().has_array());
+    EXPECT_EQ(record->fields(3).type().array().max_elements(), 64U);
+    ASSERT_TRUE(record->fields(3).type().array().element_type().has_primitive());
+    EXPECT_EQ(record->fields(3).type().array().element_type().primitive(),
               breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
 }
 

@@ -17,6 +17,11 @@ It:
 * preserves source ranges and declaration order
 * rejects unsupported source-schema imports
 
+The model intentionally mirrors the current YAML schema-unit boundary. A
+document owns one namespace path and one primary record, plus ordered field,
+enum, enum-value, and annotation collections. It does not model a collection of
+records, a collection of namespace roots, or a multi-document import graph.
+
 It does not parse YAML text, build AST nodes, resolve symbols, perform semantic
 validation, compute layout, or construct Schema IR.
 

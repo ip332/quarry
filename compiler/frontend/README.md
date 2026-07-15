@@ -20,6 +20,12 @@ The frontend returns validated Schema IR on success and no Schema IR on
 failure. It stops after the first stage that reports errors or fails to
 produce its expected model. It does not invoke backend generation.
 
+Each invocation compiles one registered YAML source file containing one YAML
+document and one source schema unit. That unit has one namespace path and one
+primary record; fields and enum declarations may be repeated within that unit.
+Multiple records, multiple namespace roots, YAML document streams, and import
+resolution are outside the current frontend contract.
+
 The Schema IR exact-output golden suite now runs through this production YAML
 frontend against the YAML fixture tree under `tests/fixtures/schema_ir_yaml`.
 The legacy declaration-syntax parser remains available for its own test
