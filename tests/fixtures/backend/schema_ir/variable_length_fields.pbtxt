@@ -143,5 +143,33 @@ root_namespace {
         primitive: PRIMITIVE_TYPE_BOOL
       }
     }
+    fields {
+      name: "tags"
+      field_index: 10
+      type {
+        array {
+          max_elements: 3
+          element_type {
+            string {
+              max_bytes: 8
+            }
+          }
+        }
+      }
+    }
+    fields {
+      name: "chunks"
+      field_index: 11
+      type {
+        array {
+          max_elements: 3
+          element_type {
+            bytes {
+              max_bytes: 3
+            }
+          }
+        }
+      }
+    }
   }
 }

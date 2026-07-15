@@ -231,13 +231,13 @@ namespace two {
           return std::nullopt;
         }
         const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+        std::vector<::alpha::one::Mode> elements;
+        elements.reserve(element_count);
         const std::size_t element_width = 1U;
         const std::size_t remaining_bytes = field->bytes.size() - element_offset;
         if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
           return std::nullopt;
         }
-        std::vector<::alpha::one::Mode> elements;
-        elements.reserve(element_count);
         for (std::size_t index = 0U; index < element_count; ++index) {
           const auto decoded = ::breadcrumbs::runtime::read_u8(field->bytes.subspan(element_offset, element_width));
           if (!decoded.value.has_value()) {

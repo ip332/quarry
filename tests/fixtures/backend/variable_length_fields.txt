@@ -155,6 +155,18 @@ struct Example {
   const bool* active() const {
     return active_ ? &*active_ : nullptr;
   }
+  bool has_tags() const {
+    return tags_.has_value();
+  }
+  const std::vector<std::string>* tags() const {
+    return tags_ ? &*tags_ : nullptr;
+  }
+  bool has_chunks() const {
+    return chunks_.has_value();
+  }
+  const std::vector<std::vector<std::byte>>* chunks() const {
+    return chunks_ ? &*chunks_ : nullptr;
+  }
 
 private:
   friend class ExampleBuilder;
@@ -168,6 +180,8 @@ private:
   std::optional<std::vector<std::int16_t>> deltas_;
   std::optional<std::vector<float>> ratios_;
   std::optional<bool> active_;
+  std::optional<std::vector<std::string>> tags_;
+  std::optional<std::vector<std::vector<std::byte>>> chunks_;
 };
 
 class ExampleBuilder {
@@ -201,6 +215,12 @@ public:
   }
   bool has_active() const {
     return active_.has_value();
+  }
+  bool has_tags() const {
+    return tags_.has_value();
+  }
+  bool has_chunks() const {
+    return chunks_.has_value();
   }
 
   bool set_name(const std::string& value) {
@@ -273,6 +293,20 @@ public:
     active_ = value;
     return true;
   }
+  bool set_tags(const std::vector<std::string>& value) {
+    if (!validate_tags(value)) {
+      return false;
+    }
+    tags_ = value;
+    return true;
+  }
+  bool set_chunks(const std::vector<std::vector<std::byte>>& value) {
+    if (!validate_chunks(value)) {
+      return false;
+    }
+    chunks_ = value;
+    return true;
+  }
 
   Example build() const {
     Example value;
@@ -286,6 +320,8 @@ public:
     value.deltas_ = deltas_;
     value.ratios_ = ratios_;
     value.active_ = active_;
+    value.tags_ = tags_;
+    value.chunks_ = chunks_;
     return value;
   }
 
@@ -361,6 +397,28 @@ private:
   static bool validate_active(const bool& value) {
     return true;
   }
+  static bool validate_tags(const std::vector<std::string>& value) {
+    if (value.size() > 3) {
+      return false;
+    }
+    for (const auto& element_0 : value) {
+      if (element_0.size() > 8) {
+        return false;
+      }
+    }
+    return true;
+  }
+  static bool validate_chunks(const std::vector<std::vector<std::byte>>& value) {
+    if (value.size() > 3) {
+      return false;
+    }
+    for (const auto& element_0 : value) {
+      if (element_0.size() > 3) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   std::optional<std::string> name_;
   std::optional<std::vector<std::byte>> payload_;
@@ -372,11 +430,13 @@ private:
   std::optional<std::vector<std::int16_t>> deltas_;
   std::optional<std::vector<float>> ratios_;
   std::optional<bool> active_;
+  std::optional<std::vector<std::string>> tags_;
+  std::optional<std::vector<std::vector<std::byte>>> chunks_;
 };
 
 std::optional<std::vector<std::byte>> encode(const Example& value) {
   std::vector<::breadcrumbs::runtime::FieldBytes> fields;
-  fields.reserve(10U);
+  fields.reserve(12U);
   if (value.has_name()) {
     if (value.name()->size() > 16U) {
       return std::nullopt;
@@ -512,6 +572,44 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
       .bytes = std::move(field_bytes),
     });
   }
+  if (value.has_tags()) {
+    if (value.tags()->size() > 3U) {
+      return std::nullopt;
+    }
+    std::vector<std::byte> field_bytes;
+    ::breadcrumbs::runtime::append_varuint(field_bytes, value.tags()->size());
+    for (const auto& element : *value.tags()) {
+      if (element.size() > 8U) {
+        return std::nullopt;
+      }
+      ::breadcrumbs::runtime::append_varuint(field_bytes, element.size());
+      if (!::breadcrumbs::runtime::append_string_utf8(field_bytes, element)) {
+        return std::nullopt;
+      }
+    }
+    fields.push_back(::breadcrumbs::runtime::FieldBytes{
+      .field_index = 10U,
+      .bytes = std::move(field_bytes),
+    });
+  }
+  if (value.has_chunks()) {
+    if (value.chunks()->size() > 3U) {
+      return std::nullopt;
+    }
+    std::vector<std::byte> field_bytes;
+    ::breadcrumbs::runtime::append_varuint(field_bytes, value.chunks()->size());
+    for (const auto& element : *value.chunks()) {
+      if (element.size() > 3U) {
+        return std::nullopt;
+      }
+      ::breadcrumbs::runtime::append_varuint(field_bytes, element.size());
+      ::breadcrumbs::runtime::append_bytes(field_bytes, std::span<const std::byte>(element.data(), element.size()));
+    }
+    fields.push_back(::breadcrumbs::runtime::FieldBytes{
+      .field_index = 11U,
+      .bytes = std::move(field_bytes),
+    });
+  }
   return ::breadcrumbs::runtime::encode_record(2U, fields);
 }
 
@@ -547,13 +645,13 @@ std::optional<Example> decode_Example(std::span<const std::byte> input) {
       return std::nullopt;
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+    std::vector<std::uint32_t> elements;
+    elements.reserve(element_count);
     const std::size_t element_width = 4U;
     const std::size_t remaining_bytes = field->bytes.size() - element_offset;
     if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
       return std::nullopt;
     }
-    std::vector<std::uint32_t> elements;
-    elements.reserve(element_count);
     for (std::size_t index = 0U; index < element_count; ++index) {
       const auto decoded = ::breadcrumbs::runtime::read_u32(field->bytes.subspan(element_offset, element_width));
       if (!decoded.value.has_value()) {
@@ -573,13 +671,13 @@ std::optional<Example> decode_Example(std::span<const std::byte> input) {
       return std::nullopt;
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+    std::vector<double> elements;
+    elements.reserve(element_count);
     const std::size_t element_width = 8U;
     const std::size_t remaining_bytes = field->bytes.size() - element_offset;
     if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
       return std::nullopt;
     }
-    std::vector<double> elements;
-    elements.reserve(element_count);
     for (std::size_t index = 0U; index < element_count; ++index) {
       const auto decoded = ::breadcrumbs::runtime::read_f64(field->bytes.subspan(element_offset, element_width));
       if (!decoded.value.has_value()) {
@@ -599,13 +697,13 @@ std::optional<Example> decode_Example(std::span<const std::byte> input) {
       return std::nullopt;
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+    std::vector<::Mode> elements;
+    elements.reserve(element_count);
     const std::size_t element_width = 1U;
     const std::size_t remaining_bytes = field->bytes.size() - element_offset;
     if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
       return std::nullopt;
     }
-    std::vector<::Mode> elements;
-    elements.reserve(element_count);
     for (std::size_t index = 0U; index < element_count; ++index) {
       const auto decoded = ::breadcrumbs::runtime::read_u8(field->bytes.subspan(element_offset, element_width));
       if (!decoded.value.has_value()) {
@@ -632,13 +730,13 @@ std::optional<Example> decode_Example(std::span<const std::byte> input) {
       return std::nullopt;
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+    std::vector<bool> elements;
+    elements.reserve(element_count);
     const std::size_t element_width = 1U;
     const std::size_t remaining_bytes = field->bytes.size() - element_offset;
     if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
       return std::nullopt;
     }
-    std::vector<bool> elements;
-    elements.reserve(element_count);
     for (std::size_t index = 0U; index < element_count; ++index) {
       const auto decoded = ::breadcrumbs::runtime::read_bool(field->bytes.subspan(element_offset, element_width));
       if (!decoded.value.has_value()) {
@@ -658,13 +756,13 @@ std::optional<Example> decode_Example(std::span<const std::byte> input) {
       return std::nullopt;
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+    std::vector<std::int16_t> elements;
+    elements.reserve(element_count);
     const std::size_t element_width = 2U;
     const std::size_t remaining_bytes = field->bytes.size() - element_offset;
     if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
       return std::nullopt;
     }
-    std::vector<std::int16_t> elements;
-    elements.reserve(element_count);
     for (std::size_t index = 0U; index < element_count; ++index) {
       const auto decoded = ::breadcrumbs::runtime::read_i16(field->bytes.subspan(element_offset, element_width));
       if (!decoded.value.has_value()) {
@@ -684,13 +782,13 @@ std::optional<Example> decode_Example(std::span<const std::byte> input) {
       return std::nullopt;
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+    std::vector<float> elements;
+    elements.reserve(element_count);
     const std::size_t element_width = 4U;
     const std::size_t remaining_bytes = field->bytes.size() - element_offset;
     if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
       return std::nullopt;
     }
-    std::vector<float> elements;
-    elements.reserve(element_count);
     for (std::size_t index = 0U; index < element_count; ++index) {
       const auto decoded = ::breadcrumbs::runtime::read_f32(field->bytes.subspan(element_offset, element_width));
       if (!decoded.value.has_value()) {
@@ -706,6 +804,72 @@ std::optional<Example> decode_Example(std::span<const std::byte> input) {
   if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 9U); field != nullptr) {
     const auto decoded = ::breadcrumbs::runtime::read_bool(field->bytes);
     if (!decoded.value.has_value() || !builder.set_active(*decoded.value)) {
+      return std::nullopt;
+    }
+  }
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 10U); field != nullptr) {
+    std::size_t element_offset = 0U;
+    const auto decoded_count = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
+    if (!decoded_count.value.has_value() || *decoded_count.value > 3U) {
+      return std::nullopt;
+    }
+    const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+    std::vector<std::string> elements;
+    elements.reserve(element_count);
+    for (std::size_t index = 0U; index < element_count; ++index) {
+      const auto decoded_length = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
+      if (!decoded_length.value.has_value() || *decoded_length.value > 8U) {
+        return std::nullopt;
+      }
+      const auto element_length = static_cast<std::size_t>(*decoded_length.value);
+      if (element_length > field->bytes.size() - element_offset) {
+        return std::nullopt;
+      }
+      const auto element_bytes = field->bytes.subspan(element_offset, element_length);
+      const auto decoded = ::breadcrumbs::runtime::read_string_utf8(element_bytes);
+      if (!decoded.value.has_value()) {
+        return std::nullopt;
+      }
+      elements.push_back(std::move(*decoded.value));
+      element_offset += element_length;
+    }
+    if (element_offset != field->bytes.size()) {
+      return std::nullopt;
+    }
+    if (!builder.set_tags(std::move(elements))) {
+      return std::nullopt;
+    }
+  }
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 11U); field != nullptr) {
+    std::size_t element_offset = 0U;
+    const auto decoded_count = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
+    if (!decoded_count.value.has_value() || *decoded_count.value > 3U) {
+      return std::nullopt;
+    }
+    const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+    std::vector<std::vector<std::byte>> elements;
+    elements.reserve(element_count);
+    for (std::size_t index = 0U; index < element_count; ++index) {
+      const auto decoded_length = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
+      if (!decoded_length.value.has_value() || *decoded_length.value > 3U) {
+        return std::nullopt;
+      }
+      const auto element_length = static_cast<std::size_t>(*decoded_length.value);
+      if (element_length > field->bytes.size() - element_offset) {
+        return std::nullopt;
+      }
+      const auto element_bytes = field->bytes.subspan(element_offset, element_length);
+      const auto decoded = ::breadcrumbs::runtime::read_bytes(element_bytes);
+      if (!decoded.value.has_value()) {
+        return std::nullopt;
+      }
+      elements.push_back(std::move(*decoded.value));
+      element_offset += element_length;
+    }
+    if (element_offset != field->bytes.size()) {
+      return std::nullopt;
+    }
+    if (!builder.set_chunks(std::move(elements))) {
       return std::nullopt;
     }
   }

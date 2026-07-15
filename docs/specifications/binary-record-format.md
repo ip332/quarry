@@ -412,6 +412,26 @@ the count, tightly packed, in index order, with no padding or alignment bytes.
 Each element SHALL use the same byte representation as the equivalent standalone
 field value.
 
+For variable-length leaf element types, array elements SHALL be encoded
+immediately after the count in index order. Each element SHALL begin with an
+unsigned LEB128 `varuint` `elementLength`, followed by exactly `elementLength`
+bytes of element data. `elementLength` counts only the element data bytes; it
+does not include the length prefix. There is no array-level internal byte length,
+no offset table, no string terminator, and no padding or alignment bytes.
+
+For `array<string>`, each element data region is raw UTF-8 bytes. Every element
+SHALL be valid UTF-8 on encode and decode. The per-element `max_bytes` bound is
+measured in encoded UTF-8 bytes. Embedded U+0000 is valid, and no Unicode
+normalization is performed.
+
+For `array<bytes>`, each element data region is arbitrary raw bytes. The
+per-element `max_bytes` bound is measured in raw bytes. No UTF-8 validation
+applies.
+
+The empty array payload is exactly `00`. An array containing one empty element
+is encoded as `01 00`: element count one followed by an element length of zero.
+These are distinct from an absent array, which has no Field Directory entry.
+
 Generated C++ codecs currently support arrays of:
 
 * `bool`
@@ -420,14 +440,23 @@ Generated C++ codecs currently support arrays of:
 * `f64`
 * enum references whose declared values are all non-negative and whose decoded
   numeric values are declared by the enum
+* `string`
+* `bytes`
 
 Generated decoders SHALL reject fixed-width array payloads unless the bytes
 remaining after the count are exactly `element_count * element_width`, computed
 with checked arithmetic. Decoders SHALL reject counts greater than
 `max_elements` before allocating the materialized array.
 
-Arrays of strings, bytes, records, and nested arrays remain unsupported by the
-generated C++ codecs in this revision.
+Generated decoders SHALL reject variable-length array payloads unless exactly
+`element_count` length-delimited elements are consumed and no trailing bytes
+remain. Decoders SHALL reject counts greater than `max_elements` before
+allocating the materialized array and SHALL reject each element whose
+`elementLength` exceeds the schema-defined per-element `max_bytes` bound before
+copying element data.
+
+Arrays of records and nested arrays remain unsupported by the generated C++
+codecs in this revision.
 
 Unbounded arrays are not supported.
 

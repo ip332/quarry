@@ -67,16 +67,18 @@ struct RuntimeEnumEncoding {
     std::vector<std::int64_t> valid_values;
 };
 
-struct RuntimeArrayEncoding {
-    RuntimeScalarEncoder scalar = RuntimeScalarEncoder::Unsupported;
-    std::optional<RuntimeEnumEncoding> enum_encoding;
-    std::uint32_t max_elements = 0U;
-};
-
 enum class RuntimeVariableEncoding {
     Unsupported,
     String,
     Bytes,
+};
+
+struct RuntimeArrayEncoding {
+    RuntimeScalarEncoder scalar = RuntimeScalarEncoder::Unsupported;
+    std::optional<RuntimeEnumEncoding> enum_encoding;
+    RuntimeVariableEncoding variable = RuntimeVariableEncoding::Unsupported;
+    std::uint32_t max_elements = 0U;
+    std::uint32_t max_bytes = 0U;
 };
 
 struct RuntimeFieldEncoding {
@@ -527,7 +529,15 @@ lower_runtime_field_encoding(const ::breadcrumbs::schema_ir::FieldType& field_ty
             return encoding;
         }
         case ::breadcrumbs::schema_ir::FieldType::kString:
+            array_encoding.variable = RuntimeVariableEncoding::String;
+            array_encoding.max_bytes = array_type.element_type().string().max_bytes();
+            encoding.array_encoding = std::move(array_encoding);
+            return encoding;
         case ::breadcrumbs::schema_ir::FieldType::kBytes:
+            array_encoding.variable = RuntimeVariableEncoding::Bytes;
+            array_encoding.max_bytes = array_type.element_type().bytes().max_bytes();
+            encoding.array_encoding = std::move(array_encoding);
+            return encoding;
         case ::breadcrumbs::schema_ir::FieldType::kRecord:
         case ::breadcrumbs::schema_ir::FieldType::kArray:
         case ::breadcrumbs::schema_ir::FieldType::KIND_NOT_SET:
@@ -1203,7 +1213,33 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
     stream << indent(indent_level + 1) << "::breadcrumbs::runtime::append_varuint(field_bytes, "
            << "value." << field.name << "()->size());\n";
 
-    if (array_encoding.enum_encoding.has_value()) {
+    if (array_encoding.variable == RuntimeVariableEncoding::String) {
+        stream << indent(indent_level + 1) << "for (const auto& element : *value." << field.name
+               << "()) {\n";
+        stream << indent(indent_level + 2) << "if (element.size() > " << array_encoding.max_bytes
+               << "U) {\n";
+        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 2) << "}\n";
+        stream << indent(indent_level + 2)
+               << "::breadcrumbs::runtime::append_varuint(field_bytes, element.size());\n";
+        stream << indent(indent_level + 2)
+               << "if (!::breadcrumbs::runtime::append_string_utf8(field_bytes, element)) {\n";
+        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 2) << "}\n";
+        stream << indent(indent_level + 1) << "}\n";
+    } else if (array_encoding.variable == RuntimeVariableEncoding::Bytes) {
+        stream << indent(indent_level + 1) << "for (const auto& element : *value." << field.name
+               << "()) {\n";
+        stream << indent(indent_level + 2) << "if (element.size() > " << array_encoding.max_bytes
+               << "U) {\n";
+        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 2) << "}\n";
+        stream << indent(indent_level + 2)
+               << "::breadcrumbs::runtime::append_varuint(field_bytes, element.size());\n";
+        stream << indent(indent_level + 2) << "::breadcrumbs::runtime::append_bytes(field_bytes, "
+               << "std::span<const std::byte>(element.data(), element.size()));\n";
+        stream << indent(indent_level + 1) << "}\n";
+    } else if (array_encoding.enum_encoding.has_value()) {
         const RuntimeEnumEncoding& enum_encoding = *array_encoding.enum_encoding;
         const std::string append_function = enum_append_function(enum_encoding.width_bytes);
         const std::string unsigned_type = enum_unsigned_type(enum_encoding.width_bytes);
@@ -1392,6 +1428,8 @@ void render_bytes_field_decoding(const FieldPlan& field, std::size_t indent_leve
 void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncoding& array_encoding,
                                  std::size_t indent_level, std::ostringstream& stream) {
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
+    const bool is_string_array = array_encoding.variable == RuntimeVariableEncoding::String;
+    const bool is_bytes_array = array_encoding.variable == RuntimeVariableEncoding::Bytes;
     const bool is_enum_array = array_encoding.enum_encoding.has_value();
     const std::string read_function =
         is_enum_array ? enum_read_function(array_encoding.enum_encoding->width_bytes)
@@ -1412,48 +1450,87 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1)
            << "const auto element_count = static_cast<std::size_t>(*decoded_count.value);\n";
-    stream << indent(indent_level + 1) << "const std::size_t element_width = "
-           << static_cast<unsigned int>(element_width) << "U;\n";
-    stream << indent(indent_level + 1)
-           << "const std::size_t remaining_bytes = field->bytes.size() - element_offset;\n";
-    stream << indent(indent_level + 1)
-           << "if (element_width == 0U || element_count > remaining_bytes / element_width || "
-           << "remaining_bytes != element_count * element_width) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
-    stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << field.cpp_type << " elements;\n";
     stream << indent(indent_level + 1) << "elements.reserve(element_count);\n";
-    stream << indent(indent_level + 1)
-           << "for (std::size_t index = 0U; index < element_count; ++index) {\n";
-    stream << indent(indent_level + 2) << "const auto decoded = ::breadcrumbs::runtime::"
-           << read_function << "(field->bytes.subspan(element_offset, element_width));\n";
-    stream << indent(indent_level + 2) << "if (!decoded.value.has_value()) {\n";
-    stream << indent(indent_level + 3) << "return std::nullopt;\n";
-    stream << indent(indent_level + 2) << "}\n";
-    if (is_enum_array) {
-        const RuntimeEnumEncoding& enum_encoding = *array_encoding.enum_encoding;
+
+    if (is_string_array || is_bytes_array) {
+        stream << indent(indent_level + 1)
+               << "for (std::size_t index = 0U; index < element_count; ++index) {\n";
         stream << indent(indent_level + 2)
-               << "const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);\n";
-        stream << indent(indent_level + 2) << "if (!(";
-        for (std::size_t index = 0; index < enum_encoding.valid_values.size(); ++index) {
-            if (index > 0) {
-                stream << " || ";
-            }
-            stream << "enum_numeric == " << enum_encoding.valid_values[index];
-        }
-        if (enum_encoding.valid_values.empty()) {
-            stream << "false";
-        }
-        stream << ")) {\n";
+               << "const auto decoded_length = ::breadcrumbs::runtime::read_varuint("
+               << "field->bytes, element_offset);\n";
+        stream << indent(indent_level + 2)
+               << "if (!decoded_length.value.has_value() || *decoded_length.value > "
+               << array_encoding.max_bytes << "U) {\n";
         stream << indent(indent_level + 3) << "return std::nullopt;\n";
         stream << indent(indent_level + 2) << "}\n";
-        stream << indent(indent_level + 2) << "elements.push_back(static_cast<"
-               << enum_encoding.cpp_type << ">(enum_numeric));\n";
+        stream << indent(indent_level + 2)
+               << "const auto element_length = static_cast<std::size_t>(*decoded_length.value);\n";
+        stream << indent(indent_level + 2)
+               << "if (element_length > field->bytes.size() - element_offset) {\n";
+        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 2) << "}\n";
+        stream << indent(indent_level + 2) << "const auto element_bytes = "
+               << "field->bytes.subspan(element_offset, element_length);\n";
+        if (is_string_array) {
+            stream << indent(indent_level + 2)
+                   << "const auto decoded = ::breadcrumbs::runtime::read_string_utf8("
+                   << "element_bytes);\n";
+        } else {
+            stream << indent(indent_level + 2)
+                   << "const auto decoded = ::breadcrumbs::runtime::read_bytes(element_bytes);\n";
+        }
+        stream << indent(indent_level + 2) << "if (!decoded.value.has_value()) {\n";
+        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 2) << "}\n";
+        stream << indent(indent_level + 2) << "elements.push_back(std::move(*decoded.value));\n";
+        stream << indent(indent_level + 2) << "element_offset += element_length;\n";
+        stream << indent(indent_level + 1) << "}\n";
+        stream << indent(indent_level + 1) << "if (element_offset != field->bytes.size()) {\n";
+        stream << indent(indent_level + 2) << "return std::nullopt;\n";
+        stream << indent(indent_level + 1) << "}\n";
     } else {
-        stream << indent(indent_level + 2) << "elements.push_back(*decoded.value);\n";
+        stream << indent(indent_level + 1) << "const std::size_t element_width = "
+               << static_cast<unsigned int>(element_width) << "U;\n";
+        stream << indent(indent_level + 1)
+               << "const std::size_t remaining_bytes = field->bytes.size() - element_offset;\n";
+        stream << indent(indent_level + 1)
+               << "if (element_width == 0U || element_count > remaining_bytes / element_width || "
+               << "remaining_bytes != element_count * element_width) {\n";
+        stream << indent(indent_level + 2) << "return std::nullopt;\n";
+        stream << indent(indent_level + 1) << "}\n";
+        stream << indent(indent_level + 1)
+               << "for (std::size_t index = 0U; index < element_count; ++index) {\n";
+        stream << indent(indent_level + 2) << "const auto decoded = ::breadcrumbs::runtime::"
+               << read_function << "(field->bytes.subspan(element_offset, element_width));\n";
+        stream << indent(indent_level + 2) << "if (!decoded.value.has_value()) {\n";
+        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 2) << "}\n";
+        if (is_enum_array) {
+            const RuntimeEnumEncoding& enum_encoding = *array_encoding.enum_encoding;
+            stream << indent(indent_level + 2)
+                   << "const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);\n";
+            stream << indent(indent_level + 2) << "if (!(";
+            for (std::size_t index = 0; index < enum_encoding.valid_values.size(); ++index) {
+                if (index > 0) {
+                    stream << " || ";
+                }
+                stream << "enum_numeric == " << enum_encoding.valid_values[index];
+            }
+            if (enum_encoding.valid_values.empty()) {
+                stream << "false";
+            }
+            stream << ")) {\n";
+            stream << indent(indent_level + 3) << "return std::nullopt;\n";
+            stream << indent(indent_level + 2) << "}\n";
+            stream << indent(indent_level + 2) << "elements.push_back(static_cast<"
+                   << enum_encoding.cpp_type << ">(enum_numeric));\n";
+        } else {
+            stream << indent(indent_level + 2) << "elements.push_back(*decoded.value);\n";
+        }
+        stream << indent(indent_level + 2) << "element_offset += element_width;\n";
+        stream << indent(indent_level + 1) << "}\n";
     }
-    stream << indent(indent_level + 2) << "element_offset += element_width;\n";
-    stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(std::move(elements))) {\n";
     stream << indent(indent_level + 2) << "return std::nullopt;\n";

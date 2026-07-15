@@ -42,13 +42,15 @@ Current C++ generation behavior:
   * present unsupported fields return `std::nullopt`
   * supported present field types are `bool`, fixed-width signed and unsigned
     integers, `f32`, `f64`, `string`, `bytes`, enum references whose declared
-    values are all non-negative, and arrays of supported fixed-width scalar or
-    non-negative enum element types
+    values are all non-negative, arrays of supported fixed-width scalar or
+    non-negative enum element types, and arrays of `string` or `bytes`
   * string encoding validates UTF-8 and returns `std::nullopt` for malformed
     string bytes
   * bytes encoding accepts arbitrary byte sequences
-  * present arrays of strings, bytes, records, and nested arrays return
-    `std::nullopt`
+  * arrays of strings and bytes encode an element count followed by one
+    length-delimited raw element payload per element; string elements validate
+    UTF-8 and bytes elements accept arbitrary byte sequences
+  * present arrays of records and nested arrays return `std::nullopt`
   * nested records and unknown-field preservation remain out of scope
 * generates `decode_RecordName(std::span<const std::byte>)` overloads that
   return `std::optional<RecordName>`
@@ -60,16 +62,18 @@ Current C++ generation behavior:
   * present unsupported known fields return `std::nullopt`
   * supported known field types match the encoder subset: `bool`, fixed-width
     signed and unsigned integers, `f32`, `f64`, `string`, `bytes`,
-    non-negative enum references, and arrays of supported fixed-width scalar or
-    non-negative enum element types
+    non-negative enum references, arrays of supported fixed-width scalar or
+    non-negative enum element types, and arrays of `string` or `bytes`
   * string decoding validates UTF-8 and returns `std::nullopt` for malformed
     string bytes
   * bytes decoding accepts arbitrary byte sequences
   * array decoding validates the encoded element count against `max_elements`
     before allocating, requires exact payload consumption, and preserves
     element order
-  * present arrays of strings, bytes, records, and nested arrays return
-    `std::nullopt`
+  * arrays of strings and bytes decode one length-delimited raw element payload
+    per element, enforce per-element `max_bytes`, validate UTF-8 for string
+    elements, and preserve empty elements distinctly from empty arrays
+  * present arrays of records and nested arrays return `std::nullopt`
   * decoded values are materialized through the generated builder, preserving
     presence and existing bounds validation
 * preserves declaration order unless record dependencies force a deterministic
@@ -92,6 +96,8 @@ Current C++ generation behavior:
   * array `max_count` is measured in element count
   * generated codecs recheck array bounds so external bytes cannot bypass
     builder validation
+  * generated codecs recheck per-element `max_bytes` for string and bytes array
+    elements before copying decoded element data
   * invalid values are rejected atomically rather than truncated
   * generated codecs recheck string and bytes bounds so decoded external bytes
     cannot bypass builder validation

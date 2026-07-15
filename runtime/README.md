@@ -21,6 +21,8 @@ Current support:
   fields
 * fixed-width array payload emission and parsing for generated arrays of
   supported scalar and enum leaf types
+* length-delimited array payload emission and parsing for generated arrays of
+  `string` and `bytes` leaf types
 * owning `std::vector<std::byte>` encode results
 * compact runtime parse/read errors used by generated decoders
 
@@ -36,15 +38,23 @@ encoded as zero-length Field Directory entries, which remain distinct from
 absent fields.
 
 Generated array codecs encode a present array as a Field Directory entry whose
-payload starts with an unsigned LEB128 element count followed by tightly packed
-fixed-width element bytes. Present empty arrays encode the canonical zero count
-byte and remain distinct from absent arrays. Decoders validate the schema
-`max_elements` bound before allocating materialized vectors.
+payload starts with an unsigned LEB128 element count. Fixed-width element arrays
+then use tightly packed element bytes. Arrays of `string` and `bytes` then use
+one unsigned LEB128 element length followed by raw element data for each element;
+there is no offset table, terminator, or array-level internal byte length.
+Present empty arrays encode the canonical zero count byte and remain distinct
+from arrays containing empty elements. Decoders validate the schema
+`max_elements` bound before allocating materialized vectors, validate
+per-element `max_bytes` before copying variable-length elements, and require
+exact array payload consumption.
+
+Generated `array<string>` codecs validate UTF-8 for every element on encode and
+decode. Generated `array<bytes>` codecs accept arbitrary byte sequences.
 
 Out of scope:
 
 * dynamic Schema IR or manifest interpretation
-* arrays of strings, bytes, records, or nested arrays
+* arrays of records or nested arrays
 * nested-record payload encoding or decoding
 * unknown-field preservation
 * generated read/view APIs
