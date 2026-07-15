@@ -58,6 +58,8 @@ target_compile_definitions(backend_codegen_test PRIVATE
     BREADCRUMBS_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}")
 target_link_libraries(backend_codegen_test PRIVATE breadcrumbs_compiler_schema_ir)
 target_link_libraries(backend_codegen_test PRIVATE breadcrumbs_schema_ir_warning_tweaks)
+add_breadcrumbs_gtest(runtime_binary_record_test runtime/binary_record_test.cpp
+                      breadcrumbs_runtime)
 add_breadcrumbs_gtest(schema_compiler_tool_test tools/schema_compiler_tool_test.cpp
                       breadcrumbs_compiler_support)
 add_dependencies(schema_compiler_tool_test breadcrumbs_schema_compiler)

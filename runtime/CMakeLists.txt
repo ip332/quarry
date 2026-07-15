@@ -1,0 +1,3 @@
+add_library(breadcrumbs_runtime INTERFACE)
+target_include_directories(breadcrumbs_runtime INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(breadcrumbs_runtime INTERFACE breadcrumbs_project_options)

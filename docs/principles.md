@@ -90,6 +90,9 @@ Runtime components should not depend on dynamic schema interpretation, runtime
 schema downloads, or dynamic field discovery for normal operation. Compile
 schema knowledge into the firmware, application, service, or tool that needs it.
 
+Generated codecs should keep schema-specific decisions in generated code and
+delegate only representation-neutral byte mechanics to runtime libraries.
+
 ## Immutable Records
 
 All records are immutable.

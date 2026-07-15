@@ -54,6 +54,8 @@ payloadLength   uint32
 
 The Record Header is fixed-size in v0.1.
 
+`headerVersion` SHALL be `1` for Binary Record Format v0.1.
+
 Header fields SHALL NOT use varint encoding.
 
 All flag bits SHALL be zero in v0.1.
@@ -289,6 +291,11 @@ All multi-byte integers SHALL use big-endian byte order.
 
 `varuint` is an unsigned variable-length integer encoding.
 
+`varuint` SHALL use unsigned LEB128 encoding: each byte carries seven payload
+bits in the low bits, and the high bit is set when another byte follows. The
+least significant group is encoded first. The value zero is encoded as the
+single byte `0x00`.
+
 The Binary Record Format uses `varuint` for Field Directory `fieldOffset` and
 `fieldLength` values.
 
@@ -380,6 +387,10 @@ Unbounded arrays are not supported.
 
 Enum fields SHALL be encoded using the smallest fixed-width unsigned integer
 capable of representing the largest enum value defined by the schema.
+
+The first generated C++ encoder supports enum fields only when every value
+defined by the referenced enum is non-negative. Encoding negative enum values
+remains deferred until the enum wire rule is extended beyond unsigned widths.
 
 Decoders MAY expose unknown enum numeric values.
 

@@ -6,7 +6,10 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
+
+#include "runtime/binary_record.hpp"
 
 enum class Mode : std::int64_t {
   Off = 0,
@@ -55,6 +58,22 @@ private:
 
   std::optional<std::uint32_t> count_;
 };
+
+std::optional<std::vector<std::byte>> encode(const Child& value) {
+  std::vector<::breadcrumbs::runtime::FieldBytes> fields;
+  fields.reserve(1U);
+  if (value.has_count()) {
+    std::vector<std::byte> field_bytes;
+    if (!::breadcrumbs::runtime::append_u32(field_bytes, *value.count())) {
+      return std::nullopt;
+    }
+    fields.push_back(::breadcrumbs::runtime::FieldBytes{
+      .field_index = 0U,
+      .bytes = std::move(field_bytes),
+    });
+  }
+  return ::breadcrumbs::runtime::encode_record(1U, fields);
+}
 
 struct Example {
   Example() = default;
@@ -234,3 +253,27 @@ private:
   std::optional<std::vector<::Mode>> modes_;
   std::optional<std::vector<::Child>> children_;
 };
+
+std::optional<std::vector<std::byte>> encode(const Example& value) {
+  std::vector<::breadcrumbs::runtime::FieldBytes> fields;
+  fields.reserve(6U);
+  if (value.has_name()) {
+    return std::nullopt;
+  }
+  if (value.has_payload()) {
+    return std::nullopt;
+  }
+  if (value.has_counts()) {
+    return std::nullopt;
+  }
+  if (value.has_distances()) {
+    return std::nullopt;
+  }
+  if (value.has_modes()) {
+    return std::nullopt;
+  }
+  if (value.has_children()) {
+    return std::nullopt;
+  }
+  return ::breadcrumbs::runtime::encode_record(2U, fields);
+}

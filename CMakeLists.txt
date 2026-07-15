@@ -34,6 +34,7 @@ endif()
 
 enable_testing()
 
+add_subdirectory(runtime)
 add_subdirectory(compiler)
 add_subdirectory(tools)
 add_subdirectory(tests)

@@ -31,6 +31,20 @@ Current C++ generation behavior:
   * `build()` returns an immutable logical record value
   * generated record values expose only const inspection methods and do not
     allow public mutation after construction
+* generates `encode(const Record&)` overloads that return
+  `std::optional<std::vector<std::byte>>`
+  * encoding is deterministic and returns `std::nullopt` on failure
+  * successful results contain a complete top-level Binary Record Format v0.1
+    record
+  * present scalar fields are encoded through the runtime library
+  * absent fields are omitted, including absent fields whose type is not yet
+    encodable
+  * present unsupported fields return `std::nullopt`
+  * supported present field types are `bool`, fixed-width signed and unsigned
+    integers, `f32`, `f64`, and enum references whose declared values are all
+    non-negative
+  * strings, bytes, arrays, nested records, decoding, and unknown-field
+    preservation remain out of scope
 * preserves declaration order unless record dependencies force a deterministic
   reordering
 * fails clearly when record dependencies form a cycle instead of emitting
@@ -56,13 +70,14 @@ Current C++ generation behavior:
   * `<cstddef>` for `std::byte`
   * `<cstdint>` for fixed-width integers and enum underlying types
   * `<optional>` for generated record presence tracking
+  * `<utility>` for generated encoder moves
   * `<string>` for `std::string`
-  * `<vector>` for arrays and `bytes`
+  * `<vector>` for arrays, `bytes`, and generated encoder results
+* includes `runtime/binary_record.hpp` when a generated file contains records
 * returns `success = false`, a non-empty `error_message`, and no generated
   files for backend failures
-* keeps enum formatting, parsing, reflection, codecs, accessors beyond the
-  minimal const inspection API, and runtime serialization out of scope for
-  this PR
+* keeps enum formatting, parsing, reflection, accessors beyond the minimal
+  const inspection API, and decoding out of scope for this PR
 * backend code-generation tests consume validated Schema IR directly and do
   not exercise either source frontend
 

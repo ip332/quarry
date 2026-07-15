@@ -63,6 +63,11 @@ Compiler C++ headers and CMake targets currently define source-tree APIs, not
 an installed external compiler SDK. `compiler/README.md` owns the supported
 source-tree entry-point boundary.
 
+Runtime binary-record mechanics live outside the compiler. Generated C++ schema
+artifacts may depend on the small `breadcrumbs_runtime` target for byte-level
+encoding, but runtime code must not depend on compiler IRs, YAML, Schema IR
+protobufs, semantic analysis, layout internals, or backend code.
+
 ---
 
 ## Compilation Pipeline
