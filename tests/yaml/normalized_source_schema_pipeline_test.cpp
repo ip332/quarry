@@ -8,7 +8,6 @@
 #include "compiler/support/source_manager.hpp"
 #include "compiler/symbols/symbols.hpp"
 #include "compiler/yaml/schema_decoder.hpp"
-#include "compiler/yaml/source_schema.hpp"
 #include "compiler/yaml/yaml_parser.hpp"
 
 #include <cstdint>
@@ -40,7 +39,7 @@ using breadcrumbs::compiler::support::SourceFileId;
 using breadcrumbs::compiler::support::SourceManager;
 using breadcrumbs::compiler::symbols::NamespaceBuilder;
 using breadcrumbs::compiler::symbols::SymbolTable;
-using breadcrumbs::compiler::yaml::YamlDecodeResult;
+using breadcrumbs::compiler::source_schema::SourceSchemaDecodeResult;
 using breadcrumbs::compiler::yaml::YamlParser;
 using breadcrumbs::compiler::yaml::YamlParseResult;
 
@@ -56,7 +55,7 @@ struct DirectPipelineOutput {
     CompilerContext context;
     SourceFileId source_file_id;
     YamlParseResult parse_result;
-    YamlDecodeResult decode_result;
+    SourceSchemaDecodeResult decode_result;
     breadcrumbs::compiler::source_schema::SourceSchemaNormalizationResult normalization_result;
     DiagnosticEngine parser_diagnostics;
     DiagnosticEngine decoder_diagnostics;

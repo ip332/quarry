@@ -74,9 +74,9 @@ The compiler pipeline is:
   through validated Schema IR by feeding the normalized source schema directly
   into symbol construction, semantic validation, layout computation, and
   Schema IR lowering.
-* AST flows into legacy symbol construction, legacy semantic validation, and
-  layout computation. Import declarations remain parsed syntax only and are
-  ignored by the current downstream pipeline.
+* Legacy declaration-syntax source files flow only through the parser-owned
+  AST compatibility surface. Import declarations remain parsed syntax only and
+  are not consumed by downstream compiler stages.
 
 The current migration boundary is intentionally uneven: scalar- and
 enum-shaped schemas can flow through the existing downstream pipeline today,
@@ -85,7 +85,7 @@ source-schema normalization, semantic validation, and Schema IR. The
 remaining work is downstream policy and runtime support rather than
 representation. The normalized YAML pipeline no longer routes through a
 source-schema-to-AST compatibility projection; AST remains owned by the
-independent legacy declaration-syntax pipeline.
+independent legacy declaration parser and AST tests.
 
 Source loading is intentionally caller-owned: `SourceManager` stores
 already-loaded source text and source labels, while the parser consumes one
@@ -95,9 +95,9 @@ There is no production declaration-syntax root-source parsing facade yet; a
 caller that wants to parse a file path still performs source loading and
 registration itself.
 
-During migration, the legacy declaration-syntax frontend and the normative YAML
+During migration, the legacy declaration-syntax parser and the normative YAML
 frontend both remain available. Legacy declaration-syntax tests continue to
-exercise the temporary lexer/parser frontend.
+exercise the temporary lexer/parser surface.
 
 Each stage should consume the previous stage's output and produce a model with
 fewer source-syntax concerns and more compiler-owned structure.

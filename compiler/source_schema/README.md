@@ -20,10 +20,13 @@ It:
 It does not parse YAML text, build AST nodes, resolve symbols, perform semantic
 validation, compute layout, or construct Schema IR.
 
+The YAML decoder returns these raw source-schema model types directly. The
+YAML module does not own aliases or adapter models for source-schema data.
+
 The normalized source-schema model is the production-facing YAML representation
-that downstream compiler stages now consume directly. The legacy AST pipeline
-remains available separately for declaration-syntax callers and tests, but
-this module no longer provides a source-schema-to-AST compatibility bridge.
+that downstream compiler stages now consume directly. The legacy declaration
+parser remains available for parser/AST compatibility tests, but this module
+no longer provides a source-schema-to-AST compatibility bridge.
 
 ## Dependencies
 

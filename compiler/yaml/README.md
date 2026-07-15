@@ -22,7 +22,8 @@ names, validate schema semantics, compute layout, or construct Schema IR.
 ## Source Schema Decoder
 
 The YAML module also contains the schema-specific decoder that turns a
-`YamlDocument` into the raw Breadcrumbs source schema model.
+`YamlDocument` into the raw Breadcrumbs source schema model owned by
+`compiler/source_schema`.
 
 That source schema model preserves:
 
@@ -34,14 +35,15 @@ That source schema model preserves:
 * string-valued annotations
 * field and enum source ranges
 
-The decoder performs structural YAML-to-schema decoding only. It does not
-perform semantic validation, name resolution, layout computation, or Schema IR
-construction.
+The decoder performs structural YAML-to-schema decoding only. It returns
+`source_schema::SourceSchemaDecodeResult` and does not own source-schema model
+types. It does not perform semantic validation, name resolution, layout
+computation, or Schema IR construction.
 
-The migration bridge currently supports a fully traversable scalar-, enum-, and
-bounded-array-shaped YAML subset. Bounded variable-length arrays are preserved
-through YAML decoding and source-schema normalization so later compiler stages
-can validate and lower the carried bounds.
+The current YAML frontend supports scalar-, enum-, and bounded-array-shaped
+schemas through the normalized source-schema pipeline. Bounded variable-length
+arrays are preserved through YAML decoding and source-schema normalization so
+later compiler stages can validate and lower the carried bounds.
 
 ## Source Schema Normalization
 
@@ -56,7 +58,7 @@ downstream compiler stages consume that model directly.
 The production-facing `compiler/frontend` orchestration layer builds the
 symbol table, semantic model, layout model, and Schema IR directly from the
 normalized source schema. The legacy declaration parser remains available for
-its independent AST-based pipeline.
+parser/AST compatibility tests.
 
 ## Restricted YAML Profile
 
@@ -81,17 +83,15 @@ Allowed direct Breadcrumbs dependencies:
 * `compiler/source_schema`
 
 The implementation uses libyaml privately through the event API. Public
-headers do not expose libyaml types.
+headers do not expose libyaml types. The YAML layer may depend on
+`compiler/source_schema` only at the decoder boundary where decoded schema
+data crosses into the neutral source-schema model.
 
 ## Migration Status
 
 The legacy declaration lexer/parser remains temporarily supported while the
-repository migrates toward YAML decoding. That legacy frontend is still used
-by existing `.brd` tests and does not define the normative language contract.
+repository migrates toward YAML decoding. That legacy parser surface is still
+used by parser/AST tests and does not define the normative language contract.
 The normative YAML frontend now normalizes into the neutral source-schema
 module before entering the remaining compiler pipeline, and the production
 YAML path now reaches Schema IR without any compatibility AST bridge.
-
-This module is the first step toward a later YAML-to-Breadcrumbs schema
-pipeline that will eventually feed semantic validation and later compiler
-stages.

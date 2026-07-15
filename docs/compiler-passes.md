@@ -59,15 +59,14 @@ source-schema normalization
 Symbol Model / Semantic Model
 ```
 
-The existing legacy declaration parser remains available for transitional test
-coverage and produces the AST-shaped input consumed by legacy parser-facing
-pass overloads. The YAML frontend does not replace the legacy parser; it feeds
-a normalized source-schema model into the same downstream semantic and layout
+The existing legacy declaration parser remains available for parser/AST test
+coverage. The YAML frontend does not replace the legacy parser; it feeds a
+normalized source-schema model into the downstream semantic and layout
 pipeline through an explicit normalization boundary.
 
 Scalar- and enum-shaped YAML schemas can currently traverse the complete
-legacy pipeline. Bounded-variable arrays are preserved through YAML decoding,
-source-schema normalization, semantic validation, and Schema IR, but
+normalized-source-schema pipeline. Bounded-variable arrays are preserved
+through YAML decoding, source-schema normalization, semantic validation, and Schema IR, but
 downstream layout and runtime policy still do not interpret the full
 bounded-array contract yet.
 
@@ -199,7 +198,7 @@ This pass establishes logical declaration identity using fully qualified names.
 
 Consumes:
 
-* AST
+* normalized source-schema document
 
 Produces:
 
@@ -211,10 +210,8 @@ Required by:
 
 ### Assumptions on Input
 
-All ASTs are syntactically valid. Import declarations, when present, are
-legacy syntax only and are ignored by downstream passes. For the normalized
-source-schema path, the schema has already had unsupported YAML imports
-rejected and normalized identifiers validated.
+The schema has already had unsupported YAML imports rejected and normalized
+identifiers validated.
 
 ### Responsibilities
 

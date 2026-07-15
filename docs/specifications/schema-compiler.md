@@ -127,7 +127,7 @@ detail.
 The Schema Compiler consumes:
 
 * `.brd` schema files
-* parsed AST documents that may contain legacy import declarations
+* normalized source-schema documents
 * compatibility metadata
 * reserved field metadata
 * target language configuration

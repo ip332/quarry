@@ -17,7 +17,8 @@ YAML `.brd` compilation.
 * `SchemaIrValidator`
 
 The frontend returns validated Schema IR on success and no Schema IR on
-failure. It does not invoke backend generation.
+failure. It stops after the first stage that reports errors or fails to
+produce its expected model. It does not invoke backend generation.
 
 The Schema IR exact-output golden suite now runs through this production YAML
 frontend against the YAML fixture tree under `tests/fixtures/schema_ir_yaml`.
@@ -32,6 +33,10 @@ without any compatibility AST hop. The legacy declaration parser remains
 available only as compatibility/test infrastructure and is still used by
 existing declaration-syntax tests. It is not a supported standalone compiler
 frontend.
+
+`YamlCompiler` owns stage sequencing only. YAML parsing, schema decoding, and
+source-schema normalization remain separately testable lower-level compiler
+APIs.
 
 Non-empty YAML imports remain unsupported and continue to fail in the existing
 source-schema normalization layer. Import resolution is not implemented here.

@@ -99,7 +99,7 @@ void clear_source_metadata(::breadcrumbs::schema_ir::NamespaceIR* namespace_ir) 
     }
 }
 
-[[nodiscard]] std::string render_normalized_textproto(SchemaIrModel schema_ir) {
+[[nodiscard]] std::string render_normalized_pbtxt(SchemaIrModel schema_ir) {
     clear_source_metadata(schema_ir.mutable_root_namespace());
 
     google::protobuf::TextFormat::Printer printer;
@@ -114,7 +114,7 @@ void clear_source_metadata(::breadcrumbs::schema_ir::NamespaceIR* namespace_ir) 
 
 [[nodiscard]] std::string golden_text(std::string_view fixture_name) {
     std::string text =
-        read_file(fixtures_root() / (std::string(fixture_name) + ".textproto"));
+        read_file(fixtures_root() / (std::string(fixture_name) + ".pbtxt"));
     trim_trailing_newlines(text);
     return text;
 }
@@ -126,7 +126,7 @@ void expect_yaml_fixture_matches_golden(std::string_view fixture_name) {
     ASSERT_TRUE(output.diagnostics.empty()) << diagnostics_summary(output.diagnostics);
     ASSERT_TRUE(output.result.schema_ir.has_value());
 
-    const std::string actual = render_normalized_textproto(*output.result.schema_ir);
+    const std::string actual = render_normalized_pbtxt(*output.result.schema_ir);
     const std::string expected = golden_text(fixture_name);
     EXPECT_EQ(actual, expected) << "fixture: " << fixture_name;
 }

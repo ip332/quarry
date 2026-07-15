@@ -16,6 +16,13 @@
 namespace breadcrumbs::compiler::yaml {
 namespace {
 
+using source_schema::SourceSchemaAnnotation;
+using source_schema::SourceSchemaDocument;
+using source_schema::SourceSchemaEnum;
+using source_schema::SourceSchemaEnumValue;
+using source_schema::SourceSchemaField;
+using source_schema::SourceSchemaImports;
+
 constexpr std::string_view schema_pass = "yaml-schema-decoder";
 
 [[nodiscard]] diagnostics::DiagnosticId diagnostic_id(std::string_view value) {
@@ -765,8 +772,9 @@ decode_root_mapping(const YamlMappingNode& mapping, const YamlDocument& document
 
 } // namespace
 
-YamlDecodeResult decode_schema(const YamlDocument& document, diagnostics::DiagnosticEngine& diagnostics) {
-    YamlDecodeResult result;
+source_schema::SourceSchemaDecodeResult
+decode_schema(const YamlDocument& document, diagnostics::DiagnosticEngine& diagnostics) {
+    source_schema::SourceSchemaDecodeResult result;
     const auto emit = [&](std::string_view id, std::string_view message, support::SourceRange range) {
         auto builder = diagnostics::Diagnostic::create(diagnostic_id(id), diagnostics::Severity::Error,
                                                        std::string(message))

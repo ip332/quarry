@@ -1,8 +1,8 @@
 #include "compiler/diagnostics/diagnostic.hpp"
+#include "compiler/source_schema/source_schema.hpp"
 #include "compiler/support/source_location.hpp"
 #include "compiler/support/source_manager.hpp"
 #include "compiler/yaml/schema_decoder.hpp"
-#include "compiler/yaml/source_schema.hpp"
 #include "compiler/yaml/yaml_document.hpp"
 #include "compiler/yaml/yaml_parser.hpp"
 
@@ -23,12 +23,12 @@ using breadcrumbs::compiler::support::SourceFileId;
 using breadcrumbs::compiler::support::SourceLocation;
 using breadcrumbs::compiler::support::SourceManager;
 using breadcrumbs::compiler::support::SourceRange;
-using breadcrumbs::compiler::yaml::SourceSchemaAnnotation;
-using breadcrumbs::compiler::yaml::SourceSchemaDocument;
-using breadcrumbs::compiler::yaml::SourceSchemaEnum;
-using breadcrumbs::compiler::yaml::SourceSchemaEnumValue;
-using breadcrumbs::compiler::yaml::SourceSchemaField;
-using breadcrumbs::compiler::yaml::YamlDecodeResult;
+using breadcrumbs::compiler::source_schema::SourceSchemaAnnotation;
+using breadcrumbs::compiler::source_schema::SourceSchemaDecodeResult;
+using breadcrumbs::compiler::source_schema::SourceSchemaDocument;
+using breadcrumbs::compiler::source_schema::SourceSchemaEnum;
+using breadcrumbs::compiler::source_schema::SourceSchemaEnumValue;
+using breadcrumbs::compiler::source_schema::SourceSchemaField;
 using breadcrumbs::compiler::yaml::YamlDocument;
 using breadcrumbs::compiler::yaml::YamlMappingNode;
 using breadcrumbs::compiler::yaml::YamlNode;
@@ -41,7 +41,7 @@ struct PipelineOutput {
     SourceFileId source_file_id;
     DiagnosticEngine diagnostics;
     YamlParseResult parse_result;
-    YamlDecodeResult decode_result;
+    SourceSchemaDecodeResult decode_result;
 };
 
 [[nodiscard]] PipelineOutput parse_and_decode(std::string text) {

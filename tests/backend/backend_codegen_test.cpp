@@ -90,7 +90,7 @@ struct LoadedSchemaIrFixture {
 
     SchemaIrModel schema_ir;
     if (!google::protobuf::TextFormat::ParseFromString(text, &schema_ir)) {
-        output.error_message = "failed to parse Schema IR textproto fixture: " + std::string(name);
+        output.error_message = "failed to parse Schema IR pbtxt fixture: " + std::string(name);
         return output;
     }
 

@@ -32,7 +32,7 @@ YamlCompilationResult YamlCompiler::compile(support::SourceFileId source_file_id
         return result;
     }
 
-    const yaml::YamlDecodeResult decode_result =
+    const source_schema::SourceSchemaDecodeResult decode_result =
         yaml::decode_schema(*parse_result.document, diagnostics);
     if (has_fatal_diagnostics(diagnostics) || !decode_result.schema.has_value()) {
         return result;
