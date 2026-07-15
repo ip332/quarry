@@ -5,3 +5,4 @@
 - PR-050: Align architecture documentation with the post-PR-049 boundary: parser/AST is parser-owned compatibility infrastructure and downstream production stages consume normalized source schema
 - PR-051: Tighten YAML/source-schema/frontend ownership by removing the YAML source-schema alias adapter; the decoder now names source-schema result types directly while frontend orchestration remains unchanged
 - PR-052: Define supported compiler source-tree API boundaries: YamlCompiler is the high-level YAML source compiler entry point, Backend starts from validated Schema IR, lower-layer APIs remain internal building blocks, and no external install/export API is promised
+- PR-053: Add the first source-tree schema compiler executable for one YAML input file, frontend diagnostics, backend generation, and safe generated-file writes without imports, multiple inputs, or install/export packaging
