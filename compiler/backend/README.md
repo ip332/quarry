@@ -41,12 +41,15 @@ Current C++ generation behavior:
     encodable
   * present unsupported fields return `std::nullopt`
   * supported present field types are `bool`, fixed-width signed and unsigned
-    integers, `f32`, `f64`, `string`, `bytes`, and enum references whose
-    declared values are all non-negative
+    integers, `f32`, `f64`, `string`, `bytes`, enum references whose declared
+    values are all non-negative, and arrays of supported fixed-width scalar or
+    non-negative enum element types
   * string encoding validates UTF-8 and returns `std::nullopt` for malformed
     string bytes
   * bytes encoding accepts arbitrary byte sequences
-  * arrays, nested records, and unknown-field preservation remain out of scope
+  * present arrays of strings, bytes, records, and nested arrays return
+    `std::nullopt`
+  * nested records and unknown-field preservation remain out of scope
 * generates `decode_RecordName(std::span<const std::byte>)` overloads that
   return `std::optional<RecordName>`
   * decoding structurally parses a complete top-level Binary Record Format v0.1
@@ -56,11 +59,17 @@ Current C++ generation behavior:
   * absent unsupported known fields are ignored
   * present unsupported known fields return `std::nullopt`
   * supported known field types match the encoder subset: `bool`, fixed-width
-    signed and unsigned integers, `f32`, `f64`, `string`, `bytes`, and
-    non-negative enum references
+    signed and unsigned integers, `f32`, `f64`, `string`, `bytes`,
+    non-negative enum references, and arrays of supported fixed-width scalar or
+    non-negative enum element types
   * string decoding validates UTF-8 and returns `std::nullopt` for malformed
     string bytes
   * bytes decoding accepts arbitrary byte sequences
+  * array decoding validates the encoded element count against `max_elements`
+    before allocating, requires exact payload consumption, and preserves
+    element order
+  * present arrays of strings, bytes, records, and nested arrays return
+    `std::nullopt`
   * decoded values are materialized through the generated builder, preserving
     presence and existing bounds validation
 * preserves declaration order unless record dependencies force a deterministic
@@ -81,6 +90,8 @@ Current C++ generation behavior:
   * string `max_bytes` is measured in encoded bytes
   * bytes `max_bytes` is measured in bytes
   * array `max_count` is measured in element count
+  * generated codecs recheck array bounds so external bytes cannot bypass
+    builder validation
   * invalid values are rejected atomically rather than truncated
   * generated codecs recheck string and bytes bounds so decoded external bytes
     cannot bypass builder validation

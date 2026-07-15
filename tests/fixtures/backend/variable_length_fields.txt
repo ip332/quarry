@@ -131,6 +131,30 @@ struct Example {
   const std::vector<::Child>* children() const {
     return children_ ? &*children_ : nullptr;
   }
+  bool has_flags() const {
+    return flags_.has_value();
+  }
+  const std::vector<bool>* flags() const {
+    return flags_ ? &*flags_ : nullptr;
+  }
+  bool has_deltas() const {
+    return deltas_.has_value();
+  }
+  const std::vector<std::int16_t>* deltas() const {
+    return deltas_ ? &*deltas_ : nullptr;
+  }
+  bool has_ratios() const {
+    return ratios_.has_value();
+  }
+  const std::vector<float>* ratios() const {
+    return ratios_ ? &*ratios_ : nullptr;
+  }
+  bool has_active() const {
+    return active_.has_value();
+  }
+  const bool* active() const {
+    return active_ ? &*active_ : nullptr;
+  }
 
 private:
   friend class ExampleBuilder;
@@ -140,6 +164,10 @@ private:
   std::optional<std::vector<double>> distances_;
   std::optional<std::vector<::Mode>> modes_;
   std::optional<std::vector<::Child>> children_;
+  std::optional<std::vector<bool>> flags_;
+  std::optional<std::vector<std::int16_t>> deltas_;
+  std::optional<std::vector<float>> ratios_;
+  std::optional<bool> active_;
 };
 
 class ExampleBuilder {
@@ -161,6 +189,18 @@ public:
   }
   bool has_children() const {
     return children_.has_value();
+  }
+  bool has_flags() const {
+    return flags_.has_value();
+  }
+  bool has_deltas() const {
+    return deltas_.has_value();
+  }
+  bool has_ratios() const {
+    return ratios_.has_value();
+  }
+  bool has_active() const {
+    return active_.has_value();
   }
 
   bool set_name(const std::string& value) {
@@ -205,6 +245,34 @@ public:
     children_ = value;
     return true;
   }
+  bool set_flags(const std::vector<bool>& value) {
+    if (!validate_flags(value)) {
+      return false;
+    }
+    flags_ = value;
+    return true;
+  }
+  bool set_deltas(const std::vector<std::int16_t>& value) {
+    if (!validate_deltas(value)) {
+      return false;
+    }
+    deltas_ = value;
+    return true;
+  }
+  bool set_ratios(const std::vector<float>& value) {
+    if (!validate_ratios(value)) {
+      return false;
+    }
+    ratios_ = value;
+    return true;
+  }
+  bool set_active(const bool& value) {
+    if (!validate_active(value)) {
+      return false;
+    }
+    active_ = value;
+    return true;
+  }
 
   Example build() const {
     Example value;
@@ -214,6 +282,10 @@ public:
     value.distances_ = distances_;
     value.modes_ = modes_;
     value.children_ = children_;
+    value.flags_ = flags_;
+    value.deltas_ = deltas_;
+    value.ratios_ = ratios_;
+    value.active_ = active_;
     return value;
   }
 
@@ -262,6 +334,33 @@ private:
     }
     return true;
   }
+  static bool validate_flags(const std::vector<bool>& value) {
+    if (value.size() > 3) {
+      return false;
+    }
+    for (const auto& element_0 : value) {
+    }
+    return true;
+  }
+  static bool validate_deltas(const std::vector<std::int16_t>& value) {
+    if (value.size() > 3) {
+      return false;
+    }
+    for (const auto& element_0 : value) {
+    }
+    return true;
+  }
+  static bool validate_ratios(const std::vector<float>& value) {
+    if (value.size() > 2) {
+      return false;
+    }
+    for (const auto& element_0 : value) {
+    }
+    return true;
+  }
+  static bool validate_active(const bool& value) {
+    return true;
+  }
 
   std::optional<std::string> name_;
   std::optional<std::vector<std::byte>> payload_;
@@ -269,11 +368,15 @@ private:
   std::optional<std::vector<double>> distances_;
   std::optional<std::vector<::Mode>> modes_;
   std::optional<std::vector<::Child>> children_;
+  std::optional<std::vector<bool>> flags_;
+  std::optional<std::vector<std::int16_t>> deltas_;
+  std::optional<std::vector<float>> ratios_;
+  std::optional<bool> active_;
 };
 
 std::optional<std::vector<std::byte>> encode(const Example& value) {
   std::vector<::breadcrumbs::runtime::FieldBytes> fields;
-  fields.reserve(6U);
+  fields.reserve(10U);
   if (value.has_name()) {
     if (value.name()->size() > 16U) {
       return std::nullopt;
@@ -299,16 +402,115 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     });
   }
   if (value.has_counts()) {
-    return std::nullopt;
+    if (value.counts()->size() > 4U) {
+      return std::nullopt;
+    }
+    std::vector<std::byte> field_bytes;
+    ::breadcrumbs::runtime::append_varuint(field_bytes, value.counts()->size());
+    for (const auto& element : *value.counts()) {
+      if (!::breadcrumbs::runtime::append_u32(field_bytes, element)) {
+        return std::nullopt;
+      }
+    }
+    fields.push_back(::breadcrumbs::runtime::FieldBytes{
+      .field_index = 2U,
+      .bytes = std::move(field_bytes),
+    });
   }
   if (value.has_distances()) {
-    return std::nullopt;
+    if (value.distances()->size() > 2U) {
+      return std::nullopt;
+    }
+    std::vector<std::byte> field_bytes;
+    ::breadcrumbs::runtime::append_varuint(field_bytes, value.distances()->size());
+    for (const auto& element : *value.distances()) {
+      if (!::breadcrumbs::runtime::append_f64(field_bytes, element)) {
+        return std::nullopt;
+      }
+    }
+    fields.push_back(::breadcrumbs::runtime::FieldBytes{
+      .field_index = 3U,
+      .bytes = std::move(field_bytes),
+    });
   }
   if (value.has_modes()) {
-    return std::nullopt;
+    if (value.modes()->size() > 2U) {
+      return std::nullopt;
+    }
+    std::vector<std::byte> field_bytes;
+    ::breadcrumbs::runtime::append_varuint(field_bytes, value.modes()->size());
+    for (const auto& element : *value.modes()) {
+      const auto enum_numeric = static_cast<std::int64_t>(element);
+      if (!(enum_numeric == 0 || enum_numeric == 1)) {
+        return std::nullopt;
+      }
+      ::breadcrumbs::runtime::append_u8(field_bytes, static_cast<std::uint8_t>(enum_numeric));
+    }
+    fields.push_back(::breadcrumbs::runtime::FieldBytes{
+      .field_index = 4U,
+      .bytes = std::move(field_bytes),
+    });
   }
   if (value.has_children()) {
     return std::nullopt;
+  }
+  if (value.has_flags()) {
+    if (value.flags()->size() > 3U) {
+      return std::nullopt;
+    }
+    std::vector<std::byte> field_bytes;
+    ::breadcrumbs::runtime::append_varuint(field_bytes, value.flags()->size());
+    for (const auto& element : *value.flags()) {
+      if (!::breadcrumbs::runtime::append_bool(field_bytes, element)) {
+        return std::nullopt;
+      }
+    }
+    fields.push_back(::breadcrumbs::runtime::FieldBytes{
+      .field_index = 6U,
+      .bytes = std::move(field_bytes),
+    });
+  }
+  if (value.has_deltas()) {
+    if (value.deltas()->size() > 3U) {
+      return std::nullopt;
+    }
+    std::vector<std::byte> field_bytes;
+    ::breadcrumbs::runtime::append_varuint(field_bytes, value.deltas()->size());
+    for (const auto& element : *value.deltas()) {
+      if (!::breadcrumbs::runtime::append_i16(field_bytes, element)) {
+        return std::nullopt;
+      }
+    }
+    fields.push_back(::breadcrumbs::runtime::FieldBytes{
+      .field_index = 7U,
+      .bytes = std::move(field_bytes),
+    });
+  }
+  if (value.has_ratios()) {
+    if (value.ratios()->size() > 2U) {
+      return std::nullopt;
+    }
+    std::vector<std::byte> field_bytes;
+    ::breadcrumbs::runtime::append_varuint(field_bytes, value.ratios()->size());
+    for (const auto& element : *value.ratios()) {
+      if (!::breadcrumbs::runtime::append_f32(field_bytes, element)) {
+        return std::nullopt;
+      }
+    }
+    fields.push_back(::breadcrumbs::runtime::FieldBytes{
+      .field_index = 8U,
+      .bytes = std::move(field_bytes),
+    });
+  }
+  if (value.has_active()) {
+    std::vector<std::byte> field_bytes;
+    if (!::breadcrumbs::runtime::append_bool(field_bytes, *value.active())) {
+      return std::nullopt;
+    }
+    fields.push_back(::breadcrumbs::runtime::FieldBytes{
+      .field_index = 9U,
+      .bytes = std::move(field_bytes),
+    });
   }
   return ::breadcrumbs::runtime::encode_record(2U, fields);
 }
@@ -338,17 +540,174 @@ std::optional<Example> decode_Example(std::span<const std::byte> input) {
       return std::nullopt;
     }
   }
-  if (::breadcrumbs::runtime::find_field(*parsed.record, 2U) != nullptr) {
-    return std::nullopt;
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 2U); field != nullptr) {
+    std::size_t element_offset = 0U;
+    const auto decoded_count = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
+    if (!decoded_count.value.has_value() || *decoded_count.value > 4U) {
+      return std::nullopt;
+    }
+    const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+    const std::size_t element_width = 4U;
+    const std::size_t remaining_bytes = field->bytes.size() - element_offset;
+    if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
+      return std::nullopt;
+    }
+    std::vector<std::uint32_t> elements;
+    elements.reserve(element_count);
+    for (std::size_t index = 0U; index < element_count; ++index) {
+      const auto decoded = ::breadcrumbs::runtime::read_u32(field->bytes.subspan(element_offset, element_width));
+      if (!decoded.value.has_value()) {
+        return std::nullopt;
+      }
+      elements.push_back(*decoded.value);
+      element_offset += element_width;
+    }
+    if (!builder.set_counts(std::move(elements))) {
+      return std::nullopt;
+    }
   }
-  if (::breadcrumbs::runtime::find_field(*parsed.record, 3U) != nullptr) {
-    return std::nullopt;
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 3U); field != nullptr) {
+    std::size_t element_offset = 0U;
+    const auto decoded_count = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
+    if (!decoded_count.value.has_value() || *decoded_count.value > 2U) {
+      return std::nullopt;
+    }
+    const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+    const std::size_t element_width = 8U;
+    const std::size_t remaining_bytes = field->bytes.size() - element_offset;
+    if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
+      return std::nullopt;
+    }
+    std::vector<double> elements;
+    elements.reserve(element_count);
+    for (std::size_t index = 0U; index < element_count; ++index) {
+      const auto decoded = ::breadcrumbs::runtime::read_f64(field->bytes.subspan(element_offset, element_width));
+      if (!decoded.value.has_value()) {
+        return std::nullopt;
+      }
+      elements.push_back(*decoded.value);
+      element_offset += element_width;
+    }
+    if (!builder.set_distances(std::move(elements))) {
+      return std::nullopt;
+    }
   }
-  if (::breadcrumbs::runtime::find_field(*parsed.record, 4U) != nullptr) {
-    return std::nullopt;
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 4U); field != nullptr) {
+    std::size_t element_offset = 0U;
+    const auto decoded_count = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
+    if (!decoded_count.value.has_value() || *decoded_count.value > 2U) {
+      return std::nullopt;
+    }
+    const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+    const std::size_t element_width = 1U;
+    const std::size_t remaining_bytes = field->bytes.size() - element_offset;
+    if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
+      return std::nullopt;
+    }
+    std::vector<::Mode> elements;
+    elements.reserve(element_count);
+    for (std::size_t index = 0U; index < element_count; ++index) {
+      const auto decoded = ::breadcrumbs::runtime::read_u8(field->bytes.subspan(element_offset, element_width));
+      if (!decoded.value.has_value()) {
+        return std::nullopt;
+      }
+      const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);
+      if (!(enum_numeric == 0 || enum_numeric == 1)) {
+        return std::nullopt;
+      }
+      elements.push_back(static_cast<::Mode>(enum_numeric));
+      element_offset += element_width;
+    }
+    if (!builder.set_modes(std::move(elements))) {
+      return std::nullopt;
+    }
   }
   if (::breadcrumbs::runtime::find_field(*parsed.record, 5U) != nullptr) {
     return std::nullopt;
+  }
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 6U); field != nullptr) {
+    std::size_t element_offset = 0U;
+    const auto decoded_count = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
+    if (!decoded_count.value.has_value() || *decoded_count.value > 3U) {
+      return std::nullopt;
+    }
+    const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+    const std::size_t element_width = 1U;
+    const std::size_t remaining_bytes = field->bytes.size() - element_offset;
+    if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
+      return std::nullopt;
+    }
+    std::vector<bool> elements;
+    elements.reserve(element_count);
+    for (std::size_t index = 0U; index < element_count; ++index) {
+      const auto decoded = ::breadcrumbs::runtime::read_bool(field->bytes.subspan(element_offset, element_width));
+      if (!decoded.value.has_value()) {
+        return std::nullopt;
+      }
+      elements.push_back(*decoded.value);
+      element_offset += element_width;
+    }
+    if (!builder.set_flags(std::move(elements))) {
+      return std::nullopt;
+    }
+  }
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 7U); field != nullptr) {
+    std::size_t element_offset = 0U;
+    const auto decoded_count = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
+    if (!decoded_count.value.has_value() || *decoded_count.value > 3U) {
+      return std::nullopt;
+    }
+    const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+    const std::size_t element_width = 2U;
+    const std::size_t remaining_bytes = field->bytes.size() - element_offset;
+    if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
+      return std::nullopt;
+    }
+    std::vector<std::int16_t> elements;
+    elements.reserve(element_count);
+    for (std::size_t index = 0U; index < element_count; ++index) {
+      const auto decoded = ::breadcrumbs::runtime::read_i16(field->bytes.subspan(element_offset, element_width));
+      if (!decoded.value.has_value()) {
+        return std::nullopt;
+      }
+      elements.push_back(*decoded.value);
+      element_offset += element_width;
+    }
+    if (!builder.set_deltas(std::move(elements))) {
+      return std::nullopt;
+    }
+  }
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 8U); field != nullptr) {
+    std::size_t element_offset = 0U;
+    const auto decoded_count = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
+    if (!decoded_count.value.has_value() || *decoded_count.value > 2U) {
+      return std::nullopt;
+    }
+    const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+    const std::size_t element_width = 4U;
+    const std::size_t remaining_bytes = field->bytes.size() - element_offset;
+    if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
+      return std::nullopt;
+    }
+    std::vector<float> elements;
+    elements.reserve(element_count);
+    for (std::size_t index = 0U; index < element_count; ++index) {
+      const auto decoded = ::breadcrumbs::runtime::read_f32(field->bytes.subspan(element_offset, element_width));
+      if (!decoded.value.has_value()) {
+        return std::nullopt;
+      }
+      elements.push_back(*decoded.value);
+      element_offset += element_width;
+    }
+    if (!builder.set_ratios(std::move(elements))) {
+      return std::nullopt;
+    }
+  }
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 9U); field != nullptr) {
+    const auto decoded = ::breadcrumbs::runtime::read_bool(field->bytes);
+    if (!decoded.value.has_value() || !builder.set_active(*decoded.value)) {
+      return std::nullopt;
+    }
   }
   return builder.build();
 }

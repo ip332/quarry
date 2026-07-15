@@ -100,5 +100,48 @@ root_namespace {
         }
       }
     }
+    fields {
+      name: "flags"
+      field_index: 6
+      type {
+        array {
+          max_elements: 3
+          element_type {
+            primitive: PRIMITIVE_TYPE_BOOL
+          }
+        }
+      }
+    }
+    fields {
+      name: "deltas"
+      field_index: 7
+      type {
+        array {
+          max_elements: 3
+          element_type {
+            primitive: PRIMITIVE_TYPE_I16
+          }
+        }
+      }
+    }
+    fields {
+      name: "ratios"
+      field_index: 8
+      type {
+        array {
+          max_elements: 2
+          element_type {
+            primitive: PRIMITIVE_TYPE_F32
+          }
+        }
+      }
+    }
+    fields {
+      name: "active"
+      field_index: 9
+      type {
+        primitive: PRIMITIVE_TYPE_BOOL
+      }
+    }
   }
 }

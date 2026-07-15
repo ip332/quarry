@@ -395,14 +395,39 @@ The `max_bytes` bound for `bytes` is measured in raw bytes.
 
 ## Array Encoding
 
-The array element count SHALL be encoded using the smallest fixed-width unsigned
-integer capable of representing the schema-defined `max_elements` value.
+Array field payloads SHALL begin with an element count encoded as unsigned
+LEB128 `varuint`.
 
 The count SHALL NOT exceed `max_elements`.
 
-An array count of zero is valid.
+The Field Directory `fieldLength` SHALL cover the complete array payload,
+including the encoded element count and all encoded element data.
 
-Array elements SHALL be encoded immediately after the count, in index order.
+An array count of zero is valid. A present empty array SHALL be encoded as a
+Field Directory entry whose payload is the canonical zero count byte `0x00`.
+An absent array SHALL have no Field Directory entry.
+
+For fixed-width element types, array elements SHALL be encoded immediately after
+the count, tightly packed, in index order, with no padding or alignment bytes.
+Each element SHALL use the same byte representation as the equivalent standalone
+field value.
+
+Generated C++ codecs currently support arrays of:
+
+* `bool`
+* fixed-width signed and unsigned integers
+* `f32`
+* `f64`
+* enum references whose declared values are all non-negative and whose decoded
+  numeric values are declared by the enum
+
+Generated decoders SHALL reject fixed-width array payloads unless the bytes
+remaining after the count are exactly `element_count * element_width`, computed
+with checked arithmetic. Decoders SHALL reject counts greater than
+`max_elements` before allocating the materialized array.
+
+Arrays of strings, bytes, records, and nested arrays remain unsupported by the
+generated C++ codecs in this revision.
 
 Unbounded arrays are not supported.
 

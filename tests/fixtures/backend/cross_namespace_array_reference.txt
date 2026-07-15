@@ -194,7 +194,22 @@ namespace two {
         return std::nullopt;
       }
       if (value.has_modes()) {
-        return std::nullopt;
+        if (value.modes()->size() > 2U) {
+          return std::nullopt;
+        }
+        std::vector<std::byte> field_bytes;
+        ::breadcrumbs::runtime::append_varuint(field_bytes, value.modes()->size());
+        for (const auto& element : *value.modes()) {
+          const auto enum_numeric = static_cast<std::int64_t>(element);
+          if (!(enum_numeric == 0 || enum_numeric == 1)) {
+            return std::nullopt;
+          }
+          ::breadcrumbs::runtime::append_u8(field_bytes, static_cast<std::uint8_t>(enum_numeric));
+        }
+        fields.push_back(::breadcrumbs::runtime::FieldBytes{
+          .field_index = 1U,
+          .bytes = std::move(field_bytes),
+        });
       }
       return ::breadcrumbs::runtime::encode_record(2U, fields);
     }
@@ -209,8 +224,35 @@ namespace two {
       if (::breadcrumbs::runtime::find_field(*parsed.record, 0U) != nullptr) {
         return std::nullopt;
       }
-      if (::breadcrumbs::runtime::find_field(*parsed.record, 1U) != nullptr) {
-        return std::nullopt;
+      if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 1U); field != nullptr) {
+        std::size_t element_offset = 0U;
+        const auto decoded_count = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
+        if (!decoded_count.value.has_value() || *decoded_count.value > 2U) {
+          return std::nullopt;
+        }
+        const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+        const std::size_t element_width = 1U;
+        const std::size_t remaining_bytes = field->bytes.size() - element_offset;
+        if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
+          return std::nullopt;
+        }
+        std::vector<::alpha::one::Mode> elements;
+        elements.reserve(element_count);
+        for (std::size_t index = 0U; index < element_count; ++index) {
+          const auto decoded = ::breadcrumbs::runtime::read_u8(field->bytes.subspan(element_offset, element_width));
+          if (!decoded.value.has_value()) {
+            return std::nullopt;
+          }
+          const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);
+          if (!(enum_numeric == 0 || enum_numeric == 1)) {
+            return std::nullopt;
+          }
+          elements.push_back(static_cast<::alpha::one::Mode>(enum_numeric));
+          element_offset += element_width;
+        }
+        if (!builder.set_modes(std::move(elements))) {
+          return std::nullopt;
+        }
       }
       return builder.build();
     }
