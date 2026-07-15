@@ -38,3 +38,14 @@ Generated files are written from backend-provided in-memory `GeneratedFile`
 values. Compiler and backend failures do not write output files. Output writes
 create parent directories as needed and write each file through a temporary
 sibling path before replacing the target file.
+
+Generated-output consistency is file-scoped, not invocation-scoped. Before any
+file is written, the tool checks all backend-provided generated paths for
+lexical containment under the selected output directory and duplicate
+normalized paths. After that preflight, files are committed one at a time in
+backend order. If a later file write or rename fails, earlier files from the
+same invocation may already have been replaced.
+
+The tool preserves unrelated files in the output directory and does not delete
+stale generated files. It does not provide a manifest, a rollback transaction,
+concurrent writer coordination, or symlink sandboxing.

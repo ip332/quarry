@@ -172,3 +172,37 @@ TEST(SchemaCompilerToolTest, ValidYamlWritesGeneratedFiles) {
     EXPECT_NE(generated.find("struct Sample"), std::string::npos);
     EXPECT_NE(generated.find("std::uint32_t"), std::string::npos);
 }
+
+TEST(SchemaCompilerToolTest, ExistingGeneratedFileIsReplacedAndUnrelatedOutputIsPreserved) {
+    const std::filesystem::path root = make_temp_directory("replace-existing");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    const std::filesystem::path generated_file = output / "breadcrumbs" / "telemetry.generated.hpp";
+    const std::filesystem::path temporary_file =
+        output / "breadcrumbs" / "telemetry.generated.hpp.tmp-breadcrumbs-schema-compiler";
+    const std::filesystem::path unrelated_file = output / "keep.txt";
+
+    write_text_file(input,
+                    "namespace: breadcrumbs.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n");
+    write_text_file(generated_file, "old generated content\n");
+    write_text_file(unrelated_file, "do not touch\n");
+
+    const CommandResult result =
+        run_tool({"--output-directory", output.string(), input.string()}, root);
+
+    EXPECT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_TRUE(result.stdout_text.empty());
+    EXPECT_TRUE(result.stderr_text.empty());
+    EXPECT_EQ(read_text_file(unrelated_file), "do not touch\n");
+    EXPECT_FALSE(std::filesystem::exists(temporary_file));
+
+    const std::string generated = read_text_file(generated_file);
+    EXPECT_NE(generated.find("struct Sample"), std::string::npos);
+    EXPECT_EQ(generated.find("old generated content"), std::string::npos);
+}
