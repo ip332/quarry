@@ -87,6 +87,9 @@ source-tree targets and are not installed by this package boundary.
 `docs/distribution-model.md` owns the supported downstream SDK boundary and
 classifies generated code, generated protobufs, tools, tests, fuzzers, and
 examples.
+`docs/schema-compiler-tool-distribution.md` records why
+`breadcrumbs-schema-compiler` remains a source-tree tool and what must stabilize
+before it can become an installed executable.
 
 ---
 

@@ -62,6 +62,8 @@ This is deferred. The schema compiler command is useful, but its distribution
 contract is not yet stable: CLI packaging, dependency discovery for libyaml,
 Protobuf and absl, generated-output layout, and source-loading/import behavior
 all need explicit support before the executable becomes an installed SDK tool.
+`docs/schema-compiler-tool-distribution.md` owns the detailed tool-distribution
+contract and prerequisites.
 
 ### Full SDK
 

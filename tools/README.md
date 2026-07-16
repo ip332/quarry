@@ -3,6 +3,11 @@
 This directory contains source-tree tools built from the compiler libraries.
 They are not installed or exported as a package.
 
+The schema compiler's downstream distribution decision is documented in
+`docs/schema-compiler-tool-distribution.md`. The current supported boundary is
+build-tree execution only; installing the executable or exposing a CMake
+imported executable target remains deferred.
+
 ## breadcrumbs-schema-compiler
 
 `breadcrumbs-schema-compiler` is the first end-to-end schema compiler command.
