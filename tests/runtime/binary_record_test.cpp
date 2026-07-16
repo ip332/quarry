@@ -42,6 +42,7 @@ using breadcrumbs::runtime::read_i16;
 using breadcrumbs::runtime::read_i32;
 using breadcrumbs::runtime::read_string_utf8;
 using breadcrumbs::runtime::read_u32;
+using breadcrumbs::runtime::read_varuint;
 
 [[nodiscard]] std::byte b(unsigned int value) {
     return static_cast<std::byte>(static_cast<std::uint8_t>(value));
@@ -369,6 +370,56 @@ TEST(BinaryRecordRuntimeTest, RejectsMalformedDirectoryAndRanges) {
                      b(0xCC), b(0xDD),
                  },
                  DecodeError::overlapping_field_range);
+}
+
+TEST(BinaryRecordRuntimeTest, RejectsOverflowingVaruintDirectly) {
+    const std::vector<std::byte> input{
+        b(0xFF), b(0xFF), b(0xFF), b(0xFF), b(0xFF),
+        b(0xFF), b(0xFF), b(0xFF), b(0xFF), b(0x02),
+    };
+    std::size_t offset = 0U;
+
+    const auto decoded = read_varuint(input, offset);
+
+    EXPECT_FALSE(decoded.value.has_value());
+    EXPECT_EQ(decoded.error, DecodeError::malformed_varuint);
+}
+
+TEST(BinaryRecordRuntimeTest, RejectsDirectoryCountWithoutEnoughBytes) {
+    const std::vector<std::byte> input{
+        b(0x01), b(0x00), b(0x02), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+        b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x03),
+        b(0x00), b(0x00), b(0x00),
+    };
+
+    EXPECT_EQ(parse_record(input).error, DecodeError::malformed_directory);
+}
+
+TEST(BinaryRecordRuntimeTest, RejectsMaximumOffsetPlusLengthRange) {
+    const std::vector<std::byte> input{
+        b(0x01), b(0x00), b(0x01), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+        b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x0C),
+        b(0x00), b(0xFF), b(0xFF), b(0xFF), b(0xFF), b(0xFF), b(0xFF), b(0xFF),
+        b(0xFF), b(0xFF), b(0x01), b(0x01),
+    };
+
+    EXPECT_EQ(parse_record(input).error, DecodeError::invalid_field_range);
+}
+
+TEST(BinaryRecordRuntimeTest, AllowsDistinctZeroLengthFieldsAtSameOffset) {
+    const std::vector<std::byte> input{
+        b(0x01), b(0x00), b(0x02), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+        b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x06),
+        b(0x00), b(0x00), b(0x00), b(0x01), b(0x00), b(0x00),
+    };
+
+    const auto parsed = parse_record(input);
+
+    ASSERT_TRUE(parsed.record.has_value());
+    const auto& record = require_value(parsed.record);
+    ASSERT_EQ(record.fields.size(), 2U);
+    EXPECT_TRUE(record.fields[0].bytes.empty());
+    EXPECT_TRUE(record.fields[1].bytes.empty());
 }
 
 TEST(BinaryRecordRuntimeTest, DecodesScalarValuesBigEndian) {

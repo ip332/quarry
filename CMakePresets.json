@@ -20,6 +20,18 @@
       "cacheVariables": {
         "BREADCRUMBS_ENABLE_CLANG_TIDY": "ON"
       }
+    },
+    {
+      "name": "debug-fuzz",
+      "displayName": "Debug fuzzers",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/debug-fuzz",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++",
+        "BREADCRUMBS_BUILD_FUZZERS": "ON",
+        "BREADCRUMBS_WARNINGS_AS_ERRORS": "ON",
+        "BREADCRUMBS_ENABLE_CLANG_TIDY": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -30,6 +42,10 @@
     {
       "name": "debug-clang-tidy",
       "configurePreset": "debug-clang-tidy"
+    },
+    {
+      "name": "debug-fuzz",
+      "configurePreset": "debug-fuzz"
     }
   ],
   "testPresets": [

@@ -74,6 +74,12 @@ representation-neutral result containers and structural parse/read error enums.
 Compatibility optional codec wrappers may discard that detail without changing
 the BRF bytes.
 
+Runtime parser hardening is exercised through opt-in Clang/libFuzzer targets.
+Those targets are outside the normal debug build and feed arbitrary bytes to
+the generic BRF parser and to a representative generated-style decoder. Seed
+corpus entries are stored as reviewable hexadecimal byte files under
+`fuzz/corpus/brf`.
+
 ---
 
 ## Compilation Pipeline

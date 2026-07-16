@@ -90,3 +90,24 @@ Out of scope:
 
 Runtime code must not depend on compiler libraries, YAML, Schema IR protobufs,
 source-schema models, symbols, semantic validation, layout, or backend code.
+
+## Fuzzing
+
+BRF parser fuzz targets are available behind the opt-in
+`BREADCRUMBS_BUILD_FUZZERS` CMake option. The normal debug build does not build
+or run fuzzers.
+
+The `debug-fuzz` preset builds Clang/libFuzzer targets with AddressSanitizer and
+UndefinedBehaviorSanitizer enabled:
+
+* `brf_parse_fuzzer` feeds arbitrary bytes to `parse_record` and checks generic
+  parser invariants for successful parses.
+* `brf_generated_decode_fuzzer` feeds arbitrary bytes to a representative
+  generated-style decoder covering scalars, enums, strings, bytes, arrays,
+  nested records, and arrays of records.
+
+The reviewable seed corpus lives under `fuzz/corpus/brf` as hexadecimal byte
+files. `fuzz/run_seed_corpus.py` converts those seeds to temporary raw inputs
+and runs a selected fuzz executable against them. Fuzzing is a hardening tool,
+not a proof of complete parser correctness; deterministic malformed-input unit
+tests remain the regression mechanism for discovered defects.
