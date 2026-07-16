@@ -157,6 +157,97 @@ Build-system integration remains deferred because a helper must define:
 * multi-config generator behavior
 * cross-compilation host-tool discovery
 
+## CMake Generation Helper Decision
+
+Breadcrumbs does not currently provide a CMake generation helper. The
+supported SDK contract remains the explicit `add_custom_command()` pattern
+shown in `examples/cpp/schema_compiler_cmake`.
+
+The current manual workflow intentionally leaves these responsibilities with
+the downstream project:
+
+* declaring the schema input
+* choosing the generated output directory
+* listing every expected generated output
+* invoking `Breadcrumbs::schema_compiler` in `add_custom_command()`
+* declaring the schema and compiler target as dependencies
+* adding the generated include directory
+* attaching generated files to a consumer target
+* linking generated-code consumers to `Breadcrumbs::runtime`
+* coordinating multiple schema invocations
+* deciding whether generated files are checked in or build-generated
+* cleaning stale generated files
+
+Some of these responsibilities are repetitive and could eventually be
+encapsulated, but the current compiler CLI does not expose enough build-system
+metadata for a reliable public helper. A single compiler invocation can produce
+one or more generated headers. The output paths depend on backend-owned logic:
+the output directory, namespace partitioning, root file stem, and file
+extension. CMake requires the `OUTPUT` set at configure time, so a helper would
+either need to duplicate backend filename logic in CMake or require callers to
+provide the same output list they already write today. Duplicating the backend
+logic would create drift risk and make future backend output changes part of a
+CMake API compatibility problem.
+
+A generated-output manifest would be useful for diagnostics and validation, but
+it would be produced at build time and therefore would not by itself solve
+configure-time `add_custom_command(OUTPUT ...)` enumeration. A depfile is also
+not needed for the current one-input compiler contract because the schema file
+is already the complete source dependency. Depfiles become more valuable only
+after imports or multi-file schema graphs exist.
+
+Stale-output cleanup remains caller-owned. A future helper must define a safe
+ownership rule before deleting anything. The likely minimum rule is that each
+helper invocation owns a dedicated generated directory that is not shared with
+unrelated files, but that rule is not yet enforced by the compiler or package
+API.
+
+Multi-schema orchestration is also deferred. The compiler processes one schema
+input per invocation. A helper that accepts multiple schemas would need to
+define one invocation per schema, collision handling for equal stems or
+namespace output paths, unique output directories or root stems, and target
+aggregation semantics. Those behaviors should not be guessed in CMake.
+
+Host-tool selection remains native-build-only. The installed
+`Breadcrumbs::schema_compiler` target is a host executable selected from the
+same package prefix as `Breadcrumbs::runtime`, which is sufficient for the
+validated native workflow. A helper should not claim cross-compilation support
+until a host-tool override or separate host-tools package policy exists.
+
+Evaluated helper boundaries:
+
+* **Manual integration only:** selected. It is explicit, tested, and accurately
+  exposes the current one-schema/no-depfile/no-manifest compiler contract.
+* **Custom-command helper:** deferred. It would be the smallest eventual helper,
+  but only after generated-output enumeration and host-tool selection are
+  stable. A plausible future shape is:
+
+  ```cmake
+  breadcrumbs_generate_cpp(
+      SCHEMA <schema-file>
+      OUTPUT_DIR <directory>
+      OUT_FILES <variable>
+      [ROOT_FILE_STEM <stem>]
+      [FILE_EXTENSION <extension>]
+  )
+  ```
+
+  Such a helper should create one custom command, return generated files, avoid
+  target mutation, avoid stale cleanup, and remain native-build-only unless a
+  host-tool policy is defined.
+* **Target-attaching helper:** rejected for now because it would mutate user
+  targets by adding sources, include directories, and `Breadcrumbs::runtime`
+  linkage before generated-code ownership conventions are mature.
+* **Generated schema library abstraction:** rejected for now because it would
+  introduce a higher-level target model before multi-schema and stale-output
+  behavior are specified.
+
+If a helper is introduced later, it should live in an explicit installed module
+such as `BreadcrumbsGenerate.cmake` rather than placing substantial function
+logic directly in `BreadcrumbsConfig.cmake`. Loading the main package should
+remain small and should continue to expose only the runtime target and compiler
+executable target by default.
+
 ## Installed Discovery Policy
 
 The native CMake discovery model is an imported executable target in the

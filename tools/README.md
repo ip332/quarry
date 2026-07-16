@@ -125,7 +125,9 @@ target_link_libraries(app PRIVATE Breadcrumbs::runtime)
 Downstream projects currently own the generated-output list, include directory,
 target source attachment, dependency declaration, and stale-output cleanup.
 `examples/cpp/schema_compiler_cmake` is the canonical tested example for this
-manual integration pattern.
+manual integration pattern. A CMake helper is intentionally deferred until
+generated-output enumeration, stale-output ownership, and host-tool selection
+are specified.
 
 The installed executable links private Breadcrumbs compiler libraries into the
 tool binary. It may still depend on system or package-manager-provided dynamic

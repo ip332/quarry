@@ -35,7 +35,10 @@ repository-relative include paths.
 The supported manual CMake generation pattern is documented and tested in
 `examples/cpp/schema_compiler_cmake`. Breadcrumbs does not currently provide
 CMake code-generation helpers, depfiles, manifest files, or stale-output
-cleanup.
+cleanup. A helper is deferred because generated output enumeration is
+backend-owned, the compiler currently has one explicit schema dependency and no
+depfile, and host-tool override semantics for cross-compilation are not yet
+defined.
 
 ## Artifact Classification
 
