@@ -24,12 +24,17 @@ namespace context = breadcrumbs::compiler::context;
 namespace diagnostics = breadcrumbs::compiler::diagnostics;
 namespace frontend = breadcrumbs::compiler::frontend;
 
+#ifndef BREADCRUMBS_VERSION
+#define BREADCRUMBS_VERSION "0.0.0"
+#endif
+
 constexpr int exit_success = 0;
 constexpr int exit_failure = 1;
 constexpr int exit_usage = 2;
 
 struct CommandLine {
     bool show_help = false;
+    bool show_version = false;
     std::string input_path;
     backend::CodegenOptions codegen_options;
 };
@@ -41,10 +46,15 @@ struct CommandLine {
            "  -o, --output-directory PATH  Directory for generated files (default: generated)\n"
            "      --root-file-stem NAME     Root namespace file stem (default: schema)\n"
            "      --file-extension EXT      Generated file extension (default: .generated.hpp)\n"
+           "      --version                 Show version information\n"
            "  -h, --help                    Show this help text\n";
 }
 
 void print_usage(std::ostream& output) { output << usage_text(); }
+
+void print_version(std::ostream& output) {
+    output << "breadcrumbs-schema-compiler " << BREADCRUMBS_VERSION << '\n';
+}
 
 [[nodiscard]] bool option_requires_value(std::string_view option) {
     return option == "-o" || option == "--output-directory" || option == "--root-file-stem" ||
@@ -62,6 +72,10 @@ void print_usage(std::ostream& output) { output << usage_text(); }
         const std::string_view argument{argv[index]};
         if (argument == "-h" || argument == "--help") {
             command_line.show_help = true;
+            continue;
+        }
+        if (argument == "--version") {
+            command_line.show_version = true;
             continue;
         }
 
@@ -114,7 +128,7 @@ void print_usage(std::ostream& output) { output << usage_text(); }
         command_line.input_path = std::string(argument);
     }
 
-    if (!command_line.show_help && command_line.input_path.empty()) {
+    if (!command_line.show_help && !command_line.show_version && command_line.input_path.empty()) {
         errors << "error: expected exactly one input file\n";
         return std::nullopt;
     }
@@ -226,6 +240,10 @@ void print_usage(std::ostream& output) { output << usage_text(); }
                                       std::ostream& errors) {
     if (command_line.show_help) {
         print_usage(output);
+        return exit_success;
+    }
+    if (command_line.show_version) {
+        print_version(output);
         return exit_success;
     }
 

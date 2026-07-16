@@ -21,11 +21,22 @@ Options:
   -o, --output-directory PATH  Directory for generated files (default: generated)
       --root-file-stem NAME     Root namespace file stem (default: schema)
       --file-extension EXT      Generated file extension (default: .generated.hpp)
+      --version                 Show version information
   -h, --help                    Show help
 ```
 
 The command prints compiler diagnostics and tool errors to stderr. Successful
 compilation is quiet and returns exit code `0`.
+
+`--version` is a terminal informational option. It prints:
+
+```text
+breadcrumbs-schema-compiler <version>
+```
+
+to stdout, writes nothing to stderr, and exits with code `0`. When combined
+with otherwise valid generation options or an input path, it still reports the
+version and does not generate files.
 
 Exit codes:
 
@@ -38,6 +49,11 @@ The command supports exactly one input file. Import resolution, multiple input
 files, stale-output deletion, response files, configuration files, installed
 package integration, color diagnostics, and JSON diagnostics are intentionally
 out of scope.
+
+Relative input and output paths are resolved relative to the process working
+directory. Absolute input and output paths work from unrelated working
+directories, including directories whose paths contain spaces. The tool does
+not rebase relative paths against the input file's parent directory.
 
 That input file contains one YAML document and one source schema unit. The
 current schema unit has one dotted namespace path and one primary record, with
@@ -62,3 +78,9 @@ same invocation may already have been replaced.
 The tool preserves unrelated files in the output directory and does not delete
 stale generated files. It does not provide a manifest, a rollback transaction,
 concurrent writer coordination, or symlink sandboxing.
+
+Generated C++ code is supported with `Breadcrumbs::runtime` from the same
+Breadcrumbs release as the schema compiler that generated it. This same-release
+compatibility rule is documented but not yet mechanically enforced by generated
+source guards or runtime version checks. Users should regenerate generated code
+when upgrading Breadcrumbs.

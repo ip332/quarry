@@ -40,7 +40,7 @@ Current behavior:
 * defaults to `.generated.hpp` for generated file extensions
 * writes diagnostics and tool errors to stderr
 * is quiet on successful compilation
-* returns `0` for success or help
+* returns `0` for success, help, or version
 * returns `1` for input read failure, compiler diagnostics, backend failure, or
   output write failure
 * returns `2` for command-line usage errors
@@ -51,10 +51,15 @@ Current behavior:
   containment under the selected output directory
 * does not delete stale generated files
 * does not provide an invocation-wide rollback transaction
+* resolves relative input and output paths against the process working
+  directory
+* supports absolute input and output paths from unrelated working directories
+* supports input, output, and working-directory paths containing spaces when
+  arguments are passed directly to the process
+* supports `--version` as a terminal informational option
 
 Implementation behavior that is not yet an installed-tool contract:
 
-* no `--version`
 * no machine-readable diagnostics
 * no depfile output
 * no generated-output manifest
@@ -63,6 +68,11 @@ Implementation behavior that is not yet an installed-tool contract:
 * no package-discovered compiler target
 * no CMake generation helper
 * no cross-compilation host-tool separation
+
+`--version` prints `breadcrumbs-schema-compiler <version>` to stdout, writes
+nothing to stderr, and exits with `0`. It is terminal like `--help`; when
+combined with otherwise valid generation options or an input path, it reports
+the version and does not generate files.
 
 ## Dependency and Relocatability Findings
 
@@ -142,7 +152,7 @@ Initial safe rule for a future installed compiler:
   from the same Breadcrumbs release
 * newer or older runtime compatibility is not promised until generated files
   contain an explicit compatibility guard and tests cover mixed-version use
-* the CLI should expose its version before becoming an installed supported tool
+* the CLI exposes its version for scripts and diagnostics
 * BRF v0.1 compatibility remains a wire-format concern, not a promise that any
   generated-code API version can use any runtime package version
 
@@ -151,21 +161,18 @@ Initial safe rule for a future installed compiler:
 Before installing `breadcrumbs-schema-compiler`, a future PR should define and
 test:
 
-* `--version` output
-* stable help text and exit-code classes
-* invocation from arbitrary working directories
-* paths containing spaces
 * deterministic output without timestamps or machine-specific paths
 * installed executable relocatability on supported platforms
 * dynamic dependency policy for libyaml, Protobuf, and absl
-* exact same-release compiler/generated-code/runtime compatibility rule
+* mechanical enforcement, if any, of the same-release
+  compiler/generated-code/runtime compatibility rule
 * whether the executable is discoverable by `find_program` only or by an
   imported executable target
 
 ## Future Implementation Sequence
 
-1. Stabilize and test CLI contract details, including `--version`, arbitrary
-   working-directory invocation, and paths with spaces.
+1. Decide whether same-release compiler/generated-code/runtime compatibility
+   needs a generated compile-time guard before installation.
 2. Install the standalone executable without compiler headers or libraries;
    verify relocatability from a temporary prefix.
 3. Add optional CMake package discovery for the executable, likely as an
