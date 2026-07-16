@@ -80,7 +80,8 @@ stale generated files. It does not provide a manifest, a rollback transaction,
 concurrent writer coordination, or symlink sandboxing.
 
 Generated C++ code is supported with `Breadcrumbs::runtime` from the same
-Breadcrumbs release as the schema compiler that generated it. This same-release
-compatibility rule is documented but not yet mechanically enforced by generated
-source guards or runtime version checks. Users should regenerate generated code
-when upgrading Breadcrumbs.
+Breadcrumbs release as the schema compiler that generated it. Generated headers
+also contain a narrow compile-time generated-code API guard against incompatible
+runtime headers. That guard does not enforce exact release equality or BRF wire
+compatibility. Users should regenerate generated code when upgrading
+Breadcrumbs.

@@ -49,7 +49,9 @@ add_subdirectory(tests)
 install(TARGETS breadcrumbs_runtime
     EXPORT BreadcrumbsTargets
 )
-install(FILES runtime/binary_record.hpp
+install(FILES
+    runtime/binary_record.hpp
+    runtime/version.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/runtime
 )
 install(DIRECTORY include/breadcrumbs

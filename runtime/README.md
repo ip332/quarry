@@ -28,11 +28,19 @@ Current support:
 * compact runtime parse/read errors used by generated decoders
 * structured encode and decode result helpers for generated diagnostic codec
   APIs
+* a generated-code API compatibility constant used by generated C++ headers to
+  verify that they are being compiled with a compatible runtime header
 
 Generated decoders currently materialize generated record values from
 caller-owned byte spans. Unknown field indexes are ignored after structural
 validation. Present known fields whose types are not yet supported by the
 generated decoder cause generated decoding to fail.
+
+`kGeneratedCodeApiVersion` is a narrow source-compatibility marker for generated
+C++ code. Generated headers compile-time assert that the runtime exposes the
+expected value. This guard does not represent the Breadcrumbs package release
+version, C++ ABI stability, schema-language compatibility, or BRF wire-format
+compatibility.
 
 Generated code exposes diagnostic codec APIs backed by
 `EncodeResult<T>`/`DecodeResult<T>`. The runtime result type carries either an
@@ -108,9 +116,10 @@ Installed consumers should include:
 ```
 
 The package installs `BreadcrumbsConfig.cmake`,
-`BreadcrumbsConfigVersion.cmake`, and the exported runtime target. The packaging
-verification test under `tests/consumer/runtime_package` installs the runtime to
-a temporary prefix, configures a separate CMake project with
+`BreadcrumbsConfigVersion.cmake`, public runtime headers including
+`<breadcrumbs/runtime/version.hpp>`, and the exported runtime target. The
+packaging verification test under `tests/consumer/runtime_package` installs the
+runtime to a temporary prefix, configures a separate CMake project with
 `find_package(Breadcrumbs CONFIG REQUIRED)`, links `Breadcrumbs::runtime`, and
 runs a small encode/decode smoke executable.
 

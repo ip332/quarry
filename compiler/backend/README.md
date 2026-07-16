@@ -141,6 +141,13 @@ Current C++ generation behavior:
   * `<string>` for `std::string`
   * `<vector>` for arrays, `bytes`, and generated encoder results
 * includes `runtime/binary_record.hpp` when a generated file contains records
+* emits a compile-time generated-code API compatibility assertion for generated
+  record headers
+  * the assertion checks
+    `::breadcrumbs::runtime::kGeneratedCodeApiVersion`
+  * it guards only the generated C++ source/runtime header contract
+  * it does not enforce package release equality, runtime ABI compatibility,
+    schema-language compatibility, or BRF wire compatibility
 * returns `success = false`, a non-empty `error_message`, and no generated
   files for backend failures
 * keeps enum formatting, parsing, reflection, accessors beyond the minimal

@@ -10,6 +10,9 @@
 
 #include "runtime/binary_record.hpp"
 
+static_assert(::breadcrumbs::runtime::kGeneratedCodeApiVersion == 1U,
+              "Generated Breadcrumbs code is incompatible with the installed Breadcrumbs runtime. Regenerate the code using a compatible breadcrumbs-schema-compiler release.");
+
 namespace breadcrumbs {
 namespace geo {
 

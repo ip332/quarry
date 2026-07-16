@@ -210,6 +210,27 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
     ASSERT_EQ(run_status, 0) << "command failed: " << executable_path.string();
 }
 
+[[nodiscard]] std::string compile_source_expect_failure(std::string_view source_text) {
+    const std::filesystem::path root = make_temp_directory("compile-failure");
+    const std::filesystem::path source_path = root / "compile.cpp";
+    const std::filesystem::path executable_path = root / "compile";
+    const std::filesystem::path output_path = root / "compiler-output.txt";
+    write_text_file(source_path, source_text);
+
+    const std::string compiler = BREADCRUMBS_TEST_CXX_COMPILER;
+    const std::filesystem::path repo_root =
+        std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+    std::ostringstream command;
+    command << std::quoted(compiler) << " -std=c++20 -I" << std::quoted(repo_root.string())
+            << " " << std::quoted(source_path.string()) << " -o "
+            << std::quoted(executable_path.string()) << " > "
+            << std::quoted(output_path.string()) << " 2>&1";
+
+    const int status = run_command(command.str());
+    EXPECT_NE(status, 0) << "command unexpectedly succeeded: " << command.str();
+    return read_file(output_path);
+}
+
 [[nodiscard]] SchemaIrModel make_manual_unspecified_primitive_schema_ir() {
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
@@ -289,6 +310,34 @@ TEST(BackendCodegenTest, SingleRecordMatchesGolden) {
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
     EXPECT_EQ(render_result(result), backend_golden_text("single_record"));
+}
+
+TEST(BackendCodegenTest, GeneratedRecordsAssertRuntimeGeneratedCodeApiVersion) {
+    const CodegenResult result = run_backend_fixture("single_record", CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1);
+
+    EXPECT_NE(result.files.front().content.find(
+                  "static_assert(::breadcrumbs::runtime::kGeneratedCodeApiVersion == 1U"),
+              std::string::npos);
+    EXPECT_NE(result.files.front().content.find(
+                  "Generated Breadcrumbs code is incompatible with the installed Breadcrumbs "
+                  "runtime."),
+              std::string::npos);
+}
+
+TEST(BackendCodegenTest, RuntimeGeneratedCodeApiVersionMismatchFailsCompilation) {
+    const std::string output = compile_source_expect_failure(
+        "#include \"runtime/binary_record.hpp\"\n"
+        "static_assert(::breadcrumbs::runtime::kGeneratedCodeApiVersion == 999U,\n"
+        "              \"Generated Breadcrumbs code is incompatible with the installed "
+        "Breadcrumbs runtime. Regenerate the code using a compatible "
+        "breadcrumbs-schema-compiler release.\");\n"
+        "int main() { return 0; }\n");
+
+    EXPECT_NE(output.find("Generated Breadcrumbs code is incompatible with the installed "
+                          "Breadcrumbs runtime."),
+              std::string::npos);
 }
 
 TEST(BackendCodegenTest, GeneratedSingleRecordHeaderCompilesAndRuns) {

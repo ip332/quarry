@@ -1,5 +1,7 @@
 #pragma once
 
+#include "runtime/version.hpp"
+
 #include <algorithm>
 #include <bit>
 #include <cstddef>

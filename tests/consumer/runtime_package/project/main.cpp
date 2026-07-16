@@ -1,4 +1,5 @@
 #include <breadcrumbs/runtime/binary_record.hpp>
+#include <breadcrumbs/runtime/version.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -6,6 +7,8 @@
 #include <vector>
 
 int main() {
+    static_assert(breadcrumbs::runtime::kGeneratedCodeApiVersion == 1U);
+
     using breadcrumbs::runtime::DecodeError;
     using breadcrumbs::runtime::FieldBytes;
     using breadcrumbs::runtime::append_u32;

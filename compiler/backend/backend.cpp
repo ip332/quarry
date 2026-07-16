@@ -228,6 +228,12 @@ struct NamespacePlan {
     return "// Namespace: " + std::string(fqn) + "\n";
 }
 
+[[nodiscard]] bool emits_records(const NamespacePlan& plan) {
+    return std::any_of(plan.declarations.begin(), plan.declarations.end(), [](const auto& decl) {
+        return decl.kind == DeclarationPlan::Kind::Record;
+    });
+}
+
 [[nodiscard]] std::string field_member_name(std::string_view field_name) {
     return std::string(field_name) + "_";
 }
@@ -1902,6 +1908,13 @@ void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t
         stream << "#include \"" << include_path << "\"\n";
     }
     if (!plan.standard_includes.empty() || !plan.includes.empty()) {
+        stream << '\n';
+    }
+    if (emits_records(plan)) {
+        stream << "static_assert(::breadcrumbs::runtime::kGeneratedCodeApiVersion == 1U,\n";
+        stream << "              \"Generated Breadcrumbs code is incompatible with the installed "
+                  "Breadcrumbs runtime. Regenerate the code using a compatible "
+                  "breadcrumbs-schema-compiler release.\");\n";
         stream << '\n';
     }
 

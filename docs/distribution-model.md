@@ -10,7 +10,8 @@ The supported installed SDK surface is:
 
 * `Breadcrumbs::runtime`
 * public runtime headers, including
-  `<breadcrumbs/runtime/binary_record.hpp>`
+  `<breadcrumbs/runtime/binary_record.hpp>` and
+  `<breadcrumbs/runtime/version.hpp>`
 * `BreadcrumbsConfig.cmake`
 * `BreadcrumbsConfigVersion.cmake`
 
@@ -53,6 +54,9 @@ Install only the header-only runtime and its CMake package metadata.
 This is the current supported model. It matches the implemented install/export
 rules, has a small dependency surface, and lets generated code depend on
 `Breadcrumbs::runtime` without making compiler internals public.
+Generated C++ headers use the runtime's generated-code API compatibility
+constant to fail compilation with incompatible runtime headers. That check is
+separate from package release version and BRF wire-format version.
 
 ### Runtime + Compiler SDK
 

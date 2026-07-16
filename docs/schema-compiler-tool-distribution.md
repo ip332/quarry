@@ -26,6 +26,7 @@ Options:
   -o, --output-directory PATH  Directory for generated files (default: generated)
       --root-file-stem NAME     Root namespace file stem (default: schema)
       --file-extension EXT      Generated file extension (default: .generated.hpp)
+      --version                 Show version information
   -h, --help                    Show help
 ```
 
@@ -150,8 +151,10 @@ Initial safe rule for a future installed compiler:
 
 * generated C++ should be compiled against the `Breadcrumbs::runtime` package
   from the same Breadcrumbs release
-* newer or older runtime compatibility is not promised until generated files
-  contain an explicit compatibility guard and tests cover mixed-version use
+* generated files contain a generated-code API compatibility guard that catches
+  incompatible runtime headers at compile time
+* newer or older runtime release compatibility is not promised until tests cover
+  mixed-release use
 * the CLI exposes its version for scripts and diagnostics
 * BRF v0.1 compatibility remains a wire-format concern, not a promise that any
   generated-code API version can use any runtime package version
@@ -164,15 +167,15 @@ test:
 * deterministic output without timestamps or machine-specific paths
 * installed executable relocatability on supported platforms
 * dynamic dependency policy for libyaml, Protobuf, and absl
-* mechanical enforcement, if any, of the same-release
-  compiler/generated-code/runtime compatibility rule
+* whether installed compiler discovery requires exact package release matching
+  or only generated-code API compatibility
 * whether the executable is discoverable by `find_program` only or by an
   imported executable target
 
 ## Future Implementation Sequence
 
-1. Decide whether same-release compiler/generated-code/runtime compatibility
-   needs a generated compile-time guard before installation.
+1. Decide whether installed compiler discovery requires exact package release
+   matching or only generated-code API compatibility.
 2. Install the standalone executable without compiler headers or libraries;
    verify relocatability from a temporary prefix.
 3. Add optional CMake package discovery for the executable, likely as an
