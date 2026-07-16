@@ -91,6 +91,30 @@ Out of scope:
 Runtime code must not depend on compiler libraries, YAML, Schema IR protobufs,
 source-schema models, symbols, semantic validation, layout, or backend code.
 
+## CMake Package
+
+`breadcrumbs_runtime` is a header-only `INTERFACE` target in the source tree.
+Installation exports it as `Breadcrumbs::runtime` through the `Breadcrumbs`
+CMake package:
+
+```cmake
+find_package(Breadcrumbs CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE Breadcrumbs::runtime)
+```
+
+Installed consumers should include:
+
+```cpp
+#include <breadcrumbs/runtime/binary_record.hpp>
+```
+
+The package installs `BreadcrumbsConfig.cmake`,
+`BreadcrumbsConfigVersion.cmake`, and the exported runtime target. The packaging
+verification test under `tests/consumer/runtime_package` installs the runtime to
+a temporary prefix, configures a separate CMake project with
+`find_package(Breadcrumbs CONFIG REQUIRED)`, links `Breadcrumbs::runtime`, and
+runs a small encode/decode smoke executable.
+
 ## Fuzzing
 
 BRF parser fuzz targets are available behind the opt-in

@@ -2,6 +2,7 @@ find_package(GTest QUIET)
 
 if(NOT GTest_FOUND)
     include(FetchContent)
+    set(INSTALL_GTEST OFF CACHE BOOL "Disable googletest installation" FORCE)
     FetchContent_Declare(
         googletest
         GIT_REPOSITORY https://github.com/google/googletest.git
@@ -60,6 +61,13 @@ target_link_libraries(backend_codegen_test PRIVATE breadcrumbs_compiler_schema_i
 target_link_libraries(backend_codegen_test PRIVATE breadcrumbs_schema_ir_warning_tweaks)
 add_breadcrumbs_gtest(runtime_binary_record_test runtime/binary_record_test.cpp
                       breadcrumbs_runtime)
+add_breadcrumbs_gtest(runtime_package_consumer_test consumer/runtime_package_test.cpp
+                      breadcrumbs_compiler_support)
+target_compile_definitions(runtime_package_consumer_test PRIVATE
+    BREADCRUMBS_TEST_CMAKE_COMMAND="${CMAKE_COMMAND}"
+    BREADCRUMBS_TEST_BUILD_DIR="${CMAKE_BINARY_DIR}"
+    BREADCRUMBS_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
+    BREADCRUMBS_RUNTIME_PACKAGE_CONSUMER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/consumer/runtime_package/project")
 add_breadcrumbs_gtest(schema_compiler_tool_test tools/schema_compiler_tool_test.cpp
                       breadcrumbs_compiler_support)
 add_dependencies(schema_compiler_tool_test breadcrumbs_schema_compiler)

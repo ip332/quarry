@@ -28,3 +28,22 @@ its core architecture.
 ## Status
 
 Project planning and architecture phase.
+
+## Runtime Package
+
+The C++ Breadcrumbs runtime is header-only and installable as a CMake package.
+After installing the project, downstream CMake projects can consume it with:
+
+```cmake
+find_package(Breadcrumbs CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE Breadcrumbs::runtime)
+```
+
+The public runtime include path is:
+
+```cpp
+#include <breadcrumbs/runtime/binary_record.hpp>
+```
+
+A minimal installed-package example is available in
+`examples/cpp/basic_encode_decode`.

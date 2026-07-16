@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(breadcrumbs LANGUAGES CXX)
+project(breadcrumbs VERSION 0.1.0 LANGUAGES CXX)
+
+include(CMakePackageConfigHelpers)
+include(GNUInstallDirs)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -42,3 +45,34 @@ endif()
 add_subdirectory(compiler)
 add_subdirectory(tools)
 add_subdirectory(tests)
+
+install(TARGETS breadcrumbs_runtime
+    EXPORT BreadcrumbsTargets
+)
+install(FILES runtime/binary_record.hpp
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/runtime
+)
+install(DIRECTORY include/breadcrumbs
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+install(EXPORT BreadcrumbsTargets
+    FILE BreadcrumbsTargets.cmake
+    NAMESPACE Breadcrumbs::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Breadcrumbs
+)
+
+configure_package_config_file(
+    cmake/BreadcrumbsConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/BreadcrumbsConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Breadcrumbs
+)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/BreadcrumbsConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/BreadcrumbsConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/BreadcrumbsConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Breadcrumbs
+)

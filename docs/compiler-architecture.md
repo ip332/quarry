@@ -80,6 +80,11 @@ the generic BRF parser and to a representative generated-style decoder. Seed
 corpus entries are stored as reviewable hexadecimal byte files under
 `fuzz/corpus/brf`.
 
+The runtime is the first installed external CMake surface. Installation exports
+the header-only runtime as `Breadcrumbs::runtime` through
+`BreadcrumbsConfig.cmake`; compiler libraries and schema compiler tools remain
+source-tree targets and are not installed by this package boundary.
+
 ---
 
 ## Compilation Pipeline

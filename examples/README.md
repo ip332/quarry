@@ -1,7 +1,11 @@
 # Examples
 
-Example schemas will later serve as golden inputs for parser, semantic, layout,
-Schema IR, and backend tests.
+Examples demonstrate supported public runtime and generated-code workflows.
 
-This directory is intentionally empty until the schema language and golden test
-format are ready.
+Current examples:
+
+* `cpp/basic_encode_decode`: minimal C++ runtime package consumer using
+  `find_package(Breadcrumbs CONFIG REQUIRED)` and `Breadcrumbs::runtime`.
+
+Language-specific examples should be added only with corresponding language
+runtime or generator support.
