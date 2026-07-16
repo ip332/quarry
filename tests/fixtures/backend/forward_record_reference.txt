@@ -133,7 +133,14 @@ std::optional<std::vector<std::byte>> encode(const A& value) {
   std::vector<::breadcrumbs::runtime::FieldBytes> fields;
   fields.reserve(1U);
   if (value.has_value()) {
-    return std::nullopt;
+    auto field_bytes = ::encode(*value.value());
+    if (!field_bytes.has_value()) {
+      return std::nullopt;
+    }
+    fields.push_back(::breadcrumbs::runtime::FieldBytes{
+      .field_index = 0U,
+      .bytes = std::move(*field_bytes),
+    });
   }
   return ::breadcrumbs::runtime::encode_record(1U, fields);
 }
@@ -145,8 +152,11 @@ std::optional<A> decode_A(std::span<const std::byte> input) {
     return std::nullopt;
   }
   ABuilder builder;
-  if (::breadcrumbs::runtime::find_field(*parsed.record, 0U) != nullptr) {
-    return std::nullopt;
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
+    const auto decoded = ::decode_B(field->bytes);
+    if (!decoded.has_value() || !builder.set_value(*decoded)) {
+      return std::nullopt;
+    }
   }
   return builder.build();
 }

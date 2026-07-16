@@ -10,8 +10,8 @@ Draft
 
 ## Purpose
 
-This document defines the binary representation of Breadcrumbs top-level records
-and payload fragments.
+This document defines the binary representation of Breadcrumbs records and
+field payloads.
 
 The binary record format defines how record headers, field directories,
 payloads, nested records, scalar values, arrays, strings, bytes, and enum values
@@ -30,11 +30,14 @@ A top-level record is encoded as:
 Record Header + Field Directory + Payload
 ```
 
-A nested record is encoded as a Field Directory and Payload fragment only.
+A nested record field payload contains a complete embedded record:
 
-A nested record SHALL NOT contain a Record Header.
+```text
+Record Header + Field Directory + Payload
+```
 
-Only top-level records contain Record Headers.
+The parent Field Directory entry length bounds the complete embedded record
+byte sequence.
 
 There is no footer or trailer in v0.1.
 
@@ -124,7 +127,8 @@ The `fieldIndex` identifies a present field in the Field Directory.
 Generated setters update record bytes directly. The binary record is the primary
 data structure.
 
-Nested records use the same body layout but do not include a Record Header.
+Nested records use the same complete record layout as top-level records when
+they are encoded as field payloads.
 
 ---
 
@@ -238,26 +242,44 @@ bytes using `fieldOffset` and `fieldLength`.
 
 Unknown fields do not affect decoding of known fields.
 
-The first generated C++ decoder materializes generated record values for the
-same non-recursive leaf subset as the generated encoder: `bool`, fixed-width
-signed and unsigned integers, `float32`, `float64`, `string`, `bytes`, and enum
-references whose declared values are all non-negative. A present known field
-with a type outside that subset causes generated decoding to fail. An absent
-unsupported known field does not affect decoding.
+The generated C++ decoder materializes generated record values for the same
+subset as the generated encoder: `bool`, fixed-width signed and unsigned
+integers, `float32`, `float64`, `string`, `bytes`, enum references whose
+declared values are all non-negative, supported arrays, and nested record
+fields. A present known field with a type outside that subset causes generated
+decoding to fail. An absent unsupported known field does not affect decoding.
 
 ---
 
 ## Nested Records
 
-Nested records are encoded as Field Directory and Payload fragments.
+A nested record field payload is a complete Binary Record Format record,
+including its own 16-byte Record Header, Field Directory, and Payload.
 
-The type of a nested record is determined exclusively by the parent schema.
+The parent Field Directory `fieldLength` for a nested record field SHALL equal
+the complete embedded record byte count.
 
-This design preserves deterministic parsing, minimizes encoding overhead, and
-follows the Breadcrumbs principle of compile-time knowledge over runtime
-discovery.
+Nested `recordId` values are encoded in the embedded Record Header. Generated
+decoders verify the embedded `recordId` by calling the referenced record's
+generated decoder. A wrong nested record type causes parent decoding to fail.
+
+Nested records use the same `headerVersion`, `flags`, reserved-field, and
+`payloadLength` validation rules as top-level records. Unsupported nested
+versions, nonzero flags, nonzero reserved fields, malformed nested payload
+lengths, and trailing bytes inside the parent field span cause parent decoding
+to fail.
+
+An absent nested field has no parent Field Directory entry. A present empty
+nested record has a parent entry whose payload is a complete embedded record
+with zero nested fields. These states are distinct.
+
+Unknown fields inside nested records are ignored by generated decoders after
+normal structural validation. Unknown fields are not preserved for re-encoding.
 
 Polymorphic nested records are not supported in v0.1.
+
+Arrays of records and nested arrays remain unsupported by the generated C++
+codecs in this revision.
 
 ---
 

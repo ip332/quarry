@@ -160,7 +160,14 @@ std::optional<std::vector<std::byte>> encode(const Wrapper& value) {
   std::vector<::breadcrumbs::runtime::FieldBytes> fields;
   fields.reserve(2U);
   if (value.has_child()) {
-    return std::nullopt;
+    auto field_bytes = ::encode(*value.child());
+    if (!field_bytes.has_value()) {
+      return std::nullopt;
+    }
+    fields.push_back(::breadcrumbs::runtime::FieldBytes{
+      .field_index = 0U,
+      .bytes = std::move(*field_bytes),
+    });
   }
   if (value.has_state()) {
     const auto enum_numeric = static_cast<std::int64_t>(*value.state());
@@ -184,8 +191,11 @@ std::optional<Wrapper> decode_Wrapper(std::span<const std::byte> input) {
     return std::nullopt;
   }
   WrapperBuilder builder;
-  if (::breadcrumbs::runtime::find_field(*parsed.record, 0U) != nullptr) {
-    return std::nullopt;
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
+    const auto decoded = ::decode_Child(field->bytes);
+    if (!decoded.has_value() || !builder.set_child(*decoded)) {
+      return std::nullopt;
+    }
   }
   if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 1U); field != nullptr) {
     const auto decoded = ::breadcrumbs::runtime::read_u8(field->bytes);

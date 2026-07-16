@@ -1,0 +1,76 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  records {
+    ir_id: 2
+    record_id: 1
+    name: "Inner"
+    fqn: "Inner"
+    fields {
+      name: "count"
+      type {
+        primitive: PRIMITIVE_TYPE_U32
+      }
+    }
+    fields {
+      name: "label"
+      field_index: 1
+      type {
+        string {
+          max_bytes: 8
+        }
+      }
+    }
+    fields {
+      name: "tags"
+      field_index: 2
+      type {
+        array {
+          max_elements: 2
+          element_type {
+            string {
+              max_bytes: 4
+            }
+          }
+        }
+      }
+    }
+  }
+  records {
+    ir_id: 3
+    record_id: 2
+    name: "Middle"
+    fqn: "Middle"
+    fields {
+      name: "inner"
+      type {
+        record {
+          target_record_ir_id: 2
+        }
+      }
+    }
+  }
+  records {
+    ir_id: 4
+    record_id: 3
+    name: "Outer"
+    fqn: "Outer"
+    fields {
+      name: "middle"
+      type {
+        record {
+          target_record_ir_id: 3
+        }
+      }
+    }
+    fields {
+      name: "fallback"
+      field_index: 1
+      type {
+        record {
+          target_record_ir_id: 2
+        }
+      }
+    }
+  }
+}

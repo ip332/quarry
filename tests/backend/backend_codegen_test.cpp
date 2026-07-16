@@ -652,6 +652,124 @@ TEST(BackendCodegenTest, SameFileForwardReferenceOrdersDefinitions) {
     EXPECT_EQ(render_result(result), backend_golden_text("forward_record_reference"));
 }
 
+TEST(BackendCodegenTest, NestedRecordFieldUsesCompleteEmbeddedRecord) {
+    const CodegenResult result = run_backend_fixture("forward_record_reference", CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    compile_generated_header(
+        result, "generated/schema.generated.hpp",
+        "#include \"generated/schema.generated.hpp\"\n"
+        "#include <cstddef>\n"
+        "#include <cstdint>\n"
+        "#include <vector>\n"
+        "\n"
+        "int main() {\n"
+        "  using byte = std::byte;\n"
+        "  B empty_child;\n"
+        "  ABuilder empty_parent_builder;\n"
+        "  if (!empty_parent_builder.set_value(empty_child)) { return 1; }\n"
+        "  const auto empty_parent = encode(empty_parent_builder.build());\n"
+        "  const std::vector<byte> expected_empty{\n"
+        "      byte{0x01}, byte{0x00}, byte{0x01}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x01},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x13},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x10},\n"
+        "      byte{0x01}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x02},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "  };\n"
+        "  if (!empty_parent.has_value() || *empty_parent != expected_empty) { return 2; }\n"
+        "  const auto decoded_empty = decode_A(*empty_parent);\n"
+        "  if (!decoded_empty.has_value() || !decoded_empty->has_value() ||\n"
+        "      decoded_empty->value()->has_count()) {\n"
+        "    return 3;\n"
+        "  }\n"
+        "\n"
+        "  BBuilder child_builder;\n"
+        "  if (!child_builder.set_count(0x01020304U)) { return 4; }\n"
+        "  ABuilder parent_builder;\n"
+        "  if (!parent_builder.set_value(child_builder.build())) { return 5; }\n"
+        "  const auto encoded_parent = encode(parent_builder.build());\n"
+        "  const std::vector<byte> expected_populated{\n"
+        "      byte{0x01}, byte{0x00}, byte{0x01}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x01},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x1A},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x17},\n"
+        "      byte{0x01}, byte{0x00}, byte{0x01}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x02},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x07},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x04},\n"
+        "      byte{0x01}, byte{0x02}, byte{0x03}, byte{0x04},\n"
+        "  };\n"
+        "  if (!encoded_parent.has_value() || *encoded_parent != expected_populated) { return 6; }\n"
+        "  const auto decoded_parent = decode_A(*encoded_parent);\n"
+        "  if (!decoded_parent.has_value() || !decoded_parent->has_value() ||\n"
+        "      !decoded_parent->value()->has_count() ||\n"
+        "      *decoded_parent->value()->count() != 0x01020304U) {\n"
+        "    return 7;\n"
+        "  }\n"
+        "\n"
+        "  const std::vector<byte> wrong_nested_id{\n"
+        "      byte{0x01}, byte{0x00}, byte{0x01}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x01},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x1A},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x17},\n"
+        "      byte{0x01}, byte{0x00}, byte{0x01}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x03},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x07},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x04},\n"
+        "      byte{0x01}, byte{0x02}, byte{0x03}, byte{0x04},\n"
+        "  };\n"
+        "  if (decode_A(wrong_nested_id).has_value()) { return 8; }\n"
+        "\n"
+        "  const std::vector<byte> truncated_nested_header{\n"
+        "      byte{0x01}, byte{0x00}, byte{0x01}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x01},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x12},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x0F},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "  };\n"
+        "  if (decode_A(truncated_nested_header).has_value()) { return 9; }\n"
+        "\n"
+        "  std::vector<byte> trailing_nested = expected_populated;\n"
+        "  trailing_nested[15] = byte{0x1B};\n"
+        "  trailing_nested[18] = byte{0x18};\n"
+        "  trailing_nested.push_back(byte{0xFF});\n"
+        "  if (decode_A(trailing_nested).has_value()) { return 10; }\n"
+        "\n"
+        "  const std::vector<byte> unknown_nested_field{\n"
+        "      byte{0x01}, byte{0x00}, byte{0x01}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x01},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x1E},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x1B},\n"
+        "      byte{0x01}, byte{0x00}, byte{0x02}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x02},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x0B},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x04},\n"
+        "      byte{0x03}, byte{0x04}, byte{0x01},\n"
+        "      byte{0x01}, byte{0x02}, byte{0x03}, byte{0x04}, byte{0xFF},\n"
+        "  };\n"
+        "  const auto decoded_unknown = decode_A(unknown_nested_field);\n"
+        "  if (!decoded_unknown.has_value() || !decoded_unknown->has_value() ||\n"
+        "      !decoded_unknown->value()->has_count() ||\n"
+        "      *decoded_unknown->value()->count() != 0x01020304U) {\n"
+        "    return 11;\n"
+        "  }\n"
+        "  return 0;\n"
+        "}\n");
+}
+
 TEST(BackendCodegenTest, MultipleTopLevelNamespacesMatchGolden) {
     const CodegenResult result =
         run_backend_fixture("multiple_top_level_namespaces", CodegenOptions{});
@@ -669,6 +787,39 @@ TEST(BackendCodegenTest, CrossNamespaceReferenceMatchesGolden) {
     EXPECT_EQ(result.files[0].path, "generated/alpha/one.generated.hpp");
     EXPECT_EQ(result.files[1].path, "generated/beta/two.generated.hpp");
     EXPECT_EQ(render_result(result), backend_golden_text("cross_namespace_reference"));
+}
+
+TEST(BackendCodegenTest, CrossNamespaceNestedRecordCodecCompilesAndRoundTrips) {
+    const CodegenResult result = run_backend_fixture("cross_namespace_reference", CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    compile_generated_header(
+        result, "generated/beta/two.generated.hpp",
+        "#include \"generated/beta/two.generated.hpp\"\n"
+        "#include <cstddef>\n"
+        "#include <vector>\n"
+        "\n"
+        "int main() {\n"
+        "  using byte = std::byte;\n"
+        "  ::alpha::one::First first;\n"
+        "  ::beta::two::SecondBuilder builder;\n"
+        "  if (!builder.set_first(first)) { return 1; }\n"
+        "  const auto encoded = ::beta::two::encode(builder.build());\n"
+        "  const std::vector<byte> expected{\n"
+        "      byte{0x01}, byte{0x00}, byte{0x01}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x02},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x13},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x10},\n"
+        "      byte{0x01}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x01},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "      byte{0x00}, byte{0x00}, byte{0x00}, byte{0x00},\n"
+        "  };\n"
+        "  if (!encoded.has_value() || *encoded != expected) { return 2; }\n"
+        "  const auto decoded = ::beta::two::decode_Second(expected);\n"
+        "  if (!decoded.has_value() || !decoded->has_first()) { return 3; }\n"
+        "  return 0;\n"
+        "}\n");
 }
 
 TEST(BackendCodegenTest, CrossNamespaceEnumReferenceMatchesGolden) {
@@ -713,6 +864,62 @@ TEST(BackendCodegenTest, EnumAndRecordSameNamespaceMatchGolden) {
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
     EXPECT_EQ(render_result(result), backend_golden_text("mixed_same_namespace_dependencies"));
+}
+
+TEST(BackendCodegenTest, NestedRecordFieldsMatchGolden) {
+    const CodegenResult result = run_backend_fixture("nested_record_fields", CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+    EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
+    EXPECT_EQ(render_result(result), backend_golden_text("nested_record_fields"));
+}
+
+TEST(BackendCodegenTest, MultiLevelNestedRecordsRoundTripSupportedFields) {
+    const CodegenResult result = run_backend_fixture("nested_record_fields", CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    compile_generated_header(
+        result, "generated/schema.generated.hpp",
+        "#include \"generated/schema.generated.hpp\"\n"
+        "#include <cstdint>\n"
+        "#include <string>\n"
+        "#include <vector>\n"
+        "\n"
+        "int main() {\n"
+        "  InnerBuilder inner_builder;\n"
+        "  if (!inner_builder.set_count(7U)) { return 1; }\n"
+        "  if (!inner_builder.set_label(\"ok\")) { return 2; }\n"
+        "  if (!inner_builder.set_tags(std::vector<std::string>{\"A\", \"\"})) { return 3; }\n"
+        "  const Inner inner = inner_builder.build();\n"
+        "\n"
+        "  MiddleBuilder middle_builder;\n"
+        "  if (!middle_builder.set_inner(inner)) { return 4; }\n"
+        "\n"
+        "  OuterBuilder outer_builder;\n"
+        "  if (!outer_builder.set_middle(middle_builder.build())) { return 5; }\n"
+        "  if (!outer_builder.set_fallback(Inner{})) { return 6; }\n"
+        "  const auto encoded = encode(outer_builder.build());\n"
+        "  if (!encoded.has_value()) { return 7; }\n"
+        "\n"
+        "  const auto decoded = decode_Outer(*encoded);\n"
+        "  if (!decoded.has_value() || !decoded->has_middle() || !decoded->has_fallback()) {\n"
+        "    return 8;\n"
+        "  }\n"
+        "  const Inner* decoded_inner = decoded->middle()->inner();\n"
+        "  if (decoded_inner == nullptr || !decoded_inner->has_count() ||\n"
+        "      *decoded_inner->count() != 7U || !decoded_inner->has_label() ||\n"
+        "      *decoded_inner->label() != \"ok\" || !decoded_inner->has_tags()) {\n"
+        "    return 9;\n"
+        "  }\n"
+        "  if (decoded_inner->tags()->size() != 2U || (*decoded_inner->tags())[0] != \"A\" ||\n"
+        "      !(*decoded_inner->tags())[1].empty()) {\n"
+        "    return 10;\n"
+        "  }\n"
+        "  if (decoded->fallback()->has_count() || decoded->fallback()->has_label() ||\n"
+        "      decoded->fallback()->has_tags()) {\n"
+        "    return 11;\n"
+        "  }\n"
+        "  return 0;\n"
+        "}\n");
 }
 
 TEST(BackendCodegenTest, MultipleEnumsHaveStableOrder) {

@@ -27,6 +27,7 @@ struct NamedTypeInfo {
     std::string file_path;
     std::string include_path;
     std::string cpp_name;
+    const ::breadcrumbs::schema_ir::RecordIR* record_ir = nullptr;
     const ::breadcrumbs::schema_ir::EnumIR* enum_ir = nullptr;
 };
 
@@ -67,6 +68,11 @@ struct RuntimeEnumEncoding {
     std::vector<std::int64_t> valid_values;
 };
 
+struct RuntimeRecordEncoding {
+    std::string encode_function;
+    std::string decode_function;
+};
+
 enum class RuntimeVariableEncoding {
     Unsupported,
     String,
@@ -84,6 +90,7 @@ struct RuntimeArrayEncoding {
 struct RuntimeFieldEncoding {
     RuntimeScalarEncoder scalar = RuntimeScalarEncoder::Unsupported;
     std::optional<RuntimeEnumEncoding> enum_encoding;
+    std::optional<RuntimeRecordEncoding> record_encoding;
     std::optional<RuntimeArrayEncoding> array_encoding;
     RuntimeVariableEncoding variable = RuntimeVariableEncoding::Unsupported;
     std::uint32_t max_bytes = 0U;
@@ -197,6 +204,20 @@ struct NamespacePlan {
     }
     cpp_name.append(name);
     return cpp_name;
+}
+
+[[nodiscard]] std::string cpp_namespace_prefix(std::string_view namespace_fqn) {
+    std::string prefix = "::";
+    if (namespace_fqn.empty()) {
+        return prefix;
+    }
+
+    const std::vector<std::string> parts = namespace_parts(namespace_fqn);
+    for (const std::string& part : parts) {
+        prefix.append(part);
+        prefix.append("::");
+    }
+    return prefix;
 }
 
 [[nodiscard]] std::string namespace_comment(std::string_view fqn) {
@@ -502,6 +523,20 @@ lower_runtime_field_encoding(const ::breadcrumbs::schema_ir::FieldType& field_ty
         encoding.variable = RuntimeVariableEncoding::Bytes;
         encoding.max_bytes = field_type.bytes().max_bytes();
         return encoding;
+    case ::breadcrumbs::schema_ir::FieldType::kRecord: {
+        const auto type_it = catalog.named_types.find(field_type.record().target_record_ir_id());
+        if (type_it == catalog.named_types.end() ||
+            type_it->second.kind != NamedTypeInfo::Kind::Record ||
+            type_it->second.record_ir == nullptr) {
+            return encoding;
+        }
+        const std::string namespace_prefix = cpp_namespace_prefix(type_it->second.namespace_fqn);
+        encoding.record_encoding = RuntimeRecordEncoding{
+            .encode_function = namespace_prefix + "encode",
+            .decode_function = namespace_prefix + "decode_" + type_it->second.record_ir->name(),
+        };
+        return encoding;
+    }
     case ::breadcrumbs::schema_ir::FieldType::kArray: {
         const ::breadcrumbs::schema_ir::ArrayType& array_type = field_type.array();
         RuntimeArrayEncoding array_encoding;
@@ -545,7 +580,6 @@ lower_runtime_field_encoding(const ::breadcrumbs::schema_ir::FieldType& field_ty
         }
         return encoding;
     }
-    case ::breadcrumbs::schema_ir::FieldType::kRecord:
     case ::breadcrumbs::schema_ir::FieldType::KIND_NOT_SET:
         return encoding;
     }
@@ -719,6 +753,7 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
                                         .file_path = file_path,
                                         .include_path = include_path,
                                         .cpp_name = cpp_qualified_name(ns.fqn(), record.name()),
+                                        .record_ir = &record,
                                         .enum_ir = nullptr,
                                     });
     }
@@ -732,6 +767,7 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
                                         .file_path = file_path,
                                         .include_path = include_path,
                                         .cpp_name = cpp_qualified_name(ns.fqn(), enum_ir.name()),
+                                        .record_ir = nullptr,
                                         .enum_ir = &enum_ir,
                                     });
     }
@@ -1202,6 +1238,22 @@ void render_bytes_field_encoding(const FieldPlan& field, std::size_t indent_leve
     stream << indent(indent_level) << "}\n";
 }
 
+void render_record_field_encoding(const FieldPlan& field, const RuntimeRecordEncoding& record_encoding,
+                                  std::size_t indent_level, std::ostringstream& stream) {
+    stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
+    stream << indent(indent_level + 1) << "auto field_bytes = " << record_encoding.encode_function
+           << "(*value." << field.name << "());\n";
+    stream << indent(indent_level + 1) << "if (!field_bytes.has_value()) {\n";
+    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level + 1) << "fields.push_back(::breadcrumbs::runtime::FieldBytes{\n";
+    stream << indent(indent_level + 2) << ".field_index = "
+           << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
+    stream << indent(indent_level + 2) << ".bytes = std::move(*field_bytes),\n";
+    stream << indent(indent_level + 1) << "});\n";
+    stream << indent(indent_level) << "}\n";
+}
+
 void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncoding& array_encoding,
                                  std::size_t indent_level, std::ostringstream& stream) {
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
@@ -1295,6 +1347,11 @@ void render_field_encoding(const FieldPlan& field, std::size_t indent_level,
     }
     if (field.runtime_encoding.variable == RuntimeVariableEncoding::Bytes) {
         render_bytes_field_encoding(field, indent_level, stream);
+        return;
+    }
+    if (field.runtime_encoding.record_encoding.has_value()) {
+        render_record_field_encoding(field, *field.runtime_encoding.record_encoding, indent_level,
+                                     stream);
         return;
     }
     if (field.runtime_encoding.array_encoding.has_value()) {
@@ -1420,6 +1477,22 @@ void render_bytes_field_decoding(const FieldPlan& field, std::size_t indent_leve
            << "const auto decoded = ::breadcrumbs::runtime::read_bytes(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value() || !builder.set_"
            << field.name << "(*decoded.value)) {\n";
+    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level) << "}\n";
+}
+
+void render_record_field_decoding(const FieldPlan& field,
+                                  const RuntimeRecordEncoding& record_encoding,
+                                  std::size_t indent_level, std::ostringstream& stream) {
+    const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
+    stream << indent(indent_level) << "if (const auto* field = "
+           << "::breadcrumbs::runtime::find_field(*parsed.record, " << field_index
+           << "U); field != nullptr) {\n";
+    stream << indent(indent_level + 1) << "const auto decoded = "
+           << record_encoding.decode_function << "(field->bytes);\n";
+    stream << indent(indent_level + 1) << "if (!decoded.has_value() || !builder.set_"
+           << field.name << "(*decoded)) {\n";
     stream << indent(indent_level + 2) << "return std::nullopt;\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
@@ -1551,6 +1624,11 @@ void render_field_decoding(const FieldPlan& field, std::size_t indent_level,
     }
     if (field.runtime_encoding.variable == RuntimeVariableEncoding::Bytes) {
         render_bytes_field_decoding(field, indent_level, stream);
+        return;
+    }
+    if (field.runtime_encoding.record_encoding.has_value()) {
+        render_record_field_decoding(field, *field.runtime_encoding.record_encoding, indent_level,
+                                     stream);
         return;
     }
     if (field.runtime_encoding.array_encoding.has_value()) {

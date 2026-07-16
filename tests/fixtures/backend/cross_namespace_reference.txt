@@ -103,7 +103,14 @@ namespace two {
       std::vector<::breadcrumbs::runtime::FieldBytes> fields;
       fields.reserve(1U);
       if (value.has_first()) {
-        return std::nullopt;
+        auto field_bytes = ::alpha::one::encode(*value.first());
+        if (!field_bytes.has_value()) {
+          return std::nullopt;
+        }
+        fields.push_back(::breadcrumbs::runtime::FieldBytes{
+          .field_index = 0U,
+          .bytes = std::move(*field_bytes),
+        });
       }
       return ::breadcrumbs::runtime::encode_record(2U, fields);
     }
@@ -115,8 +122,11 @@ namespace two {
         return std::nullopt;
       }
       SecondBuilder builder;
-      if (::breadcrumbs::runtime::find_field(*parsed.record, 0U) != nullptr) {
-        return std::nullopt;
+      if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
+        const auto decoded = ::alpha::one::decode_First(field->bytes);
+        if (!decoded.has_value() || !builder.set_first(*decoded)) {
+          return std::nullopt;
+        }
       }
       return builder.build();
     }

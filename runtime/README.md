@@ -23,6 +23,7 @@ Current support:
   supported scalar and enum leaf types
 * length-delimited array payload emission and parsing for generated arrays of
   `string` and `bytes` leaf types
+* complete embedded BRF record payloads for generated nested record fields
 * owning `std::vector<std::byte>` encode results
 * compact runtime parse/read errors used by generated decoders
 
@@ -51,11 +52,17 @@ exact array payload consumption.
 Generated `array<string>` codecs validate UTF-8 for every element on encode and
 decode. Generated `array<bytes>` codecs accept arbitrary byte sequences.
 
+Generated nested record fields are encoded as complete embedded Binary Record
+Format v0.1 records. The parent field length bounds the full embedded record
+byte sequence, including the nested 16-byte header. Generated decoders reuse the
+nested record's generated decoder, so nested `record_id`, version, flags,
+reserved fields, payload length, and exact input consumption are validated by
+the same runtime parser used for top-level records.
+
 Out of scope:
 
 * dynamic Schema IR or manifest interpretation
 * arrays of records or nested arrays
-* nested-record payload encoding or decoding
 * unknown-field preservation
 * generated read/view APIs
 * zero-copy or caller-provided output buffers
