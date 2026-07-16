@@ -248,6 +248,87 @@ logic directly in `BreadcrumbsConfig.cmake`. Loading the main package should
 remain small and should continue to expose only the runtime target and compiler
 executable target by default.
 
+## Generated Output Planning Contract
+
+The compiler should have one authoritative generated-output planning model.
+Filename and include-path decisions belong to the C++ backend, not to CMake
+helpers, package config files, tests, or downstream projects.
+
+Current architecture:
+
+* backend options define the output directory, root file stem, and file
+  extension
+* backend namespace analysis calculates namespace-local file paths and include
+  paths
+* backend dependency analysis determines whether a namespace emits a file and
+  how generated files include each other
+* `Backend::generate(...)` returns a `CodegenResult` containing generated file
+  paths and rendered file contents
+* the schema compiler executable writes the returned files and performs
+  tool-side safety checks for duplicate paths, output-root containment, and
+  per-file atomic replacement
+
+This already separates backend generation from file writing, but it does not
+yet expose a pure plan. The current `CodegenResult` combines two concepts:
+
+* planned output inventory: which files will be produced and in what order
+* rendered output payloads: the bytes to write for each generated file
+
+The selected architecture is an internal `GenerationPlan` stage before
+rendering:
+
+```text
+Schema IR
+  -> backend output planner
+  -> GenerationPlan
+  -> renderer
+  -> CodegenResult
+  -> schema compiler file writer
+```
+
+The plan should remain internal at first. It should be sufficient for backend
+tests, future CLI query modes, and future CMake integration to share the same
+output inventory without reimplementing filename rules outside the backend.
+
+Minimum useful plan data:
+
+* generated language/backend, initially C++
+* logical output role, initially generated header
+* relative output path under the caller-selected output directory
+* generated include path used by other generated files
+* deterministic order
+
+The plan should not initially include absolute paths, rendered file contents,
+file hashes, build-system dependency graphs, stale-output cleanup policy,
+runtime package paths, or CMake target information. Absolute path validation
+and atomic replacement remain responsibilities of the schema compiler tool's
+file writer.
+
+A future CLI query mode such as `--list-outputs` or `--dry-run` should serialize
+the same internal plan. It should not introduce a second filename calculation
+path. That CLI should be a separate PR after the internal plan exists. A query
+mode can help users and CMake configure-time logic list outputs, but it should
+not be conflated with depfiles, manifests, or stale-output cleanup.
+
+An output manifest remains a separate build-time artifact question. It may be
+useful for diagnostics or audit trails, but because manifests are produced
+during the build, they do not replace configure-time output planning for CMake.
+
+Testing should move output inventory coverage toward the planning layer. Focused
+planning tests should cover:
+
+* root-namespace output using `root_file_stem`
+* nested namespace directory layout
+* custom file extensions
+* multiple emitted namespaces and deterministic ordering
+* generated include paths for cross-namespace references
+* namespaces that do not emit files
+
+The future CMake helper decision should depend on this plan. A helper can only
+avoid duplicating backend logic if it obtains output paths from the compiler's
+authoritative planning model, either through a future CLI query or through a
+documented generated-output contract derived from that same model.
+
 ## Installed Discovery Policy
 
 The native CMake discovery model is an imported executable target in the

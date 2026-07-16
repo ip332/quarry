@@ -80,19 +80,21 @@ the generic BRF parser and to a representative generated-style decoder. Seed
 corpus entries are stored as reviewable hexadecimal byte files under
 `fuzz/corpus/brf`.
 
-The runtime is the first installed external CMake surface. Installation exports
-the header-only runtime as `Breadcrumbs::runtime` through
-`BreadcrumbsConfig.cmake`; compiler libraries and schema compiler tools remain
-source-tree targets and are not installed by this package boundary.
-`docs/distribution-model.md` owns the supported downstream SDK boundary and
-classifies generated code, generated protobufs, tools, tests, fuzzers, and
-examples.
-`docs/schema-compiler-tool-distribution.md` records why
-`breadcrumbs-schema-compiler` remains a source-tree tool and what must stabilize
-before it can become an installed executable. Its selected future native CMake
-discovery shape is an imported executable target,
-`Breadcrumbs::schema_compiler`, added only after standalone executable
-installation and clean-prefix execution are proven.
+The installed CMake package exposes the header-only runtime as
+`Breadcrumbs::runtime` and the schema compiler host executable as
+`Breadcrumbs::schema_compiler`. Compiler libraries, compiler headers, generated
+Schema IR protobuf targets, tests, and fuzzers remain source-tree artifacts and
+are not installed as public SDK surfaces. `docs/distribution-model.md` owns the
+supported downstream SDK boundary and classifies generated code, generated
+protobufs, tools, tests, fuzzers, and examples.
+`docs/schema-compiler-tool-distribution.md` records the installed compiler-tool
+contract, native imported-target discovery policy, and downstream CMake
+integration boundaries.
+
+Generated-output naming belongs to backend-owned planning. The compiler should
+keep a single internal generated-output planning model that can feed rendering,
+tool-side file writing, future output-query CLI modes, and future CMake
+integration without reimplementing filename rules outside the backend.
 
 ---
 
