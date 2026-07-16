@@ -86,7 +86,6 @@ Out of scope:
 * field-path, array-index, or byte-offset context for codec errors
 * generated read/view APIs
 * zero-copy or caller-provided output buffers
-* install/export packaging
 
 Runtime code must not depend on compiler libraries, YAML, Schema IR protobufs,
 source-schema models, symbols, semantic validation, layout, or backend code.
@@ -114,6 +113,11 @@ verification test under `tests/consumer/runtime_package` installs the runtime to
 a temporary prefix, configures a separate CMake project with
 `find_package(Breadcrumbs CONFIG REQUIRED)`, links `Breadcrumbs::runtime`, and
 runs a small encode/decode smoke executable.
+
+This is the complete supported installed SDK surface today. Compiler targets,
+schema compiler tools, generated protobufs, fuzzers, tests, and examples are not
+installed or exported by the runtime package; see
+`docs/distribution-model.md`.
 
 ## Fuzzing
 

@@ -47,3 +47,8 @@ The public runtime include path is:
 
 A minimal installed-package example is available in
 `examples/cpp/basic_encode_decode`.
+
+The supported downstream distribution model is defined in
+`docs/distribution-model.md`. The installed SDK currently consists of the
+header-only runtime package only; compiler libraries, generated protobufs,
+tests, fuzzers, and tools remain source-tree artifacts.

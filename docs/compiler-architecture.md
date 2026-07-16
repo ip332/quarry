@@ -84,6 +84,9 @@ The runtime is the first installed external CMake surface. Installation exports
 the header-only runtime as `Breadcrumbs::runtime` through
 `BreadcrumbsConfig.cmake`; compiler libraries and schema compiler tools remain
 source-tree targets and are not installed by this package boundary.
+`docs/distribution-model.md` owns the supported downstream SDK boundary and
+classifies generated code, generated protobufs, tools, tests, fuzzers, and
+examples.
 
 ---
 
