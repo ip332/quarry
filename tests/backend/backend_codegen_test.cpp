@@ -617,6 +617,131 @@ TEST(BackendCodegenTest, GeneratedScalarDecoderRejectsInvalidKnownFieldsAndIgnor
     compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
 }
 
+TEST(BackendCodegenTest, GeneratedDiagnosticDecodeReportsStructuralAndSchemaErrors) {
+    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+
+    const std::string header_include =
+        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string translation_source =
+        "#include \"" + header_include +
+        "\"\n"
+        "#include <cstddef>\n"
+        "#include <vector>\n"
+        "int main() {\n"
+        "  using ::breadcrumbs::runtime::DecodeError;\n"
+        "  const auto byte = [](unsigned int value) {\n"
+        "    return static_cast<std::byte>(static_cast<unsigned char>(value));\n"
+        "  };\n"
+        "  const std::vector<std::byte> truncated_header{byte(0x01)};\n"
+        "  if (decode_Example_result(truncated_header).error != DecodeError::truncated_header) {\n"
+        "    return 1;\n"
+        "  }\n"
+        "  const std::vector<std::byte> wrong_record_id{\n"
+        "      byte(0x01), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x03),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00)};\n"
+        "  if (decode_Example_result(wrong_record_id).error != DecodeError::unexpected_record_id) {\n"
+        "    return 2;\n"
+        "  }\n"
+        "  const std::vector<std::byte> invalid_bool{\n"
+        "      byte(0x01), byte(0x00), byte(0x01), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x02),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x04),\n"
+        "      byte(0x09), byte(0x00), byte(0x01), byte(0x02)};\n"
+        "  if (decode_Example_result(invalid_bool).error != DecodeError::invalid_bool) {\n"
+        "    return 3;\n"
+        "  }\n"
+        "  const std::vector<std::byte> invalid_utf8{\n"
+        "      byte(0x01), byte(0x00), byte(0x01), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x02),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x05),\n"
+        "      byte(0x00), byte(0x00), byte(0x02), byte(0xC0), byte(0x80)};\n"
+        "  if (decode_Example_result(invalid_utf8).error != DecodeError::invalid_utf8) {\n"
+        "    return 4;\n"
+        "  }\n"
+        "  if (decode_Example(invalid_utf8).has_value()) {\n"
+        "    return 5;\n"
+        "  }\n"
+        "  const std::vector<std::byte> over_bound_string{\n"
+        "      byte(0x01), byte(0x00), byte(0x01), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x02),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x14),\n"
+        "      byte(0x00), byte(0x00), byte(0x11),\n"
+        "      byte(0x61), byte(0x61), byte(0x61), byte(0x61), byte(0x61), byte(0x61),\n"
+        "      byte(0x61), byte(0x61), byte(0x61), byte(0x61), byte(0x61), byte(0x61),\n"
+        "      byte(0x61), byte(0x61), byte(0x61), byte(0x61), byte(0x61)};\n"
+        "  if (decode_Example_result(over_bound_string).error != DecodeError::bounds_exceeded) {\n"
+        "    return 6;\n"
+        "  }\n"
+        "  const std::vector<std::byte> count_over_bound{\n"
+        "      byte(0x01), byte(0x00), byte(0x01), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x02),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x04),\n"
+        "      byte(0x02), byte(0x00), byte(0x01), byte(0x05)};\n"
+        "  if (decode_Example_result(count_over_bound).error != DecodeError::bounds_exceeded) {\n"
+        "    return 7;\n"
+        "  }\n"
+        "  const std::vector<std::byte> unknown_enum{\n"
+        "      byte(0x01), byte(0x00), byte(0x01), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x02),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x05),\n"
+        "      byte(0x04), byte(0x00), byte(0x02), byte(0x01), byte(0x07)};\n"
+        "  if (decode_Example_result(unknown_enum).error != DecodeError::unknown_enum_value) {\n"
+        "    return 8;\n"
+        "  }\n"
+        "  return 0;\n"
+        "}\n";
+
+    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
+}
+
+TEST(BackendCodegenTest, GeneratedDiagnosticEncodeReportsSchemaErrors) {
+    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+
+    const std::string header_include =
+        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string translation_source =
+        "#include \"" + header_include +
+        "\"\n"
+        "#include <string>\n"
+        "#include <vector>\n"
+        "int main() {\n"
+        "  using ::breadcrumbs::runtime::EncodeError;\n"
+        "  ::ExampleBuilder invalid_string_builder;\n"
+        "  if (!invalid_string_builder.set_name(std::string(\"\\xC0\\x80\", 2U))) {\n"
+        "    return 1;\n"
+        "  }\n"
+        "  const auto invalid_string = encode_result(invalid_string_builder.build());\n"
+        "  if (invalid_string.has_value() || invalid_string.error != EncodeError::invalid_utf8) {\n"
+        "    return 2;\n"
+        "  }\n"
+        "  if (encode(invalid_string_builder.build()).has_value()) {\n"
+        "    return 3;\n"
+        "  }\n"
+        "  ::ExampleBuilder unknown_enum_builder;\n"
+        "  if (!unknown_enum_builder.set_modes(std::vector<::Mode>{static_cast<::Mode>(7)})) {\n"
+        "    return 4;\n"
+        "  }\n"
+        "  const auto unknown_enum = encode_result(unknown_enum_builder.build());\n"
+        "  if (unknown_enum.has_value() || unknown_enum.error != EncodeError::unknown_enum_value) {\n"
+        "    return 5;\n"
+        "  }\n"
+        "  return 0;\n"
+        "}\n";
+
+    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
+}
+
 TEST(BackendCodegenTest, EnumMatchesGolden) {
     const CodegenResult result = run_backend_fixture("enum", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
@@ -961,6 +1086,77 @@ TEST(BackendCodegenTest, RecordArrayComposesWithNestedRecordFields) {
         "  if (decoded_inner == nullptr || !decoded_inner->has_count() ||\n"
         "      *decoded_inner->count() != 11U || !decoded_inner->has_label() ||\n"
         "      *decoded_inner->label() != \"in\") {\n"
+        "    return 8;\n"
+        "  }\n"
+        "  return 0;\n"
+        "}\n");
+}
+
+TEST(BackendCodegenTest, GeneratedDiagnosticCodecsPropagateNestedAndRecordArrayErrors) {
+    const CodegenResult result = run_backend_fixture("nested_record_fields", CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    compile_generated_header(
+        result, "generated/schema.generated.hpp",
+        "#include \"generated/schema.generated.hpp\"\n"
+        "#include <cstddef>\n"
+        "#include <string>\n"
+        "#include <vector>\n"
+        "\n"
+        "int main() {\n"
+        "  using ::breadcrumbs::runtime::DecodeError;\n"
+        "  using ::breadcrumbs::runtime::EncodeError;\n"
+        "  const auto byte = [](unsigned int value) {\n"
+        "    return static_cast<std::byte>(static_cast<unsigned char>(value));\n"
+        "  };\n"
+        "  InnerBuilder invalid_inner_builder;\n"
+        "  if (!invalid_inner_builder.set_label(std::string(\"\\xC0\\x80\", 2U))) { return 1; }\n"
+        "  MiddleBuilder invalid_middle_builder;\n"
+        "  if (!invalid_middle_builder.set_inner(invalid_inner_builder.build())) { return 2; }\n"
+        "  OuterBuilder invalid_outer_builder;\n"
+        "  if (!invalid_outer_builder.set_middle(invalid_middle_builder.build())) { return 3; }\n"
+        "  const auto invalid_nested = encode_result(invalid_outer_builder.build());\n"
+        "  if (invalid_nested.has_value() || invalid_nested.error != EncodeError::invalid_utf8) {\n"
+        "    return 4;\n"
+        "  }\n"
+        "\n"
+        "  GroupBuilder invalid_group_builder;\n"
+        "  if (!invalid_group_builder.set_middles(std::vector<Middle>{invalid_middle_builder.build()})) {\n"
+        "    return 5;\n"
+        "  }\n"
+        "  const auto invalid_array = encode_result(invalid_group_builder.build());\n"
+        "  if (invalid_array.has_value() || invalid_array.error != EncodeError::invalid_utf8) {\n"
+        "    return 6;\n"
+        "  }\n"
+        "\n"
+        "  const std::vector<std::byte> wrong_nested_record_id{\n"
+        "      byte(0x01), byte(0x00), byte(0x01), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x02),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x13),\n"
+        "      byte(0x00), byte(0x00), byte(0x10),\n"
+        "      byte(0x01), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x09),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "  };\n"
+        "  if (decode_Middle_result(wrong_nested_record_id).error != DecodeError::unexpected_record_id) {\n"
+        "    return 7;\n"
+        "  }\n"
+        "\n"
+        "  const std::vector<std::byte> wrong_array_element_record_id{\n"
+        "      byte(0x01), byte(0x00), byte(0x01), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x04),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x15),\n"
+        "      byte(0x00), byte(0x00), byte(0x12),\n"
+        "      byte(0x01), byte(0x10),\n"
+        "      byte(0x01), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x09),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "  };\n"
+        "  if (decode_Group_result(wrong_array_element_record_id).error !=\n"
+        "      DecodeError::unexpected_record_id) {\n"
         "    return 8;\n"
         "  }\n"
         "  return 0;\n"

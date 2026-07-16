@@ -59,13 +59,13 @@ private:
   std::optional<::Color> color_;
 };
 
-std::optional<std::vector<std::byte>> encode(const Paint& value) {
+::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Paint& value) {
   std::vector<::breadcrumbs::runtime::FieldBytes> fields;
   fields.reserve(1U);
   if (value.has_color()) {
     const auto enum_numeric = static_cast<std::int64_t>(*value.color());
     if (!(enum_numeric == 1 || enum_numeric == 2)) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(::breadcrumbs::runtime::EncodeError::unknown_enum_value);
     }
     std::vector<std::byte> field_bytes;
     ::breadcrumbs::runtime::append_u8(field_bytes, static_cast<std::uint8_t>(enum_numeric));
@@ -74,28 +74,49 @@ std::optional<std::vector<std::byte>> encode(const Paint& value) {
       .bytes = std::move(field_bytes),
     });
   }
-  return ::breadcrumbs::runtime::encode_record(1U, fields);
+  return ::breadcrumbs::runtime::encode_record_result(1U, fields);
 }
 
 
-std::optional<Paint> decode_Paint(std::span<const std::byte> input) {
-  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
-  if (!parsed.record.has_value() || parsed.record->record_id != 1U) {
+std::optional<std::vector<std::byte>> encode(const Paint& value) {
+  auto encoded = encode_result(value);
+  if (!encoded.value.has_value()) {
     return std::nullopt;
+  }
+  return std::move(encoded.value);
+}
+
+
+::breadcrumbs::runtime::DecodeResult<Paint> decode_Paint_result(std::span<const std::byte> input) {
+  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+  if (!parsed.record.has_value()) {
+    return ::breadcrumbs::runtime::decode_failure<Paint>(parsed.error);
+  }
+  if (parsed.record->record_id != 1U) {
+    return ::breadcrumbs::runtime::decode_failure<Paint>(::breadcrumbs::runtime::DecodeError::unexpected_record_id);
   }
   PaintBuilder builder;
   if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
     const auto decoded = ::breadcrumbs::runtime::read_u8(field->bytes);
     if (!decoded.value.has_value()) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::decode_failure<Paint>(decoded.error);
     }
     const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);
     if (!(enum_numeric == 1 || enum_numeric == 2)) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::decode_failure<Paint>(::breadcrumbs::runtime::DecodeError::unknown_enum_value);
     }
     if (!builder.set_color(static_cast<::Color>(enum_numeric))) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::decode_failure<Paint>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
     }
   }
-  return builder.build();
+  return ::breadcrumbs::runtime::decoded_value<Paint>(builder.build());
+}
+
+
+std::optional<Paint> decode_Paint(std::span<const std::byte> input) {
+  auto decoded = decode_Paint_result(input);
+  if (!decoded.value.has_value()) {
+    return std::nullopt;
+  }
+  return std::move(decoded.value);
 }

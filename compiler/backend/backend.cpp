@@ -533,8 +533,9 @@ lower_runtime_field_encoding(const ::breadcrumbs::schema_ir::FieldType& field_ty
         }
         const std::string namespace_prefix = cpp_namespace_prefix(type_it->second.namespace_fqn);
         encoding.record_encoding = RuntimeRecordEncoding{
-            .encode_function = namespace_prefix + "encode",
-            .decode_function = namespace_prefix + "decode_" + type_it->second.record_ir->name(),
+            .encode_function = namespace_prefix + "encode_result",
+            .decode_function =
+                namespace_prefix + "decode_" + type_it->second.record_ir->name() + "_result",
         };
         return encoding;
     }
@@ -584,8 +585,9 @@ lower_runtime_field_encoding(const ::breadcrumbs::schema_ir::FieldType& field_ty
             }
             const std::string namespace_prefix = cpp_namespace_prefix(type_it->second.namespace_fqn);
             array_encoding.record_encoding = RuntimeRecordEncoding{
-                .encode_function = namespace_prefix + "encode",
-                .decode_function = namespace_prefix + "decode_" + type_it->second.record_ir->name(),
+                .encode_function = namespace_prefix + "encode_result",
+                .decode_function =
+                    namespace_prefix + "decode_" + type_it->second.record_ir->name() + "_result",
             };
             encoding.array_encoding = std::move(array_encoding);
             return encoding;
@@ -1162,7 +1164,9 @@ void collect_emitted_files(const NamespacePlan& plan, std::vector<const Namespac
 void render_unsupported_present_field_encoding(const FieldPlan& field, std::size_t indent_level,
                                                std::ostringstream& stream) {
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
-    stream << indent(indent_level + 1) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1)
+           << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
+           << "::breadcrumbs::runtime::EncodeError::unsupported_field_type);\n";
     stream << indent(indent_level) << "}\n";
 }
 
@@ -1173,7 +1177,9 @@ void render_scalar_field_encoding(const FieldPlan& field, std::size_t indent_lev
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
     stream << indent(indent_level + 1) << "if (!::breadcrumbs::runtime::" << append_function
            << "(field_bytes, *value." << field.name << "())) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 2)
+           << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
+           << "::breadcrumbs::runtime::EncodeError::overflow);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "fields.push_back(::breadcrumbs::runtime::FieldBytes{\n";
     stream << indent(indent_level + 2) << ".field_index = "
@@ -1201,7 +1207,9 @@ void render_enum_field_encoding(const FieldPlan& field, const RuntimeEnumEncodin
         stream << "false";
     }
     stream << ")) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 2)
+           << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
+           << "::breadcrumbs::runtime::EncodeError::unknown_enum_value);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
     stream << indent(indent_level + 1) << "::breadcrumbs::runtime::" << append_function
@@ -1219,13 +1227,17 @@ void render_string_field_encoding(const FieldPlan& field, std::size_t indent_lev
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
     stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
            << field.runtime_encoding.max_bytes << "U) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 2)
+           << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
+           << "::breadcrumbs::runtime::EncodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
     stream << indent(indent_level + 1)
            << "if (!::breadcrumbs::runtime::append_string_utf8(field_bytes, *value."
            << field.name << "())) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 2)
+           << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
+           << "::breadcrumbs::runtime::EncodeError::invalid_utf8);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "fields.push_back(::breadcrumbs::runtime::FieldBytes{\n";
     stream << indent(indent_level + 2) << ".field_index = "
@@ -1240,7 +1252,9 @@ void render_bytes_field_encoding(const FieldPlan& field, std::size_t indent_leve
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
     stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
            << field.runtime_encoding.max_bytes << "U) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 2)
+           << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
+           << "::breadcrumbs::runtime::EncodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
     stream << indent(indent_level + 1) << "::breadcrumbs::runtime::append_bytes(field_bytes, "
@@ -1260,12 +1274,14 @@ void render_record_field_encoding(const FieldPlan& field, const RuntimeRecordEnc
     stream << indent(indent_level + 1) << "auto field_bytes = " << record_encoding.encode_function
            << "(*value." << field.name << "());\n";
     stream << indent(indent_level + 1) << "if (!field_bytes.has_value()) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 2)
+           << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
+           << "field_bytes.error);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "fields.push_back(::breadcrumbs::runtime::FieldBytes{\n";
     stream << indent(indent_level + 2) << ".field_index = "
            << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
-    stream << indent(indent_level + 2) << ".bytes = std::move(*field_bytes),\n";
+    stream << indent(indent_level + 2) << ".bytes = std::move(*field_bytes.value),\n";
     stream << indent(indent_level + 1) << "});\n";
     stream << indent(indent_level) << "}\n";
 }
@@ -1275,7 +1291,9 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
     stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
            << array_encoding.max_elements << "U) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 2)
+           << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
+           << "::breadcrumbs::runtime::EncodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
     stream << indent(indent_level + 1) << "::breadcrumbs::runtime::append_varuint(field_bytes, "
@@ -1288,28 +1306,34 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
         stream << indent(indent_level + 2) << "auto element_bytes = "
                << record_encoding.encode_function << "(element);\n";
         stream << indent(indent_level + 2) << "if (!element_bytes.has_value()) {\n";
-        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 3)
+               << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
+               << "element_bytes.error);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
                << "::breadcrumbs::runtime::append_varuint(field_bytes, "
-               << "element_bytes->size());\n";
+               << "element_bytes.value->size());\n";
         stream << indent(indent_level + 2)
                << "::breadcrumbs::runtime::append_bytes(field_bytes, "
-               << "std::span<const std::byte>(element_bytes->data(), "
-               << "element_bytes->size()));\n";
+               << "std::span<const std::byte>(element_bytes.value->data(), "
+               << "element_bytes.value->size()));\n";
         stream << indent(indent_level + 1) << "}\n";
     } else if (array_encoding.variable == RuntimeVariableEncoding::String) {
         stream << indent(indent_level + 1) << "for (const auto& element : *value." << field.name
                << "()) {\n";
         stream << indent(indent_level + 2) << "if (element.size() > " << array_encoding.max_bytes
                << "U) {\n";
-        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 3)
+               << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
+               << "::breadcrumbs::runtime::EncodeError::bounds_exceeded);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
                << "::breadcrumbs::runtime::append_varuint(field_bytes, element.size());\n";
         stream << indent(indent_level + 2)
                << "if (!::breadcrumbs::runtime::append_string_utf8(field_bytes, element)) {\n";
-        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 3)
+               << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
+               << "::breadcrumbs::runtime::EncodeError::invalid_utf8);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 1) << "}\n";
     } else if (array_encoding.variable == RuntimeVariableEncoding::Bytes) {
@@ -1317,7 +1341,9 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
                << "()) {\n";
         stream << indent(indent_level + 2) << "if (element.size() > " << array_encoding.max_bytes
                << "U) {\n";
-        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 3)
+               << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
+               << "::breadcrumbs::runtime::EncodeError::bounds_exceeded);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
                << "::breadcrumbs::runtime::append_varuint(field_bytes, element.size());\n";
@@ -1343,7 +1369,9 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
             stream << "false";
         }
         stream << ")) {\n";
-        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 3)
+               << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
+               << "::breadcrumbs::runtime::EncodeError::unknown_enum_value);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2) << "::breadcrumbs::runtime::" << append_function
                << "(field_bytes, static_cast<" << unsigned_type << ">(enum_numeric));\n";
@@ -1354,7 +1382,9 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
                << "()) {\n";
         stream << indent(indent_level + 2) << "if (!::breadcrumbs::runtime::" << append_function
                << "(field_bytes, element)) {\n";
-        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 3)
+               << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
+               << "::breadcrumbs::runtime::EncodeError::overflow);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 1) << "}\n";
     }
@@ -1402,7 +1432,8 @@ void render_field_encoding(const FieldPlan& field, std::size_t indent_level,
 void render_record_encoder_definition(const RecordPlan& record_plan, std::size_t indent_level,
                                       std::ostringstream& stream) {
     const std::string& record_name = record_plan.record->name();
-    stream << indent(indent_level) << "std::optional<std::vector<std::byte>> encode(const "
+    stream << indent(indent_level)
+           << "::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>> encode_result(const "
            << record_name << "& value) {\n";
     stream << indent(indent_level + 1) << "std::vector<::breadcrumbs::runtime::FieldBytes> fields;\n";
     if (!record_plan.fields.empty()) {
@@ -1414,21 +1445,32 @@ void render_record_encoder_definition(const RecordPlan& record_plan, std::size_t
     } else {
         stream << indent(indent_level + 1) << "(void)value;\n";
     }
-    stream << indent(indent_level + 1) << "return ::breadcrumbs::runtime::encode_record("
+    stream << indent(indent_level + 1) << "return ::breadcrumbs::runtime::encode_record_result("
            << record_plan.record->record_id() << "U, fields);\n";
     stream << indent(indent_level) << "}\n";
-}
-
-void render_unsupported_present_field_decoding(const FieldPlan& field, std::size_t indent_level,
-                                               std::ostringstream& stream) {
-    stream << indent(indent_level) << "if (::breadcrumbs::runtime::find_field(*parsed.record, "
-           << static_cast<unsigned int>(field.field->field_index()) << "U) != nullptr) {\n";
-    stream << indent(indent_level + 1) << "return std::nullopt;\n";
+    stream << "\n\n";
+    stream << indent(indent_level) << "std::optional<std::vector<std::byte>> encode(const "
+           << record_name << "& value) {\n";
+    stream << indent(indent_level + 1) << "auto encoded = encode_result(value);\n";
+    stream << indent(indent_level + 1) << "if (!encoded.value.has_value()) {\n";
+    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level + 1) << "return std::move(encoded.value);\n";
     stream << indent(indent_level) << "}\n";
 }
 
-void render_scalar_field_decoding(const FieldPlan& field, std::size_t indent_level,
-                                  std::ostringstream& stream) {
+void render_unsupported_present_field_decoding(const FieldPlan& field, std::string_view record_name,
+                                               std::size_t indent_level, std::ostringstream& stream) {
+    stream << indent(indent_level) << "if (::breadcrumbs::runtime::find_field(*parsed.record, "
+           << static_cast<unsigned int>(field.field->field_index()) << "U) != nullptr) {\n";
+    stream << indent(indent_level + 1) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name
+           << ">(::breadcrumbs::runtime::DecodeError::unsupported_field_type);\n";
+    stream << indent(indent_level) << "}\n";
+}
+
+void render_scalar_field_decoding(const FieldPlan& field, std::string_view record_name,
+                                  std::size_t indent_level, std::ostringstream& stream) {
     const std::string read_function = runtime_read_function(field.runtime_encoding.scalar);
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (const auto* field = "
@@ -1436,15 +1478,21 @@ void render_scalar_field_decoding(const FieldPlan& field, std::size_t indent_lev
            << "U); field != nullptr) {\n";
     stream << indent(indent_level + 1) << "const auto decoded = ::breadcrumbs::runtime::"
            << read_function << "(field->bytes);\n";
-    stream << indent(indent_level + 1) << "if (!decoded.value.has_value() || !builder.set_"
-           << field.name << "(*decoded.value)) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(decoded.error);\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
+           << "(*decoded.value)) {\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
 
 void render_enum_field_decoding(const FieldPlan& field, const RuntimeEnumEncoding& enum_encoding,
-                                std::size_t indent_level, std::ostringstream& stream) {
+                                std::string_view record_name, std::size_t indent_level,
+                                std::ostringstream& stream) {
     const std::string read_function = enum_read_function(enum_encoding.width_bytes);
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (const auto* field = "
@@ -1453,7 +1501,8 @@ void render_enum_field_decoding(const FieldPlan& field, const RuntimeEnumEncodin
     stream << indent(indent_level + 1) << "const auto decoded = ::breadcrumbs::runtime::"
            << read_function << "(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(decoded.error);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1)
            << "const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);\n";
@@ -1468,71 +1517,93 @@ void render_enum_field_decoding(const FieldPlan& field, const RuntimeEnumEncodin
         stream << "false";
     }
     stream << ")) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name
+           << ">(::breadcrumbs::runtime::DecodeError::unknown_enum_value);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(static_cast<" << enum_encoding.cpp_type << ">(enum_numeric))) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
 
-void render_string_field_decoding(const FieldPlan& field, std::size_t indent_level,
-                                  std::ostringstream& stream) {
+void render_string_field_decoding(const FieldPlan& field, std::string_view record_name,
+                                  std::size_t indent_level, std::ostringstream& stream) {
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (const auto* field = "
            << "::breadcrumbs::runtime::find_field(*parsed.record, " << field_index
            << "U); field != nullptr) {\n";
     stream << indent(indent_level + 1) << "if (field->bytes.size() > "
            << field.runtime_encoding.max_bytes << "U) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1)
            << "const auto decoded = ::breadcrumbs::runtime::read_string_utf8(field->bytes);\n";
-    stream << indent(indent_level + 1) << "if (!decoded.value.has_value() || !builder.set_"
-           << field.name << "(*decoded.value)) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(decoded.error);\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
+           << "(*decoded.value)) {\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
 
-void render_bytes_field_decoding(const FieldPlan& field, std::size_t indent_level,
-                                 std::ostringstream& stream) {
+void render_bytes_field_decoding(const FieldPlan& field, std::string_view record_name,
+                                 std::size_t indent_level, std::ostringstream& stream) {
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (const auto* field = "
            << "::breadcrumbs::runtime::find_field(*parsed.record, " << field_index
            << "U); field != nullptr) {\n";
     stream << indent(indent_level + 1) << "if (field->bytes.size() > "
            << field.runtime_encoding.max_bytes << "U) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1)
            << "const auto decoded = ::breadcrumbs::runtime::read_bytes(field->bytes);\n";
-    stream << indent(indent_level + 1) << "if (!decoded.value.has_value() || !builder.set_"
-           << field.name << "(*decoded.value)) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(decoded.error);\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
+           << "(*decoded.value)) {\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
 
 void render_record_field_decoding(const FieldPlan& field,
                                   const RuntimeRecordEncoding& record_encoding,
-                                  std::size_t indent_level, std::ostringstream& stream) {
+                                  std::string_view record_name, std::size_t indent_level,
+                                  std::ostringstream& stream) {
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (const auto* field = "
            << "::breadcrumbs::runtime::find_field(*parsed.record, " << field_index
            << "U); field != nullptr) {\n";
     stream << indent(indent_level + 1) << "const auto decoded = "
            << record_encoding.decode_function << "(field->bytes);\n";
-    stream << indent(indent_level + 1) << "if (!decoded.has_value() || !builder.set_"
-           << field.name << "(*decoded)) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(decoded.error);\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
+           << "(*decoded.value)) {\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
 
 void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncoding& array_encoding,
-                                 std::size_t indent_level, std::ostringstream& stream) {
+                                 std::string_view record_name, std::size_t indent_level,
+                                 std::ostringstream& stream) {
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     const bool is_string_array = array_encoding.variable == RuntimeVariableEncoding::String;
     const bool is_bytes_array = array_encoding.variable == RuntimeVariableEncoding::Bytes;
@@ -1553,7 +1624,12 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
            << "element_offset);\n";
     stream << indent(indent_level + 1) << "if (!decoded_count.value.has_value() || "
            << "*decoded_count.value > " << array_encoding.max_elements << "U) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 2) << "if (!decoded_count.value.has_value()) {\n";
+    stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(decoded_count.error);\n";
+    stream << indent(indent_level + 2) << "}\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1)
            << "const auto element_count = static_cast<std::size_t>(*decoded_count.value);\n";
@@ -1569,11 +1645,13 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
                << "field->bytes, element_offset);\n";
         stream << indent(indent_level + 2)
                << "if (!decoded_length.value.has_value()) {\n";
-        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
+               << record_name << ">(decoded_length.error);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
                << "if (*decoded_length.value > field->bytes.size() - element_offset) {\n";
-        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
+               << record_name << ">(::breadcrumbs::runtime::DecodeError::invalid_field_length);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
                << "const auto element_length = static_cast<std::size_t>(*decoded_length.value);\n";
@@ -1581,14 +1659,16 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
                << "field->bytes.subspan(element_offset, element_length);\n";
         stream << indent(indent_level + 2) << "const auto decoded = "
                << record_encoding.decode_function << "(element_bytes);\n";
-        stream << indent(indent_level + 2) << "if (!decoded.has_value()) {\n";
-        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 2) << "if (!decoded.value.has_value()) {\n";
+        stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
+               << record_name << ">(decoded.error);\n";
         stream << indent(indent_level + 2) << "}\n";
-        stream << indent(indent_level + 2) << "elements.push_back(*decoded);\n";
+        stream << indent(indent_level + 2) << "elements.push_back(*decoded.value);\n";
         stream << indent(indent_level + 2) << "element_offset += element_length;\n";
         stream << indent(indent_level + 1) << "}\n";
         stream << indent(indent_level + 1) << "if (element_offset != field->bytes.size()) {\n";
-        stream << indent(indent_level + 2) << "return std::nullopt;\n";
+        stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+               << record_name << ">(::breadcrumbs::runtime::DecodeError::invalid_field_length);\n";
         stream << indent(indent_level + 1) << "}\n";
     } else if (is_string_array || is_bytes_array) {
         stream << indent(indent_level + 1)
@@ -1599,13 +1679,19 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
         stream << indent(indent_level + 2)
                << "if (!decoded_length.value.has_value() || *decoded_length.value > "
                << array_encoding.max_bytes << "U) {\n";
-        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 3) << "if (!decoded_length.value.has_value()) {\n";
+        stream << indent(indent_level + 4) << "return ::breadcrumbs::runtime::decode_failure<"
+               << record_name << ">(decoded_length.error);\n";
+        stream << indent(indent_level + 3) << "}\n";
+        stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
+               << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
                << "const auto element_length = static_cast<std::size_t>(*decoded_length.value);\n";
         stream << indent(indent_level + 2)
                << "if (element_length > field->bytes.size() - element_offset) {\n";
-        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
+               << record_name << ">(::breadcrumbs::runtime::DecodeError::invalid_field_length);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2) << "const auto element_bytes = "
                << "field->bytes.subspan(element_offset, element_length);\n";
@@ -1618,13 +1704,15 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
                    << "const auto decoded = ::breadcrumbs::runtime::read_bytes(element_bytes);\n";
         }
         stream << indent(indent_level + 2) << "if (!decoded.value.has_value()) {\n";
-        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
+               << record_name << ">(decoded.error);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2) << "elements.push_back(std::move(*decoded.value));\n";
         stream << indent(indent_level + 2) << "element_offset += element_length;\n";
         stream << indent(indent_level + 1) << "}\n";
         stream << indent(indent_level + 1) << "if (element_offset != field->bytes.size()) {\n";
-        stream << indent(indent_level + 2) << "return std::nullopt;\n";
+        stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+               << record_name << ">(::breadcrumbs::runtime::DecodeError::invalid_field_length);\n";
         stream << indent(indent_level + 1) << "}\n";
     } else {
         stream << indent(indent_level + 1) << "const std::size_t element_width = "
@@ -1634,14 +1722,16 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
         stream << indent(indent_level + 1)
                << "if (element_width == 0U || element_count > remaining_bytes / element_width || "
                << "remaining_bytes != element_count * element_width) {\n";
-        stream << indent(indent_level + 2) << "return std::nullopt;\n";
+        stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+               << record_name << ">(::breadcrumbs::runtime::DecodeError::invalid_field_length);\n";
         stream << indent(indent_level + 1) << "}\n";
         stream << indent(indent_level + 1)
                << "for (std::size_t index = 0U; index < element_count; ++index) {\n";
         stream << indent(indent_level + 2) << "const auto decoded = ::breadcrumbs::runtime::"
                << read_function << "(field->bytes.subspan(element_offset, element_width));\n";
         stream << indent(indent_level + 2) << "if (!decoded.value.has_value()) {\n";
-        stream << indent(indent_level + 3) << "return std::nullopt;\n";
+        stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
+               << record_name << ">(decoded.error);\n";
         stream << indent(indent_level + 2) << "}\n";
         if (is_enum_array) {
             const RuntimeEnumEncoding& enum_encoding = *array_encoding.enum_encoding;
@@ -1658,7 +1748,9 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
                 stream << "false";
             }
             stream << ")) {\n";
-            stream << indent(indent_level + 3) << "return std::nullopt;\n";
+            stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
+                   << record_name
+                   << ">(::breadcrumbs::runtime::DecodeError::unknown_enum_value);\n";
             stream << indent(indent_level + 2) << "}\n";
             stream << indent(indent_level + 2) << "elements.push_back(static_cast<"
                    << enum_encoding.cpp_type << ">(enum_numeric));\n";
@@ -1670,59 +1762,79 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
     }
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(std::move(elements))) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
 
-void render_field_decoding(const FieldPlan& field, std::size_t indent_level,
+void render_field_decoding(const FieldPlan& field, std::string_view record_name,
+                           std::size_t indent_level,
                            std::ostringstream& stream) {
     if (field.runtime_encoding.enum_encoding.has_value()) {
-        render_enum_field_decoding(field, *field.runtime_encoding.enum_encoding, indent_level,
+        render_enum_field_decoding(field, *field.runtime_encoding.enum_encoding, record_name,
+                                   indent_level,
                                    stream);
         return;
     }
     if (field.runtime_encoding.variable == RuntimeVariableEncoding::String) {
-        render_string_field_decoding(field, indent_level, stream);
+        render_string_field_decoding(field, record_name, indent_level, stream);
         return;
     }
     if (field.runtime_encoding.variable == RuntimeVariableEncoding::Bytes) {
-        render_bytes_field_decoding(field, indent_level, stream);
+        render_bytes_field_decoding(field, record_name, indent_level, stream);
         return;
     }
     if (field.runtime_encoding.record_encoding.has_value()) {
-        render_record_field_decoding(field, *field.runtime_encoding.record_encoding, indent_level,
-                                     stream);
+        render_record_field_decoding(field, *field.runtime_encoding.record_encoding, record_name,
+                                     indent_level, stream);
         return;
     }
     if (field.runtime_encoding.array_encoding.has_value()) {
-        render_array_field_decoding(field, *field.runtime_encoding.array_encoding, indent_level,
+        render_array_field_decoding(field, *field.runtime_encoding.array_encoding, record_name,
+                                    indent_level,
                                     stream);
         return;
     }
     if (field.runtime_encoding.scalar != RuntimeScalarEncoder::Unsupported) {
-        render_scalar_field_decoding(field, indent_level, stream);
+        render_scalar_field_decoding(field, record_name, indent_level, stream);
         return;
     }
-    render_unsupported_present_field_decoding(field, indent_level, stream);
+    render_unsupported_present_field_decoding(field, record_name, indent_level, stream);
 }
 
 void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t indent_level,
                                       std::ostringstream& stream) {
     const std::string& record_name = record_plan.record->name();
-    stream << indent(indent_level) << "std::optional<" << record_name
-           << "> decode_" << record_name << "(std::span<const std::byte> input) {\n";
+    stream << indent(indent_level) << "::breadcrumbs::runtime::DecodeResult<" << record_name
+           << "> decode_" << record_name << "_result(std::span<const std::byte> input) {\n";
     stream << indent(indent_level + 1)
            << "const auto parsed = ::breadcrumbs::runtime::parse_record(input);\n";
-    stream << indent(indent_level + 1) << "if (!parsed.record.has_value() || parsed.record->record_id != "
+    stream << indent(indent_level + 1) << "if (!parsed.record.has_value()) {\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(parsed.error);\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level + 1) << "if (parsed.record->record_id != "
            << record_plan.record->record_id() << "U) {\n";
-    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+           << record_name << ">(::breadcrumbs::runtime::DecodeError::unexpected_record_id);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << record_name << "Builder builder;\n";
     for (const FieldPlan& field : record_plan.fields) {
-        render_field_decoding(field, indent_level + 1, stream);
+        render_field_decoding(field, record_name, indent_level + 1, stream);
     }
-    stream << indent(indent_level + 1) << "return builder.build();\n";
+    stream << indent(indent_level + 1) << "return ::breadcrumbs::runtime::decoded_value<"
+           << record_name << ">(builder.build());\n";
+    stream << indent(indent_level) << "}\n";
+    stream << "\n\n";
+    stream << indent(indent_level) << "std::optional<" << record_name
+           << "> decode_" << record_name << "(std::span<const std::byte> input) {\n";
+    stream << indent(indent_level + 1) << "auto decoded = decode_" << record_name
+           << "_result(input);\n";
+    stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
+    stream << indent(indent_level + 2) << "return std::nullopt;\n";
+    stream << indent(indent_level + 1) << "}\n";
+    stream << indent(indent_level + 1) << "return std::move(decoded.value);\n";
     stream << indent(indent_level) << "}\n";
 }
 

@@ -22,20 +22,41 @@ namespace geo {
       }
     };
 
-    std::optional<std::vector<std::byte>> encode(const Location& value) {
+    ::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Location& value) {
       std::vector<::breadcrumbs::runtime::FieldBytes> fields;
       (void)value;
-      return ::breadcrumbs::runtime::encode_record(1U, fields);
+      return ::breadcrumbs::runtime::encode_record_result(1U, fields);
+    }
+
+
+    std::optional<std::vector<std::byte>> encode(const Location& value) {
+      auto encoded = encode_result(value);
+      if (!encoded.value.has_value()) {
+        return std::nullopt;
+      }
+      return std::move(encoded.value);
+    }
+
+
+    ::breadcrumbs::runtime::DecodeResult<Location> decode_Location_result(std::span<const std::byte> input) {
+      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+      if (!parsed.record.has_value()) {
+        return ::breadcrumbs::runtime::decode_failure<Location>(parsed.error);
+      }
+      if (parsed.record->record_id != 1U) {
+        return ::breadcrumbs::runtime::decode_failure<Location>(::breadcrumbs::runtime::DecodeError::unexpected_record_id);
+      }
+      LocationBuilder builder;
+      return ::breadcrumbs::runtime::decoded_value<Location>(builder.build());
     }
 
 
     std::optional<Location> decode_Location(std::span<const std::byte> input) {
-      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
-      if (!parsed.record.has_value() || parsed.record->record_id != 1U) {
+      auto decoded = decode_Location_result(input);
+      if (!decoded.value.has_value()) {
         return std::nullopt;
       }
-      LocationBuilder builder;
-      return builder.build();
+      return std::move(decoded.value);
     }
 
     struct Route {
@@ -103,52 +124,79 @@ namespace geo {
       std::optional<::breadcrumbs::geo::Location> fallback_;
     };
 
-    std::optional<std::vector<std::byte>> encode(const Route& value) {
+    ::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Route& value) {
       std::vector<::breadcrumbs::runtime::FieldBytes> fields;
       fields.reserve(2U);
       if (value.has_origin()) {
-        auto field_bytes = ::breadcrumbs::geo::encode(*value.origin());
+        auto field_bytes = ::breadcrumbs::geo::encode_result(*value.origin());
         if (!field_bytes.has_value()) {
-          return std::nullopt;
+          return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(field_bytes.error);
         }
         fields.push_back(::breadcrumbs::runtime::FieldBytes{
           .field_index = 0U,
-          .bytes = std::move(*field_bytes),
+          .bytes = std::move(*field_bytes.value),
         });
       }
       if (value.has_fallback()) {
-        auto field_bytes = ::breadcrumbs::geo::encode(*value.fallback());
+        auto field_bytes = ::breadcrumbs::geo::encode_result(*value.fallback());
         if (!field_bytes.has_value()) {
-          return std::nullopt;
+          return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(field_bytes.error);
         }
         fields.push_back(::breadcrumbs::runtime::FieldBytes{
           .field_index = 1U,
-          .bytes = std::move(*field_bytes),
+          .bytes = std::move(*field_bytes.value),
         });
       }
-      return ::breadcrumbs::runtime::encode_record(2U, fields);
+      return ::breadcrumbs::runtime::encode_record_result(2U, fields);
+    }
+
+
+    std::optional<std::vector<std::byte>> encode(const Route& value) {
+      auto encoded = encode_result(value);
+      if (!encoded.value.has_value()) {
+        return std::nullopt;
+      }
+      return std::move(encoded.value);
+    }
+
+
+    ::breadcrumbs::runtime::DecodeResult<Route> decode_Route_result(std::span<const std::byte> input) {
+      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+      if (!parsed.record.has_value()) {
+        return ::breadcrumbs::runtime::decode_failure<Route>(parsed.error);
+      }
+      if (parsed.record->record_id != 2U) {
+        return ::breadcrumbs::runtime::decode_failure<Route>(::breadcrumbs::runtime::DecodeError::unexpected_record_id);
+      }
+      RouteBuilder builder;
+      if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
+        const auto decoded = ::breadcrumbs::geo::decode_Location_result(field->bytes);
+        if (!decoded.value.has_value()) {
+          return ::breadcrumbs::runtime::decode_failure<Route>(decoded.error);
+        }
+        if (!builder.set_origin(*decoded.value)) {
+          return ::breadcrumbs::runtime::decode_failure<Route>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
+        }
+      }
+      if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 1U); field != nullptr) {
+        const auto decoded = ::breadcrumbs::geo::decode_Location_result(field->bytes);
+        if (!decoded.value.has_value()) {
+          return ::breadcrumbs::runtime::decode_failure<Route>(decoded.error);
+        }
+        if (!builder.set_fallback(*decoded.value)) {
+          return ::breadcrumbs::runtime::decode_failure<Route>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
+        }
+      }
+      return ::breadcrumbs::runtime::decoded_value<Route>(builder.build());
     }
 
 
     std::optional<Route> decode_Route(std::span<const std::byte> input) {
-      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
-      if (!parsed.record.has_value() || parsed.record->record_id != 2U) {
+      auto decoded = decode_Route_result(input);
+      if (!decoded.value.has_value()) {
         return std::nullopt;
       }
-      RouteBuilder builder;
-      if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
-        const auto decoded = ::breadcrumbs::geo::decode_Location(field->bytes);
-        if (!decoded.has_value() || !builder.set_origin(*decoded)) {
-          return std::nullopt;
-        }
-      }
-      if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 1U); field != nullptr) {
-        const auto decoded = ::breadcrumbs::geo::decode_Location(field->bytes);
-        if (!decoded.has_value() || !builder.set_fallback(*decoded)) {
-          return std::nullopt;
-        }
-      }
-      return builder.build();
+      return std::move(decoded.value);
     }
 
 } // namespace geo

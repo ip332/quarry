@@ -73,13 +73,13 @@ namespace two {
       std::optional<::alpha::one::Mode> mode_;
     };
 
-    std::optional<std::vector<std::byte>> encode(const Config& value) {
+    ::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Config& value) {
       std::vector<::breadcrumbs::runtime::FieldBytes> fields;
       fields.reserve(1U);
       if (value.has_mode()) {
         const auto enum_numeric = static_cast<std::int64_t>(*value.mode());
         if (!(enum_numeric == 0 || enum_numeric == 1)) {
-          return std::nullopt;
+          return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(::breadcrumbs::runtime::EncodeError::unknown_enum_value);
         }
         std::vector<std::byte> field_bytes;
         ::breadcrumbs::runtime::append_u8(field_bytes, static_cast<std::uint8_t>(enum_numeric));
@@ -88,30 +88,51 @@ namespace two {
           .bytes = std::move(field_bytes),
         });
       }
-      return ::breadcrumbs::runtime::encode_record(1U, fields);
+      return ::breadcrumbs::runtime::encode_record_result(1U, fields);
     }
 
 
-    std::optional<Config> decode_Config(std::span<const std::byte> input) {
-      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
-      if (!parsed.record.has_value() || parsed.record->record_id != 1U) {
+    std::optional<std::vector<std::byte>> encode(const Config& value) {
+      auto encoded = encode_result(value);
+      if (!encoded.value.has_value()) {
         return std::nullopt;
+      }
+      return std::move(encoded.value);
+    }
+
+
+    ::breadcrumbs::runtime::DecodeResult<Config> decode_Config_result(std::span<const std::byte> input) {
+      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+      if (!parsed.record.has_value()) {
+        return ::breadcrumbs::runtime::decode_failure<Config>(parsed.error);
+      }
+      if (parsed.record->record_id != 1U) {
+        return ::breadcrumbs::runtime::decode_failure<Config>(::breadcrumbs::runtime::DecodeError::unexpected_record_id);
       }
       ConfigBuilder builder;
       if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
         const auto decoded = ::breadcrumbs::runtime::read_u8(field->bytes);
         if (!decoded.value.has_value()) {
-          return std::nullopt;
+          return ::breadcrumbs::runtime::decode_failure<Config>(decoded.error);
         }
         const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);
         if (!(enum_numeric == 0 || enum_numeric == 1)) {
-          return std::nullopt;
+          return ::breadcrumbs::runtime::decode_failure<Config>(::breadcrumbs::runtime::DecodeError::unknown_enum_value);
         }
         if (!builder.set_mode(static_cast<::alpha::one::Mode>(enum_numeric))) {
-          return std::nullopt;
+          return ::breadcrumbs::runtime::decode_failure<Config>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
         }
       }
-      return builder.build();
+      return ::breadcrumbs::runtime::decoded_value<Config>(builder.build());
+    }
+
+
+    std::optional<Config> decode_Config(std::span<const std::byte> input) {
+      auto decoded = decode_Config_result(input);
+      if (!decoded.value.has_value()) {
+        return std::nullopt;
+      }
+      return std::move(decoded.value);
     }
 
 } // namespace two

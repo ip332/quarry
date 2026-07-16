@@ -98,13 +98,13 @@ private:
   std::optional<double> ratio_;
 };
 
-std::optional<std::vector<std::byte>> encode(const Example& value) {
+::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Example& value) {
   std::vector<::breadcrumbs::runtime::FieldBytes> fields;
   fields.reserve(3U);
   if (value.has_active()) {
     std::vector<std::byte> field_bytes;
     if (!::breadcrumbs::runtime::append_bool(field_bytes, *value.active())) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(::breadcrumbs::runtime::EncodeError::overflow);
     }
     fields.push_back(::breadcrumbs::runtime::FieldBytes{
       .field_index = 0U,
@@ -114,7 +114,7 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
   if (value.has_count()) {
     std::vector<std::byte> field_bytes;
     if (!::breadcrumbs::runtime::append_u32(field_bytes, *value.count())) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(::breadcrumbs::runtime::EncodeError::overflow);
     }
     fields.push_back(::breadcrumbs::runtime::FieldBytes{
       .field_index = 1U,
@@ -124,40 +124,70 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
   if (value.has_ratio()) {
     std::vector<std::byte> field_bytes;
     if (!::breadcrumbs::runtime::append_f64(field_bytes, *value.ratio())) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(::breadcrumbs::runtime::EncodeError::overflow);
     }
     fields.push_back(::breadcrumbs::runtime::FieldBytes{
       .field_index = 2U,
       .bytes = std::move(field_bytes),
     });
   }
-  return ::breadcrumbs::runtime::encode_record(1U, fields);
+  return ::breadcrumbs::runtime::encode_record_result(1U, fields);
 }
 
 
-std::optional<Example> decode_Example(std::span<const std::byte> input) {
-  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
-  if (!parsed.record.has_value() || parsed.record->record_id != 1U) {
+std::optional<std::vector<std::byte>> encode(const Example& value) {
+  auto encoded = encode_result(value);
+  if (!encoded.value.has_value()) {
     return std::nullopt;
+  }
+  return std::move(encoded.value);
+}
+
+
+::breadcrumbs::runtime::DecodeResult<Example> decode_Example_result(std::span<const std::byte> input) {
+  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+  if (!parsed.record.has_value()) {
+    return ::breadcrumbs::runtime::decode_failure<Example>(parsed.error);
+  }
+  if (parsed.record->record_id != 1U) {
+    return ::breadcrumbs::runtime::decode_failure<Example>(::breadcrumbs::runtime::DecodeError::unexpected_record_id);
   }
   ExampleBuilder builder;
   if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
     const auto decoded = ::breadcrumbs::runtime::read_bool(field->bytes);
-    if (!decoded.value.has_value() || !builder.set_active(*decoded.value)) {
-      return std::nullopt;
+    if (!decoded.value.has_value()) {
+      return ::breadcrumbs::runtime::decode_failure<Example>(decoded.error);
+    }
+    if (!builder.set_active(*decoded.value)) {
+      return ::breadcrumbs::runtime::decode_failure<Example>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
     }
   }
   if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 1U); field != nullptr) {
     const auto decoded = ::breadcrumbs::runtime::read_u32(field->bytes);
-    if (!decoded.value.has_value() || !builder.set_count(*decoded.value)) {
-      return std::nullopt;
+    if (!decoded.value.has_value()) {
+      return ::breadcrumbs::runtime::decode_failure<Example>(decoded.error);
+    }
+    if (!builder.set_count(*decoded.value)) {
+      return ::breadcrumbs::runtime::decode_failure<Example>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
     }
   }
   if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 2U); field != nullptr) {
     const auto decoded = ::breadcrumbs::runtime::read_f64(field->bytes);
-    if (!decoded.value.has_value() || !builder.set_ratio(*decoded.value)) {
-      return std::nullopt;
+    if (!decoded.value.has_value()) {
+      return ::breadcrumbs::runtime::decode_failure<Example>(decoded.error);
+    }
+    if (!builder.set_ratio(*decoded.value)) {
+      return ::breadcrumbs::runtime::decode_failure<Example>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
     }
   }
-  return builder.build();
+  return ::breadcrumbs::runtime::decoded_value<Example>(builder.build());
+}
+
+
+std::optional<Example> decode_Example(std::span<const std::byte> input) {
+  auto decoded = decode_Example_result(input);
+  if (!decoded.value.has_value()) {
+    return std::nullopt;
+  }
+  return std::move(decoded.value);
 }

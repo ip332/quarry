@@ -68,7 +68,11 @@ artifacts may depend on the small `breadcrumbs_runtime` target for byte-level
 encoding and structural parsing, but runtime code must not depend on compiler
 IRs, YAML, Schema IR protobufs, semantic analysis, layout internals, or backend
 code. Generated C++ keeps schema-specific decode policy, including expected
-record IDs, field indexes, field types, and enum value sets.
+record IDs, field indexes, field types, and enum value sets. Generated C++
+also maps schema-specific codec failures, while the runtime owns the
+representation-neutral result containers and structural parse/read error enums.
+Compatibility optional codec wrappers may discard that detail without changing
+the BRF bytes.
 
 ---
 

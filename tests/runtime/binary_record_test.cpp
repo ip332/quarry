@@ -15,6 +15,7 @@ namespace {
 
 using breadcrumbs::runtime::FieldBytes;
 using breadcrumbs::runtime::DecodeError;
+using breadcrumbs::runtime::EncodeError;
 using breadcrumbs::runtime::append_bool;
 using breadcrumbs::runtime::append_bytes;
 using breadcrumbs::runtime::append_f32;
@@ -24,7 +25,12 @@ using breadcrumbs::runtime::append_i32;
 using breadcrumbs::runtime::append_string_utf8;
 using breadcrumbs::runtime::append_u32;
 using breadcrumbs::runtime::append_varuint;
+using breadcrumbs::runtime::decoded_value;
+using breadcrumbs::runtime::decode_failure;
 using breadcrumbs::runtime::encode_record;
+using breadcrumbs::runtime::encode_record_result;
+using breadcrumbs::runtime::encode_success;
+using breadcrumbs::runtime::encode_failure;
 using breadcrumbs::runtime::find_field;
 using breadcrumbs::runtime::is_valid_utf8;
 using breadcrumbs::runtime::parse_record;
@@ -105,6 +111,56 @@ TEST(BinaryRecordRuntimeTest, RejectsDuplicateFieldIndexesAndInvalidRecordId) {
 
     EXPECT_FALSE(encode_record(1U, duplicate_fields).has_value());
     EXPECT_FALSE(encode_record(0U, {}).has_value());
+}
+
+TEST(BinaryRecordRuntimeTest, ReportsStructuredEncodeResults) {
+    const auto success = encode_record_result(1U, {});
+    ASSERT_TRUE(success.has_value());
+    EXPECT_EQ(success.error, EncodeError::none);
+    ASSERT_TRUE(success.value.has_value());
+    EXPECT_EQ(require_value(success.value), (std::vector<std::byte>{
+                                                b(0x01), b(0x00), b(0x00), b(0x00),
+                                                b(0x00), b(0x00), b(0x00), b(0x01),
+                                                b(0x00), b(0x00), b(0x00), b(0x00),
+                                                b(0x00), b(0x00), b(0x00), b(0x00),
+                                            }));
+
+    const std::vector<FieldBytes> duplicate_fields{
+        FieldBytes{.field_index = 1U, .bytes = {b(0x01)}},
+        FieldBytes{.field_index = 1U, .bytes = {b(0x02)}},
+    };
+    const auto duplicate = encode_record_result(1U, duplicate_fields);
+    EXPECT_FALSE(duplicate.has_value());
+    EXPECT_EQ(duplicate.error, EncodeError::overflow);
+
+    const auto invalid_record_id = encode_record_result(0U, {});
+    EXPECT_FALSE(invalid_record_id.has_value());
+    EXPECT_EQ(invalid_record_id.error, EncodeError::overflow);
+}
+
+TEST(BinaryRecordRuntimeTest, CodecResultHelpersReportSuccessAndFailure) {
+    auto encoded = encode_success<std::vector<std::byte>>(std::vector<std::byte>{b(0xAA)});
+    ASSERT_TRUE(encoded);
+    EXPECT_EQ(encoded.error, EncodeError::none);
+    ASSERT_TRUE(encoded.value.has_value());
+    EXPECT_EQ(require_value(encoded.value), (std::vector<std::byte>{b(0xAA)}));
+
+    auto encode_error =
+        encode_failure<std::vector<std::byte>>(EncodeError::unsupported_field_type);
+    EXPECT_FALSE(encode_error);
+    EXPECT_FALSE(encode_error.value.has_value());
+    EXPECT_EQ(encode_error.error, EncodeError::unsupported_field_type);
+
+    auto decoded = decoded_value<std::vector<std::byte>>(std::vector<std::byte>{b(0xBB)});
+    ASSERT_TRUE(decoded);
+    EXPECT_EQ(decoded.error, DecodeError::none);
+    ASSERT_TRUE(decoded.value.has_value());
+    EXPECT_EQ(require_value(decoded.value), (std::vector<std::byte>{b(0xBB)}));
+
+    auto decode_error = decode_failure<std::vector<std::byte>>(DecodeError::invalid_utf8);
+    EXPECT_FALSE(decode_error);
+    EXPECT_FALSE(decode_error.value.has_value());
+    EXPECT_EQ(decode_error.error, DecodeError::invalid_utf8);
 }
 
 TEST(BinaryRecordRuntimeTest, RejectsTooManyPresentFields) {
@@ -247,6 +303,10 @@ TEST(BinaryRecordRuntimeTest, RejectsMalformedRecordStructure) {
     std::vector<std::byte> unsupported_version = valid_empty;
     unsupported_version[0] = b(0x02);
     EXPECT_EQ(parse_record(unsupported_version).error, DecodeError::unsupported_version);
+
+    std::vector<std::byte> nonzero_flags = valid_empty;
+    nonzero_flags[1] = b(0x01);
+    EXPECT_EQ(parse_record(nonzero_flags).error, DecodeError::unsupported_flags);
 
     std::vector<std::byte> nonzero_reserved = valid_empty;
     nonzero_reserved[3] = b(0x01);

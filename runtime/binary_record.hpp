@@ -37,6 +37,7 @@ enum class DecodeError {
     none,
     truncated_header,
     unsupported_version,
+    unsupported_flags,
     invalid_header,
     invalid_payload_length,
     malformed_directory,
@@ -48,7 +49,40 @@ enum class DecodeError {
     invalid_field_length,
     invalid_bool,
     invalid_utf8,
+    unexpected_record_id,
+    bounds_exceeded,
+    unknown_enum_value,
+    unsupported_field_type,
+    overflow,
 };
+
+enum class EncodeError {
+    none,
+    bounds_exceeded,
+    invalid_utf8,
+    unknown_enum_value,
+    unsupported_field_type,
+    overflow,
+};
+
+template <typename T, typename E>
+struct CodecResult {
+    std::optional<T> value;
+    E error;
+
+    CodecResult() = delete;
+    CodecResult(std::optional<T> result_value, E result_error)
+        : value(std::move(result_value)), error(result_error) {}
+
+    [[nodiscard]] bool has_value() const { return value.has_value(); }
+    explicit operator bool() const { return has_value(); }
+};
+
+template <typename T>
+using EncodeResult = CodecResult<T, EncodeError>;
+
+template <typename T>
+using DecodeResult = CodecResult<T, DecodeError>;
 
 struct ParseRecordResult {
     std::optional<ParsedRecord> record;
@@ -77,6 +111,26 @@ inline DecodeValueResult<T> decode_error(DecodeError error) {
 template <typename T>
 inline DecodeValueResult<T> decode_success(T value) {
     return DecodeValueResult<T>{.value = std::move(value), .error = DecodeError::none};
+}
+
+template <typename T>
+inline EncodeResult<T> encode_failure(EncodeError error) {
+    return EncodeResult<T>(std::nullopt, error);
+}
+
+template <typename T>
+inline EncodeResult<T> encode_success(T value) {
+    return EncodeResult<T>(std::move(value), EncodeError::none);
+}
+
+template <typename T>
+inline DecodeResult<T> decode_failure(DecodeError error) {
+    return DecodeResult<T>(std::nullopt, error);
+}
+
+template <typename T>
+inline DecodeResult<T> decoded_value(T value) {
+    return DecodeResult<T>(std::move(value), DecodeError::none);
 }
 
 inline bool append_u8(std::vector<std::byte>& output, std::uint8_t value) {
@@ -293,7 +347,10 @@ inline ParseRecordResult parse_record(std::span<const std::byte> input) {
     const std::uint32_t record_id = read_raw_u32(input.subspan(4U, 4U));
     const std::uint32_t reserved1 = read_raw_u32(input.subspan(8U, 4U));
     const std::uint32_t payload_length = read_raw_u32(input.subspan(12U, 4U));
-    if (flags != 0U || reserved0 != 0U || reserved1 != 0U) {
+    if (flags != 0U) {
+        return parse_error(DecodeError::unsupported_flags);
+    }
+    if (reserved0 != 0U || reserved1 != 0U) {
         return parse_error(DecodeError::invalid_header);
     }
     if (payload_length > input.size() - kBinaryRecordHeaderSize) {
@@ -491,10 +548,10 @@ inline DecodeValueResult<double> read_f64(std::span<const std::byte> input) {
     return decode_success<double>(std::bit_cast<double>(*value.value));
 }
 
-inline std::optional<std::vector<std::byte>>
-encode_record(std::uint32_t record_id, std::span<const FieldBytes> fields) {
+inline EncodeResult<std::vector<std::byte>>
+encode_record_result(std::uint32_t record_id, std::span<const FieldBytes> fields) {
     if (record_id == 0U || fields.size() > std::numeric_limits<std::uint8_t>::max()) {
-        return std::nullopt;
+        return encode_failure<std::vector<std::byte>>(EncodeError::overflow);
     }
 
     std::vector<FieldBytes> ordered_fields(fields.begin(), fields.end());
@@ -508,7 +565,7 @@ encode_record(std::uint32_t record_id, std::span<const FieldBytes> fields) {
 
     for (std::size_t index = 1U; index < ordered_fields.size(); ++index) {
         if (ordered_fields[index - 1U].field_index == ordered_fields[index].field_index) {
-            return std::nullopt;
+            return encode_failure<std::vector<std::byte>>(EncodeError::overflow);
         }
     }
 
@@ -516,10 +573,10 @@ encode_record(std::uint32_t record_id, std::span<const FieldBytes> fields) {
     std::vector<std::byte> payload;
     for (const FieldBytes& field : ordered_fields) {
         if (field.bytes.size() > std::numeric_limits<std::uint32_t>::max()) {
-            return std::nullopt;
+            return encode_failure<std::vector<std::byte>>(EncodeError::overflow);
         }
         if (payload.size() > std::numeric_limits<std::uint32_t>::max() - field.bytes.size()) {
-            return std::nullopt;
+            return encode_failure<std::vector<std::byte>>(EncodeError::overflow);
         }
 
         const std::uint64_t field_offset = payload.size();
@@ -530,7 +587,7 @@ encode_record(std::uint32_t record_id, std::span<const FieldBytes> fields) {
     }
 
     if (directory.size() > std::numeric_limits<std::uint32_t>::max() - payload.size()) {
-        return std::nullopt;
+        return encode_failure<std::vector<std::byte>>(EncodeError::overflow);
     }
     const auto payload_length = static_cast<std::uint32_t>(directory.size() + payload.size());
 
@@ -545,7 +602,16 @@ encode_record(std::uint32_t record_id, std::span<const FieldBytes> fields) {
     (void)append_u32(output, payload_length);
     output.insert(output.end(), directory.begin(), directory.end());
     output.insert(output.end(), payload.begin(), payload.end());
-    return output;
+    return encode_success<std::vector<std::byte>>(std::move(output));
+}
+
+inline std::optional<std::vector<std::byte>>
+encode_record(std::uint32_t record_id, std::span<const FieldBytes> fields) {
+    auto encoded = encode_record_result(record_id, fields);
+    if (!encoded.value.has_value()) {
+        return std::nullopt;
+    }
+    return std::move(encoded.value);
 }
 
 } // namespace breadcrumbs::runtime

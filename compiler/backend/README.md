@@ -31,22 +31,25 @@ Current C++ generation behavior:
   * `build()` returns an immutable logical record value
   * generated record values expose only const inspection methods and do not
     allow public mutation after construction
-* generates `encode(const Record&)` overloads that return
-  `std::optional<std::vector<std::byte>>`
-  * encoding is deterministic and returns `std::nullopt` on failure
+* generates `encode_result(const Record&)` overloads that return
+  `::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>>`
+  * encoding is deterministic and returns either an owning byte vector or a
+    structured `EncodeError`
+  * encode errors distinguish schema bounds, invalid UTF-8, unknown enum
+    values, unsupported present field types, and runtime overflow
   * successful results contain a complete top-level Binary Record Format v0.1
     record
   * present supported fields are encoded through the runtime library
   * absent fields are omitted, including absent fields whose type is not yet
     encodable
-  * present unsupported fields return `std::nullopt`
+  * present unsupported fields return `EncodeError::unsupported_field_type`
   * supported present field types are `bool`, fixed-width signed and unsigned
     integers, `f32`, `f64`, `string`, `bytes`, enum references whose declared
     values are all non-negative, arrays of supported fixed-width scalar or
     non-negative enum element types, arrays of `string`, `bytes`, or record
     references, and record references
-  * string encoding validates UTF-8 and returns `std::nullopt` for malformed
-    string bytes
+  * string encoding validates UTF-8 and returns `EncodeError::invalid_utf8` for
+    malformed string bytes
   * bytes encoding accepts arbitrary byte sequences
   * arrays of strings and bytes encode an element count followed by one
     length-delimited raw element payload per element; string elements validate
@@ -56,23 +59,28 @@ Current C++ generation behavior:
   * record references encode by calling the referenced record's generated
     encoder and storing the complete embedded BRF record bytes as the parent
     field payload
-  * present nested arrays return `std::nullopt`
+  * present nested arrays return `EncodeError::unsupported_field_type`
   * unknown-field preservation remains out of scope
-* generates `decode_RecordName(std::span<const std::byte>)` overloads that
-  return `std::optional<RecordName>`
+* generates `encode(const Record&)` compatibility wrappers that return
+  `std::optional<std::vector<std::byte>>`
+  * wrappers delegate to `encode_result` and intentionally discard error detail
+* generates `decode_RecordName_result(std::span<const std::byte>)` overloads
+  that return `::breadcrumbs::runtime::DecodeResult<RecordName>`
   * decoding structurally parses a complete top-level Binary Record Format v0.1
     record through the runtime library
-  * a mismatched `record_id` returns `std::nullopt`
+  * structural parse/read failures preserve the runtime `DecodeError`
+  * a mismatched `record_id` returns `DecodeError::unexpected_record_id`
   * unknown field indexes are ignored after structural validation
   * absent unsupported known fields are ignored
-  * present unsupported known fields return `std::nullopt`
+  * present unsupported known fields return
+    `DecodeError::unsupported_field_type`
   * supported known field types match the encoder subset: `bool`, fixed-width
     signed and unsigned integers, `f32`, `f64`, `string`, `bytes`,
     non-negative enum references, arrays of supported fixed-width scalar or
     non-negative enum element types, arrays of `string`, `bytes`, or record
     references, and record references
-  * string decoding validates UTF-8 and returns `std::nullopt` for malformed
-    string bytes
+  * string decoding validates UTF-8 and returns `DecodeError::invalid_utf8` for
+    malformed string bytes
   * bytes decoding accepts arbitrary byte sequences
   * array decoding validates the encoded element count against `max_elements`
     before allocating, requires exact payload consumption, and preserves
@@ -86,9 +94,17 @@ Current C++ generation behavior:
   * record references decode by passing the bounded parent field span to the
     referenced record's generated decoder, which verifies the nested
     `record_id`, BRF version, flags, reserved fields, and payload length
-  * present nested arrays return `std::nullopt`
+  * present nested arrays return `DecodeError::unsupported_field_type`
   * decoded values are materialized through the generated builder, preserving
     presence and existing bounds validation
+  * nested records and record-array elements propagate the child codec's root
+    error code directly
+  * generated error results intentionally do not yet include field paths, array
+    indexes, byte offsets, or diagnostic strings
+* generates `decode_RecordName(std::span<const std::byte>)` compatibility
+  wrappers that return `std::optional<RecordName>`
+  * wrappers delegate to `decode_RecordName_result` and intentionally discard
+    error detail
 * preserves declaration order unless record dependencies force a deterministic
   reordering
 * fails clearly when record dependencies form a cycle instead of emitting
@@ -128,7 +144,8 @@ Current C++ generation behavior:
 * returns `success = false`, a non-empty `error_message`, and no generated
   files for backend failures
 * keeps enum formatting, parsing, reflection, accessors beyond the minimal
-  const inspection API, and richer decode diagnostics out of scope for this PR
+  const inspection API, and field-path or byte-offset codec diagnostics out of
+  scope for this PR
 * backend code-generation tests consume validated Schema IR directly and do
   not exercise either source frontend
 

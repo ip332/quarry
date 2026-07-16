@@ -22,20 +22,41 @@ namespace one {
       }
     };
 
-    std::optional<std::vector<std::byte>> encode(const First& value) {
+    ::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>> encode_result(const First& value) {
       std::vector<::breadcrumbs::runtime::FieldBytes> fields;
       (void)value;
-      return ::breadcrumbs::runtime::encode_record(1U, fields);
+      return ::breadcrumbs::runtime::encode_record_result(1U, fields);
+    }
+
+
+    std::optional<std::vector<std::byte>> encode(const First& value) {
+      auto encoded = encode_result(value);
+      if (!encoded.value.has_value()) {
+        return std::nullopt;
+      }
+      return std::move(encoded.value);
+    }
+
+
+    ::breadcrumbs::runtime::DecodeResult<First> decode_First_result(std::span<const std::byte> input) {
+      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+      if (!parsed.record.has_value()) {
+        return ::breadcrumbs::runtime::decode_failure<First>(parsed.error);
+      }
+      if (parsed.record->record_id != 1U) {
+        return ::breadcrumbs::runtime::decode_failure<First>(::breadcrumbs::runtime::DecodeError::unexpected_record_id);
+      }
+      FirstBuilder builder;
+      return ::breadcrumbs::runtime::decoded_value<First>(builder.build());
     }
 
 
     std::optional<First> decode_First(std::span<const std::byte> input) {
-      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
-      if (!parsed.record.has_value() || parsed.record->record_id != 1U) {
+      auto decoded = decode_First_result(input);
+      if (!decoded.value.has_value()) {
         return std::nullopt;
       }
-      FirstBuilder builder;
-      return builder.build();
+      return std::move(decoded.value);
     }
 
 } // namespace one
@@ -99,36 +120,60 @@ namespace two {
       std::optional<::alpha::one::First> first_;
     };
 
-    std::optional<std::vector<std::byte>> encode(const Second& value) {
+    ::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Second& value) {
       std::vector<::breadcrumbs::runtime::FieldBytes> fields;
       fields.reserve(1U);
       if (value.has_first()) {
-        auto field_bytes = ::alpha::one::encode(*value.first());
+        auto field_bytes = ::alpha::one::encode_result(*value.first());
         if (!field_bytes.has_value()) {
-          return std::nullopt;
+          return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(field_bytes.error);
         }
         fields.push_back(::breadcrumbs::runtime::FieldBytes{
           .field_index = 0U,
-          .bytes = std::move(*field_bytes),
+          .bytes = std::move(*field_bytes.value),
         });
       }
-      return ::breadcrumbs::runtime::encode_record(2U, fields);
+      return ::breadcrumbs::runtime::encode_record_result(2U, fields);
+    }
+
+
+    std::optional<std::vector<std::byte>> encode(const Second& value) {
+      auto encoded = encode_result(value);
+      if (!encoded.value.has_value()) {
+        return std::nullopt;
+      }
+      return std::move(encoded.value);
+    }
+
+
+    ::breadcrumbs::runtime::DecodeResult<Second> decode_Second_result(std::span<const std::byte> input) {
+      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+      if (!parsed.record.has_value()) {
+        return ::breadcrumbs::runtime::decode_failure<Second>(parsed.error);
+      }
+      if (parsed.record->record_id != 2U) {
+        return ::breadcrumbs::runtime::decode_failure<Second>(::breadcrumbs::runtime::DecodeError::unexpected_record_id);
+      }
+      SecondBuilder builder;
+      if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
+        const auto decoded = ::alpha::one::decode_First_result(field->bytes);
+        if (!decoded.value.has_value()) {
+          return ::breadcrumbs::runtime::decode_failure<Second>(decoded.error);
+        }
+        if (!builder.set_first(*decoded.value)) {
+          return ::breadcrumbs::runtime::decode_failure<Second>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
+        }
+      }
+      return ::breadcrumbs::runtime::decoded_value<Second>(builder.build());
     }
 
 
     std::optional<Second> decode_Second(std::span<const std::byte> input) {
-      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
-      if (!parsed.record.has_value() || parsed.record->record_id != 2U) {
+      auto decoded = decode_Second_result(input);
+      if (!decoded.value.has_value()) {
         return std::nullopt;
       }
-      SecondBuilder builder;
-      if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
-        const auto decoded = ::alpha::one::decode_First(field->bytes);
-        if (!decoded.has_value() || !builder.set_first(*decoded)) {
-          return std::nullopt;
-        }
-      }
-      return builder.build();
+      return std::move(decoded.value);
     }
 
 } // namespace two

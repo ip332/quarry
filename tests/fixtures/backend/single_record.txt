@@ -19,18 +19,39 @@ public:
   }
 };
 
-std::optional<std::vector<std::byte>> encode(const Example& value) {
+::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Example& value) {
   std::vector<::breadcrumbs::runtime::FieldBytes> fields;
   (void)value;
-  return ::breadcrumbs::runtime::encode_record(1U, fields);
+  return ::breadcrumbs::runtime::encode_record_result(1U, fields);
+}
+
+
+std::optional<std::vector<std::byte>> encode(const Example& value) {
+  auto encoded = encode_result(value);
+  if (!encoded.value.has_value()) {
+    return std::nullopt;
+  }
+  return std::move(encoded.value);
+}
+
+
+::breadcrumbs::runtime::DecodeResult<Example> decode_Example_result(std::span<const std::byte> input) {
+  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+  if (!parsed.record.has_value()) {
+    return ::breadcrumbs::runtime::decode_failure<Example>(parsed.error);
+  }
+  if (parsed.record->record_id != 1U) {
+    return ::breadcrumbs::runtime::decode_failure<Example>(::breadcrumbs::runtime::DecodeError::unexpected_record_id);
+  }
+  ExampleBuilder builder;
+  return ::breadcrumbs::runtime::decoded_value<Example>(builder.build());
 }
 
 
 std::optional<Example> decode_Example(std::span<const std::byte> input) {
-  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
-  if (!parsed.record.has_value() || parsed.record->record_id != 1U) {
+  auto decoded = decode_Example_result(input);
+  if (!decoded.value.has_value()) {
     return std::nullopt;
   }
-  ExampleBuilder builder;
-  return builder.build();
+  return std::move(decoded.value);
 }

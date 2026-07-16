@@ -62,36 +62,60 @@ namespace one {
       std::optional<std::uint32_t> id_;
     };
 
-    std::optional<std::vector<std::byte>> encode(const Element& value) {
+    ::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Element& value) {
       std::vector<::breadcrumbs::runtime::FieldBytes> fields;
       fields.reserve(1U);
       if (value.has_id()) {
         std::vector<std::byte> field_bytes;
         if (!::breadcrumbs::runtime::append_u32(field_bytes, *value.id())) {
-          return std::nullopt;
+          return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(::breadcrumbs::runtime::EncodeError::overflow);
         }
         fields.push_back(::breadcrumbs::runtime::FieldBytes{
           .field_index = 0U,
           .bytes = std::move(field_bytes),
         });
       }
-      return ::breadcrumbs::runtime::encode_record(1U, fields);
+      return ::breadcrumbs::runtime::encode_record_result(1U, fields);
     }
 
 
-    std::optional<Element> decode_Element(std::span<const std::byte> input) {
-      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
-      if (!parsed.record.has_value() || parsed.record->record_id != 1U) {
+    std::optional<std::vector<std::byte>> encode(const Element& value) {
+      auto encoded = encode_result(value);
+      if (!encoded.value.has_value()) {
         return std::nullopt;
+      }
+      return std::move(encoded.value);
+    }
+
+
+    ::breadcrumbs::runtime::DecodeResult<Element> decode_Element_result(std::span<const std::byte> input) {
+      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+      if (!parsed.record.has_value()) {
+        return ::breadcrumbs::runtime::decode_failure<Element>(parsed.error);
+      }
+      if (parsed.record->record_id != 1U) {
+        return ::breadcrumbs::runtime::decode_failure<Element>(::breadcrumbs::runtime::DecodeError::unexpected_record_id);
       }
       ElementBuilder builder;
       if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
         const auto decoded = ::breadcrumbs::runtime::read_u32(field->bytes);
-        if (!decoded.value.has_value() || !builder.set_id(*decoded.value)) {
-          return std::nullopt;
+        if (!decoded.value.has_value()) {
+          return ::breadcrumbs::runtime::decode_failure<Element>(decoded.error);
+        }
+        if (!builder.set_id(*decoded.value)) {
+          return ::breadcrumbs::runtime::decode_failure<Element>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
         }
       }
-      return builder.build();
+      return ::breadcrumbs::runtime::decoded_value<Element>(builder.build());
+    }
+
+
+    std::optional<Element> decode_Element(std::span<const std::byte> input) {
+      auto decoded = decode_Element_result(input);
+      if (!decoded.value.has_value()) {
+        return std::nullopt;
+      }
+      return std::move(decoded.value);
     }
 
 } // namespace one
@@ -187,22 +211,22 @@ namespace two {
       std::optional<std::vector<::alpha::one::Mode>> modes_;
     };
 
-    std::optional<std::vector<std::byte>> encode(const Basket& value) {
+    ::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Basket& value) {
       std::vector<::breadcrumbs::runtime::FieldBytes> fields;
       fields.reserve(2U);
       if (value.has_elements()) {
         if (value.elements()->size() > 2U) {
-          return std::nullopt;
+          return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(::breadcrumbs::runtime::EncodeError::bounds_exceeded);
         }
         std::vector<std::byte> field_bytes;
         ::breadcrumbs::runtime::append_varuint(field_bytes, value.elements()->size());
         for (const auto& element : *value.elements()) {
-          auto element_bytes = ::alpha::one::encode(element);
+          auto element_bytes = ::alpha::one::encode_result(element);
           if (!element_bytes.has_value()) {
-            return std::nullopt;
+            return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(element_bytes.error);
           }
-          ::breadcrumbs::runtime::append_varuint(field_bytes, element_bytes->size());
-          ::breadcrumbs::runtime::append_bytes(field_bytes, std::span<const std::byte>(element_bytes->data(), element_bytes->size()));
+          ::breadcrumbs::runtime::append_varuint(field_bytes, element_bytes.value->size());
+          ::breadcrumbs::runtime::append_bytes(field_bytes, std::span<const std::byte>(element_bytes.value->data(), element_bytes.value->size()));
         }
         fields.push_back(::breadcrumbs::runtime::FieldBytes{
           .field_index = 0U,
@@ -211,14 +235,14 @@ namespace two {
       }
       if (value.has_modes()) {
         if (value.modes()->size() > 2U) {
-          return std::nullopt;
+          return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(::breadcrumbs::runtime::EncodeError::bounds_exceeded);
         }
         std::vector<std::byte> field_bytes;
         ::breadcrumbs::runtime::append_varuint(field_bytes, value.modes()->size());
         for (const auto& element : *value.modes()) {
           const auto enum_numeric = static_cast<std::int64_t>(element);
           if (!(enum_numeric == 0 || enum_numeric == 1)) {
-            return std::nullopt;
+            return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(::breadcrumbs::runtime::EncodeError::unknown_enum_value);
           }
           ::breadcrumbs::runtime::append_u8(field_bytes, static_cast<std::uint8_t>(enum_numeric));
         }
@@ -227,21 +251,36 @@ namespace two {
           .bytes = std::move(field_bytes),
         });
       }
-      return ::breadcrumbs::runtime::encode_record(2U, fields);
+      return ::breadcrumbs::runtime::encode_record_result(2U, fields);
     }
 
 
-    std::optional<Basket> decode_Basket(std::span<const std::byte> input) {
-      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
-      if (!parsed.record.has_value() || parsed.record->record_id != 2U) {
+    std::optional<std::vector<std::byte>> encode(const Basket& value) {
+      auto encoded = encode_result(value);
+      if (!encoded.value.has_value()) {
         return std::nullopt;
+      }
+      return std::move(encoded.value);
+    }
+
+
+    ::breadcrumbs::runtime::DecodeResult<Basket> decode_Basket_result(std::span<const std::byte> input) {
+      const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+      if (!parsed.record.has_value()) {
+        return ::breadcrumbs::runtime::decode_failure<Basket>(parsed.error);
+      }
+      if (parsed.record->record_id != 2U) {
+        return ::breadcrumbs::runtime::decode_failure<Basket>(::breadcrumbs::runtime::DecodeError::unexpected_record_id);
       }
       BasketBuilder builder;
       if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
         std::size_t element_offset = 0U;
         const auto decoded_count = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
         if (!decoded_count.value.has_value() || *decoded_count.value > 2U) {
-          return std::nullopt;
+          if (!decoded_count.value.has_value()) {
+            return ::breadcrumbs::runtime::decode_failure<Basket>(decoded_count.error);
+          }
+          return ::breadcrumbs::runtime::decode_failure<Basket>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
         }
         const auto element_count = static_cast<std::size_t>(*decoded_count.value);
         std::vector<::alpha::one::Element> elements;
@@ -249,32 +288,35 @@ namespace two {
         for (std::size_t index = 0U; index < element_count; ++index) {
           const auto decoded_length = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
           if (!decoded_length.value.has_value()) {
-            return std::nullopt;
+            return ::breadcrumbs::runtime::decode_failure<Basket>(decoded_length.error);
           }
           if (*decoded_length.value > field->bytes.size() - element_offset) {
-            return std::nullopt;
+            return ::breadcrumbs::runtime::decode_failure<Basket>(::breadcrumbs::runtime::DecodeError::invalid_field_length);
           }
           const auto element_length = static_cast<std::size_t>(*decoded_length.value);
           const auto element_bytes = field->bytes.subspan(element_offset, element_length);
-          const auto decoded = ::alpha::one::decode_Element(element_bytes);
-          if (!decoded.has_value()) {
-            return std::nullopt;
+          const auto decoded = ::alpha::one::decode_Element_result(element_bytes);
+          if (!decoded.value.has_value()) {
+            return ::breadcrumbs::runtime::decode_failure<Basket>(decoded.error);
           }
-          elements.push_back(*decoded);
+          elements.push_back(*decoded.value);
           element_offset += element_length;
         }
         if (element_offset != field->bytes.size()) {
-          return std::nullopt;
+          return ::breadcrumbs::runtime::decode_failure<Basket>(::breadcrumbs::runtime::DecodeError::invalid_field_length);
         }
         if (!builder.set_elements(std::move(elements))) {
-          return std::nullopt;
+          return ::breadcrumbs::runtime::decode_failure<Basket>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
         }
       }
       if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 1U); field != nullptr) {
         std::size_t element_offset = 0U;
         const auto decoded_count = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
         if (!decoded_count.value.has_value() || *decoded_count.value > 2U) {
-          return std::nullopt;
+          if (!decoded_count.value.has_value()) {
+            return ::breadcrumbs::runtime::decode_failure<Basket>(decoded_count.error);
+          }
+          return ::breadcrumbs::runtime::decode_failure<Basket>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
         }
         const auto element_count = static_cast<std::size_t>(*decoded_count.value);
         std::vector<::alpha::one::Mode> elements;
@@ -282,25 +324,34 @@ namespace two {
         const std::size_t element_width = 1U;
         const std::size_t remaining_bytes = field->bytes.size() - element_offset;
         if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
-          return std::nullopt;
+          return ::breadcrumbs::runtime::decode_failure<Basket>(::breadcrumbs::runtime::DecodeError::invalid_field_length);
         }
         for (std::size_t index = 0U; index < element_count; ++index) {
           const auto decoded = ::breadcrumbs::runtime::read_u8(field->bytes.subspan(element_offset, element_width));
           if (!decoded.value.has_value()) {
-            return std::nullopt;
+            return ::breadcrumbs::runtime::decode_failure<Basket>(decoded.error);
           }
           const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);
           if (!(enum_numeric == 0 || enum_numeric == 1)) {
-            return std::nullopt;
+            return ::breadcrumbs::runtime::decode_failure<Basket>(::breadcrumbs::runtime::DecodeError::unknown_enum_value);
           }
           elements.push_back(static_cast<::alpha::one::Mode>(enum_numeric));
           element_offset += element_width;
         }
         if (!builder.set_modes(std::move(elements))) {
-          return std::nullopt;
+          return ::breadcrumbs::runtime::decode_failure<Basket>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
         }
       }
-      return builder.build();
+      return ::breadcrumbs::runtime::decoded_value<Basket>(builder.build());
+    }
+
+
+    std::optional<Basket> decode_Basket(std::span<const std::byte> input) {
+      auto decoded = decode_Basket_result(input);
+      if (!decoded.value.has_value()) {
+        return std::nullopt;
+      }
+      return std::move(decoded.value);
     }
 
 } // namespace two

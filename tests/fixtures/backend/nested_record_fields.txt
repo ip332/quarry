@@ -110,13 +110,13 @@ private:
   std::optional<std::vector<std::string>> tags_;
 };
 
-std::optional<std::vector<std::byte>> encode(const Inner& value) {
+::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Inner& value) {
   std::vector<::breadcrumbs::runtime::FieldBytes> fields;
   fields.reserve(3U);
   if (value.has_count()) {
     std::vector<std::byte> field_bytes;
     if (!::breadcrumbs::runtime::append_u32(field_bytes, *value.count())) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(::breadcrumbs::runtime::EncodeError::overflow);
     }
     fields.push_back(::breadcrumbs::runtime::FieldBytes{
       .field_index = 0U,
@@ -125,11 +125,11 @@ std::optional<std::vector<std::byte>> encode(const Inner& value) {
   }
   if (value.has_label()) {
     if (value.label()->size() > 8U) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(::breadcrumbs::runtime::EncodeError::bounds_exceeded);
     }
     std::vector<std::byte> field_bytes;
     if (!::breadcrumbs::runtime::append_string_utf8(field_bytes, *value.label())) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(::breadcrumbs::runtime::EncodeError::invalid_utf8);
     }
     fields.push_back(::breadcrumbs::runtime::FieldBytes{
       .field_index = 1U,
@@ -138,17 +138,17 @@ std::optional<std::vector<std::byte>> encode(const Inner& value) {
   }
   if (value.has_tags()) {
     if (value.tags()->size() > 2U) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(::breadcrumbs::runtime::EncodeError::bounds_exceeded);
     }
     std::vector<std::byte> field_bytes;
     ::breadcrumbs::runtime::append_varuint(field_bytes, value.tags()->size());
     for (const auto& element : *value.tags()) {
       if (element.size() > 4U) {
-        return std::nullopt;
+        return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(::breadcrumbs::runtime::EncodeError::bounds_exceeded);
       }
       ::breadcrumbs::runtime::append_varuint(field_bytes, element.size());
       if (!::breadcrumbs::runtime::append_string_utf8(field_bytes, element)) {
-        return std::nullopt;
+        return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(::breadcrumbs::runtime::EncodeError::invalid_utf8);
       }
     }
     fields.push_back(::breadcrumbs::runtime::FieldBytes{
@@ -156,36 +156,57 @@ std::optional<std::vector<std::byte>> encode(const Inner& value) {
       .bytes = std::move(field_bytes),
     });
   }
-  return ::breadcrumbs::runtime::encode_record(1U, fields);
+  return ::breadcrumbs::runtime::encode_record_result(1U, fields);
 }
 
 
-std::optional<Inner> decode_Inner(std::span<const std::byte> input) {
-  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
-  if (!parsed.record.has_value() || parsed.record->record_id != 1U) {
+std::optional<std::vector<std::byte>> encode(const Inner& value) {
+  auto encoded = encode_result(value);
+  if (!encoded.value.has_value()) {
     return std::nullopt;
+  }
+  return std::move(encoded.value);
+}
+
+
+::breadcrumbs::runtime::DecodeResult<Inner> decode_Inner_result(std::span<const std::byte> input) {
+  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+  if (!parsed.record.has_value()) {
+    return ::breadcrumbs::runtime::decode_failure<Inner>(parsed.error);
+  }
+  if (parsed.record->record_id != 1U) {
+    return ::breadcrumbs::runtime::decode_failure<Inner>(::breadcrumbs::runtime::DecodeError::unexpected_record_id);
   }
   InnerBuilder builder;
   if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
     const auto decoded = ::breadcrumbs::runtime::read_u32(field->bytes);
-    if (!decoded.value.has_value() || !builder.set_count(*decoded.value)) {
-      return std::nullopt;
+    if (!decoded.value.has_value()) {
+      return ::breadcrumbs::runtime::decode_failure<Inner>(decoded.error);
+    }
+    if (!builder.set_count(*decoded.value)) {
+      return ::breadcrumbs::runtime::decode_failure<Inner>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
     }
   }
   if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 1U); field != nullptr) {
     if (field->bytes.size() > 8U) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::decode_failure<Inner>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
     }
     const auto decoded = ::breadcrumbs::runtime::read_string_utf8(field->bytes);
-    if (!decoded.value.has_value() || !builder.set_label(*decoded.value)) {
-      return std::nullopt;
+    if (!decoded.value.has_value()) {
+      return ::breadcrumbs::runtime::decode_failure<Inner>(decoded.error);
+    }
+    if (!builder.set_label(*decoded.value)) {
+      return ::breadcrumbs::runtime::decode_failure<Inner>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
     }
   }
   if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 2U); field != nullptr) {
     std::size_t element_offset = 0U;
     const auto decoded_count = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
     if (!decoded_count.value.has_value() || *decoded_count.value > 2U) {
-      return std::nullopt;
+      if (!decoded_count.value.has_value()) {
+        return ::breadcrumbs::runtime::decode_failure<Inner>(decoded_count.error);
+      }
+      return ::breadcrumbs::runtime::decode_failure<Inner>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
     std::vector<std::string> elements;
@@ -193,28 +214,40 @@ std::optional<Inner> decode_Inner(std::span<const std::byte> input) {
     for (std::size_t index = 0U; index < element_count; ++index) {
       const auto decoded_length = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
       if (!decoded_length.value.has_value() || *decoded_length.value > 4U) {
-        return std::nullopt;
+        if (!decoded_length.value.has_value()) {
+          return ::breadcrumbs::runtime::decode_failure<Inner>(decoded_length.error);
+        }
+        return ::breadcrumbs::runtime::decode_failure<Inner>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
       }
       const auto element_length = static_cast<std::size_t>(*decoded_length.value);
       if (element_length > field->bytes.size() - element_offset) {
-        return std::nullopt;
+        return ::breadcrumbs::runtime::decode_failure<Inner>(::breadcrumbs::runtime::DecodeError::invalid_field_length);
       }
       const auto element_bytes = field->bytes.subspan(element_offset, element_length);
       const auto decoded = ::breadcrumbs::runtime::read_string_utf8(element_bytes);
       if (!decoded.value.has_value()) {
-        return std::nullopt;
+        return ::breadcrumbs::runtime::decode_failure<Inner>(decoded.error);
       }
       elements.push_back(std::move(*decoded.value));
       element_offset += element_length;
     }
     if (element_offset != field->bytes.size()) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::decode_failure<Inner>(::breadcrumbs::runtime::DecodeError::invalid_field_length);
     }
     if (!builder.set_tags(std::move(elements))) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::decode_failure<Inner>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
     }
   }
-  return builder.build();
+  return ::breadcrumbs::runtime::decoded_value<Inner>(builder.build());
+}
+
+
+std::optional<Inner> decode_Inner(std::span<const std::byte> input) {
+  auto decoded = decode_Inner_result(input);
+  if (!decoded.value.has_value()) {
+    return std::nullopt;
+  }
+  return std::move(decoded.value);
 }
 
 struct Middle {
@@ -260,36 +293,60 @@ private:
   std::optional<::Inner> inner_;
 };
 
-std::optional<std::vector<std::byte>> encode(const Middle& value) {
+::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Middle& value) {
   std::vector<::breadcrumbs::runtime::FieldBytes> fields;
   fields.reserve(1U);
   if (value.has_inner()) {
-    auto field_bytes = ::encode(*value.inner());
+    auto field_bytes = ::encode_result(*value.inner());
     if (!field_bytes.has_value()) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(field_bytes.error);
     }
     fields.push_back(::breadcrumbs::runtime::FieldBytes{
       .field_index = 0U,
-      .bytes = std::move(*field_bytes),
+      .bytes = std::move(*field_bytes.value),
     });
   }
-  return ::breadcrumbs::runtime::encode_record(2U, fields);
+  return ::breadcrumbs::runtime::encode_record_result(2U, fields);
+}
+
+
+std::optional<std::vector<std::byte>> encode(const Middle& value) {
+  auto encoded = encode_result(value);
+  if (!encoded.value.has_value()) {
+    return std::nullopt;
+  }
+  return std::move(encoded.value);
+}
+
+
+::breadcrumbs::runtime::DecodeResult<Middle> decode_Middle_result(std::span<const std::byte> input) {
+  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+  if (!parsed.record.has_value()) {
+    return ::breadcrumbs::runtime::decode_failure<Middle>(parsed.error);
+  }
+  if (parsed.record->record_id != 2U) {
+    return ::breadcrumbs::runtime::decode_failure<Middle>(::breadcrumbs::runtime::DecodeError::unexpected_record_id);
+  }
+  MiddleBuilder builder;
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
+    const auto decoded = ::decode_Inner_result(field->bytes);
+    if (!decoded.value.has_value()) {
+      return ::breadcrumbs::runtime::decode_failure<Middle>(decoded.error);
+    }
+    if (!builder.set_inner(*decoded.value)) {
+      return ::breadcrumbs::runtime::decode_failure<Middle>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
+    }
+  }
+  return ::breadcrumbs::runtime::decoded_value<Middle>(builder.build());
 }
 
 
 std::optional<Middle> decode_Middle(std::span<const std::byte> input) {
-  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
-  if (!parsed.record.has_value() || parsed.record->record_id != 2U) {
+  auto decoded = decode_Middle_result(input);
+  if (!decoded.value.has_value()) {
     return std::nullopt;
   }
-  MiddleBuilder builder;
-  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
-    const auto decoded = ::decode_Inner(field->bytes);
-    if (!decoded.has_value() || !builder.set_inner(*decoded)) {
-      return std::nullopt;
-    }
-  }
-  return builder.build();
+  return std::move(decoded.value);
 }
 
 struct Outer {
@@ -357,52 +414,79 @@ private:
   std::optional<::Inner> fallback_;
 };
 
-std::optional<std::vector<std::byte>> encode(const Outer& value) {
+::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Outer& value) {
   std::vector<::breadcrumbs::runtime::FieldBytes> fields;
   fields.reserve(2U);
   if (value.has_middle()) {
-    auto field_bytes = ::encode(*value.middle());
+    auto field_bytes = ::encode_result(*value.middle());
     if (!field_bytes.has_value()) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(field_bytes.error);
     }
     fields.push_back(::breadcrumbs::runtime::FieldBytes{
       .field_index = 0U,
-      .bytes = std::move(*field_bytes),
+      .bytes = std::move(*field_bytes.value),
     });
   }
   if (value.has_fallback()) {
-    auto field_bytes = ::encode(*value.fallback());
+    auto field_bytes = ::encode_result(*value.fallback());
     if (!field_bytes.has_value()) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(field_bytes.error);
     }
     fields.push_back(::breadcrumbs::runtime::FieldBytes{
       .field_index = 1U,
-      .bytes = std::move(*field_bytes),
+      .bytes = std::move(*field_bytes.value),
     });
   }
-  return ::breadcrumbs::runtime::encode_record(3U, fields);
+  return ::breadcrumbs::runtime::encode_record_result(3U, fields);
+}
+
+
+std::optional<std::vector<std::byte>> encode(const Outer& value) {
+  auto encoded = encode_result(value);
+  if (!encoded.value.has_value()) {
+    return std::nullopt;
+  }
+  return std::move(encoded.value);
+}
+
+
+::breadcrumbs::runtime::DecodeResult<Outer> decode_Outer_result(std::span<const std::byte> input) {
+  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+  if (!parsed.record.has_value()) {
+    return ::breadcrumbs::runtime::decode_failure<Outer>(parsed.error);
+  }
+  if (parsed.record->record_id != 3U) {
+    return ::breadcrumbs::runtime::decode_failure<Outer>(::breadcrumbs::runtime::DecodeError::unexpected_record_id);
+  }
+  OuterBuilder builder;
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
+    const auto decoded = ::decode_Middle_result(field->bytes);
+    if (!decoded.value.has_value()) {
+      return ::breadcrumbs::runtime::decode_failure<Outer>(decoded.error);
+    }
+    if (!builder.set_middle(*decoded.value)) {
+      return ::breadcrumbs::runtime::decode_failure<Outer>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
+    }
+  }
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 1U); field != nullptr) {
+    const auto decoded = ::decode_Inner_result(field->bytes);
+    if (!decoded.value.has_value()) {
+      return ::breadcrumbs::runtime::decode_failure<Outer>(decoded.error);
+    }
+    if (!builder.set_fallback(*decoded.value)) {
+      return ::breadcrumbs::runtime::decode_failure<Outer>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
+    }
+  }
+  return ::breadcrumbs::runtime::decoded_value<Outer>(builder.build());
 }
 
 
 std::optional<Outer> decode_Outer(std::span<const std::byte> input) {
-  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
-  if (!parsed.record.has_value() || parsed.record->record_id != 3U) {
+  auto decoded = decode_Outer_result(input);
+  if (!decoded.value.has_value()) {
     return std::nullopt;
   }
-  OuterBuilder builder;
-  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
-    const auto decoded = ::decode_Middle(field->bytes);
-    if (!decoded.has_value() || !builder.set_middle(*decoded)) {
-      return std::nullopt;
-    }
-  }
-  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 1U); field != nullptr) {
-    const auto decoded = ::decode_Inner(field->bytes);
-    if (!decoded.has_value() || !builder.set_fallback(*decoded)) {
-      return std::nullopt;
-    }
-  }
-  return builder.build();
+  return std::move(decoded.value);
 }
 
 struct Group {
@@ -453,43 +537,58 @@ private:
   std::optional<std::vector<::Middle>> middles_;
 };
 
-std::optional<std::vector<std::byte>> encode(const Group& value) {
+::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Group& value) {
   std::vector<::breadcrumbs::runtime::FieldBytes> fields;
   fields.reserve(1U);
   if (value.has_middles()) {
     if (value.middles()->size() > 2U) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(::breadcrumbs::runtime::EncodeError::bounds_exceeded);
     }
     std::vector<std::byte> field_bytes;
     ::breadcrumbs::runtime::append_varuint(field_bytes, value.middles()->size());
     for (const auto& element : *value.middles()) {
-      auto element_bytes = ::encode(element);
+      auto element_bytes = ::encode_result(element);
       if (!element_bytes.has_value()) {
-        return std::nullopt;
+        return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>(element_bytes.error);
       }
-      ::breadcrumbs::runtime::append_varuint(field_bytes, element_bytes->size());
-      ::breadcrumbs::runtime::append_bytes(field_bytes, std::span<const std::byte>(element_bytes->data(), element_bytes->size()));
+      ::breadcrumbs::runtime::append_varuint(field_bytes, element_bytes.value->size());
+      ::breadcrumbs::runtime::append_bytes(field_bytes, std::span<const std::byte>(element_bytes.value->data(), element_bytes.value->size()));
     }
     fields.push_back(::breadcrumbs::runtime::FieldBytes{
       .field_index = 0U,
       .bytes = std::move(field_bytes),
     });
   }
-  return ::breadcrumbs::runtime::encode_record(4U, fields);
+  return ::breadcrumbs::runtime::encode_record_result(4U, fields);
 }
 
 
-std::optional<Group> decode_Group(std::span<const std::byte> input) {
-  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
-  if (!parsed.record.has_value() || parsed.record->record_id != 4U) {
+std::optional<std::vector<std::byte>> encode(const Group& value) {
+  auto encoded = encode_result(value);
+  if (!encoded.value.has_value()) {
     return std::nullopt;
+  }
+  return std::move(encoded.value);
+}
+
+
+::breadcrumbs::runtime::DecodeResult<Group> decode_Group_result(std::span<const std::byte> input) {
+  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+  if (!parsed.record.has_value()) {
+    return ::breadcrumbs::runtime::decode_failure<Group>(parsed.error);
+  }
+  if (parsed.record->record_id != 4U) {
+    return ::breadcrumbs::runtime::decode_failure<Group>(::breadcrumbs::runtime::DecodeError::unexpected_record_id);
   }
   GroupBuilder builder;
   if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
     std::size_t element_offset = 0U;
     const auto decoded_count = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
     if (!decoded_count.value.has_value() || *decoded_count.value > 2U) {
-      return std::nullopt;
+      if (!decoded_count.value.has_value()) {
+        return ::breadcrumbs::runtime::decode_failure<Group>(decoded_count.error);
+      }
+      return ::breadcrumbs::runtime::decode_failure<Group>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
     std::vector<::Middle> elements;
@@ -497,26 +596,35 @@ std::optional<Group> decode_Group(std::span<const std::byte> input) {
     for (std::size_t index = 0U; index < element_count; ++index) {
       const auto decoded_length = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
       if (!decoded_length.value.has_value()) {
-        return std::nullopt;
+        return ::breadcrumbs::runtime::decode_failure<Group>(decoded_length.error);
       }
       if (*decoded_length.value > field->bytes.size() - element_offset) {
-        return std::nullopt;
+        return ::breadcrumbs::runtime::decode_failure<Group>(::breadcrumbs::runtime::DecodeError::invalid_field_length);
       }
       const auto element_length = static_cast<std::size_t>(*decoded_length.value);
       const auto element_bytes = field->bytes.subspan(element_offset, element_length);
-      const auto decoded = ::decode_Middle(element_bytes);
-      if (!decoded.has_value()) {
-        return std::nullopt;
+      const auto decoded = ::decode_Middle_result(element_bytes);
+      if (!decoded.value.has_value()) {
+        return ::breadcrumbs::runtime::decode_failure<Group>(decoded.error);
       }
-      elements.push_back(*decoded);
+      elements.push_back(*decoded.value);
       element_offset += element_length;
     }
     if (element_offset != field->bytes.size()) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::decode_failure<Group>(::breadcrumbs::runtime::DecodeError::invalid_field_length);
     }
     if (!builder.set_middles(std::move(elements))) {
-      return std::nullopt;
+      return ::breadcrumbs::runtime::decode_failure<Group>(::breadcrumbs::runtime::DecodeError::bounds_exceeded);
     }
   }
-  return builder.build();
+  return ::breadcrumbs::runtime::decoded_value<Group>(builder.build());
+}
+
+
+std::optional<Group> decode_Group(std::span<const std::byte> input) {
+  auto decoded = decode_Group_result(input);
+  if (!decoded.value.has_value()) {
+    return std::nullopt;
+  }
+  return std::move(decoded.value);
 }
