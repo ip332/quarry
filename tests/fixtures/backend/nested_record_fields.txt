@@ -404,3 +404,119 @@ std::optional<Outer> decode_Outer(std::span<const std::byte> input) {
   }
   return builder.build();
 }
+
+struct Group {
+  Group() = default;
+
+  bool has_middles() const {
+    return middles_.has_value();
+  }
+  const std::vector<::Middle>* middles() const {
+    return middles_ ? &*middles_ : nullptr;
+  }
+
+private:
+  friend class GroupBuilder;
+  std::optional<std::vector<::Middle>> middles_;
+};
+
+class GroupBuilder {
+public:
+  bool has_middles() const {
+    return middles_.has_value();
+  }
+
+  bool set_middles(const std::vector<::Middle>& value) {
+    if (!validate_middles(value)) {
+      return false;
+    }
+    middles_ = value;
+    return true;
+  }
+
+  Group build() const {
+    Group value;
+    value.middles_ = middles_;
+    return value;
+  }
+
+private:
+  static bool validate_middles(const std::vector<::Middle>& value) {
+    if (value.size() > 2) {
+      return false;
+    }
+    for (const auto& element_0 : value) {
+    }
+    return true;
+  }
+
+  std::optional<std::vector<::Middle>> middles_;
+};
+
+std::optional<std::vector<std::byte>> encode(const Group& value) {
+  std::vector<::breadcrumbs::runtime::FieldBytes> fields;
+  fields.reserve(1U);
+  if (value.has_middles()) {
+    if (value.middles()->size() > 2U) {
+      return std::nullopt;
+    }
+    std::vector<std::byte> field_bytes;
+    ::breadcrumbs::runtime::append_varuint(field_bytes, value.middles()->size());
+    for (const auto& element : *value.middles()) {
+      auto element_bytes = ::encode(element);
+      if (!element_bytes.has_value()) {
+        return std::nullopt;
+      }
+      ::breadcrumbs::runtime::append_varuint(field_bytes, element_bytes->size());
+      ::breadcrumbs::runtime::append_bytes(field_bytes, std::span<const std::byte>(element_bytes->data(), element_bytes->size()));
+    }
+    fields.push_back(::breadcrumbs::runtime::FieldBytes{
+      .field_index = 0U,
+      .bytes = std::move(field_bytes),
+    });
+  }
+  return ::breadcrumbs::runtime::encode_record(4U, fields);
+}
+
+
+std::optional<Group> decode_Group(std::span<const std::byte> input) {
+  const auto parsed = ::breadcrumbs::runtime::parse_record(input);
+  if (!parsed.record.has_value() || parsed.record->record_id != 4U) {
+    return std::nullopt;
+  }
+  GroupBuilder builder;
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 0U); field != nullptr) {
+    std::size_t element_offset = 0U;
+    const auto decoded_count = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
+    if (!decoded_count.value.has_value() || *decoded_count.value > 2U) {
+      return std::nullopt;
+    }
+    const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+    std::vector<::Middle> elements;
+    elements.reserve(element_count);
+    for (std::size_t index = 0U; index < element_count; ++index) {
+      const auto decoded_length = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
+      if (!decoded_length.value.has_value()) {
+        return std::nullopt;
+      }
+      if (*decoded_length.value > field->bytes.size() - element_offset) {
+        return std::nullopt;
+      }
+      const auto element_length = static_cast<std::size_t>(*decoded_length.value);
+      const auto element_bytes = field->bytes.subspan(element_offset, element_length);
+      const auto decoded = ::decode_Middle(element_bytes);
+      if (!decoded.has_value()) {
+        return std::nullopt;
+      }
+      elements.push_back(*decoded);
+      element_offset += element_length;
+    }
+    if (element_offset != field->bytes.size()) {
+      return std::nullopt;
+    }
+    if (!builder.set_middles(std::move(elements))) {
+      return std::nullopt;
+    }
+  }
+  return builder.build();
+}

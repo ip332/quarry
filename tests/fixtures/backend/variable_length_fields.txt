@@ -512,7 +512,23 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     });
   }
   if (value.has_children()) {
-    return std::nullopt;
+    if (value.children()->size() > 3U) {
+      return std::nullopt;
+    }
+    std::vector<std::byte> field_bytes;
+    ::breadcrumbs::runtime::append_varuint(field_bytes, value.children()->size());
+    for (const auto& element : *value.children()) {
+      auto element_bytes = ::encode(element);
+      if (!element_bytes.has_value()) {
+        return std::nullopt;
+      }
+      ::breadcrumbs::runtime::append_varuint(field_bytes, element_bytes->size());
+      ::breadcrumbs::runtime::append_bytes(field_bytes, std::span<const std::byte>(element_bytes->data(), element_bytes->size()));
+    }
+    fields.push_back(::breadcrumbs::runtime::FieldBytes{
+      .field_index = 5U,
+      .bytes = std::move(field_bytes),
+    });
   }
   if (value.has_flags()) {
     if (value.flags()->size() > 3U) {
@@ -720,8 +736,38 @@ std::optional<Example> decode_Example(std::span<const std::byte> input) {
       return std::nullopt;
     }
   }
-  if (::breadcrumbs::runtime::find_field(*parsed.record, 5U) != nullptr) {
-    return std::nullopt;
+  if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 5U); field != nullptr) {
+    std::size_t element_offset = 0U;
+    const auto decoded_count = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
+    if (!decoded_count.value.has_value() || *decoded_count.value > 3U) {
+      return std::nullopt;
+    }
+    const auto element_count = static_cast<std::size_t>(*decoded_count.value);
+    std::vector<::Child> elements;
+    elements.reserve(element_count);
+    for (std::size_t index = 0U; index < element_count; ++index) {
+      const auto decoded_length = ::breadcrumbs::runtime::read_varuint(field->bytes, element_offset);
+      if (!decoded_length.value.has_value()) {
+        return std::nullopt;
+      }
+      if (*decoded_length.value > field->bytes.size() - element_offset) {
+        return std::nullopt;
+      }
+      const auto element_length = static_cast<std::size_t>(*decoded_length.value);
+      const auto element_bytes = field->bytes.subspan(element_offset, element_length);
+      const auto decoded = ::decode_Child(element_bytes);
+      if (!decoded.has_value()) {
+        return std::nullopt;
+      }
+      elements.push_back(*decoded);
+      element_offset += element_length;
+    }
+    if (element_offset != field->bytes.size()) {
+      return std::nullopt;
+    }
+    if (!builder.set_children(std::move(elements))) {
+      return std::nullopt;
+    }
   }
   if (const auto* field = ::breadcrumbs::runtime::find_field(*parsed.record, 6U); field != nullptr) {
     std::size_t element_offset = 0U;

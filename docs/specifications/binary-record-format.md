@@ -450,9 +450,32 @@ For `array<bytes>`, each element data region is arbitrary raw bytes. The
 per-element `max_bytes` bound is measured in raw bytes. No UTF-8 validation
 applies.
 
-The empty array payload is exactly `00`. An array containing one empty element
-is encoded as `01 00`: element count one followed by an element length of zero.
-These are distinct from an absent array, which has no Field Directory entry.
+For `array<record>`, each element SHALL begin with an unsigned LEB128 `varuint`
+`elementLength`, followed by exactly `elementLength` bytes containing one
+complete embedded Binary Record Format record. The element length covers the
+complete embedded record, including its 16-byte Record Header, Field Directory,
+and Payload.
+
+Every record-array element encodes its own `recordId`, `headerVersion`, flags,
+reserved fields, Field Directory, and `payloadLength`. Generated decoders SHALL
+validate every element by passing the isolated element bytes to the referenced
+record's generated decoder. Wrong element `recordId` values, unsupported
+versions, nonzero flags, nonzero reserved fields, malformed embedded payload
+lengths, malformed embedded Field Directories, malformed known element fields,
+and trailing bytes inside an element cause decoding of the containing array to
+fail.
+
+Record-array elements are independently decodable: an element byte sequence
+extracted from the array can be decoded by the referenced record's generated
+decoder without runtime Schema IR.
+
+The empty array payload is exactly `00`. For length-delimited `array<string>`
+and `array<bytes>` payloads, an array containing one empty element is encoded
+as `01 00`: element count one followed by an element length of zero. These are
+distinct from an absent array, which has no Field Directory entry. For record
+arrays, an array containing one empty record is distinct again: it is encoded
+as element count one, the embedded empty record length, and the complete
+embedded empty record bytes.
 
 Generated C++ codecs currently support arrays of:
 
@@ -464,6 +487,7 @@ Generated C++ codecs currently support arrays of:
   numeric values are declared by the enum
 * `string`
 * `bytes`
+* record references
 
 Generated decoders SHALL reject fixed-width array payloads unless the bytes
 remaining after the count are exactly `element_count * element_width`, computed
@@ -477,10 +501,20 @@ allocating the materialized array and SHALL reject each element whose
 `elementLength` exceeds the schema-defined per-element `max_bytes` bound before
 copying element data.
 
-Arrays of records and nested arrays remain unsupported by the generated C++
-codecs in this revision.
+Generated decoders SHALL reject record-array payloads unless exactly
+`element_count` length-delimited complete embedded records are consumed and no
+trailing bytes remain. Decoders SHALL reject counts greater than `max_elements`
+before allocating the materialized array. Unknown fields inside record elements
+are ignored under the normal generated decode policy after structural
+validation.
+
+Nested arrays remain unsupported by the generated C++ codecs in this revision.
 
 Unbounded arrays are not supported.
+
+The homogeneous-envelope optimization investigated for record arrays is not
+part of BRF v0.1. Record-array elements in v0.1 are length-delimited complete
+embedded records.
 
 ---
 

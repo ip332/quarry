@@ -43,18 +43,20 @@ Current C++ generation behavior:
   * supported present field types are `bool`, fixed-width signed and unsigned
     integers, `f32`, `f64`, `string`, `bytes`, enum references whose declared
     values are all non-negative, arrays of supported fixed-width scalar or
-    non-negative enum element types, arrays of `string` or `bytes`, and record
-    references
+    non-negative enum element types, arrays of `string`, `bytes`, or record
+    references, and record references
   * string encoding validates UTF-8 and returns `std::nullopt` for malformed
     string bytes
   * bytes encoding accepts arbitrary byte sequences
   * arrays of strings and bytes encode an element count followed by one
     length-delimited raw element payload per element; string elements validate
     UTF-8 and bytes elements accept arbitrary byte sequences
+  * arrays of records encode an element count followed by one length-delimited
+    complete embedded BRF record per element
   * record references encode by calling the referenced record's generated
     encoder and storing the complete embedded BRF record bytes as the parent
     field payload
-  * present arrays of records and nested arrays return `std::nullopt`
+  * present nested arrays return `std::nullopt`
   * unknown-field preservation remains out of scope
 * generates `decode_RecordName(std::span<const std::byte>)` overloads that
   return `std::optional<RecordName>`
@@ -67,8 +69,8 @@ Current C++ generation behavior:
   * supported known field types match the encoder subset: `bool`, fixed-width
     signed and unsigned integers, `f32`, `f64`, `string`, `bytes`,
     non-negative enum references, arrays of supported fixed-width scalar or
-    non-negative enum element types, arrays of `string` or `bytes`, and record
-    references
+    non-negative enum element types, arrays of `string`, `bytes`, or record
+    references, and record references
   * string decoding validates UTF-8 and returns `std::nullopt` for malformed
     string bytes
   * bytes decoding accepts arbitrary byte sequences
@@ -78,10 +80,13 @@ Current C++ generation behavior:
   * arrays of strings and bytes decode one length-delimited raw element payload
     per element, enforce per-element `max_bytes`, validate UTF-8 for string
     elements, and preserve empty elements distinctly from empty arrays
+  * arrays of records decode one length-delimited complete embedded BRF record
+    per element, verify every element through the referenced record's generated
+    decoder, and preserve empty records distinctly from empty arrays
   * record references decode by passing the bounded parent field span to the
     referenced record's generated decoder, which verifies the nested
     `record_id`, BRF version, flags, reserved fields, and payload length
-  * present arrays of records and nested arrays return `std::nullopt`
+  * present nested arrays return `std::nullopt`
   * decoded values are materialized through the generated builder, preserving
     presence and existing bounds validation
 * preserves declaration order unless record dependencies force a deterministic
