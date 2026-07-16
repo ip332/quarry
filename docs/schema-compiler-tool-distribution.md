@@ -124,17 +124,26 @@ internals remain uninstalled even though the executable itself is installed.
 
 ## Downstream Generated-Code Workflow
 
-Generated C++ files are downstream-owned artifacts. The first supported
-installed-tool workflow should be direct CLI invocation, not a CMake helper.
+Generated C++ files are downstream-owned artifacts. The supported installed
+tool workflow is direct CMake invocation of the imported executable target, not
+a CMake helper.
 
-Recommended initial downstream contract:
+Supported downstream contract:
 
 * users choose whether to check generated files into source control or generate
   them in CI/build steps
+* generated outputs are listed explicitly in `add_custom_command(OUTPUT ...)`
+* the generated output directory is added as an include directory by the caller
+* generated files are attached to the caller's targets
+* schema files are declared as custom-command dependencies
 * generated files are compiled by the downstream project
 * generated code includes the installed runtime and links `Breadcrumbs::runtime`
+* CMake rebuilds generated files when the listed schema dependency is newer
+  than the listed generated output
 * stale-output cleanup remains caller-owned
 * one compiler invocation handles one schema input
+* generated C++ should be regenerated after schema changes and when upgrading
+  Breadcrumbs releases
 
 Build-system integration remains deferred because a helper must define:
 
@@ -156,8 +165,27 @@ existing `Breadcrumbs` package:
 ```cmake
 find_package(Breadcrumbs CONFIG REQUIRED)
 
+set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(generated_header "${generated_dir}/breadcrumbs/telemetry.generated.hpp")
+
 add_custom_command(
-    COMMAND $<TARGET_FILE:Breadcrumbs::schema_compiler> ...)
+    OUTPUT "${generated_header}"
+    COMMAND
+        "$<TARGET_FILE:Breadcrumbs::schema_compiler>"
+        --output-directory "${generated_dir}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/schema.brd"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/schema.brd"
+        Breadcrumbs::schema_compiler
+    VERBATIM
+)
+
+add_executable(app
+    main.cpp
+    "${generated_header}"
+)
+target_include_directories(app PRIVATE "${generated_dir}")
+target_link_libraries(app PRIVATE Breadcrumbs::runtime)
 ```
 
 `Breadcrumbs::schema_compiler` should identify the executable from the same
@@ -259,7 +287,8 @@ A future PR should define and test:
 
 ## Future Implementation Sequence
 
-1. Add a minimal downstream `add_custom_command()` example that generates C++
-   and compiles it against `Breadcrumbs::runtime`.
+1. Publish and test the minimal downstream `add_custom_command()` example that
+   generates C++ and compiles it against `Breadcrumbs::runtime`. Completed by
+   `examples/cpp/schema_compiler_cmake`.
 2. Decide whether a generation helper is justified only after output enumeration,
    dependency tracking, and cross-compilation host-tool behavior are specified.

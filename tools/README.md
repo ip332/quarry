@@ -97,8 +97,13 @@ helper is provided.
 In CMake, invoke the imported executable target through a generator expression:
 
 ```cmake
+find_package(Breadcrumbs CONFIG REQUIRED)
+
+set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(generated_header "${generated_dir}/breadcrumbs/telemetry.generated.hpp")
+
 add_custom_command(
-    OUTPUT "${generated_dir}/breadcrumbs/telemetry.generated.hpp"
+    OUTPUT "${generated_header}"
     COMMAND
         "$<TARGET_FILE:Breadcrumbs::schema_compiler>"
         --output-directory "${generated_dir}"
@@ -108,10 +113,19 @@ add_custom_command(
         Breadcrumbs::schema_compiler
     VERBATIM
 )
+
+add_executable(app
+    main.cpp
+    "${generated_header}"
+)
+target_include_directories(app PRIVATE "${generated_dir}")
+target_link_libraries(app PRIVATE Breadcrumbs::runtime)
 ```
 
 Downstream projects currently own the generated-output list, include directory,
 target source attachment, dependency declaration, and stale-output cleanup.
+`examples/cpp/schema_compiler_cmake` is the canonical tested example for this
+manual integration pattern.
 
 The installed executable links private Breadcrumbs compiler libraries into the
 tool binary. It may still depend on system or package-manager-provided dynamic

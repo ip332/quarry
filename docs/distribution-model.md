@@ -32,6 +32,11 @@ $<TARGET_FILE:Breadcrumbs::schema_compiler>
 The runtime is header-only. Installed consumers should not need
 repository-relative include paths.
 
+The supported manual CMake generation pattern is documented and tested in
+`examples/cpp/schema_compiler_cmake`. Breadcrumbs does not currently provide
+CMake code-generation helpers, depfiles, manifest files, or stale-output
+cleanup.
+
 ## Artifact Classification
 
 | Artifact | Current target or location | External role | Classification |

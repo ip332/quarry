@@ -6,6 +6,9 @@ Current examples:
 
 * `cpp/basic_encode_decode`: minimal C++ runtime package consumer using
   `find_package(Breadcrumbs CONFIG REQUIRED)` and `Breadcrumbs::runtime`.
+* `cpp/schema_compiler_cmake`: canonical downstream CMake pattern using
+  `Breadcrumbs::schema_compiler` in `add_custom_command()` and compiling the
+  generated C++ against `Breadcrumbs::runtime`.
 
 Language-specific examples should be added only with corresponding language
 runtime or generator support.

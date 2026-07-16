@@ -8,4 +8,5 @@ exported as `Breadcrumbs::schema_compiler`. The runtime lives in `runtime/`
 because it is generic binary-record support consumed by generated C++
 artifacts; the compiler tool lives in `tools/`. See
 `docs/distribution-model.md` for the supported downstream distribution
-boundary.
+boundary and `examples/cpp/schema_compiler_cmake` for the canonical manual
+CMake generation pattern.

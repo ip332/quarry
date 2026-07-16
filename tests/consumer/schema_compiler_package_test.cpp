@@ -163,7 +163,7 @@ TEST(SchemaCompilerPackageTest, ImportedExecutableTargetGeneratesDownstreamCode)
     EXPECT_EQ(generated.find(BREADCRUMBS_TEST_BUILD_DIR), std::string::npos);
 
     const std::filesystem::path executable =
-        consumer_build / "schema_compiler_package_consumer";
+        consumer_build / "breadcrumbs_schema_compiler_cmake";
     expect_success(run_executable(executable, {}, root, "run-consumer"),
                    "run external consumer");
 

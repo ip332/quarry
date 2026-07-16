@@ -53,11 +53,12 @@ $<TARGET_FILE:Breadcrumbs::schema_compiler>
 ```
 
 Generated code should link against `Breadcrumbs::runtime`. Downstream projects
-currently own their own `add_custom_command()` wiring and expected generated
-output lists.
+currently own their own `add_custom_command()` wiring, expected generated
+output lists, generated include directories, target source attachment, and
+stale-output cleanup. The canonical pattern is shown in
+`examples/cpp/schema_compiler_cmake`.
 
-A minimal installed-package example is available in
-`examples/cpp/basic_encode_decode`.
+Minimal installed-package examples are available in `examples/cpp/`.
 
 The supported downstream distribution model is defined in
 `docs/distribution-model.md`. The installed SDK currently consists of the

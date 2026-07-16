@@ -81,7 +81,7 @@ target_compile_definitions(schema_compiler_package_test PRIVATE
     BREADCRUMBS_TEST_CMAKE_COMMAND="${CMAKE_COMMAND}"
     BREADCRUMBS_TEST_BUILD_DIR="${CMAKE_BINARY_DIR}"
     BREADCRUMBS_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
-    BREADCRUMBS_SCHEMA_COMPILER_PACKAGE_CONSUMER_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/consumer/schema_compiler_package/project")
+    BREADCRUMBS_SCHEMA_COMPILER_PACKAGE_CONSUMER_SOURCE_DIR="${CMAKE_SOURCE_DIR}/examples/cpp/schema_compiler_cmake")
 add_breadcrumbs_gtest(schema_compiler_tool_test tools/schema_compiler_tool_test.cpp
                       breadcrumbs_compiler_support)
 add_dependencies(schema_compiler_tool_test breadcrumbs_schema_compiler)
