@@ -121,25 +121,55 @@ Build-system integration remains deferred because a helper must define:
 * multi-config generator behavior
 * cross-compilation host-tool discovery
 
-## Package Discovery Options
+## Future Installed Discovery Policy
 
-Evaluated options:
+The selected future native CMake discovery model is an imported executable
+target in the existing `Breadcrumbs` package:
 
-* **Keep source-tree-only:** selected for now. This preserves the runtime-only
-  SDK boundary and avoids promising unstabilized tool behavior.
-* **Install standalone CLI only:** viable next step after relocatability,
-  dependency, version, and CLI-contract work. It should not install compiler
-  libraries or headers.
-* **Install CLI and imported executable target:** useful after standalone CLI
-  installation is stable. `Breadcrumbs::schema_compiler` would be used only in
-  `add_custom_command`, not linked.
-* **Install CLI with CMake generation helper:** deferred until output
-  enumeration and host-tool semantics are precise.
+```cmake
+find_package(Breadcrumbs CONFIG REQUIRED)
+
+add_custom_command(
+    COMMAND $<TARGET_FILE:Breadcrumbs::schema_compiler> ...)
+```
+
+`Breadcrumbs::schema_compiler` should identify the executable from the same
+installation prefix selected by `find_package(Breadcrumbs ...)`. It is a tool
+target used in custom commands, not a link target, and it must not expose
+compiler libraries, compiler headers, generated Schema IR protobuf targets, or
+backend internals.
+
+The imported target should be added only after a prior PR installs the
+standalone executable and verifies relocatability and runtime dependency
+lookup from a clean prefix. Until then the compiler remains source-tree-only.
+
+Evaluated discovery options:
+
+* **PATH-only discovery:** rejected as the primary CMake model. It is simple
+  and may remain useful for manual invocation, but it cannot guarantee that the
+  compiler comes from the same prefix as the selected runtime package when
+  multiple Breadcrumbs versions are installed.
+* **Imported executable target:** selected for the first native-build CMake
+  discovery contract after executable relocatability is proven. It is
+  relocatable, prefix-scoped, works naturally with multi-config generators via
+  `$<TARGET_FILE:...>`, and keeps compiler internals private.
+* **Package variable:** rejected as the primary interface because an imported
+  executable target carries target semantics more robustly than a raw absolute
+  path. A future override variable may still be useful for host-tool selection.
+* **Runtime and compiler package components:** deferred. Components add failure
+  and packaging semantics before there is a proven need to install runtime and
+  compiler independently.
+* **Separate compiler package:** deferred. It may become relevant for
+  cross-compilation or host-tools packaging, but it fragments the current small
+  SDK before those requirements are concrete.
+* **CMake generation helper:** deferred until output enumeration, depfiles,
+  stale-output behavior, and host-tool overrides are specified.
 * **Expose compiler SDK:** rejected. Compiler libraries and generated protobufs
   are source-tree implementation details.
 
-No CMake package components are needed while only the runtime is installed.
-Components can be considered when an installed compiler executable exists.
+No CMake package components are needed for the next compiler discovery step.
+Components can be reconsidered only if runtime and compiler packaging become
+independently installable products.
 
 ## Version Compatibility
 
@@ -147,17 +177,48 @@ The repository does not yet enforce broad cross-version compatibility among
 the compiler, generated code, runtime, generated-code API, schema-language
 version, and BRF version.
 
-Initial safe rule for a future installed compiler:
+The selected pre-1.0 release policy is: same-release compiler/runtime usage is
+recommended, while generated-source compatibility is mechanically enforced only
+by `kGeneratedCodeApiVersion`.
+
+Compatibility boundaries:
 
 * generated C++ should be compiled against the `Breadcrumbs::runtime` package
-  from the same Breadcrumbs release
+  from the same Breadcrumbs release as the compiler that generated it
 * generated files contain a generated-code API compatibility guard that catches
   incompatible runtime headers at compile time
-* newer or older runtime release compatibility is not promised until tests cover
-  mixed-release use
-* the CLI exposes its version for scripts and diagnostics
+* compatible mismatched package releases are not intentionally rejected when the
+  generated-code API version still matches
+* newer or older runtime release compatibility is not promised as a tested
+  workflow until mixed-release tests exist
+* the CLI `--version` output is the Breadcrumbs package release version
 * BRF v0.1 compatibility remains a wire-format concern, not a promise that any
   generated-code API version can use any runtime package version
+* schema-language compatibility and compiler CLI compatibility are separate
+  contracts from generated C++ source compatibility
+
+Compiler execution and generated-code compilation are separate stages. Running
+the compiler reads schemas and writes generated source; it does not need an
+installed runtime package at execution time. Compiling the generated source is
+where runtime headers are required and where `kGeneratedCodeApiVersion` is
+checked.
+
+`breadcrumbs-schema-compiler --version` reports the Breadcrumbs package release
+only. It is not the generated-code API version, BRF wire-format version,
+schema-language version, or a runtime ABI version. No additional CLI option for
+the generated-code API version is planned until a downstream build has a
+demonstrated need to query it before generation.
+
+Multiple installed versions are expected to be controlled through the selected
+CMake package prefix. A future `Breadcrumbs::schema_compiler` target should
+come from that prefix, avoiding accidental PATH selection of a compiler from a
+different installation. Manual PATH invocation remains inherently caller-owned.
+
+Cross-compilation remains deferred. The schema compiler is a host executable,
+while `Breadcrumbs::runtime` is a target-side header-only package. A future
+cross-compilation contract may require a host-tools package, a user-supplied
+compiler executable override, or separate package discovery. The native-build
+imported target policy must not be described as cross-compilation support.
 
 ## Minimum Prerequisites Before Installation
 
@@ -167,18 +228,19 @@ test:
 * deterministic output without timestamps or machine-specific paths
 * installed executable relocatability on supported platforms
 * dynamic dependency policy for libyaml, Protobuf, and absl
-* whether installed compiler discovery requires exact package release matching
-  or only generated-code API compatibility
-* whether the executable is discoverable by `find_program` only or by an
-  imported executable target
+* clean-prefix execution of the installed executable
+* package-prefix-scoped imported executable discovery as
+  `Breadcrumbs::schema_compiler`
+* whether a host-tool override is needed before claiming cross-compilation
+  support
 
 ## Future Implementation Sequence
 
-1. Decide whether installed compiler discovery requires exact package release
-   matching or only generated-code API compatibility.
-2. Install the standalone executable without compiler headers or libraries;
+1. Install the standalone executable without compiler headers or libraries;
    verify relocatability from a temporary prefix.
-3. Add optional CMake package discovery for the executable, likely as an
-   imported executable target.
-4. Define a narrow CMake generation helper only after output enumeration,
+2. Add `Breadcrumbs::schema_compiler` as an imported executable target in the
+   existing package; verify that it resolves from the selected package prefix.
+3. Add a minimal downstream `add_custom_command()` example that generates C++
+   and compiles it against `Breadcrumbs::runtime`.
+4. Decide whether a generation helper is justified only after output enumeration,
    dependency tracking, and cross-compilation host-tool behavior are specified.

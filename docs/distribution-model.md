@@ -63,11 +63,14 @@ separate from package release version and BRF wire-format version.
 Install the runtime and `breadcrumbs-schema-compiler`.
 
 This is deferred. The schema compiler command is useful, but its distribution
-contract is not yet stable: CLI packaging, dependency discovery for libyaml,
-Protobuf and absl, generated-output layout, and source-loading/import behavior
-all need explicit support before the executable becomes an installed SDK tool.
+contract is not yet implemented: executable relocatability, dependency
+discovery for libyaml, Protobuf and absl, generated-output layout, and
+source-loading/import behavior all need explicit support before the executable
+becomes an installed SDK tool.
 `docs/schema-compiler-tool-distribution.md` owns the detailed tool-distribution
-contract and prerequisites.
+contract. The selected future native CMake discovery model is an imported
+executable target named `Breadcrumbs::schema_compiler` in the existing package,
+after a standalone executable install PR proves clean-prefix execution.
 
 ### Full SDK
 
@@ -106,8 +109,10 @@ not a downstream packaging promise.
 Future install/export expansion should be preceded by a separate distribution
 decision. In particular:
 
-* installing `breadcrumbs-schema-compiler` needs a stable CLI and dependency
-  packaging story
+* installing `breadcrumbs-schema-compiler` needs relocatable clean-prefix
+  execution and a dependency packaging story
+* exposing `Breadcrumbs::schema_compiler` should happen only after the
+  executable itself is installable
 * installing compiler libraries needs a public compiler SDK contract
 * generated-code CMake helper functions need a stable compiler invocation
   model

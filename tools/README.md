@@ -85,3 +85,8 @@ also contain a narrow compile-time generated-code API guard against incompatible
 runtime headers. That guard does not enforce exact release equality or BRF wire
 compatibility. Users should regenerate generated code when upgrading
 Breadcrumbs.
+
+The compiler remains source-tree-only. A future installed native CMake workflow
+is expected to expose the tool as `Breadcrumbs::schema_compiler` from the same
+`Breadcrumbs` package prefix as `Breadcrumbs::runtime`, but no executable
+install rule or imported target exists yet.

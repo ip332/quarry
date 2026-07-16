@@ -89,7 +89,10 @@ classifies generated code, generated protobufs, tools, tests, fuzzers, and
 examples.
 `docs/schema-compiler-tool-distribution.md` records why
 `breadcrumbs-schema-compiler` remains a source-tree tool and what must stabilize
-before it can become an installed executable.
+before it can become an installed executable. Its selected future native CMake
+discovery shape is an imported executable target,
+`Breadcrumbs::schema_compiler`, added only after standalone executable
+installation and clean-prefix execution are proven.
 
 ---
 
