@@ -50,5 +50,7 @@ A minimal installed-package example is available in
 
 The supported downstream distribution model is defined in
 `docs/distribution-model.md`. The installed SDK currently consists of the
-header-only runtime package only; compiler libraries, generated protobufs,
-tests, fuzzers, and tools remain source-tree artifacts.
+header-only runtime package plus the standalone `breadcrumbs-schema-compiler`
+executable. Compiler libraries, generated protobufs, tests, and fuzzers remain
+source-tree artifacts. The compiler executable is not yet exposed as a CMake
+target or generation helper.

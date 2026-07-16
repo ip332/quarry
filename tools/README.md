@@ -86,7 +86,15 @@ runtime headers. That guard does not enforce exact release equality or BRF wire
 compatibility. Users should regenerate generated code when upgrading
 Breadcrumbs.
 
-The compiler remains source-tree-only. A future installed native CMake workflow
-is expected to expose the tool as `Breadcrumbs::schema_compiler` from the same
-`Breadcrumbs` package prefix as `Breadcrumbs::runtime`, but no executable
-install rule or imported target exists yet.
+The compiler executable is installed to the package executable directory, such
+as `<prefix>/bin/breadcrumbs-schema-compiler` on platforms using the default
+GNU install layout. Installed use is direct invocation by absolute path or
+`PATH`. The executable is not yet exposed as `Breadcrumbs::schema_compiler`,
+there is no package component for compiler tools, and no CMake generation
+helper is provided.
+
+The installed executable links private Breadcrumbs compiler libraries into the
+tool binary. It may still depend on system or package-manager-provided dynamic
+libraries such as libyaml, Protobuf, and absl according to the platform and
+build configuration. Those third-party libraries are not bundled by
+Breadcrumbs.

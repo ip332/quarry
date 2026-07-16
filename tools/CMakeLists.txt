@@ -18,3 +18,7 @@ target_compile_definitions(breadcrumbs_schema_compiler
     PRIVATE
         BREADCRUMBS_VERSION="${PROJECT_VERSION}"
 )
+
+install(TARGETS breadcrumbs_schema_compiler
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)

@@ -1,17 +1,18 @@
 # Schema Compiler Tool Distribution
 
-`breadcrumbs-schema-compiler` remains a source-tree tool. It should not be
-installed or exposed through the `Breadcrumbs` CMake package until the command,
-dependency, and downstream generation contracts below are stabilized.
+`breadcrumbs-schema-compiler` is installed as a standalone executable. It is
+not yet exposed through the `Breadcrumbs` CMake package and does not make
+compiler libraries, compiler headers, generated protobuf targets, or CMake
+generation helpers public.
 
 ## Current Consumers
 
 | Consumer | Current status | Required stability before installation |
 | --- | --- | --- |
 | Repository developers | Supported from the build tree | Existing tests and docs are sufficient |
-| External users invoking manually | Not yet a supported installed workflow | Relocatable executable, version reporting, and documented dependency behavior |
+| External users invoking manually | Supported by direct installed executable path or `PATH` | CMake package discovery remains deferred |
 | Downstream CMake builds | Not yet supported | Host-tool discovery, declared outputs, dependency tracking, and generated include semantics |
-| Package maintainers | Not yet supported | Install rules, runtime dependency policy, and package/component layout |
+| Package maintainers | Runtime package plus standalone executable | Imported executable target and component layout remain deferred |
 | CI code-generation steps | Build-tree only | Stable CLI, deterministic outputs, and clear generated-file ownership |
 | Future language SDK generators | Deferred | Generator selection and language-specific SDK contracts |
 
@@ -59,6 +60,15 @@ Current behavior:
   arguments are passed directly to the process
 * supports `--version` as a terminal informational option
 
+Installed executable boundary:
+
+* installed to `${CMAKE_INSTALL_BINDIR}` as `breadcrumbs-schema-compiler`
+* may be invoked directly by absolute path or through the process `PATH`
+* not exposed as `Breadcrumbs::schema_compiler`
+* not exposed through package components
+* no package variable points to the compiler executable
+* no CMake code-generation helper is provided
+
 Implementation behavior that is not yet an installed-tool contract:
 
 * no machine-readable diagnostics
@@ -77,23 +87,32 @@ the version and does not generate files.
 
 ## Dependency and Relocatability Findings
 
-Installing only the executable is conceptually possible because downstream
-users do not need compiler headers or libraries to execute a CLI. It is not yet
-a supported package boundary because the current tool links compiler
-implementation libraries that depend on:
+The installed executable links private Breadcrumbs compiler implementation
+libraries into the tool binary. It does not require uninstalled Breadcrumbs
+shared libraries at runtime in the tested configuration.
+
+The executable may still depend dynamically on package-manager or system
+libraries selected by the build:
 
 * libyaml
 * Protobuf runtime libraries
 * absl libraries selected by the local Protobuf package
-* build-generated Schema IR protobuf C++
 
-The source tree currently proves that the executable builds and runs from the
-build directory. It does not prove that an installed executable is relocatable
-across platforms, that dynamic library lookup works after installation, or that
-package managers can discover and bundle the same dependency set.
+Those third-party libraries are not bundled or installed by Breadcrumbs in this
+PR. Users and package managers are expected to provide compatible dynamic
+dependencies through normal platform loader behavior.
+
+The clean-prefix installed executable test installs Breadcrumbs beneath a
+temporary prefix whose path contains spaces, invokes
+`<prefix>/<bindir>/breadcrumbs-schema-compiler --version`, `--help`, and a
+representative schema compilation from an unrelated working directory with
+absolute input and output paths. It verifies generated output, absence of stale
+temporary files, absence of source/build paths in generated content, and absence
+of a package-exported `Breadcrumbs::schema_compiler` target. It does not rename
+or make the original source and build directories inaccessible.
 
 Compiler libraries, compiler headers, generated protobuf targets, and backend
-internals should remain uninstalled even if a future PR installs the executable.
+internals remain uninstalled even though the executable itself is installed.
 
 ## Downstream Generated-Code Workflow
 
@@ -123,7 +142,7 @@ Build-system integration remains deferred because a helper must define:
 
 ## Future Installed Discovery Policy
 
-The selected future native CMake discovery model is an imported executable
+The selected future native CMake discovery model remains an imported executable
 target in the existing `Breadcrumbs` package:
 
 ```cmake
@@ -139,9 +158,8 @@ target used in custom commands, not a link target, and it must not expose
 compiler libraries, compiler headers, generated Schema IR protobuf targets, or
 backend internals.
 
-The imported target should be added only after a prior PR installs the
-standalone executable and verifies relocatability and runtime dependency
-lookup from a clean prefix. Until then the compiler remains source-tree-only.
+The imported target is still deferred. The standalone executable is installed,
+but package discovery for it is not part of the current public CMake contract.
 
 Evaluated discovery options:
 
@@ -149,8 +167,8 @@ Evaluated discovery options:
   and may remain useful for manual invocation, but it cannot guarantee that the
   compiler comes from the same prefix as the selected runtime package when
   multiple Breadcrumbs versions are installed.
-* **Imported executable target:** selected for the first native-build CMake
-  discovery contract after executable relocatability is proven. It is
+* **Imported executable target:** selected for the next native-build CMake
+  discovery contract after standalone executable installation. It is
   relocatable, prefix-scoped, works naturally with multi-config generators via
   `$<TARGET_FILE:...>`, and keeps compiler internals private.
 * **Package variable:** rejected as the primary interface because an imported
@@ -222,13 +240,9 @@ imported target policy must not be described as cross-compilation support.
 
 ## Minimum Prerequisites Before Installation
 
-Before installing `breadcrumbs-schema-compiler`, a future PR should define and
+Before exposing `Breadcrumbs::schema_compiler`, a future PR should define and
 test:
 
-* deterministic output without timestamps or machine-specific paths
-* installed executable relocatability on supported platforms
-* dynamic dependency policy for libyaml, Protobuf, and absl
-* clean-prefix execution of the installed executable
 * package-prefix-scoped imported executable discovery as
   `Breadcrumbs::schema_compiler`
 * whether a host-tool override is needed before claiming cross-compilation
@@ -236,11 +250,9 @@ test:
 
 ## Future Implementation Sequence
 
-1. Install the standalone executable without compiler headers or libraries;
-   verify relocatability from a temporary prefix.
-2. Add `Breadcrumbs::schema_compiler` as an imported executable target in the
+1. Add `Breadcrumbs::schema_compiler` as an imported executable target in the
    existing package; verify that it resolves from the selected package prefix.
-3. Add a minimal downstream `add_custom_command()` example that generates C++
+2. Add a minimal downstream `add_custom_command()` example that generates C++
    and compiles it against `Breadcrumbs::runtime`.
-4. Decide whether a generation helper is justified only after output enumeration,
+3. Decide whether a generation helper is justified only after output enumeration,
    dependency tracking, and cross-compilation host-tool behavior are specified.
