@@ -2,8 +2,10 @@ add_executable(breadcrumbs_schema_compiler
     schema_compiler/main.cpp
 )
 set_target_properties(breadcrumbs_schema_compiler PROPERTIES
+    EXPORT_NAME schema_compiler
     OUTPUT_NAME breadcrumbs-schema-compiler
 )
+add_executable(Breadcrumbs::schema_compiler ALIAS breadcrumbs_schema_compiler)
 target_link_libraries(breadcrumbs_schema_compiler
     PRIVATE
         breadcrumbs_compiler_backend
@@ -20,5 +22,6 @@ target_compile_definitions(breadcrumbs_schema_compiler
 )
 
 install(TARGETS breadcrumbs_schema_compiler
+    EXPORT BreadcrumbsTargets
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )

@@ -21,20 +21,11 @@ namespace {
     const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
     const std::filesystem::path directory =
         std::filesystem::temp_directory_path() /
-        (std::string("breadcrumbs-schema-compiler-install-") + std::string(stem) + "-" +
+        (std::string("breadcrumbs-schema-compiler-package-") + std::string(stem) + "-" +
          std::to_string(suffix));
     std::filesystem::remove_all(directory);
     std::filesystem::create_directories(directory);
     return directory;
-}
-
-void write_text_file(const std::filesystem::path& path, std::string_view text) {
-    std::filesystem::create_directories(path.parent_path());
-    std::ofstream output{path};
-    if (!output) {
-        throw std::runtime_error("failed to open test file for writing: " + path.string());
-    }
-    output << text;
 }
 
 [[nodiscard]] std::string read_text_file(const std::filesystem::path& path) {
@@ -60,12 +51,11 @@ struct CommandResult {
 
     int status = 125;
 #ifdef _WIN32
-    throw std::runtime_error(
-        "direct subprocess installed compiler tests are not implemented on Windows");
+    throw std::runtime_error("direct subprocess package tests are not implemented on Windows");
 #else
     const pid_t child = fork();
     if (child < 0) {
-        throw std::runtime_error("failed to fork installed compiler subprocess");
+        throw std::runtime_error("failed to fork package test subprocess");
     }
 
     if (child == 0) {
@@ -109,7 +99,7 @@ struct CommandResult {
 
     int wait_status = 0;
     if (waitpid(child, &wait_status, 0) < 0) {
-        throw std::runtime_error("failed to wait for installed compiler subprocess");
+        throw std::runtime_error("failed to wait for package test subprocess");
     }
 
     status = 128;
@@ -135,75 +125,47 @@ void expect_success(const CommandResult& result, std::string_view step) {
 
 } // namespace
 
-TEST(SchemaCompilerInstallTest, InstalledExecutableRunsFromCleanPrefix) {
+TEST(SchemaCompilerPackageTest, ImportedExecutableTargetGeneratesDownstreamCode) {
 #ifdef _WIN32
-    GTEST_SKIP() << "installed compiler subprocess test is not implemented on Windows";
+    GTEST_SKIP() << "schema compiler package subprocess test is not implemented on Windows";
 #endif
 
-    const std::filesystem::path root = make_temp_directory("prefix with spaces");
+    const std::filesystem::path root = make_temp_directory("consumer with spaces");
     const std::filesystem::path install_prefix = root / "install prefix with spaces";
-    const std::filesystem::path working_directory = root / "working directory with spaces";
-    const std::filesystem::path input_directory = root / "input directory with spaces";
-    const std::filesystem::path output = root / "generated output with spaces";
-    const std::filesystem::path input = input_directory / "schema.brd";
-    std::filesystem::create_directories(working_directory);
-    write_text_file(input,
-                    "namespace: breadcrumbs.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n");
+    const std::filesystem::path consumer_build = root / "consumer build with spaces";
 
     expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
                                   {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
                                    install_prefix.string()},
                                   root, "install"),
-                   "install Breadcrumbs");
+                   "install Breadcrumbs package");
 
-    const std::filesystem::path executable =
-        install_prefix / BREADCRUMBS_TEST_INSTALL_BINDIR / "breadcrumbs-schema-compiler";
-    ASSERT_TRUE(std::filesystem::exists(executable));
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"-S", BREADCRUMBS_SCHEMA_COMPILER_PACKAGE_CONSUMER_SOURCE_DIR,
+                                   "-B", consumer_build.string(),
+                                   "-DCMAKE_PREFIX_PATH=" + install_prefix.string(),
+                                   "-DCMAKE_CXX_COMPILER=" +
+                                       std::string(BREADCRUMBS_TEST_CXX_COMPILER),
+                                   "-DEXPECTED_BREADCRUMBS_PREFIX=" + install_prefix.string()},
+                                  root, "configure-consumer"),
+                   "configure external consumer");
 
-    const CommandResult version = run_executable(executable, {"--version"}, working_directory,
-                                                 "installed-version");
-    EXPECT_EQ(version.status, 0);
-    EXPECT_EQ(version.stdout_text, "breadcrumbs-schema-compiler 0.1.0\n");
-    EXPECT_TRUE(version.stderr_text.empty());
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"--build", consumer_build.string()}, root, "build-consumer"),
+                   "build external consumer");
 
-    const CommandResult help = run_executable(executable, {"--help"}, working_directory,
-                                              "installed-help");
-    EXPECT_EQ(help.status, 0);
-    EXPECT_NE(help.stdout_text.find("breadcrumbs-schema-compiler [options] INPUT"),
-              std::string::npos);
-    EXPECT_TRUE(help.stderr_text.empty());
-
-    const CommandResult compile = run_executable(
-        executable, {"--output-directory", output.string(), input.string()}, working_directory,
-        "installed-compile");
-    EXPECT_EQ(compile.status, 0) << compile.stderr_text;
-    EXPECT_TRUE(compile.stdout_text.empty());
-    EXPECT_TRUE(compile.stderr_text.empty());
-
-    const std::filesystem::path generated_file =
-        output / "breadcrumbs" / "telemetry.generated.hpp";
-    const std::filesystem::path temporary_file =
-        output / "breadcrumbs" / "telemetry.generated.hpp.tmp-breadcrumbs-schema-compiler";
-    ASSERT_TRUE(std::filesystem::exists(generated_file));
-    EXPECT_FALSE(std::filesystem::exists(temporary_file));
-    EXPECT_FALSE(std::filesystem::exists(working_directory / "generated"));
-
-    const std::string generated = read_text_file(generated_file);
+    const std::filesystem::path generated_header =
+        consumer_build / "generated" / "breadcrumbs" / "telemetry.generated.hpp";
+    ASSERT_TRUE(std::filesystem::exists(generated_header));
+    const std::string generated = read_text_file(generated_header);
     EXPECT_NE(generated.find("struct Sample"), std::string::npos);
     EXPECT_NE(generated.find("std::uint32_t"), std::string::npos);
-    EXPECT_EQ(generated.find(BREADCRUMBS_TEST_SOURCE_DIR), std::string::npos);
     EXPECT_EQ(generated.find(BREADCRUMBS_TEST_BUILD_DIR), std::string::npos);
 
-    EXPECT_FALSE(std::filesystem::exists(install_prefix / "include" / "compiler"));
-    EXPECT_FALSE(std::filesystem::exists(install_prefix / "include" / "breadcrumbs" / "schema_ir"));
-    EXPECT_FALSE(std::filesystem::exists(install_prefix / "lib" / "cmake" / "Breadcrumbs" /
-                                         "BreadcrumbsCompilerTargets.cmake"));
+    const std::filesystem::path executable =
+        consumer_build / "schema_compiler_package_consumer";
+    expect_success(run_executable(executable, {}, root, "run-consumer"),
+                   "run external consumer");
 
     const std::filesystem::path targets_file =
         install_prefix / "lib" / "cmake" / "Breadcrumbs" / "BreadcrumbsTargets.cmake";
@@ -213,4 +175,5 @@ TEST(SchemaCompilerInstallTest, InstalledExecutableRunsFromCleanPrefix) {
     EXPECT_EQ(targets.find("breadcrumbs_compiler_backend"), std::string::npos);
     EXPECT_EQ(targets.find("protobuf::"), std::string::npos);
     EXPECT_EQ(targets.find("absl::"), std::string::npos);
+    EXPECT_EQ(targets.find("breadcrumbs_yaml"), std::string::npos);
 }

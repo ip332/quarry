@@ -1,9 +1,10 @@
 # Schema Compiler Tool Distribution
 
-`breadcrumbs-schema-compiler` is installed as a standalone executable. It is
-not yet exposed through the `Breadcrumbs` CMake package and does not make
-compiler libraries, compiler headers, generated protobuf targets, or CMake
-generation helpers public.
+`breadcrumbs-schema-compiler` is installed as a standalone executable and
+exposed through the `Breadcrumbs` CMake package as the imported executable
+target `Breadcrumbs::schema_compiler`. This does not make compiler libraries,
+compiler headers, generated protobuf targets, or CMake generation helpers
+public.
 
 ## Current Consumers
 
@@ -11,8 +12,8 @@ generation helpers public.
 | --- | --- | --- |
 | Repository developers | Supported from the build tree | Existing tests and docs are sufficient |
 | External users invoking manually | Supported by direct installed executable path or `PATH` | CMake package discovery remains deferred |
-| Downstream CMake builds | Not yet supported | Host-tool discovery, declared outputs, dependency tracking, and generated include semantics |
-| Package maintainers | Runtime package plus standalone executable | Imported executable target and component layout remain deferred |
+| Downstream CMake builds | Supported through direct `add_custom_command()` use of `Breadcrumbs::schema_compiler` | Higher-level helper, depfiles, and stale-output cleanup remain deferred |
+| Package maintainers | Runtime package plus imported compiler executable target | Component layout remains deferred |
 | CI code-generation steps | Build-tree only | Stable CLI, deterministic outputs, and clear generated-file ownership |
 | Future language SDK generators | Deferred | Generator selection and language-specific SDK contracts |
 
@@ -64,7 +65,7 @@ Installed executable boundary:
 
 * installed to `${CMAKE_INSTALL_BINDIR}` as `breadcrumbs-schema-compiler`
 * may be invoked directly by absolute path or through the process `PATH`
-* not exposed as `Breadcrumbs::schema_compiler`
+* exposed as imported executable target `Breadcrumbs::schema_compiler`
 * not exposed through package components
 * no package variable points to the compiler executable
 * no CMake code-generation helper is provided
@@ -76,7 +77,6 @@ Implementation behavior that is not yet an installed-tool contract:
 * no generated-output manifest
 * no explicit backend or language selection
 * no import resolution or multi-file source graph
-* no package-discovered compiler target
 * no CMake generation helper
 * no cross-compilation host-tool separation
 
@@ -107,9 +107,17 @@ temporary prefix whose path contains spaces, invokes
 `<prefix>/<bindir>/breadcrumbs-schema-compiler --version`, `--help`, and a
 representative schema compilation from an unrelated working directory with
 absolute input and output paths. It verifies generated output, absence of stale
-temporary files, absence of source/build paths in generated content, and absence
-of a package-exported `Breadcrumbs::schema_compiler` target. It does not rename
-or make the original source and build directories inaccessible.
+temporary files, and absence of source/build paths in generated content. It does
+not rename or make the original source and build directories inaccessible.
+
+The clean-prefix package-discovery test installs Breadcrumbs beneath a temporary
+prefix whose path contains spaces, configures a separate downstream CMake
+project with `find_package(Breadcrumbs CONFIG REQUIRED)`, verifies
+`Breadcrumbs::runtime` and `Breadcrumbs::schema_compiler`, invokes the compiler
+through `$<TARGET_FILE:Breadcrumbs::schema_compiler>` in an `add_custom_command`,
+compiles the generated C++ against `Breadcrumbs::runtime`, and runs the
+downstream executable. The installed target files are inspected to ensure
+compiler implementation libraries and third-party link targets are not exported.
 
 Compiler libraries, compiler headers, generated protobuf targets, and backend
 internals remain uninstalled even though the executable itself is installed.
@@ -140,10 +148,10 @@ Build-system integration remains deferred because a helper must define:
 * multi-config generator behavior
 * cross-compilation host-tool discovery
 
-## Future Installed Discovery Policy
+## Installed Discovery Policy
 
-The selected future native CMake discovery model remains an imported executable
-target in the existing `Breadcrumbs` package:
+The native CMake discovery model is an imported executable target in the
+existing `Breadcrumbs` package:
 
 ```cmake
 find_package(Breadcrumbs CONFIG REQUIRED)
@@ -158,8 +166,10 @@ target used in custom commands, not a link target, and it must not expose
 compiler libraries, compiler headers, generated Schema IR protobuf targets, or
 backend internals.
 
-The imported target is still deferred. The standalone executable is installed,
-but package discovery for it is not part of the current public CMake contract.
+`find_package(Breadcrumbs CONFIG REQUIRED)` selects one installation prefix.
+`Breadcrumbs::schema_compiler` resolves to the executable from that same prefix,
+which avoids accidentally selecting a compiler from another installation
+through `PATH`. Manual PATH invocation remains caller-owned.
 
 Evaluated discovery options:
 
@@ -167,10 +177,10 @@ Evaluated discovery options:
   and may remain useful for manual invocation, but it cannot guarantee that the
   compiler comes from the same prefix as the selected runtime package when
   multiple Breadcrumbs versions are installed.
-* **Imported executable target:** selected for the next native-build CMake
-  discovery contract after standalone executable installation. It is
-  relocatable, prefix-scoped, works naturally with multi-config generators via
-  `$<TARGET_FILE:...>`, and keeps compiler internals private.
+* **Imported executable target:** selected and implemented for native CMake
+  discovery. It is relocatable, prefix-scoped, works naturally with
+  multi-config generators via `$<TARGET_FILE:...>`, and keeps compiler
+  internals private.
 * **Package variable:** rejected as the primary interface because an imported
   executable target carries target semantics more robustly than a raw absolute
   path. A future override variable may still be useful for host-tool selection.
@@ -238,21 +248,18 @@ cross-compilation contract may require a host-tools package, a user-supplied
 compiler executable override, or separate package discovery. The native-build
 imported target policy must not be described as cross-compilation support.
 
-## Minimum Prerequisites Before Installation
+## Deferred Discovery Work
 
-Before exposing `Breadcrumbs::schema_compiler`, a future PR should define and
-test:
+A future PR should define and test:
 
-* package-prefix-scoped imported executable discovery as
-  `Breadcrumbs::schema_compiler`
 * whether a host-tool override is needed before claiming cross-compilation
   support
+* whether a package component is useful if runtime and compiler packaging split
+* whether a CMake generation helper is justified
 
 ## Future Implementation Sequence
 
-1. Add `Breadcrumbs::schema_compiler` as an imported executable target in the
-   existing package; verify that it resolves from the selected package prefix.
-2. Add a minimal downstream `add_custom_command()` example that generates C++
+1. Add a minimal downstream `add_custom_command()` example that generates C++
    and compiles it against `Breadcrumbs::runtime`.
-3. Decide whether a generation helper is justified only after output enumeration,
+2. Decide whether a generation helper is justified only after output enumeration,
    dependency tracking, and cross-compilation host-tool behavior are specified.

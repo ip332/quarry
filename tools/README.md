@@ -89,9 +89,29 @@ Breadcrumbs.
 The compiler executable is installed to the package executable directory, such
 as `<prefix>/bin/breadcrumbs-schema-compiler` on platforms using the default
 GNU install layout. Installed use is direct invocation by absolute path or
-`PATH`. The executable is not yet exposed as `Breadcrumbs::schema_compiler`,
-there is no package component for compiler tools, and no CMake generation
+`PATH`, or through the imported executable target
+`Breadcrumbs::schema_compiler` from `find_package(Breadcrumbs CONFIG REQUIRED)`.
+There is no package component for compiler tools, and no CMake generation
 helper is provided.
+
+In CMake, invoke the imported executable target through a generator expression:
+
+```cmake
+add_custom_command(
+    OUTPUT "${generated_dir}/breadcrumbs/telemetry.generated.hpp"
+    COMMAND
+        "$<TARGET_FILE:Breadcrumbs::schema_compiler>"
+        --output-directory "${generated_dir}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/schema.brd"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/schema.brd"
+        Breadcrumbs::schema_compiler
+    VERBATIM
+)
+```
+
+Downstream projects currently own the generated-output list, include directory,
+target source attachment, dependency declaration, and stale-output cleanup.
 
 The installed executable links private Breadcrumbs compiler libraries into the
 tool binary. It may still depend on system or package-manager-provided dynamic

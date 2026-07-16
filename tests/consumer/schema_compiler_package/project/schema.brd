@@ -1,0 +1,8 @@
+namespace: breadcrumbs.telemetry
+record: Sample
+version: 1
+type: data
+fields:
+  count:
+    type: uint32
+

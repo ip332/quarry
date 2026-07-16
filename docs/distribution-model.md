@@ -9,6 +9,7 @@ source-tree build graph.
 The supported installed SDK surface is:
 
 * `Breadcrumbs::runtime`
+* `Breadcrumbs::schema_compiler`
 * public runtime headers, including
   `<breadcrumbs/runtime/binary_record.hpp>` and
   `<breadcrumbs/runtime/version.hpp>`
@@ -22,6 +23,12 @@ find_package(Breadcrumbs CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE Breadcrumbs::runtime)
 ```
 
+They may invoke the installed compiler with:
+
+```cmake
+$<TARGET_FILE:Breadcrumbs::schema_compiler>
+```
+
 The runtime is header-only. Installed consumers should not need
 repository-relative include paths.
 
@@ -31,8 +38,8 @@ repository-relative include paths.
 | --- | --- | --- | --- |
 | Runtime library | `breadcrumbs_runtime`, exported as `Breadcrumbs::runtime` | Link through CMake and include public runtime headers | Supported public SDK |
 | Runtime headers | `runtime/binary_record.hpp`, `include/breadcrumbs/runtime/binary_record.hpp` | Compile generated or handwritten C++ that uses BRF runtime mechanics | Supported public SDK |
-| CMake package files | `BreadcrumbsConfig.cmake`, `BreadcrumbsConfigVersion.cmake`, `BreadcrumbsTargets.cmake` | Package discovery for the runtime target | Supported public SDK |
-| Schema compiler executable | `breadcrumbs_schema_compiler`, installed as `breadcrumbs-schema-compiler` | Direct CLI invocation by path or `PATH`; not package-discovered | Installed standalone tool |
+| CMake package files | `BreadcrumbsConfig.cmake`, `BreadcrumbsConfigVersion.cmake`, `BreadcrumbsTargets.cmake` | Package discovery for the runtime and schema compiler targets | Supported public SDK |
+| Schema compiler executable | `breadcrumbs_schema_compiler`, exported as `Breadcrumbs::schema_compiler`, installed as `breadcrumbs-schema-compiler` | Direct CLI invocation or CMake command use through `$<TARGET_FILE:...>` | Installed tool target |
 | Generated C++ code | Backend output under caller-selected paths | Owned by the downstream project that generated it | Downstream-owned build artifact |
 | Compiler libraries | `breadcrumbs_compiler_*`, `breadcrumbs_schema_ir_proto` | Internal source-tree composition and tests | Implementation detail |
 | Generated protobuf C++ | Build-tree `schema_ir.pb.*` | Compiler implementation dependency | Implementation detail |
@@ -63,14 +70,12 @@ separate from package release version and BRF wire-format version.
 Install the runtime and `breadcrumbs-schema-compiler`.
 
 This is partially implemented. The standalone executable is installed to the
-standard executable directory and verified from a clean prefix. It remains a
-direct CLI tool only: no package-discovered compiler target, package component,
-compiler libraries, compiler headers, generated protobuf targets, or CMake
-generation helpers are installed.
+standard executable directory, verified from a clean prefix, and exposed through
+the existing package as imported executable target `Breadcrumbs::schema_compiler`.
+No package component, compiler libraries, compiler headers, generated protobuf
+targets, or CMake generation helpers are installed.
 `docs/schema-compiler-tool-distribution.md` owns the detailed tool-distribution
-contract. The selected future native CMake discovery model is an imported
-executable target named `Breadcrumbs::schema_compiler` in the existing package,
-but that target remains deferred.
+contract.
 
 ### Full SDK
 
@@ -94,13 +99,14 @@ The current install/export boundary should remain limited to:
 
 * `install(TARGETS breadcrumbs_runtime EXPORT BreadcrumbsTargets)`
 * `install(TARGETS breadcrumbs_schema_compiler)` as a standalone executable
-  without adding it to the `BreadcrumbsTargets` export set
+  in the `BreadcrumbsTargets` export set
 * installing runtime public headers
 * installing the `Breadcrumbs` config, version, and target files
 * exporting the `Breadcrumbs::runtime` imported target
+* exporting the `Breadcrumbs::schema_compiler` imported executable target
 
 No compiler libraries, generated protobuf targets, tests, fuzzers, examples, or
-schema compiler CMake targets should be exported by the current package.
+schema compiler helper targets should be exported by the current package.
 
 Source-tree compiler targets may keep `PUBLIC` dependencies when public
 source-tree headers require them. That visibility is a build-graph requirement,
@@ -111,10 +117,9 @@ not a downstream packaging promise.
 Future install/export expansion should be preceded by a separate distribution
 decision. In particular:
 
-* exposing `Breadcrumbs::schema_compiler` should happen only after the
-  executable itself is installable
 * installing compiler libraries needs a public compiler SDK contract
 * generated-code CMake helper functions need a stable compiler invocation
   model
+* cross-compilation needs a host-tool discovery or override policy
 * language-specific examples should be introduced with their corresponding
   runtime or generator support
