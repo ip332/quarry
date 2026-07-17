@@ -41,6 +41,11 @@ generated include directory, target source attachment, runtime linkage, and
 stale-output cleanup. The compiler does not currently emit depfiles or
 manifests.
 
+The helper verifies the generated-output inventory at build time before normal
+generation. If the current `--list-outputs` result differs from the configured
+`OUT_FILES` list, the build fails before writing generated files and the project
+must be reconfigured.
+
 The lower-level manual integration pattern remains supported when callers need
 full control over the custom command:
 

@@ -69,6 +69,11 @@ attachment, runtime linkage, and stale-output cleanup. The canonical pattern is
 shown in
 `examples/cpp/schema_compiler_cmake`.
 
+At build time, the helper reruns `--list-outputs` before generation and fails
+before writing files if the current inventory no longer matches the inventory
+captured during CMake configuration. Reconfigure the build after schema or
+compiler changes that affect generated output paths.
+
 The schema compiler also supports `--list-outputs` to print the generated paths
 for a schema and generation options without writing files. This query is backed
 by the backend's internal generation plan, but it is not a CMake helper,

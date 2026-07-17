@@ -49,7 +49,9 @@ The supported helper-based CMake generation pattern is documented and tested in
 `examples/cpp/schema_compiler_cmake`. Breadcrumbs does not provide depfiles,
 manifest files, target mutation, stale-output cleanup, source-tree
 `add_subdirectory()` helper support, cross-compilation support, or host-tool
-overrides.
+overrides. The helper verifies the generated-output inventory at build time
+before normal generation and fails before writing files if the configured
+inventory is stale.
 
 ## Artifact Classification
 

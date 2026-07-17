@@ -45,6 +45,39 @@ void write_text_file(const std::filesystem::path& path, std::string_view text) {
     output << text;
 }
 
+void write_executable_file(const std::filesystem::path& path, std::string_view text) {
+    write_text_file(path, text);
+    std::filesystem::permissions(path,
+                                 std::filesystem::perms::owner_exec |
+                                     std::filesystem::perms::owner_read |
+                                     std::filesystem::perms::owner_write,
+                                 std::filesystem::perm_options::add);
+}
+
+[[nodiscard]] std::string shell_quote(std::string_view text) {
+    std::string quoted = "'";
+    for (const char character : text) {
+        if (character == '\'') {
+            quoted += "'\\''";
+        } else {
+            quoted += character;
+        }
+    }
+    quoted += "'";
+    return quoted;
+}
+
+[[nodiscard]] std::string join_cmake_list(const std::vector<std::filesystem::path>& paths) {
+    std::string joined;
+    for (const std::filesystem::path& path : paths) {
+        if (!joined.empty()) {
+            joined += ';';
+        }
+        joined += path.string();
+    }
+    return joined;
+}
+
 struct CommandResult {
     int status = 0;
     std::string stdout_text;
@@ -316,6 +349,216 @@ TEST(SchemaCompilerPackageTest, HelperReconfiguresWhenSchemaInventoryChanges) {
                                         "telemetry" / "v2.hpp"));
     const std::string outputs = read_text_file(consumer_build / "outputs.txt");
     EXPECT_NE(outputs.find("generated/breadcrumbs/telemetry/v2.hpp"), std::string::npos);
+}
+
+TEST(SchemaCompilerPackageTest, BuildTimeInventoryVerificationReportsDrift) {
+#ifdef _WIN32
+    GTEST_SKIP() << "schema compiler package subprocess test is not implemented on Windows";
+#endif
+
+    const std::filesystem::path root = make_temp_directory("verify outputs");
+    const std::filesystem::path install_prefix = root / "install prefix with spaces";
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+                                   install_prefix.string()},
+                                  root, "install"),
+                   "install Breadcrumbs package");
+
+    const std::filesystem::path module =
+        install_prefix / "lib" / "cmake" / "Breadcrumbs" / "BreadcrumbsGenerate.cmake";
+    const std::filesystem::path schema = root / "schema.brd";
+    const std::filesystem::path output_dir = root / "output dir with spaces";
+    std::filesystem::create_directories(output_dir);
+    write_text_file(schema,
+                    "namespace: breadcrumbs.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields: {}\n");
+
+    auto write_fake_compiler = [&](std::string_view name,
+                                   const std::vector<std::filesystem::path>& outputs,
+                                   std::string_view trailer = {}) {
+        const std::filesystem::path script = root / (std::string(name) + ".sh");
+        std::string body = "#!/bin/sh\n";
+        if (!outputs.empty()) {
+            body += "printf '%s\\n'";
+            for (const std::filesystem::path& output : outputs) {
+                body += " " + shell_quote(output.string());
+            }
+            body += "\n";
+        }
+        body += trailer;
+        write_executable_file(script, body);
+        return script;
+    };
+
+    auto run_verify = [&](std::string_view name, const std::filesystem::path& compiler,
+                          const std::vector<std::filesystem::path>& expected) {
+        return run_executable(
+            BREADCRUMBS_TEST_CMAKE_COMMAND,
+            {"-DBREADCRUMBS_VERIFY_OUTPUT_INVENTORY=TRUE",
+             "-DBREADCRUMBS_VERIFY_COMPILER=" + compiler.string(),
+             "-DBREADCRUMBS_VERIFY_SCHEMA=" + schema.string(),
+             "-DBREADCRUMBS_VERIFY_OUTPUT_DIR=" + output_dir.string(),
+             "-DBREADCRUMBS_VERIFY_EXPECTED_OUTPUTS=" + join_cmake_list(expected), "-P",
+             module.string()},
+            root, name);
+    };
+
+    const std::filesystem::path first = output_dir / "first file.generated.hpp";
+    const std::filesystem::path second = output_dir / "second.generated.hpp";
+    const std::filesystem::path changed = output_dir / "changed.generated.hpp";
+
+    expect_success(run_verify("verify-match", write_fake_compiler("matching", {first, second}),
+                              {first, second}),
+                   "matching verification");
+
+    const CommandResult missing =
+        run_verify("verify-missing", write_fake_compiler("missing", {first}), {first, second});
+    EXPECT_NE(missing.status, 0);
+    EXPECT_NE(missing.stderr_text.find("generated-output inventory changed"),
+              std::string::npos);
+
+    const CommandResult extra = run_verify(
+        "verify-extra", write_fake_compiler("extra", {first, second}), {first});
+    EXPECT_NE(extra.status, 0);
+    EXPECT_NE((extra.stdout_text + extra.stderr_text).find("Current outputs"),
+              std::string::npos);
+
+    const CommandResult changed_result = run_verify(
+        "verify-changed", write_fake_compiler("changed", {changed}), {first});
+    EXPECT_NE(changed_result.status, 0);
+    EXPECT_NE((changed_result.stdout_text + changed_result.stderr_text)
+                  .find("Reconfigure the CMake build"),
+              std::string::npos);
+
+    const CommandResult reordered = run_verify(
+        "verify-reordered", write_fake_compiler("reordered", {second, first}), {first, second});
+    EXPECT_NE(reordered.status, 0);
+
+    const CommandResult duplicate_current = run_verify(
+        "verify-duplicate", write_fake_compiler("duplicate", {first, first}), {first, second});
+    EXPECT_NE(duplicate_current.status, 0);
+    EXPECT_NE(duplicate_current.stderr_text.find("duplicate output"), std::string::npos);
+
+    const CommandResult malformed = run_verify(
+        "verify-malformed", write_fake_compiler("malformed", {first}, "printf '\\n'\n"),
+        {first});
+    EXPECT_NE(malformed.status, 0);
+    EXPECT_NE((malformed.stdout_text + malformed.stderr_text).find("empty output line"),
+              std::string::npos);
+
+    const std::filesystem::path failing = root / "failing.sh";
+    write_executable_file(failing, "#!/bin/sh\necho schema failure >&2\nexit 1\n");
+    const CommandResult query_failure = run_verify("verify-query-failure", failing, {first});
+    EXPECT_NE(query_failure.status, 0);
+    EXPECT_NE((query_failure.stdout_text + query_failure.stderr_text).find("schema failure"),
+              std::string::npos);
+
+    const CommandResult unsafe = run_verify(
+        "verify-unsafe",
+        write_fake_compiler("unsafe", {output_dir / "bad;name.generated.hpp"}), {first});
+    EXPECT_NE(unsafe.status, 0);
+    EXPECT_NE(unsafe.stderr_text.find("semicolon"), std::string::npos);
+
+    const CommandResult outside = run_verify(
+        "verify-outside",
+        write_fake_compiler("outside", {root / "outside.generated.hpp"}), {first});
+    EXPECT_NE(outside.status, 0);
+    EXPECT_NE(outside.stderr_text.find("outside OUTPUT_DIR"), std::string::npos);
+
+    write_text_file(first, "existing generated content\n");
+    const CommandResult preservation = run_verify(
+        "verify-preserves-existing", write_fake_compiler("preservation", {changed}), {first});
+    EXPECT_NE(preservation.status, 0);
+    EXPECT_EQ(read_text_file(first), "existing generated content\n");
+}
+
+TEST(SchemaCompilerPackageTest, HelperFailsBeforeGenerationWhenInventoryDrifts) {
+#ifdef _WIN32
+    GTEST_SKIP() << "schema compiler package subprocess test is not implemented on Windows";
+#endif
+
+    const std::filesystem::path root = make_temp_directory("helper drift");
+    const std::filesystem::path install_prefix = root / "install prefix with spaces";
+    const std::filesystem::path consumer_source = root / "drift source with spaces";
+    const std::filesystem::path consumer_build = root / "drift build with spaces";
+    const std::filesystem::path schema = consumer_source / "schema.brd";
+
+    write_text_file(schema,
+                    "namespace: breadcrumbs.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n");
+    write_text_file(consumer_source / "CMakeLists.txt",
+                    "cmake_minimum_required(VERSION 3.20)\n"
+                    "set(CMAKE_SUPPRESS_REGENERATION TRUE)\n"
+                    "project(helper_drift LANGUAGES NONE)\n"
+                    "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+                    "breadcrumbs_generate_cpp(\n"
+                    "  SCHEMA schema.brd\n"
+                    "  OUTPUT_DIR generated\n"
+                    "  OUT_FILES generated_files\n"
+                    "  FILE_EXTENSION .hpp)\n"
+                    "file(WRITE \"${CMAKE_CURRENT_BINARY_DIR}/outputs.txt\" "
+                    "\"${generated_files}\\n\")\n"
+                    "add_custom_target(generated ALL DEPENDS ${generated_files})\n");
+
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+                                   install_prefix.string()},
+                                  root, "install"),
+                   "install Breadcrumbs package");
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"-S", consumer_source.string(), "-B", consumer_build.string(),
+                                   "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
+                                  root, "configure-helper-drift"),
+                   "configure helper drift consumer");
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"--build", consumer_build.string()},
+                                  root, "build-helper-drift"),
+                   "initial helper drift build");
+
+    const std::filesystem::path original_output =
+        consumer_build / "generated" / "breadcrumbs" / "telemetry.hpp";
+    ASSERT_TRUE(std::filesystem::exists(original_output));
+
+    write_text_file(schema,
+                    "namespace: breadcrumbs.telemetry.v2\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n");
+    std::filesystem::remove(original_output);
+
+    const CommandResult stale_build = run_executable(
+        BREADCRUMBS_TEST_CMAKE_COMMAND, {"--build", consumer_build.string()}, root,
+        "stale-helper-drift-build");
+    EXPECT_NE(stale_build.status, 0);
+    const std::string combined_diagnostics = stale_build.stdout_text + stale_build.stderr_text;
+    EXPECT_NE(combined_diagnostics.find("generated-output inventory changed"),
+              std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(original_output));
+    EXPECT_FALSE(std::filesystem::exists(consumer_build / "generated" / "breadcrumbs" /
+                                         "telemetry" / "v2.hpp"));
+
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"-S", consumer_source.string(), "-B", consumer_build.string(),
+                                   "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
+                                  root, "reconfigure-helper-drift"),
+                   "reconfigure helper drift consumer");
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"--build", consumer_build.string()},
+                                  root, "rebuild-helper-drift"),
+                   "rebuild helper drift consumer");
+    EXPECT_TRUE(std::filesystem::exists(consumer_build / "generated" / "breadcrumbs" /
+                                        "telemetry" / "v2.hpp"));
 }
 
 TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {

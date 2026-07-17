@@ -140,6 +140,14 @@ generated paths through `OUT_FILES`, and does not create or mutate targets.
 Downstream projects still own include directories, target source attachment,
 runtime linkage, and stale-output cleanup.
 
+The helper verifies generated-output inventory by default at build time. Before
+normal generation it reruns `--list-outputs` with the same compiler, schema,
+output directory, root file stem, and extension captured at configuration time.
+If the ordered output list differs, the command fails before creating the
+output directory or writing generated files and instructs the user to rerun
+CMake configuration. This check is defense in depth; schema and compiler paths
+remain registered with `CMAKE_CONFIGURE_DEPENDS`.
+
 The lower-level manual `add_custom_command()` pattern remains supported for
 callers that want explicit control over the compiler invocation.
 

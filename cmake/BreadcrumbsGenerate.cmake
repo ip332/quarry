@@ -1,5 +1,9 @@
-function(_breadcrumbs_generate_fail message)
-    message(FATAL_ERROR "breadcrumbs_generate_cpp: ${message}")
+function(_breadcrumbs_generate_fail)
+    set(_message)
+    foreach(_part IN LISTS ARGV)
+        string(APPEND _message "${_part}")
+    endforeach()
+    message(FATAL_ERROR "breadcrumbs_generate_cpp: ${_message}")
 endfunction()
 
 function(_breadcrumbs_generate_reject_unsafe value label)
@@ -152,6 +156,147 @@ function(_breadcrumbs_generate_validate_outputs output_dir schema outputs)
     set(${outputs} "${_seen}" PARENT_SCOPE)
 endfunction()
 
+function(_breadcrumbs_generate_query_outputs compiler output_dir schema root_file_stem file_extension
+         output_variable)
+    set(_breadcrumbs_list_args
+        --list-outputs
+        --output-directory "${output_dir}")
+    if(NOT "${root_file_stem}" STREQUAL "")
+        list(APPEND _breadcrumbs_list_args --root-file-stem "${root_file_stem}")
+    endif()
+    if(NOT "${file_extension}" STREQUAL "")
+        list(APPEND _breadcrumbs_list_args --file-extension "${file_extension}")
+    endif()
+
+    execute_process(
+        COMMAND "${compiler}" ${_breadcrumbs_list_args} "${schema}"
+        RESULT_VARIABLE _breadcrumbs_list_result
+        OUTPUT_VARIABLE _breadcrumbs_list_stdout
+        ERROR_VARIABLE _breadcrumbs_list_stderr)
+
+    if(NOT _breadcrumbs_list_result EQUAL 0)
+        _breadcrumbs_generate_fail(
+            "failed to list outputs for schema '${schema}' with compiler "
+            "'${compiler}' (exit ${_breadcrumbs_list_result}):\n"
+            "${_breadcrumbs_list_stderr}")
+    endif()
+
+    if(_breadcrumbs_list_stderr)
+        _breadcrumbs_generate_fail(
+            "compiler wrote stderr while listing outputs for schema '${schema}':\n"
+            "${_breadcrumbs_list_stderr}")
+    endif()
+    if("${_breadcrumbs_list_stdout}" MATCHES "[;\r]")
+        _breadcrumbs_generate_fail(
+            "compiler output contains a semicolon or carriage return and cannot be parsed safely")
+    endif()
+
+    set(_breadcrumbs_output_text "${_breadcrumbs_list_stdout}")
+    if(_breadcrumbs_output_text MATCHES "(^|\n)\n")
+        _breadcrumbs_generate_fail("compiler reported an empty output line")
+    endif()
+    if(_breadcrumbs_output_text MATCHES "\n$")
+        string(REGEX REPLACE "\n$" "" _breadcrumbs_output_text "${_breadcrumbs_output_text}")
+    endif()
+    if(_breadcrumbs_output_text STREQUAL "")
+        _breadcrumbs_generate_fail("compiler reported no outputs for schema '${schema}'")
+    endif()
+
+    string(REPLACE "\n" ";" _breadcrumbs_outputs "${_breadcrumbs_output_text}")
+    _breadcrumbs_generate_validate_outputs("${output_dir}" "${schema}" _breadcrumbs_outputs)
+    set(${output_variable} "${_breadcrumbs_outputs}" PARENT_SCOPE)
+endfunction()
+
+function(_breadcrumbs_generate_format_inventory outputs output_variable)
+    set(_formatted)
+    foreach(_output IN LISTS ${outputs})
+        string(APPEND _formatted "  ${_output}\n")
+    endforeach()
+    if(_formatted STREQUAL "")
+        set(_formatted "  <none>\n")
+    endif()
+    set(${output_variable} "${_formatted}" PARENT_SCOPE)
+endfunction()
+
+function(_breadcrumbs_generate_check_output_inventory schema compiler expected_outputs current_outputs)
+    list(LENGTH ${expected_outputs} _expected_count)
+    list(LENGTH ${current_outputs} _current_count)
+    set(_mismatch FALSE)
+    if(NOT _expected_count EQUAL _current_count)
+        set(_mismatch TRUE)
+    else()
+        if(_expected_count GREATER 0)
+            math(EXPR _last_index "${_expected_count} - 1")
+            foreach(_index RANGE 0 ${_last_index})
+                list(GET ${expected_outputs} ${_index} _expected_output)
+                list(GET ${current_outputs} ${_index} _current_output)
+                if(NOT _expected_output STREQUAL _current_output)
+                    set(_mismatch TRUE)
+                endif()
+            endforeach()
+        endif()
+    endif()
+
+    if(_mismatch)
+        _breadcrumbs_generate_format_inventory(${expected_outputs} _expected_formatted)
+        _breadcrumbs_generate_format_inventory(${current_outputs} _current_formatted)
+        _breadcrumbs_generate_fail(
+            "generated-output inventory changed after configuration.\n\n"
+            "Schema:\n"
+            "  ${schema}\n\n"
+            "Configured compiler:\n"
+            "  ${compiler}\n\n"
+            "Configured outputs:\n"
+            "${_expected_formatted}\n"
+            "Current outputs:\n"
+            "${_current_formatted}\n"
+            "Reconfigure the CMake build before continuing.")
+    endif()
+endfunction()
+
+function(_breadcrumbs_generate_verify_output_inventory)
+    foreach(_required
+            BREADCRUMBS_VERIFY_COMPILER
+            BREADCRUMBS_VERIFY_SCHEMA
+            BREADCRUMBS_VERIFY_OUTPUT_DIR
+            BREADCRUMBS_VERIFY_EXPECTED_OUTPUTS)
+        if(NOT DEFINED ${_required})
+            _breadcrumbs_generate_fail("missing verification variable ${_required}")
+        endif()
+    endforeach()
+
+    set(_root_file_stem)
+    if(DEFINED BREADCRUMBS_VERIFY_ROOT_FILE_STEM)
+        set(_root_file_stem "${BREADCRUMBS_VERIFY_ROOT_FILE_STEM}")
+    endif()
+    set(_file_extension)
+    if(DEFINED BREADCRUMBS_VERIFY_FILE_EXTENSION)
+        set(_file_extension "${BREADCRUMBS_VERIFY_FILE_EXTENSION}")
+    endif()
+
+    _breadcrumbs_generate_reject_unsafe("${BREADCRUMBS_VERIFY_COMPILER}" "compiler path")
+    _breadcrumbs_generate_reject_genex("${BREADCRUMBS_VERIFY_COMPILER}" "compiler path")
+    _breadcrumbs_generate_reject_unsafe("${BREADCRUMBS_VERIFY_SCHEMA}" "schema path")
+    _breadcrumbs_generate_reject_genex("${BREADCRUMBS_VERIFY_SCHEMA}" "schema path")
+    _breadcrumbs_generate_reject_unsafe("${BREADCRUMBS_VERIFY_OUTPUT_DIR}" "output directory")
+    _breadcrumbs_generate_reject_genex("${BREADCRUMBS_VERIFY_OUTPUT_DIR}" "output directory")
+
+    _breadcrumbs_generate_query_outputs(
+        "${BREADCRUMBS_VERIFY_COMPILER}"
+        "${BREADCRUMBS_VERIFY_OUTPUT_DIR}"
+        "${BREADCRUMBS_VERIFY_SCHEMA}"
+        "${_root_file_stem}"
+        "${_file_extension}"
+        _current_outputs)
+
+    set(_expected_outputs ${BREADCRUMBS_VERIFY_EXPECTED_OUTPUTS})
+    _breadcrumbs_generate_validate_outputs("${BREADCRUMBS_VERIFY_OUTPUT_DIR}"
+                                           "${BREADCRUMBS_VERIFY_SCHEMA}" _expected_outputs)
+    _breadcrumbs_generate_check_output_inventory("${BREADCRUMBS_VERIFY_SCHEMA}"
+                                                 "${BREADCRUMBS_VERIFY_COMPILER}"
+                                                 _expected_outputs _current_outputs)
+endfunction()
+
 function(_breadcrumbs_generate_register_outputs schema outputs)
     get_property(_claimed_paths GLOBAL PROPERTY BREADCRUMBS_GENERATED_OUTPUT_PATHS)
     get_property(_claimed_schemas GLOBAL PROPERTY BREADCRUMBS_GENERATED_OUTPUT_SCHEMAS)
@@ -186,19 +331,17 @@ function(breadcrumbs_generate_cpp)
         _breadcrumbs_generate_fail("schema file does not exist: ${_breadcrumbs_schema}")
     endif()
 
-    set(_breadcrumbs_list_args
-        --list-outputs
-        --output-directory "${_breadcrumbs_output_dir}")
     set(_breadcrumbs_generate_args
         --output-directory "${_breadcrumbs_output_dir}")
+    set(_breadcrumbs_root_file_stem)
+    set(_breadcrumbs_file_extension)
 
     if(DEFINED BREADCRUMBS_GENERATE_ROOT_FILE_STEM)
         _breadcrumbs_generate_reject_unsafe("${BREADCRUMBS_GENERATE_ROOT_FILE_STEM}"
                                             "ROOT_FILE_STEM")
         _breadcrumbs_generate_reject_genex("${BREADCRUMBS_GENERATE_ROOT_FILE_STEM}"
                                            "ROOT_FILE_STEM")
-        list(APPEND _breadcrumbs_list_args --root-file-stem
-             "${BREADCRUMBS_GENERATE_ROOT_FILE_STEM}")
+        set(_breadcrumbs_root_file_stem "${BREADCRUMBS_GENERATE_ROOT_FILE_STEM}")
         list(APPEND _breadcrumbs_generate_args --root-file-stem
              "${BREADCRUMBS_GENERATE_ROOT_FILE_STEM}")
     endif()
@@ -207,56 +350,33 @@ function(breadcrumbs_generate_cpp)
                                             "FILE_EXTENSION")
         _breadcrumbs_generate_reject_genex("${BREADCRUMBS_GENERATE_FILE_EXTENSION}"
                                            "FILE_EXTENSION")
-        list(APPEND _breadcrumbs_list_args --file-extension
-             "${BREADCRUMBS_GENERATE_FILE_EXTENSION}")
+        set(_breadcrumbs_file_extension "${BREADCRUMBS_GENERATE_FILE_EXTENSION}")
         list(APPEND _breadcrumbs_generate_args --file-extension
              "${BREADCRUMBS_GENERATE_FILE_EXTENSION}")
     endif()
 
-    execute_process(
-        COMMAND "${_breadcrumbs_compiler}" ${_breadcrumbs_list_args} "${_breadcrumbs_schema}"
-        RESULT_VARIABLE _breadcrumbs_list_result
-        OUTPUT_VARIABLE _breadcrumbs_list_stdout
-        ERROR_VARIABLE _breadcrumbs_list_stderr)
-
-    if(NOT _breadcrumbs_list_result EQUAL 0)
-        _breadcrumbs_generate_fail(
-            "failed to list outputs for schema '${_breadcrumbs_schema}' with compiler "
-            "'${_breadcrumbs_compiler}' (exit ${_breadcrumbs_list_result}):\n"
-            "${_breadcrumbs_list_stderr}")
-    endif()
-
-    if(_breadcrumbs_list_stderr)
-        _breadcrumbs_generate_fail(
-            "compiler wrote stderr while listing outputs for schema '${_breadcrumbs_schema}':\n"
-            "${_breadcrumbs_list_stderr}")
-    endif()
-    if("${_breadcrumbs_list_stdout}" MATCHES "[;\r]")
-        _breadcrumbs_generate_fail(
-            "compiler output contains a semicolon or carriage return and cannot be parsed safely")
-    endif()
-
-    set(_breadcrumbs_output_text "${_breadcrumbs_list_stdout}")
-    if(_breadcrumbs_output_text MATCHES "\n$")
-        string(REGEX REPLACE "\n$" "" _breadcrumbs_output_text "${_breadcrumbs_output_text}")
-    endif()
-    if(_breadcrumbs_output_text STREQUAL "")
-        _breadcrumbs_generate_fail("compiler reported no outputs for schema '${_breadcrumbs_schema}'")
-    endif()
-    if(_breadcrumbs_output_text MATCHES "(^|\n)\n")
-        _breadcrumbs_generate_fail("compiler reported an empty output line")
-    endif()
-
-    string(REPLACE "\n" ";" _breadcrumbs_outputs "${_breadcrumbs_output_text}")
-    _breadcrumbs_generate_validate_outputs("${_breadcrumbs_output_dir}" "${_breadcrumbs_schema}"
-                                           _breadcrumbs_outputs)
+    _breadcrumbs_generate_query_outputs("${_breadcrumbs_compiler}" "${_breadcrumbs_output_dir}"
+                                        "${_breadcrumbs_schema}" "${_breadcrumbs_root_file_stem}"
+                                        "${_breadcrumbs_file_extension}" _breadcrumbs_outputs)
     _breadcrumbs_generate_register_outputs("${_breadcrumbs_schema}" "${_breadcrumbs_outputs}")
 
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
                  "${_breadcrumbs_schema}" "${_breadcrumbs_compiler}")
 
+    set(_breadcrumbs_module "${CMAKE_CURRENT_FUNCTION_LIST_FILE}")
+
     add_custom_command(
         OUTPUT ${_breadcrumbs_outputs}
+        COMMAND
+            "${CMAKE_COMMAND}"
+            "-DBREADCRUMBS_VERIFY_OUTPUT_INVENTORY=TRUE"
+            "-DBREADCRUMBS_VERIFY_COMPILER=${_breadcrumbs_compiler}"
+            "-DBREADCRUMBS_VERIFY_SCHEMA=${_breadcrumbs_schema}"
+            "-DBREADCRUMBS_VERIFY_OUTPUT_DIR=${_breadcrumbs_output_dir}"
+            "-DBREADCRUMBS_VERIFY_EXPECTED_OUTPUTS=${_breadcrumbs_outputs}"
+            "-DBREADCRUMBS_VERIFY_ROOT_FILE_STEM=${_breadcrumbs_root_file_stem}"
+            "-DBREADCRUMBS_VERIFY_FILE_EXTENSION=${_breadcrumbs_file_extension}"
+            -P "${_breadcrumbs_module}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${_breadcrumbs_output_dir}"
         COMMAND "${_breadcrumbs_compiler}" ${_breadcrumbs_generate_args}
                 "${_breadcrumbs_schema}"
@@ -264,8 +384,13 @@ function(breadcrumbs_generate_cpp)
             "${_breadcrumbs_schema}"
             Breadcrumbs::schema_compiler
             "${_breadcrumbs_compiler}"
+            "${_breadcrumbs_module}"
         VERBATIM)
     set_source_files_properties(${_breadcrumbs_outputs} PROPERTIES GENERATED TRUE)
 
     set(${BREADCRUMBS_GENERATE_OUT_FILES} "${_breadcrumbs_outputs}" PARENT_SCOPE)
 endfunction()
+
+if(DEFINED BREADCRUMBS_VERIFY_OUTPUT_INVENTORY)
+    _breadcrumbs_generate_verify_output_inventory()
+endif()

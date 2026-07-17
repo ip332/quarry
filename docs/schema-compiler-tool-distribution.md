@@ -208,6 +208,7 @@ The helper is deliberately narrow:
 * exactly one schema input per invocation
 * compiler fixed to `Breadcrumbs::schema_compiler`
 * configure-time `--list-outputs` for output discovery
+* default build-time output-inventory verification before generation
 * one build-time normal compiler invocation
 * returned outputs are absolute paths in deterministic plan order
 * no target creation or mutation
@@ -283,10 +284,23 @@ The helper does not reinterpret schema diagnostics or guess output names.
 ### Build-Time Generation
 
 The helper creates one `add_custom_command()` whose `OUTPUT` list is exactly the
-configure-time inventory. The command creates `OUTPUT_DIR` with
-`cmake -E make_directory` and then invokes the same resolved compiler executable
-with normal generation arguments. Dependencies include the schema file,
-`Breadcrumbs::schema_compiler`, and the resolved compiler executable path.
+configure-time inventory. Before creating `OUTPUT_DIR` or running normal
+generation, the command invokes the same resolved compiler executable with
+`--list-outputs` and compares the current inventory against the configured
+inventory. The comparison is an exact ordered comparison of normalized absolute
+paths: same count, same path, same position. The helper does not sort paths.
+
+If the inventories differ, the command fails before writing generated files and
+prints the schema path, configured compiler path, configured outputs, current
+outputs, and an instruction to reconfigure the CMake build. If the build-time
+query itself fails, generation is not attempted and the compiler stderr is
+reported.
+
+When the inventory matches, the command creates `OUTPUT_DIR` with
+`cmake -E make_directory` and then invokes the compiler with normal generation
+arguments. Dependencies include the schema file, `Breadcrumbs::schema_compiler`,
+the resolved compiler executable path, and `BreadcrumbsGenerate.cmake`, because
+the installed module owns the build-time verification behavior.
 
 The helper marks returned files as generated, but it does not create a target,
 attach sources to a target, add include directories, or link the runtime.
@@ -300,11 +314,10 @@ refresh the `OUTPUT` list when the output inventory changes. Replacing the
 compiler executable in place can also trigger reconfiguration on generators that
 honor directory configure dependencies.
 
-The helper does not add a separate build-time inventory consistency check. If a
-schema or compiler changes between configure-time discovery and build-time
-generation, the supported contract relies on the next reconfiguration. A future
-PR may add a build-time check that reruns `--list-outputs` and fails when the
-inventory differs from the configured `OUTPUT` set.
+The build-time inventory check is defense in depth. It does not replace
+`CMAKE_CONFIGURE_DEPENDS`, does not update CMake's declared `OUTPUT` list, and
+does not rerun CMake automatically. A mismatch means the configured build graph
+is stale; callers must rerun CMake configuration.
 
 ### Output Ownership and Stale Files
 
@@ -314,6 +327,10 @@ returned by `OUT_FILES`. Callers should use a dedicated generated-output
 directory per helper invocation and clean that directory or the build tree when
 needed. The helper does not assume exclusive ownership of arbitrary
 caller-provided directories.
+
+On inventory mismatch, the helper does not create current-plan outputs, delete
+configured-plan outputs, or run normal generation. Existing files are left as
+they were before the failed command.
 
 Duplicate output claims across helper invocations are always configuration
 errors. A global configure-time registry records claimed output paths and the
@@ -461,8 +478,7 @@ A future PR should define and test:
 * whether a host-tool override is needed before claiming cross-compilation
   support
 * whether a package component is useful if runtime and compiler packaging split
-* whether a build-time inventory consistency check is needed for a CMake
-  generation helper
+* whether package components are useful if runtime and compiler packaging split
 
 ## Future Implementation Sequence
 
@@ -474,8 +490,5 @@ A future PR should define and test:
    mutation, stale cleanup, depfiles, manifests, source-tree consumption, and
    cross-compilation. Completed by the installed `BreadcrumbsGenerate.cmake`
    module.
-3. Decide whether to add a build-time consistency check that reruns
-   `--list-outputs` and fails if build-time generation would produce a
-   different inventory than the configured `OUTPUT` set.
-4. Decide whether host-tool overrides, multi-config-specific output
+3. Decide whether host-tool overrides, multi-config-specific output
    directories, package components, or stale-output cleanup are justified.
