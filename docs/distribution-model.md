@@ -144,6 +144,9 @@ decision. In particular:
 * installing compiler libraries needs a public compiler SDK contract
 * broader generated-code CMake helper support needs source-tree, multi-schema,
   cross-compilation, and cleanup policies beyond the installed-native helper
-* cross-compilation needs a host-tool discovery or override policy
+* cross-compilation should start with an explicit
+  `SCHEMA_COMPILER <absolute-host-executable>` helper override, supplied by the
+  consumer, toolchain, or package manager, before considering imported target
+  overrides or a separate host-tools package
 * language-specific examples should be introduced with their corresponding
   runtime or generator support
