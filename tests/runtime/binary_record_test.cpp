@@ -1,4 +1,5 @@
 #include "runtime/binary_record.hpp"
+#include "runtime/version.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -10,6 +11,13 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+
+#ifndef BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION
+#error "BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION must be defined"
+#endif
+
+static_assert(::breadcrumbs::runtime::kGeneratedCodeApiVersion ==
+              BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION);
 
 namespace {
 

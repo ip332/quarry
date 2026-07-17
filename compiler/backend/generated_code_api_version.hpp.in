@@ -1,0 +1,10 @@
+#pragma once
+
+#include <cstdint>
+
+namespace breadcrumbs::compiler::backend {
+
+inline constexpr std::uint32_t kGeneratedCodeApiVersion =
+    @BREADCRUMBS_GENERATED_CODE_API_VERSION@U;
+
+} // namespace breadcrumbs::compiler::backend

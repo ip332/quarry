@@ -534,22 +534,26 @@ Current version and compatibility surfaces:
 | --- | --- | --- | --- | --- |
 | Breadcrumbs package version | Top-level CMake project | `0.1.0` | Release identity and CMake package version | `BreadcrumbsConfigVersion.cmake`, compiler `--version` |
 | Compiler `--version` | `breadcrumbs-schema-compiler` | `breadcrumbs-schema-compiler 0.1.0` | Human/script release identity | CLI stdout |
-| Runtime generated-code API version | Runtime headers | `1` | Generated source/runtime header compatibility epoch | `breadcrumbs::runtime::kGeneratedCodeApiVersion` |
-| Generated expected API version | C++ backend renderer | `1U` | Value embedded in generated header `static_assert` | Generated C++ source |
+| Generated-code API version | Top-level CMake scalar `BREADCRUMBS_GENERATED_CODE_API_VERSION` | `1` | Generated source/runtime header compatibility epoch | Configured runtime header, configured backend header, installed package metadata |
+| Runtime generated-code API constant | Configured runtime header | `1` | Public C++ runtime representation of the generated-code API epoch | `breadcrumbs::runtime::kGeneratedCodeApiVersion` |
+| Generated expected API version | Configured backend header | `1U` | Compiler-known value embedded in generated header `static_assert` | Generated C++ source |
+| Package generated-code API metadata | `BreadcrumbsConfig.cmake` | `1` | Target runtime generated-code API epoch for CMake consumers | `Breadcrumbs_GENERATED_CODE_API_VERSION` |
 | BRF wire-format version | Runtime parser/emitter | v0.1 record header version | Encoded-byte format compatibility | BRF bytes and parser errors |
 | Schema record version | User schema and Schema IR | schema-provided positive integer | Application schema identity | YAML source, Schema IR, generated record IDs/versions |
 | Schema IR version | Generated protobuf model | `schema_ir_version: 1` in fixtures | Internal compiler IR serialization version | Source-tree protobuf data |
 
-The generated-code API version is not currently single-sourced. The runtime
-defines `kGeneratedCodeApiVersion` in `runtime/version.hpp`, while the backend
-renderer emits the expected value as a separate literal in generated headers.
-The installed package does not expose the runtime value to CMake. Adding a
-compiler query before fixing this would create a third public value without a
-strong synchronization mechanism.
+The generated-code API version is single-sourced by the top-level
+`BREADCRUMBS_GENERATED_CODE_API_VERSION` CMake scalar. CMake validates the value
+as a non-negative `std::uint32_t`, configures the public runtime
+`runtime/version.hpp`, configures the backend's private generated-code API
+header, and writes the same value into installed package metadata as
+`Breadcrumbs_GENERATED_CODE_API_VERSION`. The backend renderer no longer owns a
+separate compatibility literal.
 
-The selected future direction is a narrow scalar query and configure-time
-comparison, but only after the generated-code API value has one canonical
-source and the runtime package exposes that value cleanly to CMake.
+The remaining future direction is a narrow compiler scalar query and
+configure-time comparison. The package side is now available through
+`Breadcrumbs_GENERATED_CODE_API_VERSION`; the compiler-side query is still
+deferred.
 
 Recommended future CLI contract:
 
@@ -577,7 +581,7 @@ The query should:
 * reject unrelated generation arguments rather than treating them as part of a
   compatibility query
 
-Recommended future package config contract:
+Package config contract:
 
 ```cmake
 Breadcrumbs_GENERATED_CODE_API_VERSION
@@ -608,27 +612,28 @@ runtime package. It does not remove the generated-header `static_assert`; that
 assertion remains defense in depth and covers users who generate code outside
 the CMake helper.
 
-Recommended single-source design:
+Implemented single-source design:
 
-* introduce one canonical generated-code API version definition owned by the
-  runtime/package boundary
-* make `runtime/version.hpp`, backend-generated assertions, compiler query
-  output, and `Breadcrumbs_GENERATED_CODE_API_VERSION` derive from that source
-* avoid parsing C++ headers from CMake
-* avoid manually duplicating the number across compiler source, package config,
-  and tests
+* one canonical generated-code API version definition is owned by the
+  top-level `BREADCRUMBS_GENERATED_CODE_API_VERSION` CMake scalar
+* `runtime/version.hpp` is configured from that scalar and installed at the
+  existing public include path
+* the backend uses a private configured header derived from the same scalar
+  when rendering generated `static_assert` expectations
+* `BreadcrumbsConfig.cmake` exposes the same value as
+  `Breadcrumbs_GENERATED_CODE_API_VERSION`
+* tests compare runtime headers, generated output, and installed package
+  metadata without introducing another authoritative literal
+* CMake does not parse C++ headers to recover the value
 
-One maintainable implementation path is a small CMake-configured header and
-package metadata generated from one CMake variable, with tests proving that the
-runtime header, backend expectation, compiler query, generated output, and
-installed package variable agree.
+Future compiler query output should read the backend/compiler representation
+configured from this same scalar.
 
-Implementation test requirements for that future PR:
+Implementation test requirements for the future query/comparison PR:
 
 * CLI query prints the exact scalar with final newline, empty stderr, and exit
   `0`
 * `--help` precedence and usage errors are pinned
-* package config exposes `Breadcrumbs_GENERATED_CODE_API_VERSION`
 * installed and relocated packages preserve the value without source/build
   paths
 * helper succeeds when compiler and runtime API versions match
@@ -792,9 +797,20 @@ checked.
 
 `breadcrumbs-schema-compiler --version` reports the Breadcrumbs package release
 only. It is not the generated-code API version, BRF wire-format version,
-schema-language version, or a runtime ABI version. No additional CLI option for
-the generated-code API version is planned until a downstream build has a
-demonstrated need to query it before generation.
+schema-language version, or a runtime ABI version. A future
+`--print-generated-code-api-version` query should expose only the
+generated-code API epoch and must remain separate from release-version output.
+
+The generated-code API version should be incremented when generated C++ from a
+new compiler depends on runtime header APIs or generated-code contracts that an
+older runtime with the previous epoch cannot compile or use correctly. Examples
+include generated code calling a new required runtime API, removing or changing
+runtime APIs used by generated code, or changing generated builder/codec
+contracts incompatibly with the runtime header surface. It does not necessarily
+change for compiler diagnostics, parser improvements, backend refactors,
+generated whitespace changes, bug fixes that preserve runtime API use, package
+release changes, schema-language changes, or BRF wire-format changes unless
+those changes also alter the generated C++/runtime header contract.
 
 Multiple installed versions are expected to be controlled through the selected
 CMake package prefix. `Breadcrumbs::schema_compiler` comes from that prefix,

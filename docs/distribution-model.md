@@ -16,6 +16,7 @@ The supported installed SDK surface is:
   `<breadcrumbs/runtime/version.hpp>`
 * `BreadcrumbsConfig.cmake`
 * `BreadcrumbsConfigVersion.cmake`
+* `Breadcrumbs_GENERATED_CODE_API_VERSION` package metadata
 * `breadcrumbs_generate_cpp()` from the installed package config
 
 Downstream CMake projects consume the runtime with:
@@ -61,7 +62,7 @@ if the configured inventory is stale. Native builds use
 | --- | --- | --- | --- |
 | Runtime library | `breadcrumbs_runtime`, exported as `Breadcrumbs::runtime` | Link through CMake and include public runtime headers | Supported public SDK |
 | Runtime headers | `runtime/binary_record.hpp`, `include/breadcrumbs/runtime/binary_record.hpp` | Compile generated or handwritten C++ that uses BRF runtime mechanics | Supported public SDK |
-| CMake package files | `BreadcrumbsConfig.cmake`, `BreadcrumbsConfigVersion.cmake`, `BreadcrumbsTargets.cmake`, `BreadcrumbsGenerate.cmake` | Package discovery for the runtime, schema compiler target, and installed-package generation helper | Supported public SDK |
+| CMake package files | `BreadcrumbsConfig.cmake`, `BreadcrumbsConfigVersion.cmake`, `BreadcrumbsTargets.cmake`, `BreadcrumbsGenerate.cmake` | Package discovery for the runtime, schema compiler target, generated-code API package metadata, and installed-package generation helper | Supported public SDK |
 | Schema compiler executable | `breadcrumbs_schema_compiler`, exported as `Breadcrumbs::schema_compiler`, installed as `breadcrumbs-schema-compiler` | Direct CLI invocation or CMake command use through `$<TARGET_FILE:...>` | Installed tool target |
 | Generated C++ code | Backend output under caller-selected paths | Owned by the downstream project that generated it | Downstream-owned build artifact |
 | Compiler libraries | `breadcrumbs_compiler_*`, `breadcrumbs_schema_ir_proto` | Internal source-tree composition and tests | Implementation detail |
@@ -87,10 +88,11 @@ rules, has a small dependency surface, and lets generated code depend on
 Generated C++ headers use the runtime's generated-code API compatibility
 constant to fail compilation with incompatible runtime headers. That check is
 separate from package release version and BRF wire-format version.
-The package does not yet expose the generated-code API version as CMake
-metadata, so host compiler/runtime API compatibility for explicit
-`SCHEMA_COMPILER` overrides is still enforced by generated C++ compilation
-rather than during CMake configuration.
+The package exposes the target runtime's generated-code API value as
+`Breadcrumbs_GENERATED_CODE_API_VERSION`. Host compiler/runtime API
+compatibility for explicit `SCHEMA_COMPILER` overrides is still enforced by
+generated C++ compilation until the compiler exposes the matching scalar query
+and the helper compares the two values during CMake configuration.
 
 ### Runtime + Compiler SDK
 
@@ -149,8 +151,8 @@ decision. In particular:
 
 * installing compiler libraries needs a public compiler SDK contract
 * configure-time host compiler/runtime generated-code API validation needs a
-  single-sourced generated-code API version, a narrow compiler scalar query,
-  and package CMake metadata exposing the target runtime value
+  narrow compiler scalar query and helper comparison against the package's
+  `Breadcrumbs_GENERATED_CODE_API_VERSION` value
 * broader generated-code CMake helper support needs source-tree, multi-schema,
   imported-target compiler override, and cleanup policies beyond the current
   helper

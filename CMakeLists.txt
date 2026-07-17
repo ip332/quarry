@@ -13,6 +13,28 @@ option(BREADCRUMBS_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
 option(BREADCRUMBS_ENABLE_CLANG_TIDY "Run clang-tidy during CMake builds" OFF)
 option(BREADCRUMBS_BUILD_FUZZERS "Build libFuzzer targets for BRF parser hardening" OFF)
 
+# Compatibility epoch for generated C++ source and Breadcrumbs runtime headers.
+# This is distinct from the package release version and BRF wire-format version.
+set(BREADCRUMBS_GENERATED_CODE_API_VERSION 1)
+if(NOT BREADCRUMBS_GENERATED_CODE_API_VERSION MATCHES "^[0-9]+$")
+    message(FATAL_ERROR "BREADCRUMBS_GENERATED_CODE_API_VERSION must be a non-negative integer")
+endif()
+if(BREADCRUMBS_GENERATED_CODE_API_VERSION GREATER 4294967295)
+    message(FATAL_ERROR "BREADCRUMBS_GENERATED_CODE_API_VERSION must fit in std::uint32_t")
+endif()
+
+set(BREADCRUMBS_GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+configure_file(
+    runtime/version.hpp.in
+    ${BREADCRUMBS_GENERATED_INCLUDE_DIR}/runtime/version.hpp
+    @ONLY
+)
+configure_file(
+    compiler/backend/generated_code_api_version.hpp.in
+    ${BREADCRUMBS_GENERATED_INCLUDE_DIR}/compiler/backend/generated_code_api_version.hpp
+    @ONLY
+)
+
 add_library(breadcrumbs_project_options INTERFACE)
 target_compile_features(breadcrumbs_project_options INTERFACE cxx_std_20)
 
@@ -51,7 +73,7 @@ install(TARGETS breadcrumbs_runtime
 )
 install(FILES
     runtime/binary_record.hpp
-    runtime/version.hpp
+    ${BREADCRUMBS_GENERATED_INCLUDE_DIR}/runtime/version.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/runtime
 )
 install(DIRECTORY include/breadcrumbs

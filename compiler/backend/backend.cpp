@@ -1,4 +1,5 @@
 #include "compiler/backend/backend.hpp"
+#include "compiler/backend/generated_code_api_version.hpp"
 
 #include <cstdint>
 
@@ -1992,7 +1993,8 @@ void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t
         stream << '\n';
     }
     if (emits_records(plan)) {
-        stream << "static_assert(::breadcrumbs::runtime::kGeneratedCodeApiVersion == 1U,\n";
+        stream << "static_assert(::breadcrumbs::runtime::kGeneratedCodeApiVersion == "
+               << kGeneratedCodeApiVersion << "U,\n";
         stream << "              \"Generated Breadcrumbs code is incompatible with the installed "
                   "Breadcrumbs runtime. Regenerate the code using a compatible "
                   "breadcrumbs-schema-compiler release.\");\n";

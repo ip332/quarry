@@ -21,6 +21,14 @@
 
 #include <gtest/gtest.h>
 
+#ifndef BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION
+#error "BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION must be defined"
+#endif
+
+#ifndef BREADCRUMBS_TEST_GENERATED_INCLUDE_DIR
+#error "BREADCRUMBS_TEST_GENERATED_INCLUDE_DIR must be defined"
+#endif
+
 namespace {
 
 using breadcrumbs::compiler::backend::Backend;
@@ -208,8 +216,10 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
     const std::string compiler = BREADCRUMBS_TEST_CXX_COMPILER;
     const std::filesystem::path repo_root =
         std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+    const std::filesystem::path generated_include_root = BREADCRUMBS_TEST_GENERATED_INCLUDE_DIR;
     std::ostringstream command;
     command << std::quoted(compiler) << " -std=c++20 -I" << std::quoted(generated_root.string())
+            << " -I" << std::quoted(generated_include_root.string())
             << " -I" << std::quoted(repo_root.string()) << " "
             << std::quoted(source_path.string()) << " -o "
             << std::quoted(executable_path.string());
@@ -233,9 +243,11 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
     const std::string compiler = BREADCRUMBS_TEST_CXX_COMPILER;
     const std::filesystem::path repo_root =
         std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+    const std::filesystem::path generated_include_root = BREADCRUMBS_TEST_GENERATED_INCLUDE_DIR;
     std::ostringstream command;
-    command << std::quoted(compiler) << " -std=c++20 -I" << std::quoted(repo_root.string())
-            << " " << std::quoted(source_path.string()) << " -o "
+    command << std::quoted(compiler) << " -std=c++20 -I"
+            << std::quoted(generated_include_root.string()) << " -I"
+            << std::quoted(repo_root.string()) << " " << std::quoted(source_path.string()) << " -o "
             << std::quoted(executable_path.string()) << " > "
             << std::quoted(output_path.string()) << " 2>&1";
 
@@ -378,8 +390,10 @@ TEST(BackendCodegenTest, GeneratedRecordsAssertRuntimeGeneratedCodeApiVersion) {
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1);
 
-    EXPECT_NE(result.files.front().content.find(
-                  "static_assert(::breadcrumbs::runtime::kGeneratedCodeApiVersion == 1U"),
+    const std::string expected_assertion =
+        "static_assert(::breadcrumbs::runtime::kGeneratedCodeApiVersion == " +
+        std::to_string(BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION) + "U";
+    EXPECT_NE(result.files.front().content.find(expected_assertion),
               std::string::npos);
     EXPECT_NE(result.files.front().content.find(
                   "Generated Breadcrumbs code is incompatible with the installed Breadcrumbs "

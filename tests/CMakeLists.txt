@@ -56,11 +56,15 @@ target_link_libraries(backend_smoke_test PRIVATE breadcrumbs_schema_ir_warning_t
 add_breadcrumbs_gtest(backend_codegen_test backend/backend_codegen_test.cpp
                       breadcrumbs_compiler_backend)
 target_compile_definitions(backend_codegen_test PRIVATE
-    BREADCRUMBS_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}")
+    BREADCRUMBS_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
+    BREADCRUMBS_TEST_GENERATED_INCLUDE_DIR="${BREADCRUMBS_GENERATED_INCLUDE_DIR}"
+    BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION=${BREADCRUMBS_GENERATED_CODE_API_VERSION})
 target_link_libraries(backend_codegen_test PRIVATE breadcrumbs_compiler_schema_ir)
 target_link_libraries(backend_codegen_test PRIVATE breadcrumbs_schema_ir_warning_tweaks)
 add_breadcrumbs_gtest(runtime_binary_record_test runtime/binary_record_test.cpp
                       breadcrumbs_runtime)
+target_compile_definitions(runtime_binary_record_test PRIVATE
+    BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION=${BREADCRUMBS_GENERATED_CODE_API_VERSION})
 add_breadcrumbs_gtest(runtime_package_consumer_test consumer/runtime_package_test.cpp
                       breadcrumbs_compiler_support)
 target_compile_definitions(runtime_package_consumer_test PRIVATE

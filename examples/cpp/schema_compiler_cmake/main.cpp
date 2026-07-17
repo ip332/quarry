@@ -1,8 +1,17 @@
 #include "breadcrumbs/telemetry.generated.hpp"
 
+#include <breadcrumbs/runtime/version.hpp>
+
 #include <cstdint>
 #include <span>
 #include <vector>
+
+#ifndef BREADCRUMBS_PACKAGE_GENERATED_CODE_API_VERSION
+#error "BREADCRUMBS_PACKAGE_GENERATED_CODE_API_VERSION must be defined"
+#endif
+
+static_assert(::breadcrumbs::runtime::kGeneratedCodeApiVersion ==
+              BREADCRUMBS_PACKAGE_GENERATED_CODE_API_VERSION);
 
 int main() {
     breadcrumbs::telemetry::SampleBuilder builder;

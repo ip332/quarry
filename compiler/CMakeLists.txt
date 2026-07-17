@@ -237,7 +237,12 @@ target_link_libraries(breadcrumbs_compiler_frontend
 add_library(breadcrumbs_compiler_backend
     backend/backend.cpp
 )
-target_include_directories(breadcrumbs_compiler_backend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_include_directories(breadcrumbs_compiler_backend
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
+    PRIVATE
+        ${BREADCRUMBS_GENERATED_INCLUDE_DIR}
+)
 target_link_libraries(breadcrumbs_compiler_backend
     PUBLIC
         breadcrumbs_compiler_schema_ir

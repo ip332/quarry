@@ -45,6 +45,11 @@ The public runtime include path is:
 #include <breadcrumbs/runtime/binary_record.hpp>
 ```
 
+The package also defines `Breadcrumbs_GENERATED_CODE_API_VERSION`, which is
+derived from the same canonical value as
+`breadcrumbs::runtime::kGeneratedCodeApiVersion` and the generated C++
+compatibility assertions.
+
 The installed package also exposes the schema compiler as an executable CMake
 target:
 

@@ -6,8 +6,13 @@
 #include <span>
 #include <vector>
 
+#ifndef BREADCRUMBS_PACKAGE_GENERATED_CODE_API_VERSION
+#error "BREADCRUMBS_PACKAGE_GENERATED_CODE_API_VERSION must be defined"
+#endif
+
 int main() {
-    static_assert(breadcrumbs::runtime::kGeneratedCodeApiVersion == 1U);
+    static_assert(breadcrumbs::runtime::kGeneratedCodeApiVersion ==
+                  BREADCRUMBS_PACKAGE_GENERATED_CODE_API_VERSION);
 
     using breadcrumbs::runtime::DecodeError;
     using breadcrumbs::runtime::FieldBytes;

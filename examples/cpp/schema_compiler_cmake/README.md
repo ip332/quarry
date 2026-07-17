@@ -48,6 +48,10 @@ generation. If the current `--list-outputs` result differs from the configured
 `OUT_FILES` list, the build fails before writing generated files and the project
 must be reconfigured.
 
+`find_package(Breadcrumbs CONFIG REQUIRED)` also provides
+`Breadcrumbs_GENERATED_CODE_API_VERSION`, matching the runtime header's
+`breadcrumbs::runtime::kGeneratedCodeApiVersion`.
+
 The lower-level manual integration pattern remains supported when callers need
 full control over the custom command:
 

@@ -4,6 +4,7 @@
 
 namespace breadcrumbs::runtime {
 
-inline constexpr std::uint32_t kGeneratedCodeApiVersion = 1U;
+inline constexpr std::uint32_t kGeneratedCodeApiVersion =
+    @BREADCRUMBS_GENERATED_CODE_API_VERSION@U;
 
 } // namespace breadcrumbs::runtime

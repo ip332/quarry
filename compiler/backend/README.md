@@ -145,6 +145,9 @@ Current C++ generation behavior:
   record headers
   * the assertion checks
     `::breadcrumbs::runtime::kGeneratedCodeApiVersion`
+  * the expected value is rendered from the backend's private configured
+    generated-code API header, which is derived from the top-level
+    `BREADCRUMBS_GENERATED_CODE_API_VERSION` CMake scalar
   * it guards only the generated C++ source/runtime header contract
   * it does not enforce package release equality, runtime ABI compatibility,
     schema-language compatibility, or BRF wire compatibility
