@@ -28,6 +28,7 @@ Options:
   -o, --output-directory PATH  Directory for generated files (default: generated)
       --root-file-stem NAME     Root namespace file stem (default: schema)
       --file-extension EXT      Generated file extension (default: .generated.hpp)
+      --list-outputs            Print generated output paths without writing files
       --version                 Show version information
   -h, --help                    Show help
 ```
@@ -41,9 +42,10 @@ Current behavior:
 * defaults to `generated` for the output directory
 * defaults to `schema` for the root file stem
 * defaults to `.generated.hpp` for generated file extensions
+* supports `--list-outputs` as a read-only output-inventory query
 * writes diagnostics and tool errors to stderr
 * is quiet on successful compilation
-* returns `0` for success, help, or version
+* returns `0` for success, output listing, help, or version
 * returns `1` for input read failure, compiler diagnostics, backend failure, or
   output write failure
 * returns `2` for command-line usage errors
@@ -85,6 +87,23 @@ nothing to stderr, and exits with `0`. It is terminal like `--help`; when
 combined with otherwise valid generation options or an input path, it reports
 the version and does not generate files.
 
+`--list-outputs` compiles and validates the input schema far enough to construct
+the same backend `GenerationPlan` used by normal generation. It does not render
+generated file contents, create output directories, inspect existing output
+files, create temporary files, or invoke the file writer. On success, stdout
+contains only one generated path per line in deterministic plan order and
+stderr is empty. On compiler or planning failure, stdout is empty, diagnostics
+are written to stderr, and the command exits with `1`.
+
+Listed paths are the paths a normal generation invocation would write for the
+same options: each backend-planned relative output path is joined to the
+selected output directory. Relative output directories therefore produce
+relative listed paths; absolute output directories produce absolute listed
+paths. The tool does not canonicalize or rebase listed paths. `--help` and
+`--version` take precedence over `--list-outputs`. The output is line-oriented
+and does not define an escaping format; newline characters in output-directory,
+root-stem, or extension arguments are outside the initial script contract.
+
 ## Dependency and Relocatability Findings
 
 The installed executable links private Breadcrumbs compiler implementation
@@ -104,11 +123,12 @@ dependencies through normal platform loader behavior.
 
 The clean-prefix installed executable test installs Breadcrumbs beneath a
 temporary prefix whose path contains spaces, invokes
-`<prefix>/<bindir>/breadcrumbs-schema-compiler --version`, `--help`, and a
-representative schema compilation from an unrelated working directory with
-absolute input and output paths. It verifies generated output, absence of stale
-temporary files, and absence of source/build paths in generated content. It does
-not rename or make the original source and build directories inaccessible.
+`<prefix>/<bindir>/breadcrumbs-schema-compiler --version`, `--help`,
+`--list-outputs`, and a representative schema compilation from an unrelated
+working directory with absolute input and output paths. It verifies listed
+paths, no-write behavior for listing, generated output, absence of stale
+temporary files, and absence of source/build paths in generated content. It
+does not rename or make the original source and build directories inaccessible.
 
 The clean-prefix package-discovery test installs Breadcrumbs beneath a temporary
 prefix whose path contains spaces, configures a separate downstream CMake
@@ -297,11 +317,11 @@ dependency graphs, stale-output cleanup policy, runtime package paths, or CMake
 target information. Absolute path validation and atomic replacement remain
 responsibilities of the schema compiler tool's file writer.
 
-A future CLI query mode such as `--list-outputs` or `--dry-run` should serialize
-the same internal plan. It should not introduce a second filename calculation
-path. That CLI should be a separate PR after the internal plan exists. A query
-mode can help users and CMake configure-time logic list outputs, but it should
-not be conflated with depfiles, manifests, or stale-output cleanup.
+The `--list-outputs` CLI mode serializes this same internal plan as one path per
+line after applying the selected output directory. It does not introduce a
+second filename calculation path. This query mode can help users and future
+CMake configure-time logic list outputs, but it is not a depfile, manifest,
+helper API, or stale-output cleanup mechanism.
 
 An output manifest remains a separate build-time artifact question. It may be
 useful for diagnostics or audit trails, but because manifests are produced
@@ -317,10 +337,13 @@ planning tests should cover:
 * generated include paths for cross-namespace references
 * namespaces that do not emit files
 
-The future CMake helper decision should depend on this plan. A helper can only
-avoid duplicating backend logic if it obtains output paths from the compiler's
-authoritative planning model, either through a future CLI query or through a
-documented generated-output contract derived from that same model.
+The future CMake helper decision should depend on this plan and on
+`--list-outputs`. A helper can avoid duplicating backend logic by obtaining
+output paths from the compiler's authoritative planning model, but it would need
+to execute the compiler during configuration to use those paths as
+`add_custom_command(OUTPUT ...)` values. That raises reconfiguration questions
+when schema contents, naming options, compiler versions, or backend naming rules
+change. Those helper semantics remain deferred.
 
 ## Installed Discovery Policy
 

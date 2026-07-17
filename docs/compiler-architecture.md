@@ -92,9 +92,11 @@ contract, native imported-target discovery policy, and downstream CMake
 integration boundaries.
 
 Generated-output naming belongs to backend-owned planning. The compiler keeps a
-single internal generated-output planning model that feeds rendering and can
-later feed output-query CLI modes and CMake integration without reimplementing
-filename rules outside the backend. Tool-side file writing remains separate.
+single internal generated-output planning model that feeds rendering and the
+schema compiler's `--list-outputs` query mode without reimplementing filename
+rules outside the backend. Tool-side file writing remains separate, and no
+CMake helper, depfile, manifest, or stale-output cleanup policy is implied by
+the query mode.
 
 ---
 

@@ -35,6 +35,7 @@ constexpr int exit_usage = 2;
 struct CommandLine {
     bool show_help = false;
     bool show_version = false;
+    bool list_outputs = false;
     std::string input_path;
     backend::CodegenOptions codegen_options;
 };
@@ -46,6 +47,7 @@ struct CommandLine {
            "  -o, --output-directory PATH  Directory for generated files (default: generated)\n"
            "      --root-file-stem NAME     Root namespace file stem (default: schema)\n"
            "      --file-extension EXT      Generated file extension (default: .generated.hpp)\n"
+           "      --list-outputs            Print generated output paths without writing files\n"
            "      --version                 Show version information\n"
            "  -h, --help                    Show this help text\n";
 }
@@ -76,6 +78,10 @@ void print_version(std::ostream& output) {
         }
         if (argument == "--version") {
             command_line.show_version = true;
+            continue;
+        }
+        if (argument == "--list-outputs") {
+            command_line.list_outputs = true;
             continue;
         }
 
@@ -276,6 +282,22 @@ void print_version(std::ostream& output) {
     }
 
     backend::Backend backend;
+    if (command_line.list_outputs) {
+        const backend::PlanResult plan_result =
+            backend.plan(*compilation_result.schema_ir, command_line.codegen_options);
+        if (!plan_result.success) {
+            errors << "backend error: " << plan_result.error_message << '\n';
+            return exit_failure;
+        }
+
+        for (const backend::PlannedGeneratedFile& file : plan_result.plan.files) {
+            output << backend::output_path_for_planned_file(
+                          command_line.codegen_options, file.relative_output_path)
+                   << '\n';
+        }
+        return exit_success;
+    }
+
     const backend::CodegenResult codegen_result =
         backend.generate(*compilation_result.schema_ir, command_line.codegen_options);
     if (!codegen_result.success) {

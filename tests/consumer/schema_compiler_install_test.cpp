@@ -177,7 +177,18 @@ TEST(SchemaCompilerInstallTest, InstalledExecutableRunsFromCleanPrefix) {
     EXPECT_EQ(help.status, 0);
     EXPECT_NE(help.stdout_text.find("breadcrumbs-schema-compiler [options] INPUT"),
               std::string::npos);
+    EXPECT_NE(help.stdout_text.find("--list-outputs"), std::string::npos);
     EXPECT_TRUE(help.stderr_text.empty());
+
+    const CommandResult listed = run_executable(
+        executable, {"--list-outputs", "--output-directory", output.string(), input.string()},
+        working_directory, "installed-list-outputs");
+    EXPECT_EQ(listed.status, 0) << listed.stderr_text;
+    EXPECT_EQ(listed.stdout_text, (output / "breadcrumbs" / "telemetry.generated.hpp").string() +
+                                      "\n");
+    EXPECT_TRUE(listed.stderr_text.empty());
+    EXPECT_FALSE(std::filesystem::exists(output));
+    EXPECT_FALSE(std::filesystem::exists(working_directory / "generated"));
 
     const CommandResult compile = run_executable(
         executable, {"--output-directory", output.string(), input.string()}, working_directory,

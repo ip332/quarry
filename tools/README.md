@@ -1,12 +1,12 @@
 # Tools
 
-This directory contains source-tree tools built from the compiler libraries.
-They are not installed or exported as a package.
+This directory contains tools built from the compiler libraries.
 
 The schema compiler's downstream distribution decision is documented in
 `docs/schema-compiler-tool-distribution.md`. The current supported boundary is
-build-tree execution only; installing the executable or exposing a CMake
-imported executable target remains deferred.
+the installed `breadcrumbs-schema-compiler` executable and the
+`Breadcrumbs::schema_compiler` imported executable target. Compiler libraries
+remain private implementation details.
 
 ## breadcrumbs-schema-compiler
 
@@ -21,6 +21,7 @@ Options:
   -o, --output-directory PATH  Directory for generated files (default: generated)
       --root-file-stem NAME     Root namespace file stem (default: schema)
       --file-extension EXT      Generated file extension (default: .generated.hpp)
+      --list-outputs            Print generated output paths without writing files
       --version                 Show version information
   -h, --help                    Show help
 ```
@@ -38,9 +39,27 @@ to stdout, writes nothing to stderr, and exits with code `0`. When combined
 with otherwise valid generation options or an input path, it still reports the
 version and does not generate files.
 
+`--list-outputs` is a terminal generation mode. It still requires a valid input
+schema and accepts generation options that affect output names:
+`--output-directory`, `--root-file-stem`, and `--file-extension`. It compiles
+and validates the schema through backend output planning, prints one planned
+generated path per line to stdout, writes diagnostics to stderr on failure, and
+does not render generated content or write files.
+
+Listed paths use the same path-base semantics as normal generation: the backend
+planned relative output path is joined to the selected output directory. If the
+output directory is relative, listed paths are relative to the process working
+directory. If the output directory is absolute, listed paths are absolute. The
+tool does not canonicalize or rebase them. Output order is deterministic and
+matches backend `GenerationPlan` order.
+
+The output is line-oriented and does not define an escaping format; scripts
+should avoid newline characters in output-directory, root-stem, or extension
+arguments.
+
 Exit codes:
 
-* `0`: success or help
+* `0`: successful generation, output listing, help, or version
 * `1`: input read failure, compiler diagnostics, backend failure, or output
   write failure
 * `2`: command-line usage error

@@ -142,12 +142,36 @@ regular_files_under(const std::filesystem::path& directory) {
     return files;
 }
 
+[[nodiscard]] std::vector<std::string> non_empty_lines(std::string_view text) {
+    std::vector<std::string> lines;
+    std::istringstream input{std::string(text)};
+    std::string line;
+    while (std::getline(input, line)) {
+        if (!line.empty()) {
+            lines.push_back(line);
+        }
+    }
+    return lines;
+}
+
 } // namespace
 
 TEST(SchemaCompilerToolTest, HelpReturnsSuccess) {
     const std::filesystem::path root = make_temp_directory("help");
 
     const CommandResult result = run_tool({"--help"}, root);
+
+    EXPECT_EQ(result.status, 0);
+    EXPECT_NE(result.stdout_text.find("breadcrumbs-schema-compiler [options] INPUT"),
+              std::string::npos);
+    EXPECT_NE(result.stdout_text.find("--list-outputs"), std::string::npos);
+    EXPECT_TRUE(result.stderr_text.empty());
+}
+
+TEST(SchemaCompilerToolTest, HelpIsTerminalBeforeListOutputs) {
+    const std::filesystem::path root = make_temp_directory("help-list-outputs");
+
+    const CommandResult result = run_tool({"--help", "--list-outputs"}, root);
 
     EXPECT_EQ(result.status, 0);
     EXPECT_NE(result.stdout_text.find("breadcrumbs-schema-compiler [options] INPUT"),
@@ -187,6 +211,25 @@ TEST(SchemaCompilerToolTest, VersionIsTerminalWhenCombinedWithInputAndOptions) {
     EXPECT_FALSE(std::filesystem::exists(output));
 }
 
+TEST(SchemaCompilerToolTest, VersionIsTerminalBeforeListOutputs) {
+    const std::filesystem::path root = make_temp_directory("version-list-outputs");
+    const std::filesystem::path input = root / "schema.brd";
+    write_text_file(input,
+                    "namespace: breadcrumbs.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n");
+
+    const CommandResult result = run_tool({"--version", "--list-outputs", input.string()}, root);
+
+    EXPECT_EQ(result.status, 0);
+    EXPECT_EQ(result.stdout_text, "breadcrumbs-schema-compiler 0.1.0\n");
+    EXPECT_TRUE(result.stderr_text.empty());
+}
+
 TEST(SchemaCompilerToolTest, UnknownOptionReturnsUsageError) {
     const std::filesystem::path root = make_temp_directory("unknown-option");
 
@@ -220,6 +263,138 @@ TEST(SchemaCompilerToolTest, InvalidYamlReturnsFailureWithoutOutput) {
     EXPECT_NE(result.status, 0);
     EXPECT_NE(result.stderr_text.find("BC2101"), std::string::npos);
     EXPECT_TRUE(regular_files_under(output).empty());
+}
+
+TEST(SchemaCompilerToolTest, ListOutputsRequiresInput) {
+    const std::filesystem::path root = make_temp_directory("list-outputs-no-input");
+
+    const CommandResult result = run_tool({"--list-outputs"}, root);
+
+    EXPECT_EQ(result.status, 2);
+    EXPECT_TRUE(result.stdout_text.empty());
+    EXPECT_NE(result.stderr_text.find("expected exactly one input file"), std::string::npos);
+}
+
+TEST(SchemaCompilerToolTest, ListOutputsPrintsRelativePathsAndDoesNotWriteFiles) {
+    const std::filesystem::path root = make_temp_directory("list-outputs-relative");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = "generated output with spaces";
+    write_text_file(input,
+                    "namespace: breadcrumbs.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n");
+
+    const CommandResult result =
+        run_tool({"--list-outputs", "--output-directory", output.string(), input.string()}, root);
+
+    EXPECT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_EQ(result.stdout_text,
+              "generated output with spaces/breadcrumbs/telemetry.generated.hpp\n");
+    EXPECT_TRUE(result.stderr_text.empty());
+    EXPECT_FALSE(std::filesystem::exists(root / output));
+}
+
+TEST(SchemaCompilerToolTest, ListOutputsPrintsAbsolutePathsAndDoesNotCreateOutputDirectory) {
+    const std::filesystem::path root = make_temp_directory("list-outputs-absolute");
+    const std::filesystem::path working_directory = root / "working directory with spaces";
+    const std::filesystem::path input_directory = root / "input directory with spaces";
+    const std::filesystem::path input = input_directory / "schema.brd";
+    const std::filesystem::path output = root / "generated output with spaces";
+    std::filesystem::create_directories(working_directory);
+    write_text_file(input,
+                    "namespace: breadcrumbs.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n");
+
+    const CommandResult result =
+        run_tool({"--list-outputs", "--output-directory", output.string(), input.string()},
+                 working_directory);
+
+    EXPECT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_EQ(result.stdout_text, (output / "breadcrumbs" / "telemetry.generated.hpp").string() +
+                                      "\n");
+    EXPECT_TRUE(result.stderr_text.empty());
+    EXPECT_FALSE(std::filesystem::exists(output));
+    EXPECT_FALSE(std::filesystem::exists(working_directory / "generated"));
+}
+
+TEST(SchemaCompilerToolTest, ListOutputsReflectsCustomFileExtension) {
+    const std::filesystem::path root = make_temp_directory("list-outputs-custom-extension");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: breadcrumbs.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n");
+
+    const CommandResult result =
+        run_tool({"--list-outputs", "--output-directory", output.string(), "--file-extension",
+                  ".hpp", input.string()},
+                 root);
+
+    EXPECT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_EQ(result.stdout_text, (output / "breadcrumbs" / "telemetry.hpp").string() + "\n");
+    EXPECT_TRUE(result.stderr_text.empty());
+    EXPECT_FALSE(std::filesystem::exists(output));
+}
+
+TEST(SchemaCompilerToolTest, ListOutputsFailureDoesNotWriteFiles) {
+    const std::filesystem::path root = make_temp_directory("list-outputs-invalid-yaml");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "out";
+    write_text_file(input, "namespace: breadcrumbs.telemetry\nrecord: Sample\nfields: [\n");
+
+    const CommandResult result =
+        run_tool({"--list-outputs", "--output-directory", output.string(), input.string()}, root);
+
+    EXPECT_NE(result.status, 0);
+    EXPECT_TRUE(result.stdout_text.empty());
+    EXPECT_NE(result.stderr_text.find("BC2101"), std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(output));
+}
+
+TEST(SchemaCompilerToolTest, ListOutputsMatchesNormalGenerationInventory) {
+    const std::filesystem::path root = make_temp_directory("list-outputs-consistency");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: breadcrumbs.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n");
+
+    const CommandResult listed =
+        run_tool({"--list-outputs", "--output-directory", output.string(), input.string()}, root);
+    ASSERT_EQ(listed.status, 0) << listed.stderr_text;
+    ASSERT_TRUE(listed.stderr_text.empty());
+    const std::vector<std::string> listed_paths = non_empty_lines(listed.stdout_text);
+
+    const CommandResult generated =
+        run_tool({"--output-directory", output.string(), input.string()}, root);
+    ASSERT_EQ(generated.status, 0) << generated.stderr_text;
+    ASSERT_TRUE(generated.stdout_text.empty());
+    ASSERT_TRUE(generated.stderr_text.empty());
+
+    std::vector<std::string> generated_paths;
+    for (const std::filesystem::path& file : regular_files_under(output)) {
+        generated_paths.push_back(file.string());
+    }
+    EXPECT_EQ(listed_paths, generated_paths);
 }
 
 TEST(SchemaCompilerToolTest, ValidYamlWritesGeneratedFiles) {

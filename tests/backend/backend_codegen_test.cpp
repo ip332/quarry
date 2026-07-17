@@ -26,6 +26,7 @@ namespace {
 using breadcrumbs::compiler::backend::Backend;
 using breadcrumbs::compiler::backend::CodegenOptions;
 using breadcrumbs::compiler::backend::CodegenResult;
+using breadcrumbs::compiler::backend::PlanResult;
 using breadcrumbs::compiler::schema_ir::SchemaIrModel;
 using breadcrumbs::compiler::schema_ir::SchemaIrValidator;
 
@@ -117,6 +118,18 @@ struct LoadedSchemaIrFixture {
 
     Backend backend;
     return backend.generate(*fixture.schema_ir, options);
+}
+
+[[nodiscard]] PlanResult plan_backend_fixture(std::string_view name,
+                                              const CodegenOptions& options) {
+    const LoadedSchemaIrFixture fixture = load_validated_schema_ir_fixture(name);
+    if (!fixture.schema_ir.has_value()) {
+        ADD_FAILURE() << "fixture: " << name << '\n' << fixture.error_message;
+        return {};
+    }
+
+    Backend backend;
+    return backend.plan(*fixture.schema_ir, options);
 }
 
 [[nodiscard]] std::string backend_golden_text(std::string_view name) {
@@ -318,10 +331,11 @@ TEST(BackendCodegenTest, GenerationPlanUsesCustomRootStemAndExtensionForRootName
     options.root_file_stem = "telemetry";
     options.file_extension = ".hpp";
 
-    const CodegenResult result = run_backend_fixture("single_record", options);
+    const PlanResult result = plan_backend_fixture("single_record", options);
     ASSERT_TRUE(result.success) << result.error_message;
-    ASSERT_EQ(result.files.size(), 1u);
-    EXPECT_EQ(result.files.front().path, "out/telemetry.hpp");
+    ASSERT_EQ(result.plan.files.size(), 1u);
+    EXPECT_EQ(result.plan.files.front().relative_output_path, "telemetry.hpp");
+    EXPECT_EQ(result.plan.files.front().generated_include_path, "telemetry.hpp");
 }
 
 TEST(BackendCodegenTest, GenerationPlanUsesNamespacePathForNestedNamespaceOutput) {
@@ -330,10 +344,11 @@ TEST(BackendCodegenTest, GenerationPlanUsesNamespacePathForNestedNamespaceOutput
     options.root_file_stem = "root";
     options.file_extension = ".hpp";
 
-    const CodegenResult result = run_backend_fixture("named_type_reference", options);
+    const PlanResult result = plan_backend_fixture("named_type_reference", options);
     ASSERT_TRUE(result.success) << result.error_message;
-    ASSERT_EQ(result.files.size(), 1u);
-    EXPECT_EQ(result.files.front().path, "out/breadcrumbs/geo.hpp");
+    ASSERT_EQ(result.plan.files.size(), 1u);
+    EXPECT_EQ(result.plan.files.front().relative_output_path, "breadcrumbs/geo.hpp");
+    EXPECT_EQ(result.plan.files.front().generated_include_path, "breadcrumbs/geo.hpp");
 }
 
 TEST(BackendCodegenTest, GenerationPlanPreservesMultiFileOrderingAndIncludePaths) {
@@ -342,12 +357,20 @@ TEST(BackendCodegenTest, GenerationPlanPreservesMultiFileOrderingAndIncludePaths
     options.root_file_stem = "root";
     options.file_extension = ".hpp";
 
-    const CodegenResult result = run_backend_fixture("cross_namespace_reference", options);
-    ASSERT_TRUE(result.success) << result.error_message;
-    ASSERT_EQ(result.files.size(), 2u);
-    EXPECT_EQ(result.files[0].path, "out/alpha/one.hpp");
-    EXPECT_EQ(result.files[1].path, "out/beta/two.hpp");
-    EXPECT_NE(result.files[1].content.find("#include \"alpha/one.hpp\""), std::string::npos);
+    const PlanResult plan = plan_backend_fixture("cross_namespace_reference", options);
+    ASSERT_TRUE(plan.success) << plan.error_message;
+    ASSERT_EQ(plan.plan.files.size(), 2u);
+    EXPECT_EQ(plan.plan.files[0].relative_output_path, "alpha/one.hpp");
+    EXPECT_EQ(plan.plan.files[0].generated_include_path, "alpha/one.hpp");
+    EXPECT_EQ(plan.plan.files[1].relative_output_path, "beta/two.hpp");
+    EXPECT_EQ(plan.plan.files[1].generated_include_path, "beta/two.hpp");
+
+    const CodegenResult rendered = run_backend_fixture("cross_namespace_reference", options);
+    ASSERT_TRUE(rendered.success) << rendered.error_message;
+    ASSERT_EQ(rendered.files.size(), 2u);
+    EXPECT_EQ(rendered.files[0].path, "out/alpha/one.hpp");
+    EXPECT_EQ(rendered.files[1].path, "out/beta/two.hpp");
+    EXPECT_NE(rendered.files[1].content.find("#include \"alpha/one.hpp\""), std::string::npos);
 }
 
 TEST(BackendCodegenTest, GeneratedRecordsAssertRuntimeGeneratedCodeApiVersion) {

@@ -58,6 +58,11 @@ output lists, generated include directories, target source attachment, and
 stale-output cleanup. The canonical pattern is shown in
 `examples/cpp/schema_compiler_cmake`.
 
+The schema compiler also supports `--list-outputs` to print the generated paths
+for a schema and generation options without writing files. This query is backed
+by the backend's internal generation plan, but it is not a CMake helper,
+manifest, depfile, or stale-output cleanup mechanism.
+
 Minimal installed-package examples are available in `examples/cpp/`.
 
 The supported downstream distribution model is defined in
