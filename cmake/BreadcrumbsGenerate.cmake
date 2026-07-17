@@ -31,6 +31,16 @@ function(_breadcrumbs_generate_absolute input base output_variable label)
     set(${output_variable} "${_path}" PARENT_SCOPE)
 endfunction()
 
+function(_breadcrumbs_generate_normalize_absolute input output_variable label)
+    _breadcrumbs_generate_reject_unsafe("${input}" "${label}")
+    _breadcrumbs_generate_reject_genex("${input}" "${label}")
+    if(NOT IS_ABSOLUTE "${input}")
+        _breadcrumbs_generate_fail("${label} must be an absolute path: ${input}")
+    endif()
+    cmake_path(NORMAL_PATH input OUTPUT_VARIABLE _path)
+    set(${output_variable} "${_path}" PARENT_SCOPE)
+endfunction()
+
 function(_breadcrumbs_generate_path_inside root path output_variable)
     cmake_path(RELATIVE_PATH path BASE_DIRECTORY "${root}" OUTPUT_VARIABLE _relative_path)
     if(_relative_path STREQUAL "" OR IS_ABSOLUTE "${_relative_path}" OR
@@ -41,12 +51,7 @@ function(_breadcrumbs_generate_path_inside root path output_variable)
     set(${output_variable} TRUE PARENT_SCOPE)
 endfunction()
 
-function(_breadcrumbs_generate_compiler_location output_variable)
-    if(CMAKE_CROSSCOMPILING)
-        _breadcrumbs_generate_fail(
-            "cross-compiling is not supported by the first helper contract; use explicit custom commands")
-    endif()
-
+function(_breadcrumbs_generate_imported_compiler_location output_variable)
     if(NOT TARGET Breadcrumbs::schema_compiler)
         _breadcrumbs_generate_fail("Breadcrumbs::schema_compiler target is not available")
     endif()
@@ -85,11 +90,78 @@ function(_breadcrumbs_generate_compiler_location output_variable)
         _breadcrumbs_generate_fail("compiler executable does not exist: ${_location}")
     endif()
 
+    cmake_path(NORMAL_PATH _location OUTPUT_VARIABLE _location)
     set(${output_variable} "${_location}" PARENT_SCOPE)
 endfunction()
 
+function(_breadcrumbs_generate_validate_host_compiler compiler)
+    if(NOT EXISTS "${compiler}")
+        _breadcrumbs_generate_fail("SCHEMA_COMPILER executable does not exist: ${compiler}")
+    endif()
+    if(IS_DIRECTORY "${compiler}")
+        _breadcrumbs_generate_fail("SCHEMA_COMPILER must name an executable file, not a directory: "
+                                   "${compiler}")
+    endif()
+
+    execute_process(
+        COMMAND "${compiler}" --version
+        RESULT_VARIABLE _version_result
+        OUTPUT_VARIABLE _version_stdout
+        ERROR_VARIABLE _version_stderr)
+    if(NOT _version_result EQUAL 0)
+        _breadcrumbs_generate_fail(
+            "SCHEMA_COMPILER must name a host-runnable Breadcrumbs schema compiler.\n"
+            "Compiler:\n"
+            "  ${compiler}\n"
+            "Exit code: ${_version_result}\n"
+            "Stderr:\n"
+            "${_version_stderr}")
+    endif()
+endfunction()
+
+function(_breadcrumbs_generate_record_selected_compiler compiler schema)
+    get_property(_selected GLOBAL PROPERTY _BREADCRUMBS_SELECTED_SCHEMA_COMPILER)
+    if(NOT _selected)
+        set_property(GLOBAL PROPERTY _BREADCRUMBS_SELECTED_SCHEMA_COMPILER "${compiler}")
+        return()
+    endif()
+    if(NOT _selected STREQUAL compiler)
+        _breadcrumbs_generate_fail(
+            "only one schema compiler is allowed per CMake build tree.\n\n"
+            "Previously selected compiler:\n"
+            "  ${_selected}\n\n"
+            "Newly requested compiler:\n"
+            "  ${compiler}\n\n"
+            "Current schema:\n"
+            "  ${schema}")
+    endif()
+endfunction()
+
+function(_breadcrumbs_generate_compiler_location output_variable dependency_variable schema)
+    if(DEFINED BREADCRUMBS_GENERATE_SCHEMA_COMPILER)
+        _breadcrumbs_generate_normalize_absolute("${BREADCRUMBS_GENERATE_SCHEMA_COMPILER}"
+                                                 _location "SCHEMA_COMPILER")
+        _breadcrumbs_generate_validate_host_compiler("${_location}")
+        set(_dependency)
+    else()
+        if(CMAKE_CROSSCOMPILING)
+            _breadcrumbs_generate_fail(
+                "cross-compiling requires SCHEMA_COMPILER with an absolute path to a "
+                "host-runnable breadcrumbs-schema-compiler. The target package compiler may "
+                "not run on the build host; package managers or toolchains must provision "
+                "the host executable explicitly.")
+        endif()
+        _breadcrumbs_generate_imported_compiler_location(_location)
+        set(_dependency Breadcrumbs::schema_compiler)
+    endif()
+
+    _breadcrumbs_generate_record_selected_compiler("${_location}" "${schema}")
+    set(${output_variable} "${_location}" PARENT_SCOPE)
+    set(${dependency_variable} "${_dependency}" PARENT_SCOPE)
+endfunction()
+
 function(_breadcrumbs_generate_parse_arguments)
-    set(_keywords SCHEMA OUTPUT_DIR OUT_FILES ROOT_FILE_STEM FILE_EXTENSION)
+    set(_keywords SCHEMA OUTPUT_DIR OUT_FILES ROOT_FILE_STEM FILE_EXTENSION SCHEMA_COMPILER)
     set(_pending_keyword)
 
     foreach(_arg IN LISTS ARGN)
@@ -319,13 +391,14 @@ endfunction()
 function(breadcrumbs_generate_cpp)
     _breadcrumbs_generate_parse_arguments(${ARGN})
 
-    _breadcrumbs_generate_compiler_location(_breadcrumbs_compiler)
     _breadcrumbs_generate_absolute("${BREADCRUMBS_GENERATE_SCHEMA}"
                                    "${CMAKE_CURRENT_SOURCE_DIR}" _breadcrumbs_schema
                                    "SCHEMA")
     _breadcrumbs_generate_absolute("${BREADCRUMBS_GENERATE_OUTPUT_DIR}"
                                    "${CMAKE_CURRENT_BINARY_DIR}" _breadcrumbs_output_dir
                                    "OUTPUT_DIR")
+    _breadcrumbs_generate_compiler_location(_breadcrumbs_compiler _breadcrumbs_compiler_dependency
+                                            "${_breadcrumbs_schema}")
 
     if(NOT EXISTS "${_breadcrumbs_schema}")
         _breadcrumbs_generate_fail("schema file does not exist: ${_breadcrumbs_schema}")
@@ -382,7 +455,7 @@ function(breadcrumbs_generate_cpp)
                 "${_breadcrumbs_schema}"
         DEPENDS
             "${_breadcrumbs_schema}"
-            Breadcrumbs::schema_compiler
+            ${_breadcrumbs_compiler_dependency}
             "${_breadcrumbs_compiler}"
             "${_breadcrumbs_module}"
         VERBATIM)

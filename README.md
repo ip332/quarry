@@ -74,6 +74,11 @@ before writing files if the current inventory no longer matches the inventory
 captured during CMake configuration. Reconfigure the build after schema or
 compiler changes that affect generated output paths.
 
+Native builds use `Breadcrumbs::schema_compiler` by default. Cross-compiling
+builds must provide `SCHEMA_COMPILER` with an absolute path to a host-runnable
+compiler executable; the helper does not search `PATH`, read environment
+fallbacks, or import host artifacts into target link interfaces.
+
 The schema compiler also supports `--list-outputs` to print the generated paths
 for a schema and generation options without writing files. This query is backed
 by the backend's internal generation plan, but it is not a CMake helper,

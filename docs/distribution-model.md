@@ -48,10 +48,12 @@ repository-relative include paths.
 The supported helper-based CMake generation pattern is documented and tested in
 `examples/cpp/schema_compiler_cmake`. Breadcrumbs does not provide depfiles,
 manifest files, target mutation, stale-output cleanup, source-tree
-`add_subdirectory()` helper support, cross-compilation support, or host-tool
-overrides. The helper verifies the generated-output inventory at build time
-before normal generation and fails before writing files if the configured
-inventory is stale.
+`add_subdirectory()` helper support, imported-target compiler overrides, or
+host-tools package discovery. The helper verifies the generated-output
+inventory at build time before normal generation and fails before writing files
+if the configured inventory is stale. Native builds use
+`Breadcrumbs::schema_compiler` by default; cross-compiling builds must pass
+`SCHEMA_COMPILER <absolute-host-executable>` explicitly.
 
 ## Artifact Classification
 
@@ -59,7 +61,7 @@ inventory is stale.
 | --- | --- | --- | --- |
 | Runtime library | `breadcrumbs_runtime`, exported as `Breadcrumbs::runtime` | Link through CMake and include public runtime headers | Supported public SDK |
 | Runtime headers | `runtime/binary_record.hpp`, `include/breadcrumbs/runtime/binary_record.hpp` | Compile generated or handwritten C++ that uses BRF runtime mechanics | Supported public SDK |
-| CMake package files | `BreadcrumbsConfig.cmake`, `BreadcrumbsConfigVersion.cmake`, `BreadcrumbsTargets.cmake`, `BreadcrumbsGenerate.cmake` | Package discovery for the runtime, schema compiler target, and installed-native generation helper | Supported public SDK |
+| CMake package files | `BreadcrumbsConfig.cmake`, `BreadcrumbsConfigVersion.cmake`, `BreadcrumbsTargets.cmake`, `BreadcrumbsGenerate.cmake` | Package discovery for the runtime, schema compiler target, and installed-package generation helper | Supported public SDK |
 | Schema compiler executable | `breadcrumbs_schema_compiler`, exported as `Breadcrumbs::schema_compiler`, installed as `breadcrumbs-schema-compiler` | Direct CLI invocation or CMake command use through `$<TARGET_FILE:...>` | Installed tool target |
 | Generated C++ code | Backend output under caller-selected paths | Owned by the downstream project that generated it | Downstream-owned build artifact |
 | Compiler libraries | `breadcrumbs_compiler_*`, `breadcrumbs_schema_ir_proto` | Internal source-tree composition and tests | Implementation detail |
@@ -143,10 +145,11 @@ decision. In particular:
 
 * installing compiler libraries needs a public compiler SDK contract
 * broader generated-code CMake helper support needs source-tree, multi-schema,
-  cross-compilation, and cleanup policies beyond the installed-native helper
-* cross-compilation should start with an explicit
-  `SCHEMA_COMPILER <absolute-host-executable>` helper override, supplied by the
-  consumer, toolchain, or package manager, before considering imported target
-  overrides or a separate host-tools package
+  imported-target compiler override, and cleanup policies beyond the current
+  helper
+* cross-compilation beyond the explicit
+  `SCHEMA_COMPILER <absolute-host-executable>` override still needs a host-tool
+  package or toolchain model before considering imported target overrides or a
+  separate host-tools package
 * language-specific examples should be introduced with their corresponding
   runtime or generator support

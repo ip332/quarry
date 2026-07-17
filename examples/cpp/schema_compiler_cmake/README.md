@@ -34,12 +34,14 @@ target_include_directories(breadcrumbs_schema_compiler_cmake PRIVATE "${generate
 target_link_libraries(breadcrumbs_schema_compiler_cmake PRIVATE Breadcrumbs::runtime)
 ```
 
-`breadcrumbs_generate_cpp()` supports installed native package consumers only.
-It handles one schema input per invocation, returns absolute generated file
-paths, and does not create or mutate targets. Downstream projects still own the
-generated include directory, target source attachment, runtime linkage, and
-stale-output cleanup. The compiler does not currently emit depfiles or
-manifests.
+`breadcrumbs_generate_cpp()` supports installed package consumers. It handles
+one schema input per invocation, returns absolute generated file paths, and
+does not create or mutate targets. Native builds use
+`Breadcrumbs::schema_compiler` by default. Cross-compiling builds must pass
+`SCHEMA_COMPILER` with an absolute path to a compiler executable runnable on
+the build host, not the target. Downstream projects still own the generated
+include directory, target source attachment, runtime linkage, and stale-output
+cleanup. The compiler does not currently emit depfiles or manifests.
 
 The helper verifies the generated-output inventory at build time before normal
 generation. If the current `--list-outputs` result differs from the configured

@@ -4,7 +4,8 @@
 exposed through the `Breadcrumbs` CMake package as the imported executable
 target `Breadcrumbs::schema_compiler`. This does not make compiler libraries,
 compiler headers, or generated protobuf targets public. The package also
-installs a narrow native-only CMake generation helper.
+installs a narrow CMake generation helper with native default behavior and an
+explicit host compiler override for cross-compiling builds.
 
 ## Current Consumers
 
@@ -12,7 +13,7 @@ installs a narrow native-only CMake generation helper.
 | --- | --- | --- |
 | Repository developers | Supported from the build tree | Existing tests and docs are sufficient |
 | External users invoking manually | Supported by direct installed executable path or `PATH` | Manual invocation remains caller-owned |
-| Downstream CMake builds | Supported through `breadcrumbs_generate_cpp()` or direct `add_custom_command()` use of `Breadcrumbs::schema_compiler` | Cross-compilation, depfiles, and stale-output cleanup remain deferred |
+| Downstream CMake builds | Supported through `breadcrumbs_generate_cpp()` or direct `add_custom_command()` use of `Breadcrumbs::schema_compiler` | Cross builds require explicit `SCHEMA_COMPILER`; depfiles and stale-output cleanup remain deferred |
 | Package maintainers | Runtime package plus imported compiler executable target | Component layout remains deferred |
 | CI code-generation steps | Build-tree only | Stable CLI, deterministic outputs, and clear generated-file ownership |
 | Future language SDK generators | Deferred | Generator selection and language-specific SDK contracts |
@@ -70,7 +71,9 @@ Installed executable boundary:
 * exposed as imported executable target `Breadcrumbs::schema_compiler`
 * not exposed through package components
 * no package variable points to the compiler executable
-* `breadcrumbs_generate_cpp()` is provided for installed native builds only
+* `breadcrumbs_generate_cpp()` is provided for installed package builds, using
+  `Breadcrumbs::schema_compiler` by default in native builds and
+  `SCHEMA_COMPILER` when an explicit host tool is required
 
 Implementation behavior that is not yet an installed-tool contract:
 
@@ -79,7 +82,7 @@ Implementation behavior that is not yet an installed-tool contract:
 * no generated-output manifest
 * no explicit backend or language selection
 * no import resolution or multi-file source graph
-* no cross-compilation host-tool separation
+* no automatic cross-compilation host-tool discovery
 
 `--version` prints `breadcrumbs-schema-compiler <version>` to stdout, writes
 nothing to stderr, and exits with `0`. It is terminal like `--help`; when
@@ -174,9 +177,9 @@ helper extensions must define:
 * one-schema versus multi-schema behavior
 * generated include directories and target mutation
 * whether helper extensions link `Breadcrumbs::runtime`
-* host-tool override behavior
+* imported-target or package-wide host-tool override behavior
 * stale-output cleanup
-* cross-compilation host-tool discovery
+* automatic cross-compilation host-tool discovery
 
 ## CMake Generation Helper Contract
 
@@ -187,7 +190,7 @@ auto-includes it from `BreadcrumbsConfig.cmake`. After:
 find_package(Breadcrumbs CONFIG REQUIRED)
 ```
 
-installed native consumers can call:
+installed package consumers can call:
 
 ```cmake
 breadcrumbs_generate_cpp(
@@ -196,15 +199,17 @@ breadcrumbs_generate_cpp(
     OUT_FILES <variable>
     [ROOT_FILE_STEM <stem>]
     [FILE_EXTENSION <extension>]
+    [SCHEMA_COMPILER <absolute-host-executable>]
 )
 ```
 
 The helper is deliberately narrow:
 
 * installed package use only
-* native builds only
 * exactly one schema input per invocation
-* compiler fixed to `Breadcrumbs::schema_compiler`
+* native builds use `Breadcrumbs::schema_compiler` by default
+* cross-compiling builds require `SCHEMA_COMPILER` with an absolute
+  host-runnable compiler path
 * configure-time `--list-outputs` for output discovery
 * default build-time output-inventory verification before generation
 * one build-time normal compiler invocation
@@ -215,17 +220,31 @@ The helper is deliberately narrow:
 * no stale-output deletion
 * no depfiles or manifests
 * no source-tree `add_subdirectory()` helper support
-* no cross-compilation support or host-tool override
+* no `PATH` search, environment-variable fallback, package-global compiler
+  variable, or imported-target compiler override
 
 The lower-level manual `add_custom_command()` workflow remains supported for
 callers that want explicit control over the compiler invocation.
 
 ### Configure-Time Compiler Resolution
 
-The helper resolves `Breadcrumbs::schema_compiler` during configuration by
-reading the imported executable target location. It does not evaluate
-`$<TARGET_FILE:Breadcrumbs::schema_compiler>` in `execute_process()`, does not
-search `PATH`, and does not hard-code `<prefix>/bin`.
+Without `SCHEMA_COMPILER`, the helper resolves `Breadcrumbs::schema_compiler`
+during configuration by reading the imported executable target location. It
+does not evaluate `$<TARGET_FILE:Breadcrumbs::schema_compiler>` in
+`execute_process()`, does not search `PATH`, and does not hard-code
+`<prefix>/bin`.
+
+When `SCHEMA_COMPILER` is provided, the helper requires an absolute,
+lexically-normalized path. It rejects generator expressions, semicolons,
+newlines, carriage returns, missing paths, directories, and non-runnable
+executables. Host-runnability is validated by executing:
+
+```text
+<compiler> --version
+```
+
+The helper does not parse the version for package-release equality; the later
+`--list-outputs` query remains the functional schema/compiler validation.
 
 The helper fails during configuration when:
 
@@ -233,11 +252,18 @@ The helper fails during configuration when:
 * the target is not an imported executable target
 * an unambiguous configure-time executable location cannot be resolved
 * the executable path does not exist
-* `CMAKE_CROSSCOMPILING` is true
+* `CMAKE_CROSSCOMPILING` is true and `SCHEMA_COMPILER` is not provided
+* `SCHEMA_COMPILER` cannot be launched successfully with `--version`
 
 Build-tree `add_subdirectory()` consumption is intentionally unsupported by the
 helper. A source-tree alias may exist while configuring, but the executable may
 not have been built yet, so configure-time output discovery would be unreliable.
+
+The first helper invocation records the selected compiler path in a private
+global CMake property. Later invocations in the same build tree must select the
+same lexically-normalized absolute path, whether it came from the native
+imported target or from `SCHEMA_COMPILER`. Different symlink spellings count as
+different compiler identities.
 
 ### Path Rules
 
@@ -336,23 +362,24 @@ schema that first claimed them.
 
 ### Multi-Config and Cross-Compilation Boundary
 
-The first helper contract supports native installed-package builds with a
-configuration-independent imported compiler executable location. Generator
+The helper supports configuration-independent generated outputs. Generator
 expressions in helper arguments are rejected, so configuration-specific output
 directories such as `$<CONFIG>` are unsupported.
 
-Cross-compilation remains unsupported. The schema compiler is a host executable
-while `Breadcrumbs::runtime` is consumed by target-side generated code. A future
-host-tool override or separate host-tools package must be designed before the
-helper can claim cross-compilation support.
+The schema compiler is a host executable while `Breadcrumbs::runtime` is
+consumed by target-side generated code. Cross-compiling builds must provide
+`SCHEMA_COMPILER` with an absolute path to a compiler executable runnable on the
+build host. The helper does not discover host tools, create a host-tools
+package, or solve target package-manager integration.
 
 ## Host Tool and Cross-Compilation Policy
 
-The installed package is currently a native package: `Breadcrumbs::runtime` and
-`Breadcrumbs::schema_compiler` are discovered from the same package prefix, and
-the helper assumes the imported compiler executable is runnable on the build
-machine. This is correct for native builds, but it is not a host/target split
-package model.
+The installed package is still not a host/target split package:
+`Breadcrumbs::runtime` and `Breadcrumbs::schema_compiler` are discovered from
+the same package prefix. This is correct for native builds. Cross-compiling
+consumers must explicitly provide a host-runnable schema compiler path through
+`SCHEMA_COMPILER`; the target package's imported compiler target is ignored for
+generation when that override is supplied.
 
 Cross-compiling consumers need three distinct artifacts:
 
@@ -363,8 +390,8 @@ Cross-compiling consumers need three distinct artifacts:
 * **generated C++** owned by the downstream build and compiled for the target
 
 A target-built `Breadcrumbs::schema_compiler` must not be assumed runnable on
-the host. The helper therefore continues to reject `CMAKE_CROSSCOMPILING` until
-a host compiler is selected through an explicit future contract.
+the host. The helper therefore rejects `CMAKE_CROSSCOMPILING` unless
+`SCHEMA_COMPILER` selects an explicit host compiler.
 
 ### Package-Manager Responsibility
 
@@ -388,11 +415,11 @@ compiler.
 * **Fixed imported target only:** retained for native builds, but insufficient
   for cross builds because `Breadcrumbs::schema_compiler` may come from a target
   package prefix and be non-runnable on the host.
-* **Raw executable path override:** selected as the narrow future extension. A
-  future helper argument such as `SCHEMA_COMPILER <absolute-host-executable>`
-  can be resolved during configuration, registered as a configure/build
-  dependency, reused for configure-time listing, build-time verification, and
-  generation, and supplied by any package manager or toolchain.
+* **Raw executable path override:** selected and implemented as the narrow
+  cross-build extension. `SCHEMA_COMPILER <absolute-host-executable>` is
+  resolved during configuration, registered as a configure/build dependency,
+  reused for configure-time listing, build-time verification, and generation,
+  and supplied by the consumer, package manager, or toolchain.
 * **Executable target override:** deferred. It preserves CMake target identity
   but does not solve configure-time execution for non-imported targets and adds
   multi-config/imported-location ambiguity before there is a concrete need.
@@ -406,9 +433,9 @@ compiler.
   architecture can support cross builds once a host-runnable compiler path is
   supplied and validated.
 
-### Proposed Future Helper Contract
+### Host Compiler Override Contract
 
-The next implementation step should add exactly one optional override:
+The helper supports exactly one optional override:
 
 ```cmake
 breadcrumbs_generate_cpp(
@@ -419,12 +446,12 @@ breadcrumbs_generate_cpp(
 )
 ```
 
-Selection precedence should be:
+Selection precedence is:
 
 1. `SCHEMA_COMPILER`, when provided
 2. `Breadcrumbs::schema_compiler`, only when not cross-compiling
 
-`SCHEMA_COMPILER` must be an absolute path. It must reject generator
+`SCHEMA_COMPILER` must be an absolute path. It rejects generator
 expressions, semicolons, newlines, carriage returns, directories, missing
 paths, and non-runnable executables. The helper must not search `PATH`, read
 environment variables, download tools, or silently fall back to another
@@ -437,7 +464,7 @@ unchanged for:
 * build-time inventory verification
 * build-time normal generation
 
-The path should be added to `CMAKE_CONFIGURE_DEPENDS`, listed in the custom
+The path is added to `CMAKE_CONFIGURE_DEPENDS`, listed in the custom
 command dependencies, and used in the build-time verification command. If the
 executable is replaced, normal CMake reconfiguration should refresh the output
 inventory when the generator honors configure dependencies; otherwise the
@@ -445,13 +472,7 @@ default build-time inventory verification remains defense in depth.
 
 ### Cross-Compiling Guard Evolution
 
-The current guard remains:
-
-```cmake
-CMAKE_CROSSCOMPILING => error
-```
-
-The future rule should become:
+The cross-compiling rule is:
 
 * cross-compiling without `SCHEMA_COMPILER`: error
 * cross-compiling with a valid absolute `SCHEMA_COMPILER`: allowed
@@ -489,7 +510,7 @@ runtime headers during target compilation.
 
 ### One Compiler Per Build Tree
 
-The first cross-compilation contract should enforce one Breadcrumbs schema
+The cross-compilation contract enforces one Breadcrumbs schema
 compiler executable per CMake build tree. The first `breadcrumbs_generate_cpp()`
 call records the selected compiler path; later calls must use the same resolved
 path, whether it came from the native imported target or from `SCHEMA_COMPILER`.
@@ -510,16 +531,18 @@ Executing an override compiler is a trusted build-configuration action. The
 helper should validate path shape and launchability, but it cannot prove that
 an arbitrary executable is semantically safe.
 
-### Future Test Matrix
+### Test Matrix
 
-A future implementation of `SCHEMA_COMPILER` should test:
+The `SCHEMA_COMPILER` implementation is tested for the portable parts of this
+matrix:
 
 * native installed package behavior without override remains unchanged
 * relocated prefixes and paths containing spaces still work
 * cross-compiling without override is rejected
 * cross-compiling with a valid absolute host compiler path succeeds
-* a target-architecture or otherwise non-runnable compiler fails during launch
-  or `--list-outputs`
+* a missing, directory, or otherwise non-runnable compiler fails during launch
+  or `--list-outputs`; target-architecture launch failures are expected to
+  report through the same path where a platform can exercise them
 * missing path, directory path, unsafe path, and generator-expression path are
   rejected
 * one-compiler-per-build-tree rejects mixed compiler paths
@@ -590,11 +613,12 @@ Evaluated discovery options:
 * **Separate compiler package:** deferred. It may become relevant for
   cross-compilation or host-tools packaging, but it fragments the current small
   SDK before those requirements are concrete.
-* **CMake generation helper:** implemented only for installed native package
-  consumers through `breadcrumbs_generate_cpp()`. The helper uses
-  configure-time `--list-outputs`, returns generated files, and intentionally
-  avoids target mutation, stale cleanup, depfiles, manifests, source-tree
-  helper support, cross-compilation, and host-tool overrides.
+* **CMake generation helper:** implemented for installed package consumers
+  through `breadcrumbs_generate_cpp()`. The helper uses configure-time
+  `--list-outputs`, returns generated files, accepts an explicit absolute
+  `SCHEMA_COMPILER` host executable when needed, and intentionally avoids
+  target mutation, stale cleanup, depfiles, manifests, source-tree helper
+  support, package-global overrides, and imported-target overrides.
 * **Expose compiler SDK:** rejected. Compiler libraries and generated protobufs
   are source-tree implementation details.
 
@@ -646,12 +670,12 @@ CMake package prefix. `Breadcrumbs::schema_compiler` comes from that prefix,
 avoiding accidental PATH selection of a compiler from a different installation.
 Manual PATH invocation remains inherently caller-owned.
 
-Cross-compilation remains deferred. The schema compiler is a host executable,
-while `Breadcrumbs::runtime` is a target-side header-only package. The selected
-next contract is a user-supplied absolute host compiler path on
-`breadcrumbs_generate_cpp()`. A separate host-tools package can be reconsidered
-after raw-path override behavior is implemented and tested. The native-build
-imported target policy must not be described as cross-compilation support.
+Cross-compilation is supported only through an explicit absolute
+`SCHEMA_COMPILER` path supplied to `breadcrumbs_generate_cpp()`. The schema
+compiler is a host executable, while `Breadcrumbs::runtime` is a target-side
+header-only package. A separate host-tools package or imported target override
+can be reconsidered if raw-path override usage proves insufficient. The native
+imported target alone must not be described as cross-compilation support.
 
 ## Deferred Discovery Work
 
@@ -669,11 +693,12 @@ A future PR should define and test:
 2. Add an installed-native `breadcrumbs_generate_cpp()` helper that uses
    configure-time `--list-outputs`, returns `OUT_FILES`, and avoids target
    mutation, stale cleanup, depfiles, manifests, source-tree consumption, and
-   cross-compilation. Completed by the installed `BreadcrumbsGenerate.cmake`
-   module.
+   cross-compilation in its first version. Completed by the installed
+   `BreadcrumbsGenerate.cmake` module.
 3. Add an installed-helper `SCHEMA_COMPILER <absolute-host-executable>` override
    with one-compiler-per-build-tree enforcement, preserving native default
    behavior and allowing cross-compilation only with the explicit override.
+   Completed by PR-082.
 4. Decide whether imported target overrides, host-tools packages,
    multi-config-specific output directories, package components, or
    stale-output cleanup are justified.

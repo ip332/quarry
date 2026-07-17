@@ -133,10 +133,37 @@ target_include_directories(app PRIVATE "${generated_dir}")
 target_link_libraries(app PRIVATE Breadcrumbs::runtime)
 ```
 
+For cross-compiling builds, the target Breadcrumbs package still provides
+`Breadcrumbs::runtime`, but the helper must be given a compiler executable that
+runs on the build host:
+
+```cmake
+find_package(Breadcrumbs CONFIG REQUIRED)
+
+set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
+breadcrumbs_generate_cpp(
+    SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/telemetry.brd"
+    OUTPUT_DIR "${generated_dir}"
+    OUT_FILES generated_files
+    SCHEMA_COMPILER "/opt/host-tools/bin/breadcrumbs-schema-compiler"
+)
+
+add_library(telemetry)
+target_sources(telemetry PRIVATE ${generated_files})
+target_include_directories(telemetry PRIVATE "${generated_dir}")
+target_link_libraries(telemetry PRIVATE Breadcrumbs::runtime)
+```
+
+The path above is only an example layout; package managers or toolchains are
+responsible for provisioning the host compiler and passing its absolute path.
+
 The helper is installed with the package and auto-loaded by
-`find_package(Breadcrumbs CONFIG REQUIRED)`. It is installed-native-only,
-native-build-only, handles one schema per invocation, returns absolute
-generated paths through `OUT_FILES`, and does not create or mutate targets.
+`find_package(Breadcrumbs CONFIG REQUIRED)`. It supports installed package
+consumers, handles one schema per invocation, returns absolute generated paths
+through `OUT_FILES`, and does not create or mutate targets. Native builds use
+`Breadcrumbs::schema_compiler` by default. Cross-compiling builds are allowed
+only when `SCHEMA_COMPILER` names an absolute host-runnable compiler path.
 Downstream projects still own include directories, target source attachment,
 runtime linkage, and stale-output cleanup.
 
@@ -150,6 +177,14 @@ remain registered with `CMAKE_CONFIGURE_DEPENDS`.
 
 The lower-level manual `add_custom_command()` pattern remains supported for
 callers that want explicit control over the compiler invocation.
+
+`SCHEMA_COMPILER` is trusted build configuration and is executed during CMake
+configuration. The helper validates that it is absolute, exists, is not a
+directory, and successfully runs `--version`; it does not search `PATH`, read
+environment-variable fallbacks, download tools, or enforce exact package
+release equality. Generated headers still enforce
+`breadcrumbs::runtime::kGeneratedCodeApiVersion` when the generated C++ is
+compiled against the target runtime.
 
 The installed executable links private Breadcrumbs compiler libraries into the
 tool binary. It may still depend on system or package-manager-provided dynamic

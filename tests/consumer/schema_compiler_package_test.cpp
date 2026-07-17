@@ -165,6 +165,24 @@ void expect_success(const CommandResult& result, std::string_view step) {
                                 << result.stderr_text;
 }
 
+[[nodiscard]] std::filesystem::path installed_schema_compiler(
+    const std::filesystem::path& install_prefix) {
+    return install_prefix / "bin" / "breadcrumbs-schema-compiler";
+}
+
+[[nodiscard]] std::filesystem::path write_schema_compiler_wrapper(
+    const std::filesystem::path& path, const std::filesystem::path& real_compiler,
+    const std::filesystem::path& log_path) {
+    write_executable_file(path,
+                          "#!/bin/sh\n"
+                          "printf '%s\\n' \"$*\" >> " +
+                              shell_quote(log_path.string()) +
+                              "\n"
+                              "exec " +
+                              shell_quote(real_compiler.string()) + " \"$@\"\n");
+    return path;
+}
+
 } // namespace
 
 TEST(SchemaCompilerPackageTest, ImportedExecutableTargetGeneratesDownstreamCode) {
@@ -349,6 +367,262 @@ TEST(SchemaCompilerPackageTest, HelperReconfiguresWhenSchemaInventoryChanges) {
                                         "telemetry" / "v2.hpp"));
     const std::string outputs = read_text_file(consumer_build / "outputs.txt");
     EXPECT_NE(outputs.find("generated/breadcrumbs/telemetry/v2.hpp"), std::string::npos);
+}
+
+TEST(SchemaCompilerPackageTest, HelperNativeExplicitOverrideUsesSelectedCompiler) {
+#ifdef _WIN32
+    GTEST_SKIP() << "schema compiler package subprocess test is not implemented on Windows";
+#endif
+
+    const std::filesystem::path root = make_temp_directory("native override");
+    const std::filesystem::path install_prefix = root / "install prefix with spaces";
+    const std::filesystem::path consumer_source = root / "override source with spaces";
+    const std::filesystem::path consumer_build = root / "override build with spaces";
+    const std::filesystem::path log_path = root / "wrapper invocations.log";
+    const std::filesystem::path wrapper =
+        write_schema_compiler_wrapper(root / "host compiler wrapper.sh",
+                                      installed_schema_compiler(install_prefix), log_path);
+
+    write_text_file(consumer_source / "schema.brd",
+                    "namespace: breadcrumbs.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n");
+    write_text_file(consumer_source / "CMakeLists.txt",
+                    "cmake_minimum_required(VERSION 3.20)\n"
+                    "project(native_override LANGUAGES NONE)\n"
+                    "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+                    "breadcrumbs_generate_cpp(\n"
+                    "  SCHEMA schema.brd\n"
+                    "  OUTPUT_DIR generated\n"
+                    "  OUT_FILES generated_files\n"
+                    "  SCHEMA_COMPILER \"" +
+                        wrapper.string() +
+                        "\")\n"
+                        "file(WRITE \"${CMAKE_CURRENT_BINARY_DIR}/outputs.txt\" "
+                        "\"${generated_files}\\n\")\n"
+                        "add_custom_target(generated ALL DEPENDS ${generated_files})\n");
+
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+                                   install_prefix.string()},
+                                  root, "install"),
+                   "install Breadcrumbs package");
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"-S", consumer_source.string(), "-B", consumer_build.string(),
+                                   "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
+                                  root, "configure-native-override"),
+                   "configure native override consumer");
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"--build", consumer_build.string()},
+                                  root, "build-native-override"),
+                   "build native override consumer");
+
+    EXPECT_TRUE(std::filesystem::exists(consumer_build / "generated" / "breadcrumbs" /
+                                        "telemetry.generated.hpp"));
+    const std::string log = read_text_file(log_path);
+    EXPECT_NE(log.find("--version"), std::string::npos);
+    EXPECT_NE(log.find("--list-outputs"), std::string::npos);
+    EXPECT_NE(log.find("--output-directory"), std::string::npos);
+    EXPECT_EQ(log.find("$<TARGET_FILE:Breadcrumbs::schema_compiler>"), std::string::npos);
+}
+
+TEST(SchemaCompilerPackageTest, HelperCrossCompilingRequiresExplicitCompiler) {
+#ifdef _WIN32
+    GTEST_SKIP() << "schema compiler package subprocess test is not implemented on Windows";
+#endif
+
+    const std::filesystem::path root = make_temp_directory("cross no override");
+    const std::filesystem::path install_prefix = root / "install prefix with spaces";
+    const std::filesystem::path consumer_source = root / "cross source";
+    write_text_file(consumer_source / "schema.brd",
+                    "namespace: breadcrumbs.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields: {}\n");
+    write_text_file(consumer_source / "CMakeLists.txt",
+                    "cmake_minimum_required(VERSION 3.20)\n"
+                    "project(cross_no_override LANGUAGES NONE)\n"
+                    "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+                    "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated "
+                    "OUT_FILES files)\n");
+
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+                                   install_prefix.string()},
+                                  root, "install"),
+                   "install Breadcrumbs package");
+    const CommandResult result = run_executable(
+        BREADCRUMBS_TEST_CMAKE_COMMAND,
+        {"-S", consumer_source.string(), "-B", (root / "cross build").string(),
+         "-DCMAKE_PREFIX_PATH=" + install_prefix.string(), "-DCMAKE_SYSTEM_NAME=Generic"},
+        root, "configure-cross-no-override");
+    EXPECT_NE(result.status, 0);
+    EXPECT_NE(result.stderr_text.find("cross-compiling requires SCHEMA_COMPILER"),
+              std::string::npos);
+}
+
+TEST(SchemaCompilerPackageTest, HelperCrossCompilingAcceptsExplicitCompiler) {
+#ifdef _WIN32
+    GTEST_SKIP() << "schema compiler package subprocess test is not implemented on Windows";
+#endif
+
+    const std::filesystem::path root = make_temp_directory("cross override");
+    const std::filesystem::path install_prefix = root / "install prefix with spaces";
+    const std::filesystem::path consumer_source = root / "cross override source";
+    const std::filesystem::path consumer_build = root / "cross override build";
+    const std::filesystem::path log_path = root / "cross wrapper invocations.log";
+    const std::filesystem::path wrapper =
+        write_schema_compiler_wrapper(root / "cross host compiler.sh",
+                                      installed_schema_compiler(install_prefix), log_path);
+
+    write_text_file(consumer_source / "schema.brd",
+                    "namespace: breadcrumbs.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields: {}\n");
+    write_text_file(consumer_source / "CMakeLists.txt",
+                    "cmake_minimum_required(VERSION 3.20)\n"
+                    "project(cross_override LANGUAGES NONE)\n"
+                    "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+                    "breadcrumbs_generate_cpp(\n"
+                    "  SCHEMA schema.brd\n"
+                    "  OUTPUT_DIR generated\n"
+                    "  OUT_FILES generated_files\n"
+                    "  SCHEMA_COMPILER \"" +
+                        wrapper.string() +
+                        "\")\n"
+                        "add_custom_target(generated ALL DEPENDS ${generated_files})\n");
+
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+                                   install_prefix.string()},
+                                  root, "install"),
+                   "install Breadcrumbs package");
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"-S", consumer_source.string(), "-B", consumer_build.string(),
+                                   "-DCMAKE_PREFIX_PATH=" + install_prefix.string(),
+                                   "-DCMAKE_SYSTEM_NAME=Generic"},
+                                  root, "configure-cross-override"),
+                   "configure cross override consumer");
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"--build", consumer_build.string()},
+                                  root, "build-cross-override"),
+                   "build cross override consumer");
+    EXPECT_TRUE(std::filesystem::exists(consumer_build / "generated" / "breadcrumbs" /
+                                        "telemetry.generated.hpp"));
+    const std::string log = read_text_file(log_path);
+    EXPECT_NE(log.find("--version"), std::string::npos);
+    EXPECT_NE(log.find("--list-outputs"), std::string::npos);
+}
+
+TEST(SchemaCompilerPackageTest, HelperAllowsOnlyOneCompilerPerBuildTree) {
+#ifdef _WIN32
+    GTEST_SKIP() << "schema compiler package subprocess test is not implemented on Windows";
+#endif
+
+    const std::filesystem::path root = make_temp_directory("one compiler");
+    const std::filesystem::path install_prefix = root / "install prefix with spaces";
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+                                   install_prefix.string()},
+                                  root, "install"),
+                   "install Breadcrumbs package");
+
+    auto write_two_schema_project = [&](const std::filesystem::path& source,
+                                        std::string_view first_compiler,
+                                        std::string_view second_compiler) {
+        write_text_file(source / "first.brd",
+                        "namespace: breadcrumbs.one\n"
+                        "record: First\n"
+                        "version: 1\n"
+                        "type: data\n"
+                        "fields: {}\n");
+        write_text_file(source / "second.brd",
+                        "namespace: breadcrumbs.two\n"
+                        "record: Second\n"
+                        "version: 1\n"
+                        "type: data\n"
+                        "fields: {}\n");
+        write_text_file(source / "CMakeLists.txt",
+                        "cmake_minimum_required(VERSION 3.20)\n"
+                        "project(one_compiler LANGUAGES NONE)\n"
+                        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+                        "breadcrumbs_generate_cpp(\n"
+                        "  SCHEMA first.brd\n"
+                        "  OUTPUT_DIR one\n"
+                        "  OUT_FILES first_files\n" +
+                            std::string(first_compiler) +
+                            ")\n"
+                            "breadcrumbs_generate_cpp(\n"
+                            "  SCHEMA second.brd\n"
+                            "  OUTPUT_DIR two\n"
+                            "  OUT_FILES second_files\n" +
+                            std::string(second_compiler) +
+                            ")\n"
+                            "add_custom_target(generated ALL DEPENDS ${first_files} "
+                            "${second_files})\n");
+    };
+
+    const std::filesystem::path real_compiler = installed_schema_compiler(install_prefix);
+    const std::filesystem::path wrapper_a =
+        write_schema_compiler_wrapper(root / "compiler a.sh", real_compiler, root / "a.log");
+    const std::filesystem::path wrapper_b =
+        write_schema_compiler_wrapper(root / "compiler b.sh", real_compiler, root / "b.log");
+
+    const std::filesystem::path same_source = root / "same compiler source";
+    write_two_schema_project(same_source,
+                             "  SCHEMA_COMPILER \"" + wrapper_a.string() + "\"\n",
+                             "  SCHEMA_COMPILER \"" + wrapper_a.string() + "\"\n");
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"-S", same_source.string(), "-B",
+                                   (root / "same compiler build").string(),
+                                   "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
+                                  root, "configure-same-compiler"),
+                   "configure same compiler project");
+
+    const std::filesystem::path native_same_source = root / "native same source";
+    write_two_schema_project(native_same_source, "",
+                             "  SCHEMA_COMPILER \"" + real_compiler.string() + "\"\n");
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"-S", native_same_source.string(), "-B",
+                                   (root / "native same build").string(),
+                                   "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
+                                  root, "configure-native-same-compiler"),
+                   "configure native and explicit same compiler project");
+
+    const std::filesystem::path different_source = root / "different compiler source";
+    write_two_schema_project(different_source,
+                             "  SCHEMA_COMPILER \"" + wrapper_a.string() + "\"\n",
+                             "  SCHEMA_COMPILER \"" + wrapper_b.string() + "\"\n");
+    const CommandResult different_result = run_executable(
+        BREADCRUMBS_TEST_CMAKE_COMMAND,
+        {"-S", different_source.string(), "-B", (root / "different compiler build").string(),
+         "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
+        root, "configure-different-compilers");
+    EXPECT_NE(different_result.status, 0);
+    EXPECT_NE(different_result.stderr_text.find("only one schema compiler is allowed"),
+              std::string::npos);
+    EXPECT_NE(different_result.stderr_text.find(wrapper_a.string()), std::string::npos);
+    EXPECT_NE(different_result.stderr_text.find(wrapper_b.string()), std::string::npos);
+
+    const std::filesystem::path native_different_source = root / "native different source";
+    write_two_schema_project(native_different_source, "",
+                             "  SCHEMA_COMPILER \"" + wrapper_a.string() + "\"\n");
+    const CommandResult native_different_result = run_executable(
+        BREADCRUMBS_TEST_CMAKE_COMMAND,
+        {"-S", native_different_source.string(), "-B",
+         (root / "native different build").string(),
+         "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
+        root, "configure-native-different-compiler");
+    EXPECT_NE(native_different_result.status, 0);
+    EXPECT_NE(native_different_result.stderr_text.find("only one schema compiler is allowed"),
+              std::string::npos);
 }
 
 TEST(SchemaCompilerPackageTest, BuildTimeInventoryVerificationReportsDrift) {
@@ -646,6 +920,118 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         .expected = "schema file does not exist",
     });
 
+    expect_configure_failure({
+        .name = "relative-compiler",
+        .cmake_lists =
+        "cmake_minimum_required(VERSION 3.20)\n"
+        "project(relative_compiler LANGUAGES NONE)\n"
+        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
+        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "fields: {}\\n\")\n"
+        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
+        "SCHEMA_COMPILER relative/compiler)\n",
+        .expected = "SCHEMA_COMPILER must be an absolute path",
+    });
+
+    expect_configure_failure({
+        .name = "missing-compiler",
+        .cmake_lists =
+        "cmake_minimum_required(VERSION 3.20)\n"
+        "project(missing_compiler LANGUAGES NONE)\n"
+        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
+        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "fields: {}\\n\")\n"
+        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
+        "SCHEMA_COMPILER \"" +
+            (root / "missing compiler").string() +
+            "\")\n",
+        .expected = "executable does not exist",
+    });
+
+    const std::filesystem::path compiler_directory = root / "compiler directory";
+    std::filesystem::create_directories(compiler_directory);
+    expect_configure_failure({
+        .name = "directory-compiler",
+        .cmake_lists =
+        "cmake_minimum_required(VERSION 3.20)\n"
+        "project(directory_compiler LANGUAGES NONE)\n"
+        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
+        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "fields: {}\\n\")\n"
+        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
+        "SCHEMA_COMPILER \"" +
+            compiler_directory.string() +
+            "\")\n",
+        .expected = "directory:",
+    });
+
+    const std::filesystem::path non_runnable = root / "non runnable compiler";
+    write_text_file(non_runnable, "#!/bin/sh\nexit 0\n");
+    expect_configure_failure({
+        .name = "non-runnable-compiler",
+        .cmake_lists =
+        "cmake_minimum_required(VERSION 3.20)\n"
+        "project(non_runnable_compiler LANGUAGES NONE)\n"
+        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
+        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "fields: {}\\n\")\n"
+        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
+        "SCHEMA_COMPILER \"" +
+            non_runnable.string() +
+            "\")\n",
+        .expected = "host-runnable",
+    });
+
+    const std::filesystem::path bad_version = root / "bad version compiler.sh";
+    write_executable_file(bad_version, "#!/bin/sh\necho bad compiler >&2\nexit 9\n");
+    expect_configure_failure({
+        .name = "bad-version-compiler",
+        .cmake_lists =
+        "cmake_minimum_required(VERSION 3.20)\n"
+        "project(bad_version_compiler LANGUAGES NONE)\n"
+        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
+        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "fields: {}\\n\")\n"
+        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
+        "SCHEMA_COMPILER \"" +
+            bad_version.string() +
+            "\")\n",
+        .expected = "bad compiler",
+    });
+
+    expect_configure_failure({
+        .name = "genex-compiler",
+        .cmake_lists =
+        "cmake_minimum_required(VERSION 3.20)\n"
+        "project(genex_compiler LANGUAGES NONE)\n"
+        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
+        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "fields: {}\\n\")\n"
+        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
+        "SCHEMA_COMPILER \"$<TARGET_FILE:Breadcrumbs::schema_compiler>\")\n",
+        .expected = "generator",
+    });
+
+    expect_configure_failure({
+        .name = "missing-compiler-value",
+        .cmake_lists =
+        "cmake_minimum_required(VERSION 3.20)\n"
+        "project(missing_compiler_value LANGUAGES NONE)\n"
+        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
+        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "fields: {}\\n\")\n"
+        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
+        "SCHEMA_COMPILER)\n",
+        .expected = "missing value for SCHEMA_COMPILER",
+    });
+
     const std::filesystem::path invalid_source = root / "invalid schema source";
     write_text_file(invalid_source / "schema.brd",
                     "namespace: breadcrumbs.telemetry\nrecord: Sample\nfields: [\n");
@@ -707,6 +1093,6 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
          "-DCMAKE_PREFIX_PATH=" + install_prefix.string(), "-DCMAKE_SYSTEM_NAME=Generic"},
         root, "cross-rejected");
     EXPECT_NE(cross_result.status, 0);
-    EXPECT_NE(cross_result.stderr_text.find("cross-compiling is not supported"),
+    EXPECT_NE(cross_result.stderr_text.find("cross-compiling requires SCHEMA_COMPILER"),
               std::string::npos);
 }
