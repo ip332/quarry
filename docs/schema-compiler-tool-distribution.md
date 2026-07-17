@@ -268,14 +268,8 @@ Current architecture:
   tool-side safety checks for duplicate paths, output-root containment, and
   per-file atomic replacement
 
-This already separates backend generation from file writing, but it does not
-yet expose a pure plan. The current `CodegenResult` combines two concepts:
-
-* planned output inventory: which files will be produced and in what order
-* rendered output payloads: the bytes to write for each generated file
-
-The selected architecture is an internal `GenerationPlan` stage before
-rendering:
+This separates backend generation from file writing. The backend now also has
+an internal `GenerationPlan` stage before rendering:
 
 ```text
 Schema IR
@@ -286,9 +280,9 @@ Schema IR
   -> schema compiler file writer
 ```
 
-The plan should remain internal at first. It should be sufficient for backend
-tests, future CLI query modes, and future CMake integration to share the same
-output inventory without reimplementing filename rules outside the backend.
+The plan remains internal. It is sufficient for backend tests, future CLI query
+modes, and future CMake integration to share the same output inventory without
+reimplementing filename rules outside the backend.
 
 Minimum useful plan data:
 
@@ -298,11 +292,10 @@ Minimum useful plan data:
 * generated include path used by other generated files
 * deterministic order
 
-The plan should not initially include absolute paths, rendered file contents,
-file hashes, build-system dependency graphs, stale-output cleanup policy,
-runtime package paths, or CMake target information. Absolute path validation
-and atomic replacement remain responsibilities of the schema compiler tool's
-file writer.
+The plan does not include rendered file contents, file hashes, build-system
+dependency graphs, stale-output cleanup policy, runtime package paths, or CMake
+target information. Absolute path validation and atomic replacement remain
+responsibilities of the schema compiler tool's file writer.
 
 A future CLI query mode such as `--list-outputs` or `--dry-run` should serialize
 the same internal plan. It should not introduce a second filename calculation

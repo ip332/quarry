@@ -91,10 +91,10 @@ protobufs, tools, tests, fuzzers, and examples.
 contract, native imported-target discovery policy, and downstream CMake
 integration boundaries.
 
-Generated-output naming belongs to backend-owned planning. The compiler should
-keep a single internal generated-output planning model that can feed rendering,
-tool-side file writing, future output-query CLI modes, and future CMake
-integration without reimplementing filename rules outside the backend.
+Generated-output naming belongs to backend-owned planning. The compiler keeps a
+single internal generated-output planning model that feeds rendering and can
+later feed output-query CLI modes and CMake integration without reimplementing
+filename rules outside the backend. Tool-side file writing remains separate.
 
 ---
 

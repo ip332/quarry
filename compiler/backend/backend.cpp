@@ -136,6 +136,26 @@ struct NamespacePlan {
     std::vector<NamespacePlan> children;
 };
 
+enum class GeneratedLanguage {
+    Cpp,
+};
+
+enum class GeneratedArtifactRole {
+    Header,
+};
+
+struct PlannedGeneratedFile {
+    GeneratedLanguage language = GeneratedLanguage::Cpp;
+    GeneratedArtifactRole role = GeneratedArtifactRole::Header;
+    std::string relative_output_path;
+    std::string generated_include_path;
+    const NamespacePlan* namespace_plan = nullptr;
+};
+
+struct GenerationPlan {
+    std::vector<PlannedGeneratedFile> files;
+};
+
 [[nodiscard]] std::string indent(std::size_t level) { return std::string(level * 2, ' '); }
 
 [[nodiscard]] std::vector<std::string> namespace_parts(std::string_view fqn) {
@@ -183,6 +203,14 @@ struct NamespacePlan {
         return file_stem;
     }
     return options.output_directory + "/" + file_stem;
+}
+
+[[nodiscard]] std::string output_path_for_relative_path(const CodegenOptions& options,
+                                                        std::string_view relative_path) {
+    if (options.output_directory.empty()) {
+        return std::string(relative_path);
+    }
+    return options.output_directory + "/" + std::string(relative_path);
 }
 
 [[nodiscard]] std::string include_path_for_namespace(const CodegenOptions& options,
@@ -907,28 +935,60 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
     return true;
 }
 
-void collect_emitted_files(const NamespacePlan& plan, std::vector<const NamespacePlan*>& files) {
+void collect_planned_files(const NamespacePlan& plan, GenerationPlan& generation_plan) {
     if (plan.emits_file) {
-        files.push_back(&plan);
+        generation_plan.files.push_back(PlannedGeneratedFile{
+            .language = GeneratedLanguage::Cpp,
+            .role = GeneratedArtifactRole::Header,
+            .relative_output_path = plan.include_path,
+            .generated_include_path = plan.include_path,
+            .namespace_plan = &plan,
+        });
     }
     for (const NamespacePlan& child : plan.children) {
-        collect_emitted_files(child, files);
+        collect_planned_files(child, generation_plan);
     }
 }
 
-[[nodiscard]] bool detect_file_cycles(const std::vector<const NamespacePlan*>& files,
+[[nodiscard]] bool validate_generation_plan(const GenerationPlan& generation_plan,
+                                            std::string& error_message) {
+    std::set<std::string> output_paths;
+    for (const PlannedGeneratedFile& file : generation_plan.files) {
+        if (file.language != GeneratedLanguage::Cpp) {
+            error_message = "backend codegen planned an unsupported generated language";
+            return false;
+        }
+        if (file.role != GeneratedArtifactRole::Header) {
+            error_message = "backend codegen planned an unsupported generated artifact role";
+            return false;
+        }
+        if (file.namespace_plan == nullptr) {
+            error_message = "backend codegen planned an output without render context";
+            return false;
+        }
+        if (!output_paths.insert(file.relative_output_path).second) {
+            error_message =
+                "backend codegen planned duplicate output path: " + file.relative_output_path;
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool detect_file_cycles(const GenerationPlan& generation_plan,
                                       std::string& error_message) {
     std::map<std::string, std::size_t> index_by_path;
-    for (std::size_t index = 0; index < files.size(); ++index) {
-        index_by_path.emplace(files[index]->include_path, index);
+    for (std::size_t index = 0; index < generation_plan.files.size(); ++index) {
+        index_by_path.emplace(generation_plan.files[index].generated_include_path, index);
     }
 
     enum class VisitState { Unvisited, Visiting, Visited };
-    std::vector<VisitState> state(files.size(), VisitState::Unvisited);
+    std::vector<VisitState> state(generation_plan.files.size(), VisitState::Unvisited);
 
     auto visit = [&](auto&& self, std::size_t index) -> bool {
         state[index] = VisitState::Visiting;
-        for (const std::string& include_path : files[index]->includes) {
+        const NamespacePlan& namespace_plan = *generation_plan.files[index].namespace_plan;
+        for (const std::string& include_path : namespace_plan.includes) {
             const auto it = index_by_path.find(include_path);
             if (it == index_by_path.end()) {
                 continue;
@@ -937,8 +997,9 @@ void collect_emitted_files(const NamespacePlan& plan, std::vector<const Namespac
             const std::size_t dependency_index = it->second;
             if (state[dependency_index] == VisitState::Visiting) {
                 error_message = "backend codegen detected a namespace cycle between '" +
-                                files[index]->include_path + "' and '" +
-                                files[dependency_index]->include_path + "'";
+                                generation_plan.files[index].generated_include_path + "' and '" +
+                                generation_plan.files[dependency_index].generated_include_path +
+                                "'";
                 return false;
             }
             if (state[dependency_index] == VisitState::Unvisited) {
@@ -951,7 +1012,7 @@ void collect_emitted_files(const NamespacePlan& plan, std::vector<const Namespac
         return true;
     };
 
-    for (std::size_t index = 0; index < files.size(); ++index) {
+    for (std::size_t index = 0; index < generation_plan.files.size(); ++index) {
         if (state[index] == VisitState::Unvisited) {
             if (!visit(visit, index)) {
                 return false;
@@ -1952,23 +2013,20 @@ void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t
     return true;
 }
 
-[[nodiscard]] bool collect_namespace_files(const NamespacePlan& plan,
-                                           std::vector<GeneratedFile>& files,
-                                           std::string& error_message) {
-    if (plan.emits_file) {
+[[nodiscard]] bool render_generation_plan(const GenerationPlan& generation_plan,
+                                          const CodegenOptions& options,
+                                          std::vector<GeneratedFile>& files,
+                                          std::string& error_message) {
+    files.reserve(generation_plan.files.size());
+    for (const PlannedGeneratedFile& planned_file : generation_plan.files) {
         GeneratedFile file;
-        file.path = plan.file_path;
-        if (!render_namespace_file(plan, file.content, error_message)) {
+        file.path = output_path_for_relative_path(options, planned_file.relative_output_path);
+        if (!render_namespace_file(*planned_file.namespace_plan, file.content, error_message)) {
             return false;
         }
         files.push_back(std::move(file));
     }
 
-    for (const NamespacePlan& child : plan.children) {
-        if (!collect_namespace_files(child, files, error_message)) {
-            return false;
-        }
-    }
     return true;
 }
 
@@ -1990,16 +2048,21 @@ CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
         return result;
     }
 
-    std::vector<const NamespacePlan*> emitted_files;
-    collect_emitted_files(root_plan, emitted_files);
-    if (!detect_file_cycles(emitted_files, error_message)) {
+    GenerationPlan generation_plan;
+    collect_planned_files(root_plan, generation_plan);
+    if (!validate_generation_plan(generation_plan, error_message)) {
+        result.success = false;
+        result.error_message = std::move(error_message);
+        return result;
+    }
+    if (!detect_file_cycles(generation_plan, error_message)) {
         result.success = false;
         result.error_message = std::move(error_message);
         return result;
     }
 
     std::vector<GeneratedFile> files;
-    if (!collect_namespace_files(root_plan, files, error_message)) {
+    if (!render_generation_plan(generation_plan, options, files, error_message)) {
         result.success = false;
         result.error_message = std::move(error_message);
         return result;

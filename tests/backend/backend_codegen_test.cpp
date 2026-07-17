@@ -312,6 +312,44 @@ TEST(BackendCodegenTest, SingleRecordMatchesGolden) {
     EXPECT_EQ(render_result(result), backend_golden_text("single_record"));
 }
 
+TEST(BackendCodegenTest, GenerationPlanUsesCustomRootStemAndExtensionForRootNamespace) {
+    CodegenOptions options;
+    options.output_directory = "out";
+    options.root_file_stem = "telemetry";
+    options.file_extension = ".hpp";
+
+    const CodegenResult result = run_backend_fixture("single_record", options);
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+    EXPECT_EQ(result.files.front().path, "out/telemetry.hpp");
+}
+
+TEST(BackendCodegenTest, GenerationPlanUsesNamespacePathForNestedNamespaceOutput) {
+    CodegenOptions options;
+    options.output_directory = "out";
+    options.root_file_stem = "root";
+    options.file_extension = ".hpp";
+
+    const CodegenResult result = run_backend_fixture("named_type_reference", options);
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+    EXPECT_EQ(result.files.front().path, "out/breadcrumbs/geo.hpp");
+}
+
+TEST(BackendCodegenTest, GenerationPlanPreservesMultiFileOrderingAndIncludePaths) {
+    CodegenOptions options;
+    options.output_directory = "out";
+    options.root_file_stem = "root";
+    options.file_extension = ".hpp";
+
+    const CodegenResult result = run_backend_fixture("cross_namespace_reference", options);
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 2u);
+    EXPECT_EQ(result.files[0].path, "out/alpha/one.hpp");
+    EXPECT_EQ(result.files[1].path, "out/beta/two.hpp");
+    EXPECT_NE(result.files[1].content.find("#include \"alpha/one.hpp\""), std::string::npos);
+}
+
 TEST(BackendCodegenTest, GeneratedRecordsAssertRuntimeGeneratedCodeApiVersion) {
     const CodegenResult result = run_backend_fixture("single_record", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
