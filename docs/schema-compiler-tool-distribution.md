@@ -550,12 +550,12 @@ header, and writes the same value into installed package metadata as
 `Breadcrumbs_GENERATED_CODE_API_VERSION`. The backend renderer no longer owns a
 separate compatibility literal.
 
-The remaining future direction is a narrow compiler scalar query and
-configure-time comparison. The package side is now available through
-`Breadcrumbs_GENERATED_CODE_API_VERSION`; the compiler-side query is still
-deferred.
+The compiler now exposes a narrow generated-code API scalar query and the
+package side is available through `Breadcrumbs_GENERATED_CODE_API_VERSION`.
+`breadcrumbs_generate_cpp()` compares the two values during CMake
+configuration before output discovery.
 
-Recommended future CLI contract:
+Current CLI contract:
 
 ```text
 breadcrumbs-schema-compiler --print-generated-code-api-version
@@ -568,7 +568,7 @@ newline, for example:
 1
 ```
 
-The query should:
+The query:
 
 * require no input schema
 * perform no generation
@@ -576,7 +576,8 @@ The query should:
 * write nothing to stderr on success
 * exit `0` on success
 * return usage errors with exit `2`
-* keep `--help` terminal and highest precedence
+* keep `--help` terminal and highest precedence, with `--version` taking
+  precedence over the generated-code API query when both are present
 * remain separate from `--version`, which continues to report release identity
 * reject unrelated generation arguments rather than treating them as part of a
   compatibility query
@@ -587,9 +588,8 @@ Package config contract:
 Breadcrumbs_GENERATED_CODE_API_VERSION
 ```
 
-`breadcrumbs_generate_cpp()` should then use this sequence for every selected
-compiler, including the native default and explicit `SCHEMA_COMPILER`
-overrides:
+`breadcrumbs_generate_cpp()` uses this sequence for every selected compiler,
+including the native default and explicit `SCHEMA_COMPILER` overrides:
 
 1. select and validate the host compiler path
 2. query the compiler generated-code API version
@@ -604,13 +604,12 @@ already uses equality semantics. If Breadcrumbs later needs compatibility
 ranges, that should be a separate generated-code API policy change rather than
 an implicit reinterpretation of this scalar query.
 
-The query would improve explicit-host-compiler workflows by catching a
-meaningful class of errors during CMake configuration instead of later target
-compilation. It is especially useful for cross-compiling builds where a package
-manager or toolchain supplies a host compiler separately from the target
-runtime package. It does not remove the generated-header `static_assert`; that
-assertion remains defense in depth and covers users who generate code outside
-the CMake helper.
+The query catches a meaningful class of errors during CMake configuration
+instead of later target compilation. It is especially useful for
+cross-compiling builds where a package manager or toolchain supplies a host
+compiler separately from the target runtime package. It does not remove the
+generated-header `static_assert`; that assertion remains defense in depth and
+covers users who generate code outside the CMake helper.
 
 Implemented single-source design:
 
@@ -629,7 +628,7 @@ Implemented single-source design:
 Future compiler query output should read the backend/compiler representation
 configured from this same scalar.
 
-Implementation test requirements for the future query/comparison PR:
+Implementation test requirements for the query/comparison implementation:
 
 * CLI query prints the exact scalar with final newline, empty stderr, and exit
   `0`
@@ -797,9 +796,9 @@ checked.
 
 `breadcrumbs-schema-compiler --version` reports the Breadcrumbs package release
 only. It is not the generated-code API version, BRF wire-format version,
-schema-language version, or a runtime ABI version. A future
-`--print-generated-code-api-version` query should expose only the
-generated-code API epoch and must remain separate from release-version output.
+schema-language version, or a runtime ABI version. The installed
+`--print-generated-code-api-version` query exposes only the generated-code API
+epoch and remains separate from release-version output.
 
 The generated-code API version should be incremented when generated C++ from a
 new compiler depends on runtime header APIs or generated-code contracts that an

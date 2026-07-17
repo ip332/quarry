@@ -50,6 +50,16 @@ derived from the same canonical value as
 `breadcrumbs::runtime::kGeneratedCodeApiVersion` and the generated C++
 compatibility assertions.
 
+The schema compiler also exposes a machine-readable compatibility query:
+
+```text
+breadcrumbs-schema-compiler --print-generated-code-api-version
+```
+
+`breadcrumbs_generate_cpp()` compares that query against
+`Breadcrumbs_GENERATED_CODE_API_VERSION` during CMake configuration before it
+discovers generated outputs.
+
 The installed package also exposes the schema compiler as an executable CMake
 target:
 

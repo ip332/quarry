@@ -1,4 +1,5 @@
 #include "compiler/backend/backend.hpp"
+#include "compiler/backend/generated_code_api_version.hpp"
 #include "compiler/context/compiler_context.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/frontend/yaml_compiler.hpp"
@@ -35,6 +36,7 @@ constexpr int exit_usage = 2;
 struct CommandLine {
     bool show_help = false;
     bool show_version = false;
+    bool show_generated_code_api_version = false;
     bool list_outputs = false;
     std::string input_path;
     backend::CodegenOptions codegen_options;
@@ -48,6 +50,9 @@ struct CommandLine {
            "      --root-file-stem NAME     Root namespace file stem (default: schema)\n"
            "      --file-extension EXT      Generated file extension (default: .generated.hpp)\n"
            "      --list-outputs            Print generated output paths without writing files\n"
+           "      --print-generated-code-api-version\n"
+           "                                Print the generated-code API compatibility version and "
+           "exit\n"
            "      --version                 Show version information\n"
            "  -h, --help                    Show this help text\n";
 }
@@ -56,6 +61,10 @@ void print_usage(std::ostream& output) { output << usage_text(); }
 
 void print_version(std::ostream& output) {
     output << "breadcrumbs-schema-compiler " << BREADCRUMBS_VERSION << '\n';
+}
+
+void print_generated_code_api_version(std::ostream& output) {
+    output << breadcrumbs::compiler::backend::kGeneratedCodeApiVersion << '\n';
 }
 
 [[nodiscard]] bool option_requires_value(std::string_view option) {
@@ -78,6 +87,14 @@ void print_version(std::ostream& output) {
         }
         if (argument == "--version") {
             command_line.show_version = true;
+            continue;
+        }
+        if (argument == "--print-generated-code-api-version") {
+            if (command_line.show_generated_code_api_version) {
+                errors << "error: duplicate --print-generated-code-api-version option\n";
+                return std::nullopt;
+            }
+            command_line.show_generated_code_api_version = true;
             continue;
         }
         if (argument == "--list-outputs") {
@@ -134,7 +151,21 @@ void print_version(std::ostream& output) {
         command_line.input_path = std::string(argument);
     }
 
-    if (!command_line.show_help && !command_line.show_version && command_line.input_path.empty()) {
+    if (command_line.show_generated_code_api_version) {
+        const bool has_generation_arguments =
+            command_line.list_outputs || !command_line.input_path.empty() ||
+            command_line.codegen_options.output_directory != "generated" ||
+            command_line.codegen_options.root_file_stem != "schema" ||
+            command_line.codegen_options.file_extension != ".generated.hpp";
+        if (has_generation_arguments) {
+            errors << "error: --print-generated-code-api-version does not accept generation "
+                      "options or an input file\n";
+            return std::nullopt;
+        }
+    }
+
+    if (!command_line.show_help && !command_line.show_version &&
+        !command_line.show_generated_code_api_version && command_line.input_path.empty()) {
         errors << "error: expected exactly one input file\n";
         return std::nullopt;
     }
@@ -250,6 +281,10 @@ void print_version(std::ostream& output) {
     }
     if (command_line.show_version) {
         print_version(output);
+        return exit_success;
+    }
+    if (command_line.show_generated_code_api_version) {
+        print_generated_code_api_version(output);
         return exit_success;
     }
 

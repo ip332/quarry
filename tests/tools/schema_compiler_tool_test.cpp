@@ -11,6 +11,10 @@
 
 #include <gtest/gtest.h>
 
+#ifndef BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION
+#error "BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION must be defined"
+#endif
+
 #ifndef _WIN32
 #include <fcntl.h>
 #include <sys/wait.h>
@@ -179,6 +183,18 @@ TEST(SchemaCompilerToolTest, HelpIsTerminalBeforeListOutputs) {
     EXPECT_TRUE(result.stderr_text.empty());
 }
 
+TEST(SchemaCompilerToolTest, HelpIsTerminalBeforeGeneratedCodeApiVersionQuery) {
+    const std::filesystem::path root = make_temp_directory("help-generated-code-api-version");
+
+    const CommandResult result =
+        run_tool({"--help", "--print-generated-code-api-version"}, root);
+
+    EXPECT_EQ(result.status, 0);
+    EXPECT_NE(result.stdout_text.find("breadcrumbs-schema-compiler [options] INPUT"),
+              std::string::npos);
+    EXPECT_TRUE(result.stderr_text.empty());
+}
+
 TEST(SchemaCompilerToolTest, VersionReturnsSuccessWithoutInput) {
     const std::filesystem::path root = make_temp_directory("version");
 
@@ -228,6 +244,68 @@ TEST(SchemaCompilerToolTest, VersionIsTerminalBeforeListOutputs) {
     EXPECT_EQ(result.status, 0);
     EXPECT_EQ(result.stdout_text, "breadcrumbs-schema-compiler 0.1.0\n");
     EXPECT_TRUE(result.stderr_text.empty());
+}
+
+TEST(SchemaCompilerToolTest, VersionIsTerminalBeforeGeneratedCodeApiVersionQuery) {
+    const std::filesystem::path root = make_temp_directory("version-generated-code-api-version");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: breadcrumbs.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n");
+
+    const CommandResult result = run_tool(
+        {"--version", "--print-generated-code-api-version", "--output-directory", output.string(),
+         input.string()},
+        root);
+
+    EXPECT_EQ(result.status, 2);
+    EXPECT_TRUE(result.stdout_text.empty());
+    EXPECT_NE(result.stderr_text.find("does not accept generation options or an input file"),
+              std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(output));
+}
+
+TEST(SchemaCompilerToolTest, GeneratedCodeApiVersionQueryReturnsExactValue) {
+    const std::filesystem::path root = make_temp_directory("generated-code-api-version");
+
+    const CommandResult result = run_tool({"--print-generated-code-api-version"}, root);
+
+    EXPECT_EQ(result.status, 0);
+    EXPECT_EQ(result.stdout_text,
+              std::to_string(BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION) + "\n");
+    EXPECT_TRUE(result.stderr_text.empty());
+    EXPECT_FALSE(std::filesystem::exists(root / "generated"));
+}
+
+TEST(SchemaCompilerToolTest, GeneratedCodeApiVersionQueryRejectsGenerationArguments) {
+    const std::filesystem::path root = make_temp_directory("generated-code-api-version-usage");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: breadcrumbs.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n");
+
+    const CommandResult result = run_tool(
+        {"--print-generated-code-api-version", "--output-directory", output.string(),
+         input.string()},
+        root);
+
+    EXPECT_EQ(result.status, 2);
+    EXPECT_TRUE(result.stdout_text.empty());
+    EXPECT_NE(result.stderr_text.find("does not accept generation options or an input file"),
+              std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(output));
 }
 
 TEST(SchemaCompilerToolTest, UnknownOptionReturnsUsageError) {

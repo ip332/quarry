@@ -90,6 +90,7 @@ add_breadcrumbs_gtest(schema_compiler_tool_test tools/schema_compiler_tool_test.
                       breadcrumbs_compiler_support)
 add_dependencies(schema_compiler_tool_test breadcrumbs_schema_compiler)
 target_compile_definitions(schema_compiler_tool_test PRIVATE
-    BREADCRUMBS_SCHEMA_COMPILER_TOOL="$<TARGET_FILE:breadcrumbs_schema_compiler>")
+    BREADCRUMBS_SCHEMA_COMPILER_TOOL="$<TARGET_FILE:breadcrumbs_schema_compiler>"
+    BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION=${BREADCRUMBS_GENERATED_CODE_API_VERSION})
 add_breadcrumbs_gtest(diagnostics_smoke_test diagnostics/diagnostics_smoke_test.cpp breadcrumbs_compiler_context)
 add_breadcrumbs_gtest(support_test support/support_test.cpp breadcrumbs_compiler_support)

@@ -183,6 +183,39 @@ void expect_success(const CommandResult& result, std::string_view step) {
     return path;
 }
 
+[[nodiscard]] std::filesystem::path write_schema_compiler_query_wrapper(
+    const std::filesystem::path& path, const std::filesystem::path& real_compiler,
+    const std::filesystem::path& log_path, std::string_view generated_code_api_version) {
+    write_executable_file(path,
+                          "#!/bin/sh\n"
+                          "printf '%s\\n' \"$*\" >> " +
+                              shell_quote(log_path.string()) +
+                              "\n"
+                              "if [ \"$1\" = \"--print-generated-code-api-version\" ]; then\n"
+                              "  printf '%s\\n' " +
+                              shell_quote(generated_code_api_version) +
+                              "\n"
+                              "  exit 0\n"
+                              "fi\n"
+                              "exec " +
+                              shell_quote(real_compiler.string()) + " \"$@\"\n");
+    return path;
+}
+
+[[nodiscard]] std::filesystem::path write_schema_compiler_failing_query_wrapper(
+    const std::filesystem::path& path, std::string_view stderr_text) {
+    write_executable_file(path,
+                          "#!/bin/sh\n"
+                          "if [ \"$1\" = \"--print-generated-code-api-version\" ]; then\n"
+                          "  printf '%s\\n' " +
+                              shell_quote(stderr_text) +
+                              " >&2\n"
+                              "  exit 9\n"
+                              "fi\n"
+                              "exit 0\n");
+    return path;
+}
+
 } // namespace
 
 TEST(SchemaCompilerPackageTest, ImportedExecutableTargetGeneratesDownstreamCode) {
@@ -424,10 +457,10 @@ TEST(SchemaCompilerPackageTest, HelperNativeExplicitOverrideUsesSelectedCompiler
     EXPECT_TRUE(std::filesystem::exists(consumer_build / "generated" / "breadcrumbs" /
                                         "telemetry.generated.hpp"));
     const std::string log = read_text_file(log_path);
-    EXPECT_NE(log.find("--version"), std::string::npos);
+    EXPECT_NE(log.find("--print-generated-code-api-version"), std::string::npos);
     EXPECT_NE(log.find("--list-outputs"), std::string::npos);
     EXPECT_NE(log.find("--output-directory"), std::string::npos);
-    EXPECT_EQ(log.find("$<TARGET_FILE:Breadcrumbs::schema_compiler>"), std::string::npos);
+    EXPECT_EQ(log.find("--version"), std::string::npos);
 }
 
 TEST(SchemaCompilerPackageTest, HelperCrossCompilingRequiresExplicitCompiler) {
@@ -523,8 +556,68 @@ TEST(SchemaCompilerPackageTest, HelperCrossCompilingAcceptsExplicitCompiler) {
     EXPECT_TRUE(std::filesystem::exists(consumer_build / "generated" / "breadcrumbs" /
                                         "telemetry.generated.hpp"));
     const std::string log = read_text_file(log_path);
-    EXPECT_NE(log.find("--version"), std::string::npos);
+    EXPECT_NE(log.find("--print-generated-code-api-version"), std::string::npos);
     EXPECT_NE(log.find("--list-outputs"), std::string::npos);
+    EXPECT_EQ(log.find("--version"), std::string::npos);
+}
+
+TEST(SchemaCompilerPackageTest,
+     HelperRejectsCompilerRuntimeVersionMismatchBeforeListingOutputs) {
+#ifdef _WIN32
+    GTEST_SKIP() << "schema compiler package subprocess test is not implemented on Windows";
+#endif
+
+    const std::filesystem::path root = make_temp_directory("query mismatch");
+    const std::filesystem::path install_prefix = root / "install prefix with spaces";
+    const std::filesystem::path consumer_source = root / "query mismatch source";
+    const std::filesystem::path consumer_build = root / "query mismatch build";
+    const std::filesystem::path log_path = root / "query mismatch invocations.log";
+    const std::filesystem::path wrapper = write_schema_compiler_query_wrapper(
+        root / "mismatch compiler.sh", installed_schema_compiler(install_prefix), log_path, "2");
+
+    write_text_file(consumer_source / "schema.brd",
+                    "namespace: breadcrumbs.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n");
+    write_text_file(consumer_source / "CMakeLists.txt",
+                    "cmake_minimum_required(VERSION 3.20)\n"
+                    "project(query_mismatch LANGUAGES NONE)\n"
+                    "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+                    "breadcrumbs_generate_cpp(\n"
+                    "  SCHEMA schema.brd\n"
+                    "  OUTPUT_DIR generated\n"
+                    "  OUT_FILES generated_files\n"
+                    "  SCHEMA_COMPILER \"" +
+                        wrapper.string() +
+                        "\")\n");
+
+    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+                                   install_prefix.string()},
+                                  root, "install"),
+                   "install Breadcrumbs package");
+    const CommandResult result = run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                                                {"-S", consumer_source.string(), "-B",
+                                                 consumer_build.string(),
+                                                 "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
+                                                root, "configure-query-mismatch");
+    EXPECT_NE(result.status, 0);
+    EXPECT_NE(result.stderr_text.find("incompatible with the target runtime package"),
+              std::string::npos);
+    EXPECT_NE(result.stderr_text.find("Compiler generated-code API version"),
+              std::string::npos);
+    EXPECT_NE(result.stderr_text.find("Target runtime generated-code API version"),
+              std::string::npos);
+    EXPECT_NE(result.stderr_text.find("  2"), std::string::npos);
+    EXPECT_NE(result.stderr_text.find("  1"), std::string::npos);
+    const std::string log = read_text_file(log_path);
+    EXPECT_NE(log.find("--print-generated-code-api-version"), std::string::npos);
+    EXPECT_EQ(log.find("--list-outputs"), std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(consumer_build / "generated"));
 }
 
 TEST(SchemaCompilerPackageTest, HelperAllowsOnlyOneCompilerPerBuildTree) {
@@ -885,8 +978,36 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         "include(\"" +
             module_path +
             "\")\n"
-            "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files)\n",
+        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files)\n",
         .expected = "target is not",
+    });
+
+    expect_configure_failure({
+        .name = "missing-runtime-metadata",
+        .cmake_lists =
+        "cmake_minimum_required(VERSION 3.20)\n"
+        "project(missing_runtime_metadata LANGUAGES NONE)\n"
+        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "unset(Breadcrumbs_GENERATED_CODE_API_VERSION)\n"
+        "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
+        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "fields: {}\\n\")\n"
+        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files)\n",
+        .expected = "does not provide a valid",
+    });
+
+    expect_configure_failure({
+        .name = "malformed-runtime-metadata",
+        .cmake_lists =
+        "cmake_minimum_required(VERSION 3.20)\n"
+        "project(malformed_runtime_metadata LANGUAGES NONE)\n"
+        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "set(Breadcrumbs_GENERATED_CODE_API_VERSION invalid)\n"
+        "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
+        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "fields: {}\\n\")\n"
+        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files)\n",
+        .expected = "canonical non-negative decimal integer",
     });
 
     const std::filesystem::path non_imported_source = root / "non imported target source";
@@ -989,7 +1110,7 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         "SCHEMA_COMPILER \"" +
             non_runnable.string() +
             "\")\n",
-        .expected = "host-runnable",
+        .expected = "permission denied",
     });
 
     const std::filesystem::path bad_version = root / "bad version compiler.sh";
@@ -1008,6 +1129,25 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
             bad_version.string() +
             "\")\n",
         .expected = "bad compiler",
+    });
+
+    const std::filesystem::path failing_query =
+        write_schema_compiler_failing_query_wrapper(root / "failing query compiler.sh",
+                                                    "query failure");
+    expect_configure_failure({
+        .name = "failing-query-compiler",
+        .cmake_lists =
+        "cmake_minimum_required(VERSION 3.20)\n"
+        "project(failing_query_compiler LANGUAGES NONE)\n"
+        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
+        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "fields: {}\\n\")\n"
+        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
+        "SCHEMA_COMPILER \"" +
+            failing_query.string() +
+            "\")\n",
+        .expected = "failed to query the generated-code API version",
     });
 
     expect_configure_failure({

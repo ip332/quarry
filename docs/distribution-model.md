@@ -54,7 +54,10 @@ host-tools package discovery. The helper verifies the generated-output
 inventory at build time before normal generation and fails before writing files
 if the configured inventory is stale. Native builds use
 `Breadcrumbs::schema_compiler` by default; cross-compiling builds must pass
-`SCHEMA_COMPILER <absolute-host-executable>` explicitly.
+`SCHEMA_COMPILER <absolute-host-executable>` explicitly. Before output
+discovery, the helper also compares the selected compiler's
+generated-code API query against `Breadcrumbs_GENERATED_CODE_API_VERSION` and
+fails configuration on mismatch.
 
 ## Artifact Classification
 
@@ -90,9 +93,9 @@ constant to fail compilation with incompatible runtime headers. That check is
 separate from package release version and BRF wire-format version.
 The package exposes the target runtime's generated-code API value as
 `Breadcrumbs_GENERATED_CODE_API_VERSION`. Host compiler/runtime API
-compatibility for explicit `SCHEMA_COMPILER` overrides is still enforced by
-generated C++ compilation until the compiler exposes the matching scalar query
-and the helper compares the two values during CMake configuration.
+compatibility for explicit `SCHEMA_COMPILER` overrides is enforced during CMake
+configuration by comparing that package value against the compiler's
+generated-code API query before any output discovery occurs.
 
 ### Runtime + Compiler SDK
 

@@ -16,6 +16,10 @@ target_link_libraries(breadcrumbs_schema_compiler
         breadcrumbs_project_options
         breadcrumbs_schema_ir_warning_tweaks
 )
+target_include_directories(breadcrumbs_schema_compiler
+    PRIVATE
+        ${BREADCRUMBS_GENERATED_INCLUDE_DIR}
+)
 target_compile_definitions(breadcrumbs_schema_compiler
     PRIVATE
         BREADCRUMBS_VERSION="${PROJECT_VERSION}"

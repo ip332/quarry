@@ -47,7 +47,9 @@ The generated-code API version is owned by the top-level
 is a non-negative `std::uint32_t` value, configures the public runtime
 `version.hpp` header from it, configures the compiler backend's private
 generated-code API header from the same value, and writes it into installed
-package metadata as `Breadcrumbs_GENERATED_CODE_API_VERSION`.
+package metadata as `Breadcrumbs_GENERATED_CODE_API_VERSION`. The installed
+schema compiler prints the backend-side value with
+`--print-generated-code-api-version`.
 
 Generated code exposes diagnostic codec APIs backed by
 `EncodeResult<T>`/`DecodeResult<T>`. The runtime result type carries either an

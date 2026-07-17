@@ -39,6 +39,16 @@ to stdout, writes nothing to stderr, and exits with code `0`. When combined
 with otherwise valid generation options or an input path, it still reports the
 version and does not generate files.
 
+`--print-generated-code-api-version` is the machine-readable compatibility
+query. It prints the compiler/backend generated-code API epoch as one base-10
+integer followed by a newline, writes nothing to stderr on success, requires no
+input schema, performs no generation, and is terminal like `--help` and
+`--version`. `breadcrumbs_generate_cpp()` uses this query during CMake
+configuration before it discovers outputs.
+
+The command-line parser treats `--help` first, `--version` second, and
+`--print-generated-code-api-version` third.
+
 `--list-outputs` is a terminal generation mode. It still requires a valid input
 schema and accepts generation options that affect output names:
 `--output-directory`, `--root-file-stem`, and `--file-extension`. It compiles
@@ -105,6 +115,10 @@ runtime headers. That guard does not enforce exact release equality or BRF wire
 compatibility. Users should regenerate generated code when upgrading
 Breadcrumbs.
 
+For installed-package helper builds, the generated-code API query is compared
+against `Breadcrumbs_GENERATED_CODE_API_VERSION` during CMake configuration
+before output discovery.
+
 The compiler executable is installed to the package executable directory, such
 as `<prefix>/bin/breadcrumbs-schema-compiler` on platforms using the default
 GNU install layout. Installed use is direct invocation by absolute path or
@@ -161,11 +175,9 @@ responsible for provisioning the host compiler and passing its absolute path.
 The helper is installed with the package and auto-loaded by
 `find_package(Breadcrumbs CONFIG REQUIRED)`. It supports installed package
 consumers, handles one schema per invocation, returns absolute generated paths
-through `OUT_FILES`, and does not create or mutate targets. Native builds use
-`Breadcrumbs::schema_compiler` by default. Cross-compiling builds are allowed
-only when `SCHEMA_COMPILER` names an absolute host-runnable compiler path.
-Downstream projects still own include directories, target source attachment,
-runtime linkage, and stale-output cleanup.
+through `OUT_FILES`, and does not create or mutate targets. Downstream projects
+still own include directories, target source attachment, runtime linkage, and
+stale-output cleanup.
 
 The helper verifies generated-output inventory by default at build time. Before
 normal generation it reruns `--list-outputs` with the same compiler, schema,

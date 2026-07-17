@@ -94,28 +94,13 @@ function(_breadcrumbs_generate_imported_compiler_location output_variable)
     set(${output_variable} "${_location}" PARENT_SCOPE)
 endfunction()
 
-function(_breadcrumbs_generate_validate_host_compiler compiler)
+function(_breadcrumbs_generate_validate_compiler_path compiler)
     if(NOT EXISTS "${compiler}")
         _breadcrumbs_generate_fail("SCHEMA_COMPILER executable does not exist: ${compiler}")
     endif()
     if(IS_DIRECTORY "${compiler}")
         _breadcrumbs_generate_fail("SCHEMA_COMPILER must name an executable file, not a directory: "
                                    "${compiler}")
-    endif()
-
-    execute_process(
-        COMMAND "${compiler}" --version
-        RESULT_VARIABLE _version_result
-        OUTPUT_VARIABLE _version_stdout
-        ERROR_VARIABLE _version_stderr)
-    if(NOT _version_result EQUAL 0)
-        _breadcrumbs_generate_fail(
-            "SCHEMA_COMPILER must name a host-runnable Breadcrumbs schema compiler.\n"
-            "Compiler:\n"
-            "  ${compiler}\n"
-            "Exit code: ${_version_result}\n"
-            "Stderr:\n"
-            "${_version_stderr}")
     endif()
 endfunction()
 
@@ -141,7 +126,7 @@ function(_breadcrumbs_generate_compiler_location output_variable dependency_vari
     if(DEFINED BREADCRUMBS_GENERATE_SCHEMA_COMPILER)
         _breadcrumbs_generate_normalize_absolute("${BREADCRUMBS_GENERATE_SCHEMA_COMPILER}"
                                                  _location "SCHEMA_COMPILER")
-        _breadcrumbs_generate_validate_host_compiler("${_location}")
+        _breadcrumbs_generate_validate_compiler_path("${_location}")
         set(_dependency)
     else()
         if(CMAKE_CROSSCOMPILING)
@@ -158,6 +143,76 @@ function(_breadcrumbs_generate_compiler_location output_variable dependency_vari
     _breadcrumbs_generate_record_selected_compiler("${_location}" "${schema}")
     set(${output_variable} "${_location}" PARENT_SCOPE)
     set(${dependency_variable} "${_dependency}" PARENT_SCOPE)
+endfunction()
+
+function(_breadcrumbs_generate_validate_generated_code_api_version_value value label)
+    if("${value}" STREQUAL "")
+        _breadcrumbs_generate_fail("${label} must not be empty")
+    endif()
+    if("${value}" MATCHES "[;\r\n]")
+        _breadcrumbs_generate_fail("${label} must be a canonical non-negative decimal integer")
+    endif()
+    if(NOT "${value}" MATCHES "^(0|[1-9][0-9]*)$")
+        _breadcrumbs_generate_fail("${label} must be a canonical non-negative decimal integer")
+    endif()
+endfunction()
+
+function(_breadcrumbs_generate_query_generated_code_api_version compiler output_variable)
+    execute_process(
+        COMMAND "${compiler}" --print-generated-code-api-version
+        RESULT_VARIABLE _query_result
+        OUTPUT_VARIABLE _query_stdout
+        ERROR_VARIABLE _query_stderr)
+    if(NOT _query_result EQUAL 0)
+        _breadcrumbs_generate_fail(
+            "failed to query the generated-code API version from the selected Breadcrumbs "
+            "schema compiler.\n"
+            "Compiler:\n"
+            "  ${compiler}\n\n"
+            "The compiler must support:\n"
+            "  --print-generated-code-api-version\n\n"
+            "Exit code:\n"
+            "  ${_query_result}\n\n"
+            "stdout:\n"
+            "  ${_query_stdout}\n\n"
+            "stderr:\n"
+            "  ${_query_stderr}")
+    endif()
+
+    set(_normalized_stdout "${_query_stdout}")
+    string(REGEX REPLACE "\r?\n$" "" _normalized_stdout "${_normalized_stdout}")
+    if(_normalized_stdout STREQUAL _query_stdout)
+        _breadcrumbs_generate_fail(
+            "compiler did not terminate its generated-code API version output with a newline:\n"
+            "  ${compiler}")
+    endif()
+    if(_normalized_stdout STREQUAL "")
+        _breadcrumbs_generate_fail(
+            "compiler reported an empty generated-code API version:\n"
+            "  ${compiler}")
+    endif()
+    if("${_normalized_stdout}" MATCHES "[;\r\n]")
+        _breadcrumbs_generate_fail(
+            "compiler reported an unsafe generated-code API version:\n"
+            "  ${_normalized_stdout}")
+    endif()
+
+    _breadcrumbs_generate_validate_generated_code_api_version_value(
+        "${_normalized_stdout}" "compiler generated-code API version")
+    set(${output_variable} "${_normalized_stdout}" PARENT_SCOPE)
+endfunction()
+
+function(_breadcrumbs_generate_validate_package_generated_code_api_version output_variable)
+    if(NOT DEFINED Breadcrumbs_GENERATED_CODE_API_VERSION)
+        _breadcrumbs_generate_fail(
+            "The Breadcrumbs package does not provide a valid "
+            "Breadcrumbs_GENERATED_CODE_API_VERSION value.\n"
+            "Reinstall a compatible Breadcrumbs package.")
+    endif()
+
+    _breadcrumbs_generate_validate_generated_code_api_version_value(
+        "${Breadcrumbs_GENERATED_CODE_API_VERSION}" "Breadcrumbs_GENERATED_CODE_API_VERSION")
+    set(${output_variable} "${Breadcrumbs_GENERATED_CODE_API_VERSION}" PARENT_SCOPE)
 endfunction()
 
 function(_breadcrumbs_generate_parse_arguments)
@@ -399,6 +454,24 @@ function(breadcrumbs_generate_cpp)
                                    "OUTPUT_DIR")
     _breadcrumbs_generate_compiler_location(_breadcrumbs_compiler _breadcrumbs_compiler_dependency
                                             "${_breadcrumbs_schema}")
+    _breadcrumbs_generate_query_generated_code_api_version("${_breadcrumbs_compiler}"
+                                                           _breadcrumbs_compiler_api_version)
+    _breadcrumbs_generate_validate_package_generated_code_api_version(
+        _breadcrumbs_runtime_api_version)
+
+    if(NOT _breadcrumbs_compiler_api_version STREQUAL _breadcrumbs_runtime_api_version)
+        _breadcrumbs_generate_fail(
+            "The selected Breadcrumbs schema compiler is incompatible with the target runtime "
+            "package.\n\n"
+            "Compiler:\n"
+            "  ${_breadcrumbs_compiler}\n\n"
+            "Compiler generated-code API version:\n"
+            "  ${_breadcrumbs_compiler_api_version}\n\n"
+            "Target runtime generated-code API version:\n"
+            "  ${_breadcrumbs_runtime_api_version}\n\n"
+            "Use a host compiler that supports generated-code API version "
+            "${_breadcrumbs_runtime_api_version}.")
+    endif()
 
     if(NOT EXISTS "${_breadcrumbs_schema}")
         _breadcrumbs_generate_fail("schema file does not exist: ${_breadcrumbs_schema}")
