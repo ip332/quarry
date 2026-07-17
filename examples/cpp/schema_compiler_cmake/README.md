@@ -1,7 +1,7 @@
 # Schema Compiler CMake
 
-This example is the supported downstream CMake integration pattern for
-generating C++ with the installed Breadcrumbs schema compiler.
+This example is the recommended installed-native CMake integration pattern for
+generating C++ with the installed Breadcrumbs schema compiler helper.
 
 Build after installing Breadcrumbs to a prefix:
 
@@ -11,16 +11,42 @@ cmake --build build
 ./build/breadcrumbs_schema_compiler_cmake
 ```
 
-The project intentionally uses only standard CMake primitives:
+The helper discovers generated outputs during configuration and returns them to
+the caller. The project still owns target creation, include directories, and
+runtime linkage:
 
 ```cmake
 find_package(Breadcrumbs CONFIG REQUIRED)
 
 set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
-set(generated_header "${generated_dir}/breadcrumbs/telemetry.generated.hpp")
 
+breadcrumbs_generate_cpp(
+    SCHEMA schema.brd
+    OUTPUT_DIR "${generated_dir}"
+    OUT_FILES generated_files
+)
+
+add_executable(breadcrumbs_schema_compiler_cmake
+    main.cpp
+)
+target_sources(breadcrumbs_schema_compiler_cmake PRIVATE ${generated_files})
+target_include_directories(breadcrumbs_schema_compiler_cmake PRIVATE "${generated_dir}")
+target_link_libraries(breadcrumbs_schema_compiler_cmake PRIVATE Breadcrumbs::runtime)
+```
+
+`breadcrumbs_generate_cpp()` supports installed native package consumers only.
+It handles one schema input per invocation, returns absolute generated file
+paths, and does not create or mutate targets. Downstream projects still own the
+generated include directory, target source attachment, runtime linkage, and
+stale-output cleanup. The compiler does not currently emit depfiles or
+manifests.
+
+The lower-level manual integration pattern remains supported when callers need
+full control over the custom command:
+
+```cmake
 add_custom_command(
-    OUTPUT "${generated_header}"
+    OUTPUT "${generated_dir}/breadcrumbs/telemetry.generated.hpp"
     COMMAND
         "$<TARGET_FILE:Breadcrumbs::schema_compiler>"
         --output-directory "${generated_dir}"
@@ -30,19 +56,7 @@ add_custom_command(
         Breadcrumbs::schema_compiler
     VERBATIM
 )
-
-add_executable(breadcrumbs_schema_compiler_cmake
-    main.cpp
-    "${generated_header}"
-)
-target_include_directories(breadcrumbs_schema_compiler_cmake PRIVATE "${generated_dir}")
-target_link_libraries(breadcrumbs_schema_compiler_cmake PRIVATE Breadcrumbs::runtime)
 ```
-
-Downstream projects currently own the generated output list, generated include
-directory, target source attachment, schema dependency declaration, and stale
-output cleanup. The compiler handles one schema input per invocation and does
-not currently emit depfiles or manifests.
 
 Generated C++ is supported with `Breadcrumbs::runtime` from the same
 Breadcrumbs release as the schema compiler that generated it. Generated headers

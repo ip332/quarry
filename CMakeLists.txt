@@ -76,5 +76,6 @@ write_basic_package_version_file(
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/BreadcrumbsConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/BreadcrumbsConfigVersion.cmake
+    cmake/BreadcrumbsGenerate.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Breadcrumbs
 )

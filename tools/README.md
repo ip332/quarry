@@ -110,43 +110,38 @@ as `<prefix>/bin/breadcrumbs-schema-compiler` on platforms using the default
 GNU install layout. Installed use is direct invocation by absolute path or
 `PATH`, or through the imported executable target
 `Breadcrumbs::schema_compiler` from `find_package(Breadcrumbs CONFIG REQUIRED)`.
-There is no package component for compiler tools, and no CMake generation
-helper is provided.
+There is no package component for compiler tools.
 
-In CMake, invoke the imported executable target through a generator expression:
+For installed native builds, use the package helper:
 
 ```cmake
 find_package(Breadcrumbs CONFIG REQUIRED)
 
 set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
-set(generated_header "${generated_dir}/breadcrumbs/telemetry.generated.hpp")
 
-add_custom_command(
-    OUTPUT "${generated_header}"
-    COMMAND
-        "$<TARGET_FILE:Breadcrumbs::schema_compiler>"
-        --output-directory "${generated_dir}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/schema.brd"
-    DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/schema.brd"
-        Breadcrumbs::schema_compiler
-    VERBATIM
+breadcrumbs_generate_cpp(
+    SCHEMA schema.brd
+    OUTPUT_DIR "${generated_dir}"
+    OUT_FILES generated_files
 )
 
 add_executable(app
     main.cpp
-    "${generated_header}"
 )
+target_sources(app PRIVATE ${generated_files})
 target_include_directories(app PRIVATE "${generated_dir}")
 target_link_libraries(app PRIVATE Breadcrumbs::runtime)
 ```
 
-Downstream projects currently own the generated-output list, include directory,
-target source attachment, dependency declaration, and stale-output cleanup.
-`examples/cpp/schema_compiler_cmake` is the canonical tested example for this
-manual integration pattern. A CMake helper is intentionally deferred until
-generated-output enumeration, stale-output ownership, and host-tool selection
-are specified.
+The helper is installed with the package and auto-loaded by
+`find_package(Breadcrumbs CONFIG REQUIRED)`. It is installed-native-only,
+native-build-only, handles one schema per invocation, returns absolute
+generated paths through `OUT_FILES`, and does not create or mutate targets.
+Downstream projects still own include directories, target source attachment,
+runtime linkage, and stale-output cleanup.
+
+The lower-level manual `add_custom_command()` pattern remains supported for
+callers that want explicit control over the compiler invocation.
 
 The installed executable links private Breadcrumbs compiler libraries into the
 tool binary. It may still depend on system or package-manager-provided dynamic

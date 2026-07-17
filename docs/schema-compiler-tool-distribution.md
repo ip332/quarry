@@ -145,14 +145,18 @@ internals remain uninstalled even though the executable itself is installed.
 ## Downstream Generated-Code Workflow
 
 Generated C++ files are downstream-owned artifacts. The supported installed
-tool workflow is direct CMake invocation of the imported executable target, not
-a CMake helper.
+native workflow is the narrow `breadcrumbs_generate_cpp()` helper, which
+creates the custom command and returns generated files without mutating
+downstream targets. Direct CMake invocation of the imported executable target
+remains the supported lower-level workflow for callers that need explicit
+control.
 
 Supported downstream contract:
 
 * users choose whether to check generated files into source control or generate
   them in CI/build steps
-* generated outputs are listed explicitly in `add_custom_command(OUTPUT ...)`
+* helper-based builds receive generated outputs through `OUT_FILES`; manual
+  builds list generated outputs explicitly in `add_custom_command(OUTPUT ...)`
 * the generated output directory is added as an include directory by the caller
 * generated files are attached to the caller's targets
 * schema files are declared as custom-command dependencies
@@ -165,73 +169,27 @@ Supported downstream contract:
 * generated C++ should be regenerated after schema changes and when upgrading
   Breadcrumbs releases
 
-Build-system integration remains deferred because a helper must define:
+Broader build-system integration remains deferred because future helpers or
+helper extensions must define:
 
-* expected output enumeration
 * one-schema versus multi-schema behavior
-* dependency tracking and regeneration triggers
-* generated include directories
-* whether generated files are added to targets automatically
-* whether the helper links `Breadcrumbs::runtime`
-* filename collision behavior
-* multi-config generator behavior
+* generated include directories and target mutation
+* whether helper extensions link `Breadcrumbs::runtime`
+* host-tool override behavior
+* build-time inventory consistency checks
+* stale-output cleanup
 * cross-compilation host-tool discovery
 
-## CMake Generation Helper Decision
+## CMake Generation Helper Contract
 
-Breadcrumbs does not currently provide a CMake generation helper. The
-supported SDK contract remains the explicit `add_custom_command()` pattern
-shown in `examples/cpp/schema_compiler_cmake`.
+Breadcrumbs installs `BreadcrumbsGenerate.cmake` beside the package config and
+auto-includes it from `BreadcrumbsConfig.cmake`. After:
 
-The current manual workflow intentionally leaves these responsibilities with
-the downstream project:
+```cmake
+find_package(Breadcrumbs CONFIG REQUIRED)
+```
 
-* declaring the schema input
-* choosing the generated output directory
-* listing every expected generated output
-* invoking `Breadcrumbs::schema_compiler` in `add_custom_command()`
-* declaring the schema and compiler target as dependencies
-* adding the generated include directory
-* attaching generated files to a consumer target
-* linking generated-code consumers to `Breadcrumbs::runtime`
-* coordinating multiple schema invocations
-* deciding whether generated files are checked in or build-generated
-* cleaning stale generated files
-
-`--list-outputs` makes a future helper viable for **installed native builds**
-because it lets CMake obtain the backend-owned output inventory during
-configuration without duplicating filename logic. That viability is deliberately
-limited. A first helper should not support source-tree `add_subdirectory()`
-consumption, cross-compilation, multi-schema orchestration, stale-output
-cleanup, target mutation, depfiles, manifests, or host-tool overrides.
-
-### Configure-Time Compiler Resolution
-
-CMake generator expressions such as
-`$<TARGET_FILE:Breadcrumbs::schema_compiler>` are intended for generation and
-build contexts, not for direct evaluation inside configure-time
-`execute_process()`. A helper that runs the compiler during configuration
-should resolve the installed imported executable target by reading its imported
-location target property instead.
-
-For the installed package, the helper should require
-`Breadcrumbs::schema_compiler` and read an appropriate `IMPORTED_LOCATION`
-property from that target. It must not hard-code `<prefix>/bin` or rely on
-`PATH`. For the initial native contract, configuration-independent imported
-locations are sufficient. Multi-config or configuration-specific imported
-locations need a separate tested policy before they are supported.
-
-Build-tree `add_subdirectory()` consumption is different. The
-`Breadcrumbs::schema_compiler` alias may exist while configuring, but the
-executable has not necessarily been built yet and therefore cannot be executed
-at configure time. A configure-time query helper should initially be an
-installed-package feature only. Source-tree consumers should continue using the
-manual explicit-output pattern unless they provide a prebuilt compiler through
-a future host-tool override policy.
-
-### Proposed Future Helper Shape
-
-A future helper may use this narrow custom-command-only shape:
+installed native consumers can call:
 
 ```cmake
 breadcrumbs_generate_cpp(
@@ -243,232 +201,135 @@ breadcrumbs_generate_cpp(
 )
 ```
 
-Initial semantics:
+The helper is deliberately narrow:
 
-* exactly one schema input
-* installed native package use only
+* installed package use only
+* native builds only
+* exactly one schema input per invocation
 * compiler fixed to `Breadcrumbs::schema_compiler`
-* helper resolves the imported executable location during configuration
-* helper invokes `--list-outputs` during configuration
-* helper invokes normal generation once at build time
-* output directory is absolute
-* relative `OUTPUT_DIR` arguments are resolved against
-  `${CMAKE_CURRENT_BINARY_DIR}`
-* schema path is absolute
-* returned `OUT_FILES` contains the exact paths reported by `--list-outputs`
-* outputs are declared in one `add_custom_command(OUTPUT ...)`
-* dependencies include the schema and `Breadcrumbs::schema_compiler`
-* no target is created or mutated
-* no include directories are added automatically
-* no automatic `Breadcrumbs::runtime` link dependency is added
-* no stale generated files are deleted
-* no imports, multi-schema orchestration, or cross-compilation support is
-  claimed
+* configure-time `--list-outputs` for output discovery
+* one build-time normal compiler invocation
+* returned outputs are absolute paths in deterministic plan order
+* no target creation or mutation
+* no automatic include directories
+* no automatic `Breadcrumbs::runtime` link dependency
+* no stale-output deletion
+* no depfiles or manifests
+* no source-tree `add_subdirectory()` helper support
+* no cross-compilation support or host-tool override
+
+The lower-level manual `add_custom_command()` workflow remains supported for
+callers that want explicit control over the compiler invocation.
+
+### Configure-Time Compiler Resolution
+
+The helper resolves `Breadcrumbs::schema_compiler` during configuration by
+reading the imported executable target location. It does not evaluate
+`$<TARGET_FILE:Breadcrumbs::schema_compiler>` in `execute_process()`, does not
+search `PATH`, and does not hard-code `<prefix>/bin`.
+
+The helper fails during configuration when:
+
+* `Breadcrumbs::schema_compiler` is missing
+* the target is not an imported executable target
+* an unambiguous configure-time executable location cannot be resolved
+* the executable path does not exist
+* `CMAKE_CROSSCOMPILING` is true
+
+Build-tree `add_subdirectory()` consumption is intentionally unsupported by the
+helper. A source-tree alias may exist while configuring, but the executable may
+not have been built yet, so configure-time output discovery would be unreliable.
+
+### Path Rules
+
+Relative `SCHEMA` values are resolved against `${CMAKE_CURRENT_SOURCE_DIR}`.
+Relative `OUTPUT_DIR` values are resolved against `${CMAKE_CURRENT_BINARY_DIR}`.
+Both are lexically normalized to absolute paths. The schema file must exist at
+configure time; the output directory does not need to exist.
+
+The helper rejects generator expressions in `SCHEMA`, `OUTPUT_DIR`,
+`ROOT_FILE_STEM`, and `FILE_EXTENSION`. It also rejects semicolons, newlines,
+and carriage returns in schema paths, output directories, compiler paths,
+option values, and reported output paths. Spaces are supported.
+
+The helper passes the absolute output directory to both `--list-outputs` and
+the build-time generation command. It requires every listed output to be
+absolute, lexically inside `OUTPUT_DIR`, unique within the invocation, and
+non-empty. Containment is checked path-component-wise, not with string-prefix
+matching.
+
+### Configure-Time Discovery
+
+During configuration, the helper runs:
+
+```text
+breadcrumbs-schema-compiler \
+  --list-outputs \
+  --output-directory <absolute-output-dir> \
+  [--root-file-stem <stem>] \
+  [--file-extension <extension>] \
+  <absolute-schema>
+```
+
+On success, stderr must be empty and stdout must contain one output path per
+line. The helper parses those paths, preserves ordering, rejects malformed or
+unsafe output, rejects an empty inventory, and returns the planned paths through
+`OUT_FILES` in the caller scope.
+
+On failure, configuration stops with helper context that includes the schema
+path, compiler path, compiler exit code, and compiler stderr where available.
+The helper does not reinterpret schema diagnostics or guess output names.
+
+### Build-Time Generation
+
+The helper creates one `add_custom_command()` whose `OUTPUT` list is exactly the
+configure-time inventory. The command creates `OUTPUT_DIR` with
+`cmake -E make_directory` and then invokes the same resolved compiler executable
+with normal generation arguments. Dependencies include the schema file,
+`Breadcrumbs::schema_compiler`, and the resolved compiler executable path.
+
+The helper marks returned files as generated, but it does not create a target,
+attach sources to a target, add include directories, or link the runtime.
+Consumers must use the returned `OUT_FILES` explicitly.
 
 ### Reconfiguration Triggers
 
-The helper must register the schema file as a configure dependency, for example
-through `CMAKE_CONFIGURE_DEPENDS`, so schema edits can rerun configuration and
-refresh the `OUTPUT` list. This is necessary because schema changes may alter
-namespaces, emitted file count, output paths, or include relationships. Future
-schema imports would require registering every imported schema as a configure
-dependency; imports remain unsupported today.
+The helper appends the absolute schema path and resolved compiler executable to
+`CMAKE_CONFIGURE_DEPENDS`. Schema edits can therefore rerun configuration and
+refresh the `OUTPUT` list when the output inventory changes. Replacing the
+compiler executable in place can also trigger reconfiguration on generators that
+honor directory configure dependencies.
 
-The helper should also register the resolved compiler executable path as a
-configure dependency when the path exists. That catches common in-place tool
-replacement cases. It does not create a broad version-negotiation contract. If
-the selected package prefix, helper module, or generation options change,
-normal CMake configuration input tracking should rerun configuration.
-
-The build-time `add_custom_command()` should also depend on
-`Breadcrumbs::schema_compiler` so the generated files rebuild when the compiler
-target changes. Configure-time re-query and build-time regeneration are
-separate concerns; both are needed.
-
-### Output Parsing and Path Rules
-
-The helper should pass an absolute output directory to `--list-outputs` and to
-the build-time generation command. This gives unambiguous `OUTPUT` paths,
-avoids depending on CMake's configure-time working directory, and keeps output
-paths under the binary tree by default.
-
-The current `--list-outputs` format is one path per line. It is sufficient for
-an initial helper only if the helper rejects path components that cannot be
-represented safely as CMake list elements. The first helper should reject
-schema paths, output directories, root stems, file extensions, and listed output
-paths containing newlines or semicolons. Spaces are supported and must be
-passed with normal CMake list quoting and `VERBATIM`.
-
-The helper must treat malformed `--list-outputs` output as a configure-time
-error. It should reject empty lines, duplicate output paths, outputs outside the
-requested output directory, and an empty output inventory unless that case is
-explicitly supported by a later design.
-
-### Failure Contract
-
-Configure-time failures should stop configuration with concise helper context
-and the compiler's stderr preserved. Failure classes include:
-
-* missing `Breadcrumbs::schema_compiler`
-* missing imported executable location
-* compiler executable not found or not executable
-* missing schema file
-* invalid schema or backend planning failure
-* subprocess launch failure
-* nonzero compiler exit status
-* malformed or unsafe listed paths
-* duplicate listed paths
-* listed paths outside `OUTPUT_DIR`
-
-The helper should not rewrite compiler diagnostics or try to recover by
-guessing output names.
-
-### Configure/Build Consistency
-
-A configure-time query and a build-time generation are two compiler invocations.
-If the schema or compiler changes between them, the build-time generation could
-produce a different inventory than the configured `OUTPUT` list. The initial
-helper should rely on configure dependencies to cause the next build to
-reconfigure before generation. It should not implement a second filename
-calculation path. A later robustness PR may add a build-time consistency check
-that reruns `--list-outputs` and fails if the inventory differs from the
-configured list.
+The helper does not add a separate build-time inventory consistency check. If a
+schema or compiler changes between configure-time discovery and build-time
+generation, the supported contract relies on the next reconfiguration. A future
+PR may add a build-time check that reruns `--list-outputs` and fails when the
+inventory differs from the configured `OUTPUT` set.
 
 ### Output Ownership and Stale Files
 
-The first helper should not delete stale files. Safe deletion requires an
-ownership model that is broader than output discovery. The recommended initial
-rule is that callers use a dedicated generated directory per helper invocation,
-but the helper should document rather than enforce deletion. If a schema change
-removes an output, the old file may remain until the user cleans the build tree.
+The helper never deletes generated files. If a schema change removes an output
+from the plan, the old file may remain in the output directory but is no longer
+returned by `OUT_FILES`. Callers should use a dedicated generated-output
+directory per helper invocation and clean that directory or the build tree when
+needed. The helper does not assume exclusive ownership of arbitrary
+caller-provided directories.
 
-Future cleanup options remain:
+Duplicate output claims across helper invocations are always configuration
+errors. A global configure-time registry records claimed output paths and the
+schema that first claimed them.
 
-* never delete stale outputs and document clean-build expectations
-* require a dedicated output directory and clean it before generation
-* persist prior inventories and remove only files that used to be generated
-* integrate outputs with CMake clean behavior only
+### Multi-Config and Cross-Compilation Boundary
 
-No cleanup policy should be guessed in the first helper.
+The first helper contract supports native installed-package builds with a
+configuration-independent imported compiler executable location. Generator
+expressions in helper arguments are rejected, so configuration-specific output
+directories such as `$<CONFIG>` are unsupported.
 
-### Host Tools, Multi-Config, and Collisions
-
-The first helper should be native-build-only and should use the compiler from
-the selected installed Breadcrumbs package. It should not accept an arbitrary
-compiler path or claim cross-compilation support. A host-tool override or
-separate host-tools package should be decided separately.
-
-Multi-config generators need a separate policy. Generated outputs should be
-configuration-independent unless the helper explicitly supports
-configuration-specific output directories. Generator expressions in
-`OUTPUT_DIR` should be rejected by the initial helper because configure-time
-`--list-outputs` cannot evaluate a per-configuration path.
-
-Multiple helper invocations should maintain a configure-time registry of
-claimed output paths within the current CMake configure run. Registering the
-same schema twice may be allowed only if options and output paths are
-identical; two different invocations that claim the same output path should be
-an error.
-
-Evaluated helper boundaries:
-
-* **Manual integration only:** still supported and remains the lowest-level
-  public contract.
-* **Installed native custom-command helper:** viable as a future PR under the
-  constraints above. This is the selected future direction, but it is not
-  implemented here.
-* **Source-tree/add_subdirectory helper:** deferred because configure-time
-  output discovery requires an executable that may not exist yet.
-* **Cross-compilation helper:** deferred until host-tool selection is designed.
-* **Target-attaching helper:** rejected for now because it would mutate user
-  targets by adding sources, include directories, and `Breadcrumbs::runtime`
-  linkage before generated-code ownership conventions are mature.
-* **Generated schema library abstraction:** rejected for now because it would
-  introduce a higher-level target model before multi-schema and stale-output
-  behavior are specified.
-
-If a helper is introduced later, it should live in an explicit installed module
-such as `BreadcrumbsGenerate.cmake` rather than placing substantial function
-logic directly in `BreadcrumbsConfig.cmake`. Loading the main package should
-remain small and should continue to expose only the runtime target and compiler
-executable target by default.
-
-## Generated Output Planning Contract
-
-The compiler should have one authoritative generated-output planning model.
-Filename and include-path decisions belong to the C++ backend, not to CMake
-helpers, package config files, tests, or downstream projects.
-
-Current architecture:
-
-* backend options define the output directory, root file stem, and file
-  extension
-* backend namespace analysis calculates namespace-local file paths and include
-  paths
-* backend dependency analysis determines whether a namespace emits a file and
-  how generated files include each other
-* `Backend::generate(...)` returns a `CodegenResult` containing generated file
-  paths and rendered file contents
-* the schema compiler executable writes the returned files and performs
-  tool-side safety checks for duplicate paths, output-root containment, and
-  per-file atomic replacement
-
-This separates backend generation from file writing. The backend now also has
-an internal `GenerationPlan` stage before rendering:
-
-```text
-Schema IR
-  -> backend output planner
-  -> GenerationPlan
-  -> renderer
-  -> CodegenResult
-  -> schema compiler file writer
-```
-
-The plan remains internal. It is sufficient for backend tests, future CLI query
-modes, and future CMake integration to share the same output inventory without
-reimplementing filename rules outside the backend.
-
-Minimum useful plan data:
-
-* generated language/backend, initially C++
-* logical output role, initially generated header
-* relative output path under the caller-selected output directory
-* generated include path used by other generated files
-* deterministic order
-
-The plan does not include rendered file contents, file hashes, build-system
-dependency graphs, stale-output cleanup policy, runtime package paths, or CMake
-target information. Absolute path validation and atomic replacement remain
-responsibilities of the schema compiler tool's file writer.
-
-The `--list-outputs` CLI mode serializes this same internal plan as one path per
-line after applying the selected output directory. It does not introduce a
-second filename calculation path. This query mode can help users and future
-CMake configure-time logic list outputs, but it is not a depfile, manifest,
-helper API, or stale-output cleanup mechanism.
-
-An output manifest remains a separate build-time artifact question. It may be
-useful for diagnostics or audit trails, but because manifests are produced
-during the build, they do not replace configure-time output planning for CMake.
-
-Testing should move output inventory coverage toward the planning layer. Focused
-planning tests should cover:
-
-* root-namespace output using `root_file_stem`
-* nested namespace directory layout
-* custom file extensions
-* multiple emitted namespaces and deterministic ordering
-* generated include paths for cross-namespace references
-* namespaces that do not emit files
-
-The future CMake helper decision should depend on this plan and on
-`--list-outputs`. A helper can avoid duplicating backend logic by obtaining
-output paths from the compiler's authoritative planning model, but it would need
-to execute the compiler during configuration to use those paths as
-`add_custom_command(OUTPUT ...)` values. That raises reconfiguration questions
-when schema contents, naming options, compiler versions, or backend naming rules
-change. Those helper semantics remain deferred.
+Cross-compilation remains unsupported. The schema compiler is a host executable
+while `Breadcrumbs::runtime` is consumed by target-side generated code. A future
+host-tool override or separate host-tools package must be designed before the
+helper can claim cross-compilation support.
 
 ## Installed Discovery Policy
 
@@ -531,12 +392,16 @@ Evaluated discovery options:
 * **Separate compiler package:** deferred. It may become relevant for
   cross-compilation or host-tools packaging, but it fragments the current small
   SDK before those requirements are concrete.
-* **CMake generation helper:** deferred until output enumeration, depfiles,
-  stale-output behavior, and host-tool overrides are specified.
+* **CMake generation helper:** implemented only for installed native package
+  consumers through `breadcrumbs_generate_cpp()`. The helper uses
+  configure-time `--list-outputs`, returns generated files, and intentionally
+  avoids target mutation, stale cleanup, depfiles, manifests, source-tree
+  helper support, cross-compilation, and host-tool overrides.
 * **Expose compiler SDK:** rejected. Compiler libraries and generated protobufs
   are source-tree implementation details.
 
-No CMake package components are needed for the next compiler discovery step.
+No CMake package components are needed for the current compiler discovery and
+helper model.
 Components can be reconsidered only if runtime and compiler packaging become
 independently installable products.
 
@@ -607,7 +472,8 @@ A future PR should define and test:
 2. Add an installed-native `breadcrumbs_generate_cpp()` helper that uses
    configure-time `--list-outputs`, returns `OUT_FILES`, and avoids target
    mutation, stale cleanup, depfiles, manifests, source-tree consumption, and
-   cross-compilation.
+   cross-compilation. Completed by the installed `BreadcrumbsGenerate.cmake`
+   module.
 3. Decide whether to add a build-time consistency check that reruns
    `--list-outputs` and fails if build-time generation would produce a
    different inventory than the configured `OUTPUT` set.

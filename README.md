@@ -53,9 +53,20 @@ $<TARGET_FILE:Breadcrumbs::schema_compiler>
 ```
 
 Generated code should link against `Breadcrumbs::runtime`. Downstream projects
-currently own their own `add_custom_command()` wiring, expected generated
-output lists, generated include directories, target source attachment, and
-stale-output cleanup. The canonical pattern is shown in
+can use the installed-native helper:
+
+```cmake
+breadcrumbs_generate_cpp(
+    SCHEMA schema.brd
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    OUT_FILES generated_files
+)
+```
+
+The helper returns generated files but does not create or mutate targets.
+Downstream projects still own generated include directories, target source
+attachment, runtime linkage, and stale-output cleanup. The canonical pattern is
+shown in
 `examples/cpp/schema_compiler_cmake`.
 
 The schema compiler also supports `--list-outputs` to print the generated paths
@@ -69,4 +80,4 @@ The supported downstream distribution model is defined in
 `docs/distribution-model.md`. The installed SDK currently consists of the
 header-only runtime package plus the `Breadcrumbs::schema_compiler` executable
 target. Compiler libraries, generated protobufs, tests, and fuzzers remain
-source-tree artifacts. No generated-code helper function is provided yet.
+source-tree artifacts.
