@@ -508,6 +508,137 @@ rejection becomes necessary. It is not a prerequisite for the first raw-path
 override because the generated-code API guard already catches incompatible
 runtime headers during target compilation.
 
+### Generated-Code API Capability Query Decision
+
+PR-083 evaluated whether the compiler should expose a machine-readable
+generated-code API query for `breadcrumbs_generate_cpp()` to compare against
+the selected target runtime package during CMake configuration.
+
+The relevant compatibility property is the generated C++ source/runtime header
+contract represented by:
+
+```cpp
+breadcrumbs::runtime::kGeneratedCodeApiVersion
+```
+
+This is an equality-based compatibility epoch today. Generated headers contain
+a `static_assert` requiring the runtime header value to equal the value expected
+by the compiler. A mismatch therefore fails deterministically during target
+compilation before linking. This check does not represent package release
+equality, runtime ABI compatibility, schema-language compatibility, or BRF
+wire-format compatibility.
+
+Current version and compatibility surfaces:
+
+| Surface | Owner | Current value | Meaning | Exposure |
+| --- | --- | --- | --- | --- |
+| Breadcrumbs package version | Top-level CMake project | `0.1.0` | Release identity and CMake package version | `BreadcrumbsConfigVersion.cmake`, compiler `--version` |
+| Compiler `--version` | `breadcrumbs-schema-compiler` | `breadcrumbs-schema-compiler 0.1.0` | Human/script release identity | CLI stdout |
+| Runtime generated-code API version | Runtime headers | `1` | Generated source/runtime header compatibility epoch | `breadcrumbs::runtime::kGeneratedCodeApiVersion` |
+| Generated expected API version | C++ backend renderer | `1U` | Value embedded in generated header `static_assert` | Generated C++ source |
+| BRF wire-format version | Runtime parser/emitter | v0.1 record header version | Encoded-byte format compatibility | BRF bytes and parser errors |
+| Schema record version | User schema and Schema IR | schema-provided positive integer | Application schema identity | YAML source, Schema IR, generated record IDs/versions |
+| Schema IR version | Generated protobuf model | `schema_ir_version: 1` in fixtures | Internal compiler IR serialization version | Source-tree protobuf data |
+
+The generated-code API version is not currently single-sourced. The runtime
+defines `kGeneratedCodeApiVersion` in `runtime/version.hpp`, while the backend
+renderer emits the expected value as a separate literal in generated headers.
+The installed package does not expose the runtime value to CMake. Adding a
+compiler query before fixing this would create a third public value without a
+strong synchronization mechanism.
+
+The selected future direction is a narrow scalar query and configure-time
+comparison, but only after the generated-code API value has one canonical
+source and the runtime package exposes that value cleanly to CMake.
+
+Recommended future CLI contract:
+
+```text
+breadcrumbs-schema-compiler --print-generated-code-api-version
+```
+
+Successful output should be exactly one base-10 unsigned integer followed by a
+newline, for example:
+
+```text
+1
+```
+
+The query should:
+
+* require no input schema
+* perform no generation
+* write only the scalar and final newline to stdout
+* write nothing to stderr on success
+* exit `0` on success
+* return usage errors with exit `2`
+* keep `--help` terminal and highest precedence
+* remain separate from `--version`, which continues to report release identity
+* reject unrelated generation arguments rather than treating them as part of a
+  compatibility query
+
+Recommended future package config contract:
+
+```cmake
+Breadcrumbs_GENERATED_CODE_API_VERSION
+```
+
+`breadcrumbs_generate_cpp()` should then use this sequence for every selected
+compiler, including the native default and explicit `SCHEMA_COMPILER`
+overrides:
+
+1. select and validate the host compiler path
+2. query the compiler generated-code API version
+3. compare it for exact equality with
+   `Breadcrumbs_GENERATED_CODE_API_VERSION`
+4. fail CMake configuration on mismatch with a diagnostic naming the compiler,
+   compiler API version, target runtime API version, and remediation
+5. run configure-time `--list-outputs`
+
+Exact equality is appropriate because the current generated header guard
+already uses equality semantics. If Breadcrumbs later needs compatibility
+ranges, that should be a separate generated-code API policy change rather than
+an implicit reinterpretation of this scalar query.
+
+The query would improve explicit-host-compiler workflows by catching a
+meaningful class of errors during CMake configuration instead of later target
+compilation. It is especially useful for cross-compiling builds where a package
+manager or toolchain supplies a host compiler separately from the target
+runtime package. It does not remove the generated-header `static_assert`; that
+assertion remains defense in depth and covers users who generate code outside
+the CMake helper.
+
+Recommended single-source design:
+
+* introduce one canonical generated-code API version definition owned by the
+  runtime/package boundary
+* make `runtime/version.hpp`, backend-generated assertions, compiler query
+  output, and `Breadcrumbs_GENERATED_CODE_API_VERSION` derive from that source
+* avoid parsing C++ headers from CMake
+* avoid manually duplicating the number across compiler source, package config,
+  and tests
+
+One maintainable implementation path is a small CMake-configured header and
+package metadata generated from one CMake variable, with tests proving that the
+runtime header, backend expectation, compiler query, generated output, and
+installed package variable agree.
+
+Implementation test requirements for that future PR:
+
+* CLI query prints the exact scalar with final newline, empty stderr, and exit
+  `0`
+* `--help` precedence and usage errors are pinned
+* package config exposes `Breadcrumbs_GENERATED_CODE_API_VERSION`
+* installed and relocated packages preserve the value without source/build
+  paths
+* helper succeeds when compiler and runtime API versions match
+* helper fails during configuration on mismatched API versions for native and
+  explicit override compilers
+* malformed query output, extra lines, nonnumeric output, and query failures are
+  rejected
+* generated-header `static_assert` remains present and still fails on mismatch
+* tests verify all exposed values derive from the same canonical source
+
 ### One Compiler Per Build Tree
 
 The cross-compilation contract enforces one Breadcrumbs schema

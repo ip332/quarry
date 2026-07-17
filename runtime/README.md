@@ -40,7 +40,10 @@ generated decoder cause generated decoding to fail.
 C++ code. Generated headers compile-time assert that the runtime exposes the
 expected value. This guard does not represent the Breadcrumbs package release
 version, C++ ABI stability, schema-language compatibility, or BRF wire-format
-compatibility.
+compatibility. The value is not yet exported as CMake package metadata; CMake
+helper compatibility checks for explicit host compilers remain deferred until
+the runtime header, compiler backend, CLI query, and package metadata can derive
+the value from one canonical source.
 
 Generated code exposes diagnostic codec APIs backed by
 `EncodeResult<T>`/`DecodeResult<T>`. The runtime result type carries either an

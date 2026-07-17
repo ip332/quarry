@@ -87,6 +87,10 @@ rules, has a small dependency surface, and lets generated code depend on
 Generated C++ headers use the runtime's generated-code API compatibility
 constant to fail compilation with incompatible runtime headers. That check is
 separate from package release version and BRF wire-format version.
+The package does not yet expose the generated-code API version as CMake
+metadata, so host compiler/runtime API compatibility for explicit
+`SCHEMA_COMPILER` overrides is still enforced by generated C++ compilation
+rather than during CMake configuration.
 
 ### Runtime + Compiler SDK
 
@@ -144,6 +148,9 @@ Future install/export expansion should be preceded by a separate distribution
 decision. In particular:
 
 * installing compiler libraries needs a public compiler SDK contract
+* configure-time host compiler/runtime generated-code API validation needs a
+  single-sourced generated-code API version, a narrow compiler scalar query,
+  and package CMake metadata exposing the target runtime value
 * broader generated-code CMake helper support needs source-tree, multi-schema,
   imported-target compiler override, and cleanup policies beyond the current
   helper
