@@ -24,7 +24,7 @@ The compiler does not currently provide:
 * an import resolver
 * a declaration-syntax production frontend
 * a combined source-to-backend facade
-* install or export rules for external projects
+* install or export rules for compiler libraries
 
 ## Supported Low-Level Building Blocks
 
@@ -76,7 +76,10 @@ header signature and every direct test or production consumer has been checked.
 
 ## External API Status
 
-There are currently no `install(...)`, `export(...)`, `BUILD_INTERFACE`, or
-`INSTALL_INTERFACE` rules for compiler libraries. External API shape, package
-layout, and stability guarantees are deferred until a real external consumer or
+The `breadcrumbs-schema-compiler` executable is installed and exported as the
+`Breadcrumbs::schema_compiler` imported executable target, but compiler
+libraries remain source-tree implementation details. There are currently no
+`install(...)`, `export(...)`, `BUILD_INTERFACE`, or `INSTALL_INTERFACE` rules
+for compiler libraries. External compiler-library API shape, package layout,
+and stability guarantees are deferred until a real embedding consumer or
 packaging requirement exists.

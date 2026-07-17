@@ -1,8 +1,9 @@
 # Distribution Model
 
-Breadcrumbs currently supports a runtime-SDK-only downstream distribution
-model. The installed package surface is intentionally smaller than the
-source-tree build graph.
+Breadcrumbs currently supports a small downstream SDK consisting of the
+header-only runtime plus the installed schema compiler executable target. The
+installed package surface is intentionally smaller than the source-tree build
+graph.
 
 ## Supported Public SDK
 
@@ -35,10 +36,10 @@ repository-relative include paths.
 The supported manual CMake generation pattern is documented and tested in
 `examples/cpp/schema_compiler_cmake`. Breadcrumbs does not currently provide
 CMake code-generation helpers, depfiles, manifest files, or stale-output
-cleanup. A helper is deferred because generated output enumeration is
-backend-owned, the compiler currently has one explicit schema dependency and no
-depfile, and host-tool override semantics for cross-compilation are not yet
-defined.
+cleanup. A future helper may use `--list-outputs` during CMake configuration
+for installed native builds, but source-tree `add_subdirectory()` use,
+cross-compilation, stale-output cleanup, and host-tool overrides remain
+deferred.
 
 ## Artifact Classification
 
@@ -126,8 +127,9 @@ Future install/export expansion should be preceded by a separate distribution
 decision. In particular:
 
 * installing compiler libraries needs a public compiler SDK contract
-* generated-code CMake helper functions need a stable compiler invocation
-  model
+* generated-code CMake helper functions need the installed-native
+  configure-time output discovery contract documented in
+  `docs/schema-compiler-tool-distribution.md`
 * cross-compilation needs a host-tool discovery or override policy
 * language-specific examples should be introduced with their corresponding
   runtime or generator support
