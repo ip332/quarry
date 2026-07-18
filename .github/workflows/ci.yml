@@ -15,16 +15,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Protobuf
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y protobuf-compiler libprotobuf-dev libabsl-dev libyaml-dev
+      - name: Build development image
+        run: docker compose build
 
       - name: Configure
-        run: cmake --preset debug
+        run: docker compose run --rm dev cmake --preset debug
 
       - name: Build
-        run: cmake --build --preset debug --parallel
+        run: docker compose run --rm dev cmake --build --preset debug --parallel
 
       - name: Test
-        run: ctest --preset debug
+        run: docker compose run --rm dev ctest --preset debug --output-on-failure
+
+  clang-tidy:
+    name: clang-tidy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build development image
+        run: docker compose build
+
+      - name: Configure
+        run: docker compose run --rm dev cmake --preset debug-clang-tidy
+
+      - name: Build
+        run: docker compose run --rm dev cmake --build --preset debug-clang-tidy --parallel

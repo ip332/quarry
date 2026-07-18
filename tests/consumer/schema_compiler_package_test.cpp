@@ -1110,7 +1110,7 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         "SCHEMA_COMPILER \"" +
             non_runnable.string() +
             "\")\n",
-        .expected = "permission denied",
+        .expected = "Permission denied",
     });
 
     const std::filesystem::path bad_version = root / "bad version compiler.sh";

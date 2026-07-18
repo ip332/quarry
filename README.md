@@ -29,6 +29,16 @@ its core architecture.
 
 Project planning and architecture phase.
 
+## Development Environment
+
+A Docker-based development environment that mirrors the CI toolchain is
+documented in `docs/development-environment.md`:
+
+```sh
+docker compose build
+docker compose run --rm dev bash
+```
+
 ## Runtime Package
 
 The C++ Breadcrumbs runtime is header-only and installable as a CMake package.
