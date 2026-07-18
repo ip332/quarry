@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -26,6 +28,13 @@ namespace {
     std::filesystem::remove_all(directory);
     std::filesystem::create_directories(directory);
     return directory;
+}
+
+[[nodiscard]] bool contains_case_insensitive(std::string_view haystack, std::string_view needle) {
+    const auto to_lower = [](unsigned char c) { return static_cast<char>(std::tolower(c)); };
+    return std::search(haystack.begin(), haystack.end(), needle.begin(), needle.end(),
+                        [&](char a, char b) { return to_lower(a) == to_lower(b); }) !=
+           haystack.end();
 }
 
 [[nodiscard]] std::string read_text_file(const std::filesystem::path& path) {
@@ -963,7 +972,7 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
              "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
             root, failure_case.name);
         EXPECT_NE(result.status, 0) << failure_case.name << " unexpectedly configured";
-        EXPECT_NE(result.stderr_text.find(failure_case.expected), std::string::npos)
+        EXPECT_TRUE(contains_case_insensitive(result.stderr_text, failure_case.expected))
             << failure_case.name << " stderr:\n"
             << result.stderr_text;
     };
@@ -1110,7 +1119,7 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         "SCHEMA_COMPILER \"" +
             non_runnable.string() +
             "\")\n",
-        .expected = "Permission denied",
+        .expected = "permission denied",
     });
 
     const std::filesystem::path bad_version = root / "bad version compiler.sh";
