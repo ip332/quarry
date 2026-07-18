@@ -31,8 +31,11 @@ Project planning and architecture phase.
 
 ## Development Environment
 
-A Docker-based development environment that mirrors the CI toolchain is
-documented in `docs/development-environment.md`:
+Docker is the recommended and authoritative environment for CI-equivalent
+builds, including `debug-clang-tidy`. Native (non-Docker) `debug` builds are
+also supported; native `debug-clang-tidy` is best-effort. See
+`docs/development-environment.md` for the full support policy and
+troubleshooting.
 
 ```sh
 docker compose build

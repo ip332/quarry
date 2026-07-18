@@ -1,14 +1,23 @@
 # Development Environment
 
 Breadcrumbs provides a Docker-based development environment so contributors
-build against the same toolchain and library versions used by CI. CI
-(`.github/workflows/ci.yml`) builds this same `Dockerfile` and runs its
-configure/build/test steps with `docker compose run`, rather than installing
-dependencies directly onto the runner — so the environment a contributor
-builds in locally is, by construction, the same environment CI builds in.
-Toolchain and dependency version skew between a contributor's host and CI has
-previously caused build and `debug-clang-tidy` failures that did not
-reproduce consistently; the Docker image exists to remove that variable.
+can build against the same toolchain CI uses. CI (`.github/workflows/ci.yml`)
+builds this repository's `Dockerfile` and runs every configure/build/test step
+with `docker compose run`, rather than installing dependencies directly onto
+the runner.
+
+## Support policy
+
+| Build | Status |
+| --- | --- |
+| Docker `debug` | **Authoritative, CI-equivalent.** This is what CI runs. |
+| Docker `debug-clang-tidy` | **Authoritative, CI-equivalent.** This is what CI runs. |
+| Native `debug` | **Supported, host-dependent.** Works with the dependencies below installed directly; not guaranteed identical to CI's toolchain versions. |
+| Native `debug-clang-tidy` | **Best-effort.** Available, but Breadcrumbs does not verify or enforce that a native compiler, `protoc`, Protobuf headers, and `clang-tidy` come from a coherent toolchain installation. A native-only clang-tidy include-resolution failure is not treated as a project build defect unless it also reproduces in Docker/CI. |
+
+Native `debug-clang-tidy` failures that don't reproduce in Docker are, by
+policy, host toolchain-pairing issues, not Breadcrumbs bugs — see
+"Troubleshooting a native-only clang-tidy failure" below.
 
 ## Build the development image
 
@@ -59,75 +68,72 @@ or toolchain versions for CI means changing the `Dockerfile`, not
 
 ## Native (non-Docker) builds
 
-Docker is the recommended environment, but it is not required. The presets in
-`CMakePresets.json` work on any host with the dependencies above installed
-directly; see the `Dockerfile` for the authoritative package list.
+The presets in `CMakePresets.json` work on any host with the dependencies
+above installed directly; see the `Dockerfile` for the authoritative package
+list. Native `debug` is supported. Native `debug-clang-tidy` is best-effort
+per the support policy above.
 
-Native builds are not guaranteed to reproduce CI's `debug-clang-tidy` result.
-See "Why `debug-clang-tidy` could fail natively but not here" below before
-debugging a local-only clang-tidy failure as a project bug.
+## Troubleshooting a native-only clang-tidy failure
+
+1. Reproduce inside Docker first:
+
+   ```sh
+   docker compose build
+   docker compose run --rm dev cmake --preset debug-clang-tidy
+   docker compose run --rm dev cmake --build --preset debug-clang-tidy --parallel
+   ```
+
+2. If Docker passes, the failure is specific to your host — inspect your host
+   toolchain pairing rather than the CMake build.
+3. Verify the paths and versions of the configured C++ compiler, `clang-tidy`,
+   `protoc`, and the Protobuf headers your compiler resolves at build time.
+   A mismatch between where your compiler's implicit include search finds
+   Protobuf headers and where your `clang-tidy` binary's implicit search
+   looks is the most common cause (see background below).
+4. Do not modify Breadcrumbs CMake files merely to mask a host-only implicit
+   include-path mismatch — add an explicit include path, disable a warning,
+   or exclude a generated source. If Docker/CI is unaffected, the fix belongs
+   in your host environment, not the repository.
 
 ## Generated-code lint policy
 
-`compiler/CMakeLists.txt` does not set `SKIP_LINTING` (or an equivalent
-source-file property) on the generated `schema_ir.pb.cc`/`schema_ir.pb.h`
-Protobuf output. Generated Protobuf sources are linted by clang-tidy the same
-as handwritten sources; only `yaml/yaml_parser.cpp` (a libyaml C-API wrapper)
-carries `SKIP_LINTING`, for unrelated reasons. In the reference environment
-(this Docker image, and CI) `debug-clang-tidy` lints generated Protobuf code
-cleanly — it produces stylistic warnings (e.g.
-`bugprone-reserved-identifier`, `readability-use-concise-preprocessor-directives`
-on protoc-generated code) but no errors, since `.clang-tidy`'s
-`WarningsAsErrors` is empty. There is currently no reason to exclude generated
-Protobuf sources from analysis, and handwritten sources that include the
-generated headers remain fully linted regardless.
+Generated Protobuf sources (`schema_ir.pb.cc`/`schema_ir.pb.h`) are linted by
+clang-tidy the same as handwritten sources; `compiler/CMakeLists.txt` does not
+set `SKIP_LINTING` on them. (Only `yaml/yaml_parser.cpp`, a libyaml C-API
+wrapper, carries `SKIP_LINTING`, for unrelated reasons.) In the authoritative
+Docker/CI environment, `debug-clang-tidy` lints generated Protobuf code
+cleanly — stylistic warnings only, no errors, since `.clang-tidy`'s
+`WarningsAsErrors` is empty.
 
-## Why `debug-clang-tidy` could fail natively but not here
+## Background: why native clang-tidy can diverge from Docker/CI
 
-A `google/protobuf/runtime_version.h` file not found error compiling
-generated `schema_ir.pb.cc` under `debug-clang-tidy` was previously seen and
-treated as an infrastructure blocker. It does not reproduce in this Docker
-image or in CI. Root cause, confirmed by running both the reference
-(Ubuntu 24.04 + apt `protobuf-compiler`/`libprotobuf-dev` 3.21.12 + apt
-`clang-tidy-18`) and a mismatched native macOS setup (Homebrew
-`protobuf` 35.1 as the CXX toolchain's Protobuf, with a separately installed
-Homebrew LLVM `clang-tidy` binary) side by side:
+A `google/protobuf/runtime_version.h` file-not-found error compiling generated
+`schema_ir.pb.cc` under `debug-clang-tidy` was previously seen on one native
+macOS setup and mistaken for a project infrastructure blocker. It does not
+reproduce in Docker or CI. Two conditions, confirmed by comparing the
+reference environment (Ubuntu 24.04, apt Protobuf 3.21.12, apt
+`clang-tidy-18`) against the failing native setup (Homebrew Protobuf 35.1,
+Apple Clang as the configured compiler, a separately installed Homebrew LLVM
+`clang-tidy`), both have to hold:
 
-1. **Protobuf version skew.** `runtime_version.h` and its cross-version
-   `#error` guard are a feature of newer Protobuf C++ generator output.
-   Ubuntu 24.04's apt `protobuf-compiler` (3.21.12, matching CI and this
-   image) does not generate an include of that header at all, so the failure
-   mode cannot occur against that Protobuf version. It only appears when
-   `protoc` is new enough to emit the guard (observed with Homebrew
-   `protobuf` 35.1 on macOS).
-2. **Toolchain incoherence, when the guard is present.** CMake's
-   `target_include_directories(breadcrumbs_schema_ir_proto SYSTEM PUBLIC
-   ${Protobuf_INCLUDE_DIRS})` (`compiler/CMakeLists.txt`) is correct — the
-   Protobuf include directory reaches the target. CMake omits an explicit
-   `-isystem` flag for it in the emitted compile command when it is already
-   one of the *primary configured compiler's* implicit include directories
-   (`CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES`). On a Homebrew macOS setup,
-   Protobuf 35.1 headers live under `/usr/local/include`, which is an
-   implicit search path for Xcode's `/usr/bin/c++` (Apple Clang) — so the
-   normal compile succeeds with no explicit `-I`/`-isystem` needed. But
-   `CMAKE_CXX_CLANG_TIDY` invokes a *different* `clang-tidy` binary (a
-   separately installed Homebrew LLVM build) using that same omitted-include
-   command line; that binary's own bundled Clang driver does not default to
-   searching `/usr/local/include`, so it cannot find the header the real
-   compiler found implicitly. In the reference environment there is a single
-   coherent apt-installed toolchain (GCC as the configured compiler,
-   `clang-tidy-18` as the tidy binary), both of which already search
-   `/usr/include` — where Ubuntu's Protobuf headers live — by default, so
-   the divergence never occurs.
+1. **A Protobuf generator new enough to emit the guard.** `runtime_version.h`
+   is generated only by newer `protoc` versions. Ubuntu's apt Protobuf
+   (matching Docker/CI) doesn't emit it, so the failure mode cannot occur
+   there regardless of toolchain pairing.
+2. **A compiler and clang-tidy binary with different implicit include search
+   paths.** CMake omits an explicit `-isystem` flag for `Protobuf_INCLUDE_DIRS`
+   when it's already implicit for the *configured compiler* — correct, and
+   harmless when the same binary (or a coherently paired one) also runs
+   clang-tidy. It becomes a problem only when `CMAKE_CXX_CLANG_TIDY` invokes a
+   separately installed `clang-tidy` binary whose own implicit search path
+   doesn't include the directory the configured compiler resolved implicitly
+   (e.g. a Homebrew LLVM `clang-tidy` next to Apple Clang as the compiler).
+   Docker/CI use one coherent apt-installed toolchain for both roles, so this
+   divergence cannot occur there.
 
-No CMake, `.clang-tidy`, or generated-code change was needed to make the
-authoritative (CI/Docker) build pass — it already passed once run against a
-correctly paired Protobuf/compiler/clang-tidy toolchain. The fix is this
-Docker image and CI's use of it (`.github/workflows/ci.yml`'s `clang-tidy`
-job runs `debug-clang-tidy` on every push/PR as the regression check), which
-removes the toolchain-pairing variable rather than adding an include path
-that would mask it. Contributors who build natively outside Docker with a
-heterogeneous compiler/clang-tidy pairing (most commonly: a package manager
-that installs Protobuf and clang-tidy from different, uncoordinated sources)
-may still see this class of failure; it reflects their local toolchain
-pairing, not a defect in the CMake build.
+Both conditions are host toolchain-installation choices, not project build
+configuration. No CMake, `.clang-tidy`, or generated-code change fixes them
+without either overfitting one host's layout or masking the actual
+divergence — so none was made. `.github/workflows/ci.yml`'s `clang-tidy` job
+runs `debug-clang-tidy` in Docker on every push/PR as the durable regression
+check for the authoritative environment.
