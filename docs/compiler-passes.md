@@ -11,10 +11,12 @@ output representation. Earlier representations remain available for
 diagnostics, debugging, and tooling.
 
 Every pass operates on its declared input representation together with a
-Compiler Context. The Compiler Context provides shared compiler infrastructure,
-such as the source manager, diagnostics, file system abstraction, compilation
-options, compatibility settings, and persistent compiler state such as
-`recordId` allocation.
+Compiler Context. The Compiler Context currently provides the source manager,
+the diagnostic engine, and a file system abstraction. It does not yet carry
+compilation options, compatibility settings, or persistent `recordId`
+allocation state; `recordId` values are computed fresh within a single Layout
+Computation pass invocation (see below) rather than preserved across compiler
+runs.
 
 Compiler Context is infrastructure, not semantic state. Semantic information
 flows through the pass input and output representations.
@@ -64,11 +66,15 @@ coverage. The YAML frontend does not replace the legacy parser; it feeds a
 normalized source-schema model into the downstream semantic and layout
 pipeline through an explicit normalization boundary.
 
-Scalar- and enum-shaped YAML schemas can currently traverse the complete
-normalized-source-schema pipeline. Bounded-variable arrays are preserved
-through YAML decoding, source-schema normalization, semantic validation, and Schema IR, but
-downstream layout and runtime policy still do not interpret the full
-bounded-array contract yet.
+Scalar-, enum-, and bounded-array-shaped YAML schemas currently traverse the
+complete normalized-source-schema pipeline through backend code generation.
+Bounded-variable arrays — including arrays of records and cross-namespace
+array element references — are supported end to end: YAML decoding,
+source-schema normalization, semantic validation, Schema IR, layout, and
+generated C++ codecs all carry the bounded-array contract. Nested arrays (an
+array whose element type is itself an array) remain rejected by semantic
+validation as an unsupported v0.1 construct; see `compiler/backend/README.md`
+for the exact supported array element type set.
 
 The `compiler/frontend` orchestration layer now exposes a production-facing
 import-free YAML compilation path through validated Schema IR. That layer now
@@ -340,8 +346,9 @@ unresolved names, invalid field types, or unsupported language constructs.
 
 Layout computation derives the Layout Model from the Semantic Model.
 
-This pass describes how records are represented as sparse binary records. It
-does not emit runtime bytes and does not perform backend generation.
+This pass assigns the compiler-managed identifiers (`recordId` and
+`fieldIndex`) that later passes and the runtime sparse Field Directory rely
+on. It does not emit runtime bytes and does not perform backend generation.
 
 ### Input Representation
 
@@ -372,36 +379,36 @@ known, and unsupported language constructs have already been rejected.
 
 ### Responsibilities
 
-* compute binary layout information
-* assign or preserve `recordId` metadata as required by compiler state
-* assign or preserve `fieldIndex` metadata for fields
-* compute sparse record directory metadata
-* compute field value encoding metadata
-* compute value metadata required for binary layout and bounded collections
-* compute reference encoding metadata
-* enforce field count limits
-* enforce layout size limits
-* produce deterministic ordering for the Layout Model
+* sort records deterministically by fully qualified name
+* reject duplicate record fully qualified names
+* assign a compiler-managed `recordId` to each record
+* assign a compiler-managed `fieldIndex` to each field, in declaration order
+* enforce a 256-field-per-record limit
+
+Binary sizes, offsets, alignment, sparse Field Directory metadata, and field
+value encoding metadata are not computed by this pass today. That information
+is derived later — by backend code generation (`compiler/backend`) and by the
+runtime Field Directory computed when a record is actually encoded — rather
+than precomputed as part of the Layout Model. `recordId` assignment is also
+not yet preserved across separate compiler invocations; see the Compiler
+Context note above.
 
 ### Invariants Established on Output
 
-* every record has complete binary layout information
 * every record has a compiler-managed `recordId`
 * every field has a compiler-managed `fieldIndex`
-* `fieldIndex` values fit within the binary record format limits
-* sparse record directory metadata is complete
-* field value encodings are known
-* Layout Model is deterministic for the same validated input and compiler
-  state
+* `fieldIndex` values fit within the binary record format's one-byte limit (at
+  most 256 fields per record)
+* Layout Model output is deterministic for the same validated input, because
+  record ordering is derived from a stable sort over fully qualified names
 
 ### Diagnostics Emitted
 
-* layout overflow
-* impossible layout
-* unsupported construct in layout
-* too many fields for one record
-* invalid compiler-managed identifier state
-* incompatible layout change, when compatibility analysis is enabled
+* too many fields for one record (`BC7001`)
+* duplicate record fully qualified name in layout input (`BC7002`)
+
+Layout-overflow diagnostics beyond the field-count limit, and
+compatibility-aware layout-change diagnostics, are not implemented yet.
 
 ### Why This Pass Exists Separately
 
@@ -491,13 +498,10 @@ representations optimized for parsing, validation, and layout computation.
 # Compiler Data Flow
 
 ```text
-Source Files
+YAML source
     |
     v
-AST
-    |
-    v
-Compilation Unit
+YamlParser -> YamlDocument -> schema decoder -> source-schema normalization
     |
     v
 Symbol Model
@@ -514,6 +518,11 @@ Schema IR
     v
 Backends
 ```
+
+Legacy declaration-syntax source files flow only as far as AST, through the
+independent legacy parser described in pass 1 above. That AST is compatibility
+infrastructure only; it is not consumed by the Symbol Model or any later pass
+in this data flow.
 
 ---
 

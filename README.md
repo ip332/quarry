@@ -32,8 +32,6 @@ Project planning and architecture phase.
 > This project was formerly called Breadcrumbs. It was renamed to Quarry to
 > reflect the current focus on schema-driven binary records rather than the
 > original asset-tracking framing; see `jira/backlog.md` (PR-088) for details.
-> The GitHub repository itself has not yet been renamed — treat that as an
-> outstanding manual follow-up.
 
 ## Development Environment
 

@@ -117,12 +117,13 @@ The compiler pipeline is:
   AST compatibility surface. Import declarations remain parsed syntax only and
   are not consumed by downstream compiler stages.
 
-The current migration boundary is intentionally uneven: scalar- and
-enum-shaped schemas can flow through the existing downstream pipeline today,
-and bounded-variable arrays are preserved through YAML decoding,
-source-schema normalization, semantic validation, and Schema IR. The
-remaining work is downstream policy and runtime support rather than
-representation. The normalized YAML pipeline no longer routes through a
+Scalar-, enum-, and bounded-array-shaped schemas flow through the complete
+downstream pipeline today: YAML decoding, source-schema normalization,
+semantic validation, layout computation, Schema IR, and backend code
+generation all support them, including arrays of records and cross-namespace
+array element references. Nested arrays (an array whose element type is
+itself an array) remain rejected by semantic validation as an unsupported
+v0.1 construct. The normalized YAML pipeline no longer routes through a
 source-schema-to-AST compatibility projection; AST remains owned by the
 independent legacy declaration parser and AST tests.
 
@@ -195,8 +196,10 @@ Layout IR is derived from Semantic IR.
 
 Layout IR augments semantic objects with computed binary layout information.
 
-It contains computed binary layout metadata such as sizes, offsets, alignment
-requirements, `fieldIndex` assignments, and field presence metadata.
+Today, the Layout Model computes `recordId` and `fieldIndex` assignments
+only. Sizes, offsets, alignment requirements, and field presence metadata are
+intended future Layout IR content but are not computed by this pass yet; see
+`docs/compiler-passes.md` for the current Layout Computation contract.
 
 Layout IR should not introduce new semantic meaning.
 

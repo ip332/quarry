@@ -30,6 +30,8 @@ Options:
       --root-file-stem NAME     Root namespace file stem (default: schema)
       --file-extension EXT      Generated file extension (default: .generated.hpp)
       --list-outputs            Print generated output paths without writing files
+      --print-generated-code-api-version
+                                Print the generated-code API compatibility version and exit
       --version                 Show version information
   -h, --help                    Show help
 ```
@@ -44,9 +46,12 @@ Current behavior:
 * defaults to `schema` for the root file stem
 * defaults to `.generated.hpp` for generated file extensions
 * supports `--list-outputs` as a read-only output-inventory query
+* supports `--print-generated-code-api-version` as a terminal machine-readable
+  compatibility query
 * writes diagnostics and tool errors to stderr
 * is quiet on successful compilation
-* returns `0` for success, output listing, help, or version
+* returns `0` for success, output listing, help, version, or generated-code API
+  version query
 * returns `1` for input read failure, compiler diagnostics, backend failure, or
   output write failure
 * returns `2` for command-line usage errors

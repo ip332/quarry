@@ -322,16 +322,15 @@ behavior, and transport protocols to separate specifications.
 
 # Implementation Status
 
-The current declaration parser and AST are transitional implementation
-scaffolding.
+The YAML frontend (`frontend::YamlCompiler`) is the production path: it is
+import-free and feeds normalized YAML directly through symbols, semantic
+validation, layout, and Schema IR, matching this specification.
 
-Current tests may exercise legacy declaration syntax and fixed-size-array
-forms.
-
-Those implementation artifacts do not redefine the normative `.brd` contract.
-
-The frontend is expected to migrate to YAML decoding in a later implementation
-increment.
+A legacy declaration-syntax lexer/parser and AST (`compiler/parser`,
+`compiler/ast`) also exist, but only for parser/AST compatibility testing. They
+are not wired into the production pipeline, and any declaration syntax or
+fixed-size-array forms they accept do not redefine the normative `.brd`
+contract.
 
 ---
 

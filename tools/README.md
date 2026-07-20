@@ -22,6 +22,8 @@ Options:
       --root-file-stem NAME     Root namespace file stem (default: schema)
       --file-extension EXT      Generated file extension (default: .generated.hpp)
       --list-outputs            Print generated output paths without writing files
+      --print-generated-code-api-version
+                                Print the generated-code API compatibility version and exit
       --version                 Show version information
   -h, --help                    Show help
 ```

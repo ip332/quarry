@@ -169,7 +169,7 @@ Example:
 namespace: quarry.telemetry
 record: Location
 version: 1
-recordType: telemetry
+recordType: data
 
 fields:
   latitude:

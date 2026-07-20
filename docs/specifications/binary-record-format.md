@@ -278,8 +278,9 @@ normal structural validation. Unknown fields are not preserved for re-encoding.
 
 Polymorphic nested records are not supported in v0.1.
 
-Arrays of records and nested arrays remain unsupported by the generated C++
-codecs in this revision.
+Arrays of records are supported; see Array Encoding below. Nested arrays
+(arrays of arrays) remain unsupported by the generated C++ codecs in this
+revision.
 
 ---
 

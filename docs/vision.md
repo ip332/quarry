@@ -92,7 +92,7 @@ The long-term Quarry ecosystem includes:
    +----+--------+
    |             |
    v             v
-Quarry  Quarry
+   Quarry      Quarry
    Agent       Cloud
    |             |
    +------+------+

@@ -133,8 +133,19 @@ Specification authoring rules and the shared Markdown template are defined in
 ```text
 docs/
 
+    README.md
     vision.md
     principles.md
+    diagnostics.md
+    compiler-architecture.md
+    compiler-passes.md
+    schema-ir.md
+    layout-algorithm.md
+    backend-api.md
+    distribution-model.md
+    schema-compiler-tool-distribution.md
+    development-environment.md
+    decisions.md
 
     architecture/
         README.md
@@ -160,6 +171,9 @@ docs/
         binary-record-format.md
         schema-compiler.md
         manifest-format.md
+
+    adr/
+        0001-schema-ir-references.md
 
     examples/
         manifest.pbtxt
