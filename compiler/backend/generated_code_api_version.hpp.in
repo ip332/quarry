@@ -2,9 +2,9 @@
 
 #include <cstdint>
 
-namespace breadcrumbs::compiler::backend {
+namespace quarry::compiler::backend {
 
 inline constexpr std::uint32_t kGeneratedCodeApiVersion =
-    @BREADCRUMBS_GENERATED_CODE_API_VERSION@U;
+    @QUARRY_GENERATED_CODE_API_VERSION@U;
 
-} // namespace breadcrumbs::compiler::backend
+} // namespace quarry::compiler::backend

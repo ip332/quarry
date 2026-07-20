@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Breadcrumbs schemas are expected to evolve over time while preserving binary
+Quarry schemas are expected to evolve over time while preserving binary
 compatibility where possible.
 
 Schema evolution is based on the distinction between record identity and record
@@ -29,7 +29,7 @@ do not define binary identity.
 
 ## Sparse Record Model
 
-A Breadcrumbs record is a sparse binary record, not a copy of application state.
+A Quarry record is a sparse binary record, not a copy of application state.
 
 All fields are presence-tracked.
 
@@ -150,11 +150,11 @@ Record renames preserve `recordId` only when explicitly declared.
 
 ## Non-Goals
 
-Breadcrumbs does not attempt to infer field renames.
+Quarry does not attempt to infer field renames.
 
-Breadcrumbs does not support author-assigned field identifiers.
+Quarry does not support author-assigned field identifiers.
 
-Breadcrumbs does not support record inheritance.
+Quarry does not support record inheritance.
 
 Shared structure should be represented with composition, not inheritance.
 

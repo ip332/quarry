@@ -10,7 +10,7 @@
 #include <string_view>
 #include <utility>
 
-namespace breadcrumbs::compiler::yaml {
+namespace quarry::compiler::yaml {
 namespace {
 
 constexpr std::string_view yaml_pass = "yaml-parser";
@@ -368,4 +368,4 @@ YamlParseResult YamlParser::parse(const support::SourceManager& source_manager,
     return parser.parse();
 }
 
-} // namespace breadcrumbs::compiler::yaml
+} // namespace quarry::compiler::yaml

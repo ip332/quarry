@@ -14,13 +14,13 @@
 
 namespace {
 
-using breadcrumbs::compiler::context::CompilerContext;
-using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
-using breadcrumbs::compiler::diagnostics::DiagnosticFormatter;
-using breadcrumbs::compiler::schema_ir::SchemaIrModel;
-using breadcrumbs::compiler::schema_ir::SchemaIrValidator;
-using breadcrumbs::compiler::support::SourceFileId;
-using breadcrumbs::compiler::support::SourceManager;
+using quarry::compiler::context::CompilerContext;
+using quarry::compiler::diagnostics::DiagnosticEngine;
+using quarry::compiler::diagnostics::DiagnosticFormatter;
+using quarry::compiler::schema_ir::SchemaIrModel;
+using quarry::compiler::schema_ir::SchemaIrValidator;
+using quarry::compiler::support::SourceFileId;
+using quarry::compiler::support::SourceManager;
 
 [[nodiscard]] SourceFileId add_test_source(CompilerContext& context) {
     return context.source_manager().add_source("/test/schema.ir", "");
@@ -44,7 +44,7 @@ using breadcrumbs::compiler::support::SourceManager;
     return schema_ir;
 }
 
-void set_source_origin(::breadcrumbs::schema_ir::SourceOrigin* origin, std::string_view path,
+void set_source_origin(::quarry::schema_ir::SourceOrigin* origin, std::string_view path,
                        std::uint32_t start_offset, std::uint32_t end_offset,
                        std::uint32_t start_line = 1, std::uint32_t start_column = 1,
                        std::uint32_t end_line = 1, std::uint32_t end_column = 1) {
@@ -79,22 +79,22 @@ TEST(SchemaIrValidationTest, AcceptsDirectRepresentativeSchemaIr) {
 
     SchemaIrModel schema_ir = make_schema_ir();
     auto* root = schema_ir.mutable_root_namespace();
-    auto* breadcrumbs = root->add_namespaces();
-    breadcrumbs->set_ir_id(2);
-    breadcrumbs->set_name("breadcrumbs");
-    breadcrumbs->set_fqn("breadcrumbs");
-    set_origin(breadcrumbs, "/test/schema.ir", 0, 12);
+    auto* quarry = root->add_namespaces();
+    quarry->set_ir_id(2);
+    quarry->set_name("quarry");
+    quarry->set_fqn("quarry");
+    set_origin(quarry, "/test/schema.ir", 0, 12);
 
-    auto* telemetry = breadcrumbs->add_namespaces();
+    auto* telemetry = quarry->add_namespaces();
     telemetry->set_ir_id(3);
     telemetry->set_name("telemetry");
-    telemetry->set_fqn("breadcrumbs.telemetry");
+    telemetry->set_fqn("quarry.telemetry");
     set_origin(telemetry, "/test/schema.ir", 0, 23);
 
     auto* mode = telemetry->add_enums();
     mode->set_ir_id(4);
     mode->set_name("Mode");
-    mode->set_fqn("breadcrumbs.telemetry.Mode");
+    mode->set_fqn("quarry.telemetry.Mode");
     set_origin(mode, "/test/schema.ir", 24, 28);
     auto* off = mode->add_values();
     off->set_name("Off");
@@ -109,30 +109,30 @@ TEST(SchemaIrValidationTest, AcceptsDirectRepresentativeSchemaIr) {
     location->set_ir_id(5);
     location->set_record_id(2);
     location->set_name("Location");
-    location->set_fqn("breadcrumbs.telemetry.Location");
+    location->set_fqn("quarry.telemetry.Location");
     set_origin(location, "/test/schema.ir", 38, 46);
     location->set_schema_version(1);
-    location->set_record_type(::breadcrumbs::schema_ir::RECORD_TYPE_CONFIGURATION);
+    location->set_record_type(::quarry::schema_ir::RECORD_TYPE_CONFIGURATION);
     auto* latitude = location->add_fields();
     latitude->set_name("latitude");
     latitude->set_field_index(0);
     set_origin(latitude, "/test/schema.ir", 48, 56);
-    latitude->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_F64);
+    latitude->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_F64);
 
     auto* sample = telemetry->add_records();
     sample->set_ir_id(6);
     sample->set_record_id(3);
     sample->set_name("Sample");
-    sample->set_fqn("breadcrumbs.telemetry.Sample");
+    sample->set_fqn("quarry.telemetry.Sample");
     set_origin(sample, "/test/schema.ir", 58, 64);
     sample->set_schema_version(7);
-    sample->set_record_type(::breadcrumbs::schema_ir::RECORD_TYPE_DATA);
+    sample->set_record_type(::quarry::schema_ir::RECORD_TYPE_DATA);
 
     auto* active = sample->add_fields();
     active->set_name("active");
     active->set_field_index(0);
     set_origin(active, "/test/schema.ir", 66, 72);
-    active->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL);
+    active->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_BOOL);
 
     auto* current_mode = sample->add_fields();
     current_mode->set_name("mode");
@@ -158,7 +158,7 @@ TEST(SchemaIrValidationTest, AcceptsDirectRepresentativeSchemaIr) {
     set_origin(samples, "/test/schema.ir", 100, 107);
     samples->mutable_type()->mutable_array()->set_max_elements(64);
     samples->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
-        ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+        ::quarry::schema_ir::PRIMITIVE_TYPE_U32);
 
     DiagnosticEngine diagnostics;
     validate_schema_ir(schema_ir, context, diagnostics);
@@ -266,7 +266,7 @@ TEST(SchemaIrValidationTest, RejectsUnknownNumericRecordType) {
     record->set_ir_id(2);
     record->set_record_id(2);
     record->set_schema_version(1);
-    record->set_record_type(static_cast<breadcrumbs::schema_ir::RecordType>(1234));
+    record->set_record_type(static_cast<quarry::schema_ir::RecordType>(1234));
     record->set_name("Route");
     record->set_fqn("Route");
     set_origin(record, "/test/schema.brd", 0, 0);
@@ -324,7 +324,7 @@ TEST(SchemaIrValidationTest, AcceptsExplicitUnspecifiedRecordType) {
     record->set_ir_id(2);
     record->set_record_id(2);
     record->set_schema_version(1);
-    record->set_record_type(breadcrumbs::schema_ir::RECORD_TYPE_UNSPECIFIED);
+    record->set_record_type(quarry::schema_ir::RECORD_TYPE_UNSPECIFIED);
     record->set_name("Route");
     record->set_fqn("Route");
     set_origin(record, "/test/schema.brd", 0, 0);
@@ -464,13 +464,13 @@ TEST(SchemaIrValidationTest, RejectsDuplicateFieldNames) {
     field->set_name("origin");
     field->set_field_index(0);
     set_origin(field, "/test/schema.brd", 0, 0);
-    field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL);
+    field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_BOOL);
 
     auto* duplicate_field = record->add_fields();
     duplicate_field->set_name("origin");
     duplicate_field->set_field_index(1);
     set_origin(duplicate_field, "/test/schema.brd", 0, 0);
-    duplicate_field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+    duplicate_field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
 
     DiagnosticEngine diagnostics;
     validate_schema_ir(schema_ir, context, diagnostics);
@@ -495,13 +495,13 @@ TEST(SchemaIrValidationTest, AllowsGappedFieldIndexes) {
     field->set_name("origin");
     field->set_field_index(0);
     set_origin(field, "/test/schema.brd", 0, 0);
-    field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL);
+    field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_BOOL);
 
     auto* second = record->add_fields();
     second->set_name("destination");
     second->set_field_index(2);
     set_origin(second, "/test/schema.brd", 0, 0);
-    second->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+    second->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
 
     DiagnosticEngine diagnostics;
     validate_schema_ir(schema_ir, context, diagnostics);
@@ -525,13 +525,13 @@ TEST(SchemaIrValidationTest, RejectsDuplicateFieldIndexes) {
     field->set_name("origin");
     field->set_field_index(0);
     set_origin(field, "/test/schema.brd", 0, 0);
-    field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL);
+    field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_BOOL);
 
     auto* duplicate_field = record->add_fields();
     duplicate_field->set_name("destination");
     duplicate_field->set_field_index(0);
     set_origin(duplicate_field, "/test/schema.brd", 0, 0);
-    duplicate_field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+    duplicate_field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
 
     DiagnosticEngine diagnostics;
     validate_schema_ir(schema_ir, context, diagnostics);
@@ -556,7 +556,7 @@ TEST(SchemaIrValidationTest, RejectsFieldIndexesAboveUint8Limit) {
     field->set_name("origin");
     field->set_field_index(256);
     set_origin(field, "/test/schema.brd", 0, 0);
-    field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL);
+    field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_BOOL);
 
     DiagnosticEngine diagnostics;
     validate_schema_ir(schema_ir, context, diagnostics);
@@ -795,13 +795,13 @@ TEST(SchemaIrValidationTest, UsesSourceMetadataInDiagnosticsWhenAvailable) {
     field->set_name("origin");
     field->set_field_index(0);
     set_origin(field, "/test/schema.ir", 0, 0, 1, 1, 1, 1);
-    field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL);
+    field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_BOOL);
 
     auto* duplicate = record->add_fields();
     duplicate->set_name("origin");
     duplicate->set_field_index(1);
     set_origin(duplicate, "/test/schema.ir", 0, 0, 1, 1, 1, 1);
-    duplicate->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+    duplicate->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
 
     DiagnosticEngine diagnostics;
     validate_schema_ir(schema_ir, context, diagnostics);

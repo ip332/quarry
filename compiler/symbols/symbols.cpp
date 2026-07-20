@@ -6,7 +6,7 @@
 #include <sstream>
 #include <utility>
 
-namespace breadcrumbs::compiler::symbols {
+namespace quarry::compiler::symbols {
 namespace {
 
 constexpr std::string_view symbol_pass = "symbols";
@@ -291,4 +291,4 @@ void NamespaceBuilder::register_named_declaration(
     });
 }
 
-} // namespace breadcrumbs::compiler::symbols
+} // namespace quarry::compiler::symbols

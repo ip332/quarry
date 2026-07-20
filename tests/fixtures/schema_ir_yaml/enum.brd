@@ -1,4 +1,4 @@
-namespace: breadcrumbs.enums
+namespace: quarry.enums
 record: Example
 version: 1
 type: data

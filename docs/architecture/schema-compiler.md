@@ -1,4 +1,4 @@
-# Breadcrumbs Schema Compiler
+# Quarry Schema Compiler
 
 ## Status
 
@@ -6,7 +6,7 @@ Draft
 
 ## Purpose
 
-The schema compiler turns Breadcrumbs schemas into generated artifacts consumed
+The schema compiler turns Quarry schemas into generated artifacts consumed
 by production devices, services, tools, and SDKs.
 
 The compiler exists to move schema knowledge to build time. Runtime systems
@@ -22,7 +22,7 @@ defined by `docs/specifications/schema-language.md`.
 
 The schema compiler consumes:
 
-* Breadcrumbs schema language files
+* Quarry schema language files
 * imported schema definitions
 * compatibility metadata
 * reserved field metadata
@@ -195,7 +195,7 @@ generated artifacts are stale.
 
 # Compile-Time Philosophy
 
-Breadcrumbs treats schema knowledge as compile-time knowledge.
+Quarry treats schema knowledge as compile-time knowledge.
 
 The preferred flow is:
 

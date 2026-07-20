@@ -4,7 +4,7 @@
 #include <limits>
 #include <utility>
 
-namespace breadcrumbs::compiler::support {
+namespace quarry::compiler::support {
 
 SourceFileId SourceManager::add_source(std::string path, std::string text) {
     const auto next_id = sources_.size();
@@ -109,4 +109,4 @@ std::vector<std::size_t> SourceManager::compute_line_starts(std::string_view tex
     return line_starts;
 }
 
-} // namespace breadcrumbs::compiler::support
+} // namespace quarry::compiler::support

@@ -7,7 +7,7 @@
 #include <tuple>
 #include <utility>
 
-namespace breadcrumbs::compiler::diagnostics {
+namespace quarry::compiler::diagnostics {
 namespace {
 
 constexpr std::string_view unknown_location = "<unknown>";
@@ -378,4 +378,4 @@ std::string DiagnosticFormatter::format_all(const DiagnosticEngine& engine,
     return output.str();
 }
 
-} // namespace breadcrumbs::compiler::diagnostics
+} // namespace quarry::compiler::diagnostics

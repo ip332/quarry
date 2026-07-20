@@ -1,10 +1,10 @@
-namespace breadcrumbs.geo {
+namespace quarry.geo {
   record Location {
   }
 
   record Route {
     origin: Location
-    fallback: breadcrumbs.geo.Location
+    fallback: quarry.geo.Location
   }
 }
 

@@ -1,6 +1,6 @@
 # Source Schema
 
-This module owns the neutral Breadcrumbs source-schema model and the
+This module owns the neutral Quarry source-schema model and the
 normalization pass that turns decoded YAML schema data into structured,
 compiler-owned identifiers and type references.
 

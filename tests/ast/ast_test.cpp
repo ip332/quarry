@@ -10,26 +10,26 @@
 
 namespace {
 
-using breadcrumbs::compiler::ast::ArrayTypeSyntax;
-using breadcrumbs::compiler::ast::declaration_kind;
-using breadcrumbs::compiler::ast::DeclarationSyntax;
-using breadcrumbs::compiler::ast::dump_schema_file;
-using breadcrumbs::compiler::ast::EnumDeclarationSyntax;
-using breadcrumbs::compiler::ast::EnumValueDeclarationSyntax;
-using breadcrumbs::compiler::ast::FieldDeclarationSyntax;
-using breadcrumbs::compiler::ast::IdentifierSyntax;
-using breadcrumbs::compiler::ast::ImportDeclarationSyntax;
-using breadcrumbs::compiler::ast::make_declaration;
-using breadcrumbs::compiler::ast::NamespaceDeclarationSyntax;
-using breadcrumbs::compiler::ast::QualifiedNameSyntax;
-using breadcrumbs::compiler::ast::RecordDeclarationSyntax;
-using breadcrumbs::compiler::ast::SchemaFileSyntax;
-using breadcrumbs::compiler::ast::type_kind;
-using breadcrumbs::compiler::ast::TypeReferenceSyntax;
-using breadcrumbs::compiler::ast::TypeSyntax;
-using breadcrumbs::compiler::support::SourceFileId;
-using breadcrumbs::compiler::support::SourceLocation;
-using breadcrumbs::compiler::support::SourceRange;
+using quarry::compiler::ast::ArrayTypeSyntax;
+using quarry::compiler::ast::declaration_kind;
+using quarry::compiler::ast::DeclarationSyntax;
+using quarry::compiler::ast::dump_schema_file;
+using quarry::compiler::ast::EnumDeclarationSyntax;
+using quarry::compiler::ast::EnumValueDeclarationSyntax;
+using quarry::compiler::ast::FieldDeclarationSyntax;
+using quarry::compiler::ast::IdentifierSyntax;
+using quarry::compiler::ast::ImportDeclarationSyntax;
+using quarry::compiler::ast::make_declaration;
+using quarry::compiler::ast::NamespaceDeclarationSyntax;
+using quarry::compiler::ast::QualifiedNameSyntax;
+using quarry::compiler::ast::RecordDeclarationSyntax;
+using quarry::compiler::ast::SchemaFileSyntax;
+using quarry::compiler::ast::type_kind;
+using quarry::compiler::ast::TypeReferenceSyntax;
+using quarry::compiler::ast::TypeSyntax;
+using quarry::compiler::support::SourceFileId;
+using quarry::compiler::support::SourceLocation;
+using quarry::compiler::support::SourceRange;
 
 [[nodiscard]] SourceRange range(std::size_t begin, std::size_t end) {
     const SourceFileId file_id(0);
@@ -198,7 +198,7 @@ TEST(AstTest, ConstructsFixedArrayTypeSyntax) {
     const ArrayTypeSyntax array_type{
         .source_range = range(0, 13),
         .element_type = type_reference(qualified_name({identifier("Satellite", 0, 9)}, 0, 9), 0, 9),
-        .kind = breadcrumbs::compiler::ast::ArrayTypeSyntaxKind::LegacyFixedSize,
+        .kind = quarry::compiler::ast::ArrayTypeSyntaxKind::LegacyFixedSize,
         .fixed_size = 64,
         .fixed_size_source_range = range(0, 13),
     };

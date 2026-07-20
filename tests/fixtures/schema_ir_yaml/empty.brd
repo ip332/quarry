@@ -1,4 +1,4 @@
-namespace: breadcrumbs.empty
+namespace: quarry.empty
 record: Empty
 version: 1
 type: data

@@ -11,7 +11,7 @@
 #include <variant>
 #include <vector>
 
-namespace breadcrumbs::compiler::semantic {
+namespace quarry::compiler::semantic {
 
 enum class SemanticPrimitiveType {
     Bool,
@@ -122,4 +122,4 @@ public:
              diagnostics::DiagnosticEngine& diagnostics) const;
 };
 
-} // namespace breadcrumbs::compiler::semantic
+} // namespace quarry::compiler::semantic

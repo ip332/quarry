@@ -1,80 +1,80 @@
-add_library(breadcrumbs_compiler_support
+add_library(quarry_compiler_support
     support/file_system.cpp
     support/source_location.cpp
     support/source_manager.cpp
 )
-target_include_directories(breadcrumbs_compiler_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(breadcrumbs_compiler_support PUBLIC breadcrumbs_project_options)
+target_include_directories(quarry_compiler_support PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(quarry_compiler_support PUBLIC quarry_project_options)
 
-add_library(breadcrumbs_compiler_diagnostics
+add_library(quarry_compiler_diagnostics
     diagnostics/diagnostic.cpp
 )
-target_include_directories(breadcrumbs_compiler_diagnostics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(breadcrumbs_compiler_diagnostics
+target_include_directories(quarry_compiler_diagnostics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(quarry_compiler_diagnostics
     PUBLIC
-        breadcrumbs_compiler_support
-        breadcrumbs_project_options
+        quarry_compiler_support
+        quarry_project_options
 )
 
-add_library(breadcrumbs_compiler_context
+add_library(quarry_compiler_context
     context/compiler_context.cpp
 )
-target_include_directories(breadcrumbs_compiler_context PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(breadcrumbs_compiler_context
+target_include_directories(quarry_compiler_context PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(quarry_compiler_context
     PUBLIC
-        breadcrumbs_compiler_diagnostics
-        breadcrumbs_compiler_support
-        breadcrumbs_project_options
+        quarry_compiler_diagnostics
+        quarry_compiler_support
+        quarry_project_options
 )
 
-add_library(breadcrumbs_compiler_ast
+add_library(quarry_compiler_ast
     ast/ast.cpp
 )
-target_include_directories(breadcrumbs_compiler_ast PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(breadcrumbs_compiler_ast
+target_include_directories(quarry_compiler_ast PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(quarry_compiler_ast
     PUBLIC
-        breadcrumbs_compiler_support
-        breadcrumbs_project_options
+        quarry_compiler_support
+        quarry_project_options
 )
 
-add_library(breadcrumbs_compiler_parser
+add_library(quarry_compiler_parser
     parser/lexer.cpp
     parser/parser.cpp
 )
-target_include_directories(breadcrumbs_compiler_parser PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(breadcrumbs_compiler_parser
+target_include_directories(quarry_compiler_parser PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(quarry_compiler_parser
     PUBLIC
-        breadcrumbs_compiler_ast
-        breadcrumbs_compiler_diagnostics
-        breadcrumbs_compiler_support
-        breadcrumbs_project_options
+        quarry_compiler_ast
+        quarry_compiler_diagnostics
+        quarry_compiler_support
+        quarry_project_options
 )
 
-find_path(BREADCRUMBS_LIBYAML_INCLUDE_DIR NAMES yaml.h)
-find_library(BREADCRUMBS_LIBYAML_LIBRARY NAMES yaml libyaml)
+find_path(QUARRY_LIBYAML_INCLUDE_DIR NAMES yaml.h)
+find_library(QUARRY_LIBYAML_LIBRARY NAMES yaml libyaml)
 
-if(NOT BREADCRUMBS_LIBYAML_INCLUDE_DIR OR NOT BREADCRUMBS_LIBYAML_LIBRARY)
+if(NOT QUARRY_LIBYAML_INCLUDE_DIR OR NOT QUARRY_LIBYAML_LIBRARY)
     message(FATAL_ERROR "Could not find libyaml")
 endif()
 
-add_library(breadcrumbs_yaml::yaml UNKNOWN IMPORTED)
-set_target_properties(breadcrumbs_yaml::yaml PROPERTIES
-    IMPORTED_LOCATION "${BREADCRUMBS_LIBYAML_LIBRARY}"
-    INTERFACE_INCLUDE_DIRECTORIES "${BREADCRUMBS_LIBYAML_INCLUDE_DIR}"
+add_library(quarry_yaml::yaml UNKNOWN IMPORTED)
+set_target_properties(quarry_yaml::yaml PROPERTIES
+    IMPORTED_LOCATION "${QUARRY_LIBYAML_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${QUARRY_LIBYAML_INCLUDE_DIR}"
 )
 
-add_library(breadcrumbs_compiler_source_schema
+add_library(quarry_compiler_source_schema
     source_schema/source_schema.cpp
 )
-target_include_directories(breadcrumbs_compiler_source_schema PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(breadcrumbs_compiler_source_schema
+target_include_directories(quarry_compiler_source_schema PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(quarry_compiler_source_schema
     PUBLIC
-        breadcrumbs_compiler_diagnostics
-        breadcrumbs_compiler_support
-        breadcrumbs_project_options
+        quarry_compiler_diagnostics
+        quarry_compiler_support
+        quarry_project_options
 )
 
-add_library(breadcrumbs_compiler_yaml
+add_library(quarry_compiler_yaml
     yaml/yaml_document.cpp
     yaml/schema_decoder.cpp
     yaml/yaml_parser.cpp
@@ -83,47 +83,47 @@ set_source_files_properties(
     yaml/yaml_parser.cpp
     PROPERTIES SKIP_LINTING ON
 )
-target_include_directories(breadcrumbs_compiler_yaml PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(breadcrumbs_compiler_yaml
+target_include_directories(quarry_compiler_yaml PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(quarry_compiler_yaml
     PUBLIC
-        breadcrumbs_compiler_diagnostics
-        breadcrumbs_compiler_source_schema
-        breadcrumbs_compiler_support
-        breadcrumbs_project_options
+        quarry_compiler_diagnostics
+        quarry_compiler_source_schema
+        quarry_compiler_support
+        quarry_project_options
     PRIVATE
-        breadcrumbs_yaml::yaml
+        quarry_yaml::yaml
 )
 
-add_library(breadcrumbs_compiler_symbols
+add_library(quarry_compiler_symbols
     symbols/symbols.cpp
 )
-target_include_directories(breadcrumbs_compiler_symbols PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(breadcrumbs_compiler_symbols
+target_include_directories(quarry_compiler_symbols PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(quarry_compiler_symbols
     PUBLIC
-        breadcrumbs_compiler_diagnostics
-        breadcrumbs_compiler_source_schema
-        breadcrumbs_compiler_support
-        breadcrumbs_project_options
+        quarry_compiler_diagnostics
+        quarry_compiler_source_schema
+        quarry_compiler_support
+        quarry_project_options
 )
 
-add_library(breadcrumbs_compiler_semantic
+add_library(quarry_compiler_semantic
     semantic/semantic.cpp
 )
-target_include_directories(breadcrumbs_compiler_semantic PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(breadcrumbs_compiler_semantic
+target_include_directories(quarry_compiler_semantic PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(quarry_compiler_semantic
     PUBLIC
-        breadcrumbs_compiler_symbols
-        breadcrumbs_compiler_diagnostics
-        breadcrumbs_compiler_source_schema
-        breadcrumbs_compiler_support
-        breadcrumbs_project_options
+        quarry_compiler_symbols
+        quarry_compiler_diagnostics
+        quarry_compiler_source_schema
+        quarry_compiler_support
+        quarry_project_options
 )
 
 find_package(Protobuf REQUIRED)
 find_package(absl CONFIG REQUIRED)
 
-set(BREADCRUMBS_ABSL_LINK_LIBS "")
-foreach(BREADCRUMBS_ABSL_CANDIDATE
+set(QUARRY_ABSL_LINK_LIBS "")
+foreach(QUARRY_ABSL_CANDIDATE
     absl::log_internal_check_op
     absl::log_internal_message
     absl::log_internal_nullguard
@@ -139,14 +139,14 @@ foreach(BREADCRUMBS_ABSL_CANDIDATE
     absl::container_memory
     absl::raw_hash_set
 )
-    if(TARGET ${BREADCRUMBS_ABSL_CANDIDATE})
-        list(APPEND BREADCRUMBS_ABSL_LINK_LIBS ${BREADCRUMBS_ABSL_CANDIDATE})
+    if(TARGET ${QUARRY_ABSL_CANDIDATE})
+        list(APPEND QUARRY_ABSL_LINK_LIBS ${QUARRY_ABSL_CANDIDATE})
     endif()
 endforeach()
 
-add_library(breadcrumbs_schema_ir_warning_tweaks INTERFACE)
+add_library(quarry_schema_ir_warning_tweaks INTERFACE)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    target_compile_options(breadcrumbs_schema_ir_warning_tweaks INTERFACE
+    target_compile_options(quarry_schema_ir_warning_tweaks INTERFACE
         -Wno-error=nullability-extension
         -Wno-error=gcc-compat
         -Wno-error=gnu-anonymous-struct
@@ -154,99 +154,99 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     )
 endif()
 
-set(BREADCRUMBS_SCHEMA_IR_PROTO_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/schema_ir)
-set(BREADCRUMBS_SCHEMA_IR_PROTO_FILE ${CMAKE_CURRENT_SOURCE_DIR}/../proto/breadcrumbs/schema_ir.proto)
+set(QUARRY_SCHEMA_IR_PROTO_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/schema_ir)
+set(QUARRY_SCHEMA_IR_PROTO_FILE ${CMAKE_CURRENT_SOURCE_DIR}/../proto/quarry/schema_ir.proto)
 
 add_custom_command(
     OUTPUT
-        ${BREADCRUMBS_SCHEMA_IR_PROTO_DIR}/breadcrumbs/schema_ir.pb.cc
-        ${BREADCRUMBS_SCHEMA_IR_PROTO_DIR}/breadcrumbs/schema_ir.pb.h
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${BREADCRUMBS_SCHEMA_IR_PROTO_DIR}
+        ${QUARRY_SCHEMA_IR_PROTO_DIR}/quarry/schema_ir.pb.cc
+        ${QUARRY_SCHEMA_IR_PROTO_DIR}/quarry/schema_ir.pb.h
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${QUARRY_SCHEMA_IR_PROTO_DIR}
     COMMAND ${Protobuf_PROTOC_EXECUTABLE}
     ARGS
         --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/../proto
-        --cpp_out=${BREADCRUMBS_SCHEMA_IR_PROTO_DIR}
-        ${BREADCRUMBS_SCHEMA_IR_PROTO_FILE}
-    DEPENDS ${BREADCRUMBS_SCHEMA_IR_PROTO_FILE}
+        --cpp_out=${QUARRY_SCHEMA_IR_PROTO_DIR}
+        ${QUARRY_SCHEMA_IR_PROTO_FILE}
+    DEPENDS ${QUARRY_SCHEMA_IR_PROTO_FILE}
     VERBATIM
 )
 
-add_library(breadcrumbs_schema_ir_proto
-    ${BREADCRUMBS_SCHEMA_IR_PROTO_DIR}/breadcrumbs/schema_ir.pb.cc
+add_library(quarry_schema_ir_proto
+    ${QUARRY_SCHEMA_IR_PROTO_DIR}/quarry/schema_ir.pb.cc
 )
-target_include_directories(breadcrumbs_schema_ir_proto PUBLIC ${BREADCRUMBS_SCHEMA_IR_PROTO_DIR})
-target_include_directories(breadcrumbs_schema_ir_proto SYSTEM PUBLIC ${Protobuf_INCLUDE_DIRS})
-target_link_libraries(breadcrumbs_schema_ir_proto
+target_include_directories(quarry_schema_ir_proto PUBLIC ${QUARRY_SCHEMA_IR_PROTO_DIR})
+target_include_directories(quarry_schema_ir_proto SYSTEM PUBLIC ${Protobuf_INCLUDE_DIRS})
+target_link_libraries(quarry_schema_ir_proto
     PUBLIC
         protobuf::libprotobuf
-        breadcrumbs_project_options
-        ${BREADCRUMBS_ABSL_LINK_LIBS}
+        quarry_project_options
+        ${QUARRY_ABSL_LINK_LIBS}
     PRIVATE
-        breadcrumbs_schema_ir_warning_tweaks
+        quarry_schema_ir_warning_tweaks
 )
 
-add_library(breadcrumbs_compiler_layout
+add_library(quarry_compiler_layout
     layout/layout.cpp
 )
-target_include_directories(breadcrumbs_compiler_layout PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(breadcrumbs_compiler_layout
+target_include_directories(quarry_compiler_layout PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(quarry_compiler_layout
     PUBLIC
-        breadcrumbs_compiler_context
-        breadcrumbs_compiler_semantic
-        breadcrumbs_compiler_diagnostics
-        breadcrumbs_compiler_support
-        breadcrumbs_project_options
+        quarry_compiler_context
+        quarry_compiler_semantic
+        quarry_compiler_diagnostics
+        quarry_compiler_support
+        quarry_project_options
 )
 
-add_library(breadcrumbs_compiler_schema_ir
+add_library(quarry_compiler_schema_ir
     schema_ir/schema_ir.cpp
     schema_ir/validation.cpp
 )
-target_include_directories(breadcrumbs_compiler_schema_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(breadcrumbs_compiler_schema_ir
+target_include_directories(quarry_compiler_schema_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(quarry_compiler_schema_ir
     PUBLIC
-        breadcrumbs_compiler_source_schema
-        breadcrumbs_schema_ir_proto
-        breadcrumbs_compiler_context
-        breadcrumbs_compiler_layout
-        breadcrumbs_compiler_semantic
-        breadcrumbs_compiler_diagnostics
-        breadcrumbs_compiler_support
+        quarry_compiler_source_schema
+        quarry_schema_ir_proto
+        quarry_compiler_context
+        quarry_compiler_layout
+        quarry_compiler_semantic
+        quarry_compiler_diagnostics
+        quarry_compiler_support
     PRIVATE
-        breadcrumbs_schema_ir_warning_tweaks
+        quarry_schema_ir_warning_tweaks
 )
 
-add_library(breadcrumbs_compiler_frontend
+add_library(quarry_compiler_frontend
     frontend/yaml_compiler.cpp
 )
-target_include_directories(breadcrumbs_compiler_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(breadcrumbs_compiler_frontend
+target_include_directories(quarry_compiler_frontend PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(quarry_compiler_frontend
     PUBLIC
-        breadcrumbs_compiler_context
-        breadcrumbs_compiler_schema_ir
-        breadcrumbs_project_options
+        quarry_compiler_context
+        quarry_compiler_schema_ir
+        quarry_project_options
     PRIVATE
-        breadcrumbs_compiler_layout
-        breadcrumbs_compiler_semantic
-        breadcrumbs_compiler_symbols
-        breadcrumbs_compiler_source_schema
-        breadcrumbs_compiler_yaml
-        breadcrumbs_schema_ir_warning_tweaks
+        quarry_compiler_layout
+        quarry_compiler_semantic
+        quarry_compiler_symbols
+        quarry_compiler_source_schema
+        quarry_compiler_yaml
+        quarry_schema_ir_warning_tweaks
 )
 
-add_library(breadcrumbs_compiler_backend
+add_library(quarry_compiler_backend
     backend/backend.cpp
 )
-target_include_directories(breadcrumbs_compiler_backend
+target_include_directories(quarry_compiler_backend
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/..
     PRIVATE
-        ${BREADCRUMBS_GENERATED_INCLUDE_DIR}
+        ${QUARRY_GENERATED_INCLUDE_DIR}
 )
-target_link_libraries(breadcrumbs_compiler_backend
+target_link_libraries(quarry_compiler_backend
     PUBLIC
-        breadcrumbs_compiler_schema_ir
-        breadcrumbs_project_options
+        quarry_compiler_schema_ir
+        quarry_project_options
     PRIVATE
-        breadcrumbs_schema_ir_warning_tweaks
+        quarry_schema_ir_warning_tweaks
 )

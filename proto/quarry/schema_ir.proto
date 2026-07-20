@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package breadcrumbs.schema_ir;
+package quarry.schema_ir;
 
 // SchemaIR is the compiler's stable, backend-facing representation of one
 // fully compiled schema. It is not the runtime manifest and is not the binary

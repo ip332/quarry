@@ -1,4 +1,4 @@
-# Breadcrumbs Schema Language Specification
+# Quarry Schema Language Specification
 
 ## Status
 
@@ -12,11 +12,11 @@ Draft
 
 # Purpose
 
-This document defines the Breadcrumbs Schema Language (BSL).
+This document defines the Quarry Schema Language (BSL).
 
-BSL is used to describe the logical structure of Breadcrumbs records.
+BSL is used to describe the logical structure of Quarry records.
 
-Schemas are the single source of truth from which the Breadcrumbs Schema Compiler generates:
+Schemas are the single source of truth from which the Quarry Schema Compiler generates:
 
 * runtime bindings
 * record builders
@@ -40,7 +40,7 @@ Those are defined by separate specifications.
 
 # Design Goals
 
-The Breadcrumbs Schema Language is designed to be:
+The Quarry Schema Language is designed to be:
 
 * human readable
 * embedded-first
@@ -302,7 +302,7 @@ information for diagnostics.
 
 ## REQ-SL-050
 
-YAML syntax errors SHALL be normalized into Breadcrumbs diagnostics.
+YAML syntax errors SHALL be normalized into Quarry diagnostics.
 
 ## REQ-SL-051
 
@@ -340,7 +340,7 @@ increment.
 Examples remain informative only.
 
 ```yaml
-namespace: breadcrumbs.telemetry
+namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data

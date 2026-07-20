@@ -4,7 +4,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace breadcrumbs::compiler::ast {
+namespace quarry::compiler::ast {
 namespace {
 
 void indent(std::ostream& output, int depth) {
@@ -158,4 +158,4 @@ std::string dump_schema_file(const SchemaFileSyntax& schema_file) {
     return output.str();
 }
 
-} // namespace breadcrumbs::compiler::ast
+} // namespace quarry::compiler::ast

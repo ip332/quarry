@@ -1,4 +1,4 @@
-namespace: breadcrumbs.example
+namespace: quarry.example
 record: Example
 version: 1
 type: data

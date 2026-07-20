@@ -17,13 +17,13 @@
 
 namespace {
 
-using breadcrumbs::compiler::context::CompilerContext;
-using breadcrumbs::compiler::diagnostics::DiagnosticCollection;
-using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
-using breadcrumbs::compiler::frontend::YamlCompilationResult;
-using breadcrumbs::compiler::frontend::YamlCompiler;
-using breadcrumbs::compiler::schema_ir::SchemaIrModel;
-using breadcrumbs::compiler::support::SourceFileId;
+using quarry::compiler::context::CompilerContext;
+using quarry::compiler::diagnostics::DiagnosticCollection;
+using quarry::compiler::diagnostics::DiagnosticEngine;
+using quarry::compiler::frontend::YamlCompilationResult;
+using quarry::compiler::frontend::YamlCompiler;
+using quarry::compiler::schema_ir::SchemaIrModel;
+using quarry::compiler::support::SourceFileId;
 
 [[nodiscard]] std::filesystem::path fixtures_root() {
     return std::filesystem::path(__FILE__).parent_path().parent_path() / "fixtures" /
@@ -74,7 +74,7 @@ struct GoldenOutput {
     return output;
 }
 
-void clear_source_metadata(::breadcrumbs::schema_ir::NamespaceIR* namespace_ir) {
+void clear_source_metadata(::quarry::schema_ir::NamespaceIR* namespace_ir) {
     if (namespace_ir == nullptr) {
         return;
     }
@@ -84,14 +84,14 @@ void clear_source_metadata(::breadcrumbs::schema_ir::NamespaceIR* namespace_ir) 
         clear_source_metadata(namespace_ir->mutable_namespaces(index));
     }
     for (int index = 0; index < namespace_ir->records_size(); ++index) {
-        ::breadcrumbs::schema_ir::RecordIR* record = namespace_ir->mutable_records(index);
+        ::quarry::schema_ir::RecordIR* record = namespace_ir->mutable_records(index);
         record->clear_source_origin();
         for (int field_index = 0; field_index < record->fields_size(); ++field_index) {
             record->mutable_fields(field_index)->clear_source_origin();
         }
     }
     for (int index = 0; index < namespace_ir->enums_size(); ++index) {
-        ::breadcrumbs::schema_ir::EnumIR* enum_ir = namespace_ir->mutable_enums(index);
+        ::quarry::schema_ir::EnumIR* enum_ir = namespace_ir->mutable_enums(index);
         enum_ir->clear_source_origin();
         for (int value_index = 0; value_index < enum_ir->values_size(); ++value_index) {
             enum_ir->mutable_values(value_index)->clear_source_origin();

@@ -1,6 +1,6 @@
-# Breadcrumbs
+# Quarry
 
-Breadcrumbs is an open-source, schema-driven platform for secure edge-to-cloud
+Quarry is an open-source, schema-driven platform for secure edge-to-cloud
 systems, with asset tracking as the first reference application.
 
 The platform is intended to support many domains without requiring changes to
@@ -29,6 +29,12 @@ its core architecture.
 
 Project planning and architecture phase.
 
+> This project was formerly called Breadcrumbs. It was renamed to Quarry to
+> reflect the current focus on schema-driven binary records rather than the
+> original asset-tracking framing; see `jira/backlog.md` (PR-088) for details.
+> The GitHub repository itself has not yet been renamed — treat that as an
+> outstanding manual follow-up.
+
 ## Development Environment
 
 Docker is the recommended and authoritative environment for CI-equivalent
@@ -44,47 +50,47 @@ docker compose run --rm dev bash
 
 ## Runtime Package
 
-The C++ Breadcrumbs runtime is header-only and installable as a CMake package.
+The C++ Quarry runtime is header-only and installable as a CMake package.
 After installing the project, downstream CMake projects can consume it with:
 
 ```cmake
-find_package(Breadcrumbs CONFIG REQUIRED)
-target_link_libraries(my_app PRIVATE Breadcrumbs::runtime)
+find_package(Quarry CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE Quarry::runtime)
 ```
 
 The public runtime include path is:
 
 ```cpp
-#include <breadcrumbs/runtime/binary_record.hpp>
+#include <quarry/runtime/binary_record.hpp>
 ```
 
-The package also defines `Breadcrumbs_GENERATED_CODE_API_VERSION`, which is
+The package also defines `Quarry_GENERATED_CODE_API_VERSION`, which is
 derived from the same canonical value as
-`breadcrumbs::runtime::kGeneratedCodeApiVersion` and the generated C++
+`quarry::runtime::kGeneratedCodeApiVersion` and the generated C++
 compatibility assertions.
 
 The schema compiler also exposes a machine-readable compatibility query:
 
 ```text
-breadcrumbs-schema-compiler --print-generated-code-api-version
+quarry-schema-compiler --print-generated-code-api-version
 ```
 
-`breadcrumbs_generate_cpp()` compares that query against
-`Breadcrumbs_GENERATED_CODE_API_VERSION` during CMake configuration before it
+`quarry_generate_cpp()` compares that query against
+`Quarry_GENERATED_CODE_API_VERSION` during CMake configuration before it
 discovers generated outputs.
 
 The installed package also exposes the schema compiler as an executable CMake
 target:
 
 ```cmake
-$<TARGET_FILE:Breadcrumbs::schema_compiler>
+$<TARGET_FILE:Quarry::schema_compiler>
 ```
 
-Generated code should link against `Breadcrumbs::runtime`. Downstream projects
+Generated code should link against `Quarry::runtime`. Downstream projects
 can use the installed-native helper:
 
 ```cmake
-breadcrumbs_generate_cpp(
+quarry_generate_cpp(
     SCHEMA schema.brd
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
     OUT_FILES generated_files
@@ -102,7 +108,7 @@ before writing files if the current inventory no longer matches the inventory
 captured during CMake configuration. Reconfigure the build after schema or
 compiler changes that affect generated output paths.
 
-Native builds use `Breadcrumbs::schema_compiler` by default. Cross-compiling
+Native builds use `Quarry::schema_compiler` by default. Cross-compiling
 builds must provide `SCHEMA_COMPILER` with an absolute path to a host-runnable
 compiler executable; the helper does not search `PATH`, read environment
 fallbacks, or import host artifacts into target link interfaces.
@@ -116,6 +122,6 @@ Minimal installed-package examples are available in `examples/cpp/`.
 
 The supported downstream distribution model is defined in
 `docs/distribution-model.md`. The installed SDK currently consists of the
-header-only runtime package plus the `Breadcrumbs::schema_compiler` executable
+header-only runtime package plus the `Quarry::schema_compiler` executable
 target. Compiler libraries, generated protobufs, tests, and fuzzers remain
 source-tree artifacts.

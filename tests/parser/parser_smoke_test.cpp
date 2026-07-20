@@ -14,28 +14,28 @@
 
 namespace {
 
-using breadcrumbs::compiler::ast::ArrayTypeSyntax;
-using breadcrumbs::compiler::ast::DeclarationSyntax;
-using breadcrumbs::compiler::ast::EnumDeclarationSyntax;
-using breadcrumbs::compiler::ast::EnumValueDeclarationSyntax;
-using breadcrumbs::compiler::ast::FieldDeclarationSyntax;
-using breadcrumbs::compiler::ast::ImportDeclarationSyntax;
-using breadcrumbs::compiler::ast::NamespaceDeclarationSyntax;
-using breadcrumbs::compiler::ast::QualifiedNameSyntax;
-using breadcrumbs::compiler::ast::RecordDeclarationSyntax;
-using breadcrumbs::compiler::ast::SchemaFileSyntax;
-using breadcrumbs::compiler::ast::TypeReferenceSyntax;
-using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
-using breadcrumbs::compiler::parser::Parser;
-using breadcrumbs::compiler::support::SourceFileId;
-using breadcrumbs::compiler::support::SourceLocation;
-using breadcrumbs::compiler::support::SourceManager;
-using breadcrumbs::compiler::support::SourceRange;
+using quarry::compiler::ast::ArrayTypeSyntax;
+using quarry::compiler::ast::DeclarationSyntax;
+using quarry::compiler::ast::EnumDeclarationSyntax;
+using quarry::compiler::ast::EnumValueDeclarationSyntax;
+using quarry::compiler::ast::FieldDeclarationSyntax;
+using quarry::compiler::ast::ImportDeclarationSyntax;
+using quarry::compiler::ast::NamespaceDeclarationSyntax;
+using quarry::compiler::ast::QualifiedNameSyntax;
+using quarry::compiler::ast::RecordDeclarationSyntax;
+using quarry::compiler::ast::SchemaFileSyntax;
+using quarry::compiler::ast::TypeReferenceSyntax;
+using quarry::compiler::diagnostics::DiagnosticEngine;
+using quarry::compiler::parser::Parser;
+using quarry::compiler::support::SourceFileId;
+using quarry::compiler::support::SourceLocation;
+using quarry::compiler::support::SourceManager;
+using quarry::compiler::support::SourceRange;
 
 class ParserTest : public testing::Test {
 protected:
     struct ParseOutput {
-        breadcrumbs::compiler::parser::ParseResult parse_result;
+        quarry::compiler::parser::ParseResult parse_result;
         SchemaFileSyntax ast;
         DiagnosticEngine diagnostics;
         SourceManager source_manager;
@@ -125,7 +125,7 @@ TEST_F(ParserTest, ParsesMultipleSourcesThroughOneSourceManagerAndPreservesFileI
 TEST_F(ParserTest, StoresParseResultsInCollectionWithStableSourceIdentity) {
     SourceManager source_manager;
     DiagnosticEngine diagnostics;
-    std::vector<breadcrumbs::compiler::parser::ParseResult> parse_results;
+    std::vector<quarry::compiler::parser::ParseResult> parse_results;
 
     const SourceFileId first_file =
         source_manager.add_source("/project/first.bc", "record First {\n}\n");

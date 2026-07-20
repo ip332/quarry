@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Breadcrumbs is an early-stage (pre-1.0, "planning and architecture phase"), open-source,
+Quarry is an early-stage (pre-1.0, "planning and architecture phase"), open-source,
 schema-driven C++ platform for secure edge-to-cloud systems. The repository currently
 implements the front half of that vision: a schema compiler (`.brd` YAML schema source →
 Schema IR → generated C++) and a small header-only runtime for encoding/decoding the
@@ -43,7 +43,7 @@ cmake --build --preset debug-fuzz --parallel
 python3 fuzz/run_seed_corpus.py <fuzzer-binary>   # replay reviewable hex seed corpus
 ```
 
-`BREADCRUMBS_WARNINGS_AS_ERRORS` is `ON` by default (`-Wall -Wextra -Wpedantic -Werror` /
+`QUARRY_WARNINGS_AS_ERRORS` is `ON` by default (`-Wall -Wextra -Wpedantic -Werror` /
 `/W4 /WX`) — new code must build warning-clean.
 
 Formatting/linting is enforced via pre-commit (`.pre-commit-config.yaml`):
@@ -100,18 +100,18 @@ treats architecture docs as authoritative "what" and expects code to match them.
 | `symbols/` | Namespace builder → Symbol Model |
 | `semantic/` | Semantic validator → Semantic Model |
 | `layout/` | Layout computation → Layout Model (binary layout metadata) |
-| `schema_ir/` | Schema IR builder/validator (`proto/breadcrumbs/schema_ir.proto`) |
+| `schema_ir/` | Schema IR builder/validator (`proto/quarry/schema_ir.proto`) |
 | `frontend/` | `YamlCompiler` — orchestrates YAML → Schema IR |
 | `backend/` | Schema IR → generated C++ output planning and rendering |
 | `imports/` | Reserved; no active import-resolution pass exists yet |
 
 Each CMake target in `compiler/CMakeLists.txt` corresponds 1:1 to one of these directories
-(`breadcrumbs_compiler_<name>`), with dependencies flowing strictly downstream along the
+(`quarry_compiler_<name>`), with dependencies flowing strictly downstream along the
 pipeline above.
 
 ### Runtime (`runtime/`)
 
-Header-only `breadcrumbs_runtime` target (installed as `Breadcrumbs::runtime`). Owns only
+Header-only `quarry_runtime` target (installed as `Quarry::runtime`). Owns only
 generic BRF byte-level mechanics: header emission/parsing, Field Directory
 emission/parsing, LEB128 varuint, big-endian scalars, string/bytes/array/nested-record
 codecs, and `EncodeResult`/`DecodeResult` error containers. Generated C++ code supplies all
@@ -124,14 +124,14 @@ is enforced by convention, not currently by a CI check, so watch it when editing
 `runtime/binary_record.hpp`.
 
 `kGeneratedCodeApiVersion` (in generated `runtime/version.hpp`, sourced from the single CMake
-scalar `BREADCRUMBS_GENERATED_CODE_API_VERSION` in the top-level `CMakeLists.txt`) is a
+scalar `QUARRY_GENERATED_CODE_API_VERSION` in the top-level `CMakeLists.txt`) is a
 narrow compile-time compatibility guard between generated code and the runtime header —
 it is *not* the package release version and does not imply BRF wire compatibility. Bump it
 only when generated-code/runtime compatibility actually changes, and keep it in sync across
-CMake, the installed package metadata (`Breadcrumbs_GENERATED_CODE_API_VERSION`), and the
+CMake, the installed package metadata (`Quarry_GENERATED_CODE_API_VERSION`), and the
 schema compiler's `--print-generated-code-api-version` query.
 
-### `tools/` — `breadcrumbs-schema-compiler`
+### `tools/` — `quarry-schema-compiler`
 
 The CLI entry point (`tools/schema_compiler`) built on the compiler libraries above. It
 compiles exactly one `.brd` file through `YamlCompiler` and the backend, and writes generated
@@ -142,17 +142,17 @@ treat that file as the source of truth for flag behavior rather than re-deriving
 
 ### Distribution boundary
 
-Only two things are installed/exported: `Breadcrumbs::runtime` (header-only) and
-`Breadcrumbs::schema_compiler` (executable), plus CMake package files
-(`BreadcrumbsConfig.cmake`, `BreadcrumbsGenerate.cmake`, etc.) and the
-`breadcrumbs_generate_cpp()` helper. Everything else under `compiler/` (compiler libraries,
+Only two things are installed/exported: `Quarry::runtime` (header-only) and
+`Quarry::schema_compiler` (executable), plus CMake package files
+(`QuarryConfig.cmake`, `QuarryGenerate.cmake`, etc.) and the
+`quarry_generate_cpp()` helper. Everything else under `compiler/` (compiler libraries,
 Schema IR protobuf), `tests/`, `fuzz/` is a source-tree implementation detail, not a public
 API/ABI surface — don't treat internal compiler headers as a stable contract, and don't add
 `install()`/`export()` rules for them without checking `docs/distribution-model.md` and
 `docs/schema-compiler-tool-distribution.md` first, which define this boundary deliberately.
 
 `examples/cpp/schema_compiler_cmake` is the canonical example of the supported downstream
-`breadcrumbs_generate_cpp()` integration pattern; `examples/cpp/basic_encode_decode` is the
+`quarry_generate_cpp()` integration pattern; `examples/cpp/basic_encode_decode` is the
 canonical minimal runtime-only consumer.
 
 ## Working in this repo
@@ -165,7 +165,7 @@ canonical minimal runtime-only consumer.
   what is *intentionally* unsupported — read the relevant doc before assuming a limitation is
   accidental or expanding scope (e.g., adding multi-file input, import resolution, or new
   install targets) without confirming it's in scope.
-- Schema IR (`proto/breadcrumbs/schema_ir.proto`) is the stable backend-facing contract;
+- Schema IR (`proto/quarry/schema_ir.proto`) is the stable backend-facing contract;
   changes to it affect every backend and golden test — check `tests/fixtures/schema_ir*` and
   `tests/schema_ir/schema_ir_golden_test.cpp`.
 - `.brd` YAML fixtures live under `tests/fixtures/schema_ir_yaml/` (paired with expected

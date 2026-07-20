@@ -10,7 +10,7 @@
 #include <string>
 #include <utility>
 
-namespace breadcrumbs::compiler::parser {
+namespace quarry::compiler::parser {
 namespace {
 
 constexpr std::string_view parser_pass = "parser";
@@ -635,4 +635,4 @@ ParseResult Parser::parse(const support::SourceManager& source_manager,
     return parser.parse();
 }
 
-} // namespace breadcrumbs::compiler::parser
+} // namespace quarry::compiler::parser

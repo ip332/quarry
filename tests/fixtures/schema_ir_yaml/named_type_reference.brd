@@ -1,4 +1,4 @@
-namespace: breadcrumbs.geo
+namespace: quarry.geo
 record: Route
 version: 1
 type: event

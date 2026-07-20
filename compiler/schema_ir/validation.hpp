@@ -4,7 +4,7 @@
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 
-namespace breadcrumbs::compiler::schema_ir {
+namespace quarry::compiler::schema_ir {
 
 class SchemaIrValidator {
 public:
@@ -12,4 +12,4 @@ public:
                   diagnostics::DiagnosticCollection& diagnostics) const;
 };
 
-} // namespace breadcrumbs::compiler::schema_ir
+} // namespace quarry::compiler::schema_ir

@@ -11,7 +11,7 @@
 #include <variant>
 #include <vector>
 
-namespace breadcrumbs::compiler::source_schema {
+namespace quarry::compiler::source_schema {
 
 struct SourceSchemaAnnotation {
     std::string name;
@@ -188,4 +188,4 @@ struct SourceSchemaNormalizationResult {
 normalize_source_schema(const SourceSchemaDocument& schema,
                         diagnostics::DiagnosticEngine& diagnostics);
 
-} // namespace breadcrumbs::compiler::source_schema
+} // namespace quarry::compiler::source_schema

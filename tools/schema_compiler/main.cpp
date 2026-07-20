@@ -20,13 +20,13 @@
 
 namespace {
 
-namespace backend = breadcrumbs::compiler::backend;
-namespace context = breadcrumbs::compiler::context;
-namespace diagnostics = breadcrumbs::compiler::diagnostics;
-namespace frontend = breadcrumbs::compiler::frontend;
+namespace backend = quarry::compiler::backend;
+namespace context = quarry::compiler::context;
+namespace diagnostics = quarry::compiler::diagnostics;
+namespace frontend = quarry::compiler::frontend;
 
-#ifndef BREADCRUMBS_VERSION
-#define BREADCRUMBS_VERSION "0.0.0"
+#ifndef QUARRY_VERSION
+#define QUARRY_VERSION "0.0.0"
 #endif
 
 constexpr int exit_success = 0;
@@ -43,7 +43,7 @@ struct CommandLine {
 };
 
 [[nodiscard]] std::string usage_text() {
-    return "usage: breadcrumbs-schema-compiler [options] INPUT\n"
+    return "usage: quarry-schema-compiler [options] INPUT\n"
            "\n"
            "Options:\n"
            "  -o, --output-directory PATH  Directory for generated files (default: generated)\n"
@@ -60,11 +60,11 @@ struct CommandLine {
 void print_usage(std::ostream& output) { output << usage_text(); }
 
 void print_version(std::ostream& output) {
-    output << "breadcrumbs-schema-compiler " << BREADCRUMBS_VERSION << '\n';
+    output << "quarry-schema-compiler " << QUARRY_VERSION << '\n';
 }
 
 void print_generated_code_api_version(std::ostream& output) {
-    output << breadcrumbs::compiler::backend::kGeneratedCodeApiVersion << '\n';
+    output << quarry::compiler::backend::kGeneratedCodeApiVersion << '\n';
 }
 
 [[nodiscard]] bool option_requires_value(std::string_view option) {
@@ -197,7 +197,7 @@ void print_generated_code_api_version(std::ostream& output) {
 
 [[nodiscard]] std::filesystem::path temp_path_for(const std::filesystem::path& output_path) {
     return output_path.parent_path() /
-           (output_path.filename().string() + ".tmp-breadcrumbs-schema-compiler");
+           (output_path.filename().string() + ".tmp-quarry-schema-compiler");
 }
 
 [[nodiscard]] bool write_generated_file(const backend::GeneratedFile& file,

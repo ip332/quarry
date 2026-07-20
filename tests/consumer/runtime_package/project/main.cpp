@@ -1,26 +1,26 @@
-#include <breadcrumbs/runtime/binary_record.hpp>
-#include <breadcrumbs/runtime/version.hpp>
+#include <quarry/runtime/binary_record.hpp>
+#include <quarry/runtime/version.hpp>
 
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>
 
-#ifndef BREADCRUMBS_PACKAGE_GENERATED_CODE_API_VERSION
-#error "BREADCRUMBS_PACKAGE_GENERATED_CODE_API_VERSION must be defined"
+#ifndef QUARRY_PACKAGE_GENERATED_CODE_API_VERSION
+#error "QUARRY_PACKAGE_GENERATED_CODE_API_VERSION must be defined"
 #endif
 
 int main() {
-    static_assert(breadcrumbs::runtime::kGeneratedCodeApiVersion ==
-                  BREADCRUMBS_PACKAGE_GENERATED_CODE_API_VERSION);
+    static_assert(quarry::runtime::kGeneratedCodeApiVersion ==
+                  QUARRY_PACKAGE_GENERATED_CODE_API_VERSION);
 
-    using breadcrumbs::runtime::DecodeError;
-    using breadcrumbs::runtime::FieldBytes;
-    using breadcrumbs::runtime::append_u32;
-    using breadcrumbs::runtime::encode_record_result;
-    using breadcrumbs::runtime::find_field;
-    using breadcrumbs::runtime::parse_record;
-    using breadcrumbs::runtime::read_u32;
+    using quarry::runtime::DecodeError;
+    using quarry::runtime::FieldBytes;
+    using quarry::runtime::append_u32;
+    using quarry::runtime::encode_record_result;
+    using quarry::runtime::find_field;
+    using quarry::runtime::parse_record;
+    using quarry::runtime::read_u32;
 
     std::vector<std::byte> field_bytes;
     append_u32(field_bytes, 0x01020304U);

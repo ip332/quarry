@@ -21,22 +21,22 @@
 
 #include <gtest/gtest.h>
 
-#ifndef BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION
-#error "BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION must be defined"
+#ifndef QUARRY_TEST_GENERATED_CODE_API_VERSION
+#error "QUARRY_TEST_GENERATED_CODE_API_VERSION must be defined"
 #endif
 
-#ifndef BREADCRUMBS_TEST_GENERATED_INCLUDE_DIR
-#error "BREADCRUMBS_TEST_GENERATED_INCLUDE_DIR must be defined"
+#ifndef QUARRY_TEST_GENERATED_INCLUDE_DIR
+#error "QUARRY_TEST_GENERATED_INCLUDE_DIR must be defined"
 #endif
 
 namespace {
 
-using breadcrumbs::compiler::backend::Backend;
-using breadcrumbs::compiler::backend::CodegenOptions;
-using breadcrumbs::compiler::backend::CodegenResult;
-using breadcrumbs::compiler::backend::PlanResult;
-using breadcrumbs::compiler::schema_ir::SchemaIrModel;
-using breadcrumbs::compiler::schema_ir::SchemaIrValidator;
+using quarry::compiler::backend::Backend;
+using quarry::compiler::backend::CodegenOptions;
+using quarry::compiler::backend::CodegenResult;
+using quarry::compiler::backend::PlanResult;
+using quarry::compiler::schema_ir::SchemaIrModel;
+using quarry::compiler::schema_ir::SchemaIrValidator;
 
 [[nodiscard]] std::filesystem::path fixtures_root(std::string_view category) {
     return std::filesystem::path(__FILE__).parent_path().parent_path() / "fixtures" / category;
@@ -66,7 +66,7 @@ void trim_trailing_newlines(std::string& text) {
 }
 
 [[nodiscard]] std::string
-diagnostics_summary(const breadcrumbs::compiler::diagnostics::DiagnosticCollection& diagnostics) {
+diagnostics_summary(const quarry::compiler::diagnostics::DiagnosticCollection& diagnostics) {
     std::ostringstream stream;
     for (const auto& diagnostic : diagnostics.diagnostics()) {
         stream << diagnostic.compiler_pass() << ": " << diagnostic.id().str() << ": "
@@ -103,8 +103,8 @@ struct LoadedSchemaIrFixture {
         return output;
     }
 
-    breadcrumbs::compiler::context::CompilerContext context;
-    breadcrumbs::compiler::diagnostics::DiagnosticCollection diagnostics;
+    quarry::compiler::context::CompilerContext context;
+    quarry::compiler::diagnostics::DiagnosticCollection diagnostics;
     SchemaIrValidator validator;
     validator.validate(schema_ir, context, diagnostics);
     if (!diagnostics.empty()) {
@@ -161,7 +161,7 @@ struct LoadedSchemaIrFixture {
 [[nodiscard]] std::filesystem::path make_temp_directory(std::string_view stem) {
     static std::uint64_t counter = 0;
     const std::filesystem::path directory = std::filesystem::temp_directory_path() /
-                                            (std::string("breadcrumbs-backend-codegen-") +
+                                            (std::string("quarry-backend-codegen-") +
                                              std::string(stem) + "-" + std::to_string(counter++));
     std::filesystem::remove_all(directory);
     std::filesystem::create_directories(directory);
@@ -213,10 +213,10 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
     write_text_file(source_path, translation_unit);
 
     const std::filesystem::path executable_path = root / "compile";
-    const std::string compiler = BREADCRUMBS_TEST_CXX_COMPILER;
+    const std::string compiler = QUARRY_TEST_CXX_COMPILER;
     const std::filesystem::path repo_root =
         std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
-    const std::filesystem::path generated_include_root = BREADCRUMBS_TEST_GENERATED_INCLUDE_DIR;
+    const std::filesystem::path generated_include_root = QUARRY_TEST_GENERATED_INCLUDE_DIR;
     std::ostringstream command;
     command << std::quoted(compiler) << " -std=c++20 -I" << std::quoted(generated_root.string())
             << " -I" << std::quoted(generated_include_root.string())
@@ -240,10 +240,10 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
     const std::filesystem::path output_path = root / "compiler-output.txt";
     write_text_file(source_path, source_text);
 
-    const std::string compiler = BREADCRUMBS_TEST_CXX_COMPILER;
+    const std::string compiler = QUARRY_TEST_CXX_COMPILER;
     const std::filesystem::path repo_root =
         std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
-    const std::filesystem::path generated_include_root = BREADCRUMBS_TEST_GENERATED_INCLUDE_DIR;
+    const std::filesystem::path generated_include_root = QUARRY_TEST_GENERATED_INCLUDE_DIR;
     std::ostringstream command;
     command << std::quoted(compiler) << " -std=c++20 -I"
             << std::quoted(generated_include_root.string()) << " -I"
@@ -270,7 +270,7 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
     record->set_fqn("Broken");
     auto* field = record->add_fields();
     field->set_name("missing");
-    field->mutable_type()->set_primitive(::breadcrumbs::schema_ir::PRIMITIVE_TYPE_UNSPECIFIED);
+    field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_UNSPECIFIED);
     return schema_ir;
 }
 
@@ -359,8 +359,8 @@ TEST(BackendCodegenTest, GenerationPlanUsesNamespacePathForNestedNamespaceOutput
     const PlanResult result = plan_backend_fixture("named_type_reference", options);
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.plan.files.size(), 1u);
-    EXPECT_EQ(result.plan.files.front().relative_output_path, "breadcrumbs/geo.hpp");
-    EXPECT_EQ(result.plan.files.front().generated_include_path, "breadcrumbs/geo.hpp");
+    EXPECT_EQ(result.plan.files.front().relative_output_path, "quarry/geo.hpp");
+    EXPECT_EQ(result.plan.files.front().generated_include_path, "quarry/geo.hpp");
 }
 
 TEST(BackendCodegenTest, GenerationPlanPreservesMultiFileOrderingAndIncludePaths) {
@@ -391,12 +391,12 @@ TEST(BackendCodegenTest, GeneratedRecordsAssertRuntimeGeneratedCodeApiVersion) {
     ASSERT_EQ(result.files.size(), 1);
 
     const std::string expected_assertion =
-        "static_assert(::breadcrumbs::runtime::kGeneratedCodeApiVersion == " +
-        std::to_string(BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION) + "U";
+        "static_assert(::quarry::runtime::kGeneratedCodeApiVersion == " +
+        std::to_string(QUARRY_TEST_GENERATED_CODE_API_VERSION) + "U";
     EXPECT_NE(result.files.front().content.find(expected_assertion),
               std::string::npos);
     EXPECT_NE(result.files.front().content.find(
-                  "Generated Breadcrumbs code is incompatible with the installed Breadcrumbs "
+                  "Generated Quarry code is incompatible with the installed Quarry "
                   "runtime."),
               std::string::npos);
 }
@@ -404,14 +404,14 @@ TEST(BackendCodegenTest, GeneratedRecordsAssertRuntimeGeneratedCodeApiVersion) {
 TEST(BackendCodegenTest, RuntimeGeneratedCodeApiVersionMismatchFailsCompilation) {
     const std::string output = compile_source_expect_failure(
         "#include \"runtime/binary_record.hpp\"\n"
-        "static_assert(::breadcrumbs::runtime::kGeneratedCodeApiVersion == 999U,\n"
-        "              \"Generated Breadcrumbs code is incompatible with the installed "
-        "Breadcrumbs runtime. Regenerate the code using a compatible "
-        "breadcrumbs-schema-compiler release.\");\n"
+        "static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 999U,\n"
+        "              \"Generated Quarry code is incompatible with the installed "
+        "Quarry runtime. Regenerate the code using a compatible "
+        "quarry-schema-compiler release.\");\n"
         "int main() { return 0; }\n");
 
-    EXPECT_NE(output.find("Generated Breadcrumbs code is incompatible with the installed "
-                          "Breadcrumbs runtime."),
+    EXPECT_NE(output.find("Generated Quarry code is incompatible with the installed "
+                          "Quarry runtime."),
               std::string::npos);
 }
 
@@ -754,7 +754,7 @@ TEST(BackendCodegenTest, GeneratedDiagnosticDecodeReportsStructuralAndSchemaErro
         "#include <cstddef>\n"
         "#include <vector>\n"
         "int main() {\n"
-        "  using ::breadcrumbs::runtime::DecodeError;\n"
+        "  using ::quarry::runtime::DecodeError;\n"
         "  const auto byte = [](unsigned int value) {\n"
         "    return static_cast<std::byte>(static_cast<unsigned char>(value));\n"
         "  };\n"
@@ -840,7 +840,7 @@ TEST(BackendCodegenTest, GeneratedDiagnosticEncodeReportsSchemaErrors) {
         "#include <string>\n"
         "#include <vector>\n"
         "int main() {\n"
-        "  using ::breadcrumbs::runtime::EncodeError;\n"
+        "  using ::quarry::runtime::EncodeError;\n"
         "  ::ExampleBuilder invalid_string_builder;\n"
         "  if (!invalid_string_builder.set_name(std::string(\"\\xC0\\x80\", 2U))) {\n"
         "    return 1;\n"
@@ -889,7 +889,7 @@ TEST(BackendCodegenTest, NamedTypeReferenceMatchesGolden) {
     const CodegenResult result = run_backend_fixture("named_type_reference", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
-    EXPECT_EQ(result.files.front().path, "generated/breadcrumbs/geo.generated.hpp");
+    EXPECT_EQ(result.files.front().path, "generated/quarry/geo.generated.hpp");
     EXPECT_EQ(render_result(result), backend_golden_text("named_type_reference"));
 }
 
@@ -1227,8 +1227,8 @@ TEST(BackendCodegenTest, GeneratedDiagnosticCodecsPropagateNestedAndRecordArrayE
         "#include <vector>\n"
         "\n"
         "int main() {\n"
-        "  using ::breadcrumbs::runtime::DecodeError;\n"
-        "  using ::breadcrumbs::runtime::EncodeError;\n"
+        "  using ::quarry::runtime::DecodeError;\n"
+        "  using ::quarry::runtime::EncodeError;\n"
         "  const auto byte = [](unsigned int value) {\n"
         "    return static_cast<std::byte>(static_cast<unsigned char>(value));\n"
         "  };\n"

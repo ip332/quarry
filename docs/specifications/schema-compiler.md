@@ -12,7 +12,7 @@ Draft
 
 ## Purpose
 
-The Breadcrumbs Schema Compiler turns `.brd` schema files into generated
+The Quarry Schema Compiler turns `.brd` schema files into generated
 artifacts for applications, runtimes, tooling, and language bindings.
 
 The `.brd` source-language grammar and semantics are defined by

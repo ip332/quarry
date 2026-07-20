@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package breadcrumbs.manifest;
+package quarry.manifest;
 
 // FieldType identifies the compiler-recognized field kind stored in the
 // manifest.
@@ -24,13 +24,13 @@ enum FieldType {
 }
 
 // Manifest stores compiler-managed persistent state for one resolved
-// Breadcrumbs compilation.
+// Quarry compilation.
 message Manifest {
-  // Manifest file format version. This is independent of any Breadcrumbs schema
+  // Manifest file format version. This is independent of any Quarry schema
   // version.
   uint32 manifest_version = 1;
 
-  // Breadcrumbs Schema Compiler version that produced the manifest. Empty means
+  // Quarry Schema Compiler version that produced the manifest. Empty means
   // not provided.
   string compiler_version = 2;
 

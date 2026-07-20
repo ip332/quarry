@@ -4,9 +4,9 @@
 #include "compiler/source_schema/source_schema.hpp"
 #include "compiler/yaml/yaml_document.hpp"
 
-namespace breadcrumbs::compiler::yaml {
+namespace quarry::compiler::yaml {
 
 [[nodiscard]] source_schema::SourceSchemaDecodeResult
 decode_schema(const YamlDocument& document, diagnostics::DiagnosticEngine& diagnostics);
 
-} // namespace breadcrumbs::compiler::yaml
+} // namespace quarry::compiler::yaml

@@ -11,7 +11,7 @@
 #include <string_view>
 #include <vector>
 
-namespace breadcrumbs::compiler::symbols {
+namespace quarry::compiler::symbols {
 
 class Scope;
 
@@ -114,4 +114,4 @@ private:
         support::SourceRange declaration_range, diagnostics::DiagnosticEngine& diagnostics) const;
 };
 
-} // namespace breadcrumbs::compiler::symbols
+} // namespace quarry::compiler::symbols

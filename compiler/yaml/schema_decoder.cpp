@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-namespace breadcrumbs::compiler::yaml {
+namespace quarry::compiler::yaml {
 namespace {
 
 using source_schema::SourceSchemaAnnotation;
@@ -800,4 +800,4 @@ decode_schema(const YamlDocument& document, diagnostics::DiagnosticEngine& diagn
     return result;
 }
 
-} // namespace breadcrumbs::compiler::yaml
+} // namespace quarry::compiler::yaml

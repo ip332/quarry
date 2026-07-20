@@ -1,31 +1,31 @@
-add_executable(breadcrumbs_schema_compiler
+add_executable(quarry_schema_compiler
     schema_compiler/main.cpp
 )
-set_target_properties(breadcrumbs_schema_compiler PROPERTIES
+set_target_properties(quarry_schema_compiler PROPERTIES
     EXPORT_NAME schema_compiler
-    OUTPUT_NAME breadcrumbs-schema-compiler
+    OUTPUT_NAME quarry-schema-compiler
 )
-add_executable(Breadcrumbs::schema_compiler ALIAS breadcrumbs_schema_compiler)
-target_link_libraries(breadcrumbs_schema_compiler
+add_executable(Quarry::schema_compiler ALIAS quarry_schema_compiler)
+target_link_libraries(quarry_schema_compiler
     PRIVATE
-        breadcrumbs_compiler_backend
-        breadcrumbs_compiler_context
-        breadcrumbs_compiler_diagnostics
-        breadcrumbs_compiler_frontend
-        breadcrumbs_compiler_support
-        breadcrumbs_project_options
-        breadcrumbs_schema_ir_warning_tweaks
+        quarry_compiler_backend
+        quarry_compiler_context
+        quarry_compiler_diagnostics
+        quarry_compiler_frontend
+        quarry_compiler_support
+        quarry_project_options
+        quarry_schema_ir_warning_tweaks
 )
-target_include_directories(breadcrumbs_schema_compiler
+target_include_directories(quarry_schema_compiler
     PRIVATE
-        ${BREADCRUMBS_GENERATED_INCLUDE_DIR}
+        ${QUARRY_GENERATED_INCLUDE_DIR}
 )
-target_compile_definitions(breadcrumbs_schema_compiler
+target_compile_definitions(quarry_schema_compiler
     PRIVATE
-        BREADCRUMBS_VERSION="${PROJECT_VERSION}"
+        QUARRY_VERSION="${PROJECT_VERSION}"
 )
 
-install(TARGETS breadcrumbs_schema_compiler
-    EXPORT BreadcrumbsTargets
+install(TARGETS quarry_schema_compiler
+    EXPORT QuarryTargets
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )

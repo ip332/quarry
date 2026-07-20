@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace breadcrumbs::compiler::parser {
+namespace quarry::compiler::parser {
 namespace {
 
 struct Keyword {
@@ -364,4 +364,4 @@ void Lexer::emit_invalid_escape(ByteOffset offset, char escaped) {
                           .build());
 }
 
-} // namespace breadcrumbs::compiler::parser
+} // namespace quarry::compiler::parser

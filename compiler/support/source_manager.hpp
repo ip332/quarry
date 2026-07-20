@@ -7,7 +7,7 @@
 #include <string_view>
 #include <vector>
 
-namespace breadcrumbs::compiler::support {
+namespace quarry::compiler::support {
 
 struct LineColumn {
     std::size_t line = 0;
@@ -43,4 +43,4 @@ private:
     std::vector<SourceFile> sources_;
 };
 
-} // namespace breadcrumbs::compiler::support
+} // namespace quarry::compiler::support

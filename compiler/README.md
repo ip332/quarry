@@ -1,6 +1,6 @@
 # Compiler Source-Tree API Boundary
 
-This directory contains compiler libraries used by the Breadcrumbs source tree.
+This directory contains compiler libraries used by the Quarry source tree.
 They are not installed or exported as a CMake package, and the repository does
 not currently promise an external compiler SDK or ABI-stable public API.
 
@@ -76,8 +76,8 @@ header signature and every direct test or production consumer has been checked.
 
 ## External API Status
 
-The `breadcrumbs-schema-compiler` executable is installed and exported as the
-`Breadcrumbs::schema_compiler` imported executable target, but compiler
+The `quarry-schema-compiler` executable is installed and exported as the
+`Quarry::schema_compiler` imported executable target, but compiler
 libraries remain source-tree implementation details. There are currently no
 `install(...)`, `export(...)`, `BUILD_INTERFACE`, or `INSTALL_INTERFACE` rules
 for compiler libraries. External compiler-library API shape, package layout,

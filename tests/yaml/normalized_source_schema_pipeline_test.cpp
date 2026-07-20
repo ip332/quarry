@@ -22,26 +22,26 @@
 
 namespace {
 
-using breadcrumbs::compiler::context::CompilerContext;
-using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
-using breadcrumbs::compiler::layout::LayoutComputer;
-using breadcrumbs::compiler::layout::LayoutModel;
-using breadcrumbs::compiler::schema_ir::SchemaIrBuilder;
-using breadcrumbs::compiler::schema_ir::SchemaIrModel;
-using breadcrumbs::compiler::schema_ir::SchemaIrValidator;
-using breadcrumbs::compiler::semantic::SemanticArrayType;
-using breadcrumbs::compiler::semantic::SemanticModel;
-using breadcrumbs::compiler::semantic::SemanticRecord;
-using breadcrumbs::compiler::semantic::SemanticRecordReferenceType;
-using breadcrumbs::compiler::semantic::SemanticValidator;
-using breadcrumbs::compiler::semantic::SemanticType;
-using breadcrumbs::compiler::support::SourceFileId;
-using breadcrumbs::compiler::support::SourceManager;
-using breadcrumbs::compiler::symbols::NamespaceBuilder;
-using breadcrumbs::compiler::symbols::SymbolTable;
-using breadcrumbs::compiler::source_schema::SourceSchemaDecodeResult;
-using breadcrumbs::compiler::yaml::YamlParser;
-using breadcrumbs::compiler::yaml::YamlParseResult;
+using quarry::compiler::context::CompilerContext;
+using quarry::compiler::diagnostics::DiagnosticEngine;
+using quarry::compiler::layout::LayoutComputer;
+using quarry::compiler::layout::LayoutModel;
+using quarry::compiler::schema_ir::SchemaIrBuilder;
+using quarry::compiler::schema_ir::SchemaIrModel;
+using quarry::compiler::schema_ir::SchemaIrValidator;
+using quarry::compiler::semantic::SemanticArrayType;
+using quarry::compiler::semantic::SemanticModel;
+using quarry::compiler::semantic::SemanticRecord;
+using quarry::compiler::semantic::SemanticRecordReferenceType;
+using quarry::compiler::semantic::SemanticValidator;
+using quarry::compiler::semantic::SemanticType;
+using quarry::compiler::support::SourceFileId;
+using quarry::compiler::support::SourceManager;
+using quarry::compiler::symbols::NamespaceBuilder;
+using quarry::compiler::symbols::SymbolTable;
+using quarry::compiler::source_schema::SourceSchemaDecodeResult;
+using quarry::compiler::yaml::YamlParser;
+using quarry::compiler::yaml::YamlParseResult;
 
 [[nodiscard]] std::string diagnostics_summary(const DiagnosticEngine& diagnostics) {
     std::ostringstream stream;
@@ -56,7 +56,7 @@ struct DirectPipelineOutput {
     SourceFileId source_file_id;
     YamlParseResult parse_result;
     SourceSchemaDecodeResult decode_result;
-    breadcrumbs::compiler::source_schema::SourceSchemaNormalizationResult normalization_result;
+    quarry::compiler::source_schema::SourceSchemaNormalizationResult normalization_result;
     DiagnosticEngine parser_diagnostics;
     DiagnosticEngine decoder_diagnostics;
     DiagnosticEngine normalization_diagnostics;
@@ -84,13 +84,13 @@ struct DirectPipelineOutput {
     }
 
     output.decode_result =
-        breadcrumbs::compiler::yaml::decode_schema(*output.parse_result.document,
+        quarry::compiler::yaml::decode_schema(*output.parse_result.document,
                                                    output.decoder_diagnostics);
     if (output.decoder_diagnostics.has_errors() || !output.decode_result.schema.has_value()) {
         return output;
     }
 
-    output.normalization_result = breadcrumbs::compiler::source_schema::normalize_source_schema(
+    output.normalization_result = quarry::compiler::source_schema::normalize_source_schema(
         *output.decode_result.schema, output.normalization_diagnostics);
     if (output.normalization_diagnostics.has_errors() ||
         !output.normalization_result.document.has_value()) {
@@ -133,7 +133,7 @@ struct DirectPipelineOutput {
 }
 
 [[nodiscard]] DirectPipelineOutput make_direct_builder_fixture() {
-    return run_direct_pipeline(R"(namespace: breadcrumbs.telemetry.deep
+    return run_direct_pipeline(R"(namespace: quarry.telemetry.deep
 record: Sample
 version: 7
 type: data
@@ -174,11 +174,11 @@ void expect_direct_builder_failure(const SchemaIrModel& schema_ir,
     ASSERT_FALSE(diagnostics.diagnostics().empty());
     EXPECT_EQ(diagnostics.diagnostics().front().id().str(), "BC1004");
     EXPECT_EQ(diagnostics.diagnostics().front().severity(),
-              breadcrumbs::compiler::diagnostics::Severity::InternalCompilerError);
+              quarry::compiler::diagnostics::Severity::InternalCompilerError);
 }
 
-[[nodiscard]] const breadcrumbs::schema_ir::NamespaceIR*
-find_namespace(const breadcrumbs::schema_ir::NamespaceIR& parent, std::string_view name) {
+[[nodiscard]] const quarry::schema_ir::NamespaceIR*
+find_namespace(const quarry::schema_ir::NamespaceIR& parent, std::string_view name) {
     for (int index = 0; index < parent.namespaces_size(); ++index) {
         const auto& child = parent.namespaces(index);
         if (child.name() == name) {
@@ -189,7 +189,7 @@ find_namespace(const breadcrumbs::schema_ir::NamespaceIR& parent, std::string_vi
 }
 
 TEST(YamlCompilerPipelineTest, DirectNormalizedSourceReachesValidatedSchemaIr) {
-    const DirectPipelineOutput output = run_direct_pipeline(R"(namespace: breadcrumbs.telemetry.deep
+    const DirectPipelineOutput output = run_direct_pipeline(R"(namespace: quarry.telemetry.deep
 record: Sample
 version: 7
 type: data
@@ -231,34 +231,34 @@ enums:
         << diagnostics_summary(output.validation_diagnostics);
 
     const SemanticRecord* semantic_record =
-        output.semantic_model.find_record("breadcrumbs.telemetry.deep.Sample");
+        output.semantic_model.find_record("quarry.telemetry.deep.Sample");
     ASSERT_NE(semantic_record, nullptr);
     ASSERT_TRUE(semantic_record->version.has_value());
     EXPECT_EQ(*semantic_record->version, 7U);
     ASSERT_TRUE(semantic_record->record_type.has_value());
     EXPECT_EQ(*semantic_record->record_type,
-              breadcrumbs::compiler::semantic::SemanticRecordType::Data);
+              quarry::compiler::semantic::SemanticRecordType::Data);
     ASSERT_EQ(semantic_record->fields.size(), 5U);
     EXPECT_TRUE(semantic_record->fields[0].type.is_enum_reference());
     EXPECT_TRUE(semantic_record->fields[2].type.is_string());
     EXPECT_TRUE(semantic_record->fields[3].type.is_bytes());
     EXPECT_TRUE(semantic_record->fields[4].type.is_array());
     EXPECT_EQ(
-        std::get<breadcrumbs::compiler::semantic::SemanticStringType>(
+        std::get<quarry::compiler::semantic::SemanticStringType>(
             semantic_record->fields[2].type.value)
             .max_bytes,
         16U);
-    EXPECT_EQ(std::get<breadcrumbs::compiler::semantic::SemanticBytesType>(
+    EXPECT_EQ(std::get<quarry::compiler::semantic::SemanticBytesType>(
                   semantic_record->fields[3].type.value)
                   .max_bytes,
               8U);
     EXPECT_EQ(semantic_record->fields[4].type.array().max_elements, 64U);
 
     const auto& root = output.schema_ir.root_namespace();
-    const auto* breadcrumbs_ns = find_namespace(root, "breadcrumbs");
-    ASSERT_NE(breadcrumbs_ns, nullptr);
-    ASSERT_EQ(breadcrumbs_ns->namespaces_size(), 1);
-    const auto& telemetry_ns = breadcrumbs_ns->namespaces(0);
+    const auto* quarry_ns = find_namespace(root, "quarry");
+    ASSERT_NE(quarry_ns, nullptr);
+    ASSERT_EQ(quarry_ns->namespaces_size(), 1);
+    const auto& telemetry_ns = quarry_ns->namespaces(0);
     ASSERT_EQ(telemetry_ns.namespaces_size(), 1);
     const auto& deep_ns = telemetry_ns.namespaces(0);
     ASSERT_EQ(deep_ns.enums_size(), 1);
@@ -275,7 +275,7 @@ enums:
     EXPECT_TRUE(lowered_record.has_schema_version());
     EXPECT_EQ(lowered_record.schema_version(), 7U);
     EXPECT_TRUE(lowered_record.has_record_type());
-    EXPECT_EQ(lowered_record.record_type(), breadcrumbs::schema_ir::RECORD_TYPE_DATA);
+    EXPECT_EQ(lowered_record.record_type(), quarry::schema_ir::RECORD_TYPE_DATA);
     ASSERT_EQ(lowered_record.fields_size(), 5);
     EXPECT_TRUE(lowered_record.fields(0).type().has_enum_type());
     EXPECT_EQ(lowered_record.fields(0).type().enum_type().target_enum_ir_id(),
@@ -292,11 +292,11 @@ TEST(SchemaIrBuilderDirectNormalizedSourceTest,
      LowersSemanticRecordReferencesToTheTargetRecordIrId) {
     DirectPipelineOutput output = make_direct_builder_fixture();
     auto* record = const_cast<SemanticRecord*>(
-        output.semantic_model.find_record("breadcrumbs.telemetry.deep.Sample"));
+        output.semantic_model.find_record("quarry.telemetry.deep.Sample"));
     ASSERT_NE(record, nullptr);
     ASSERT_GE(record->fields.size(), 1U);
     record->fields[0].type = SemanticType(SemanticRecordReferenceType{
-        .canonical_target_fqn = "breadcrumbs.telemetry.deep.Sample",
+        .canonical_target_fqn = "quarry.telemetry.deep.Sample",
     });
 
     DiagnosticEngine lowering_diagnostics;
@@ -304,9 +304,9 @@ TEST(SchemaIrBuilderDirectNormalizedSourceTest,
 
     ASSERT_TRUE(lowering_diagnostics.empty()) << diagnostics_summary(lowering_diagnostics);
     const auto& root = schema_ir.root_namespace();
-    const auto* breadcrumbs_ns = find_namespace(root, "breadcrumbs");
-    ASSERT_NE(breadcrumbs_ns, nullptr);
-    const auto& telemetry_ns = breadcrumbs_ns->namespaces(0);
+    const auto* quarry_ns = find_namespace(root, "quarry");
+    ASSERT_NE(quarry_ns, nullptr);
+    const auto& telemetry_ns = quarry_ns->namespaces(0);
     const auto& deep_ns = telemetry_ns.namespaces(0);
     const auto& lowered_record = deep_ns.records(0);
     ASSERT_TRUE(lowered_record.fields(0).type().has_record());
@@ -342,13 +342,13 @@ TEST(SchemaIrBuilderDirectNormalizedSourceTest,
     EXPECT_EQ(root.source_origin().span().start_line(), 1U);
     ASSERT_EQ(root.namespaces_size(), 1);
 
-    const auto& breadcrumbs_ns = root.namespaces(0);
-    EXPECT_EQ(breadcrumbs_ns.name(), "breadcrumbs");
-    EXPECT_EQ(breadcrumbs_ns.source_origin().file(), "/test/schema.yaml");
-    EXPECT_EQ(breadcrumbs_ns.source_origin().span().start_line(), 1U);
-    ASSERT_EQ(breadcrumbs_ns.namespaces_size(), 1);
+    const auto& quarry_ns = root.namespaces(0);
+    EXPECT_EQ(quarry_ns.name(), "quarry");
+    EXPECT_EQ(quarry_ns.source_origin().file(), "/test/schema.yaml");
+    EXPECT_EQ(quarry_ns.source_origin().span().start_line(), 1U);
+    ASSERT_EQ(quarry_ns.namespaces_size(), 1);
 
-    const auto& telemetry_ns = breadcrumbs_ns.namespaces(0);
+    const auto& telemetry_ns = quarry_ns.namespaces(0);
     EXPECT_EQ(telemetry_ns.name(), "telemetry");
     EXPECT_EQ(telemetry_ns.source_origin().file(), "/test/schema.yaml");
     EXPECT_EQ(telemetry_ns.source_origin().span().start_line(), 1U);
@@ -386,7 +386,7 @@ TEST(SchemaIrBuilderDirectNormalizedSourceTest,
     ASSERT_TRUE(lowered_record.has_schema_version());
     EXPECT_EQ(lowered_record.schema_version(), 7U);
     ASSERT_TRUE(lowered_record.has_record_type());
-    EXPECT_EQ(lowered_record.record_type(), breadcrumbs::schema_ir::RECORD_TYPE_DATA);
+    EXPECT_EQ(lowered_record.record_type(), quarry::schema_ir::RECORD_TYPE_DATA);
     EXPECT_EQ(lowered_record.record_id(), 1U);
     ASSERT_EQ(lowered_record.fields_size(), 5);
 
@@ -402,7 +402,7 @@ TEST(SchemaIrBuilderDirectNormalizedSourceTest,
     EXPECT_EQ(lowered_record.fields(1).field_index(), 1U);
     ASSERT_TRUE(lowered_record.fields(1).type().has_primitive());
     EXPECT_EQ(lowered_record.fields(1).type().primitive(),
-              ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+              ::quarry::schema_ir::PRIMITIVE_TYPE_U32);
 
     EXPECT_EQ(lowered_record.fields(2).name(), "label");
     EXPECT_EQ(lowered_record.fields(2).field_index(), 2U);
@@ -423,7 +423,7 @@ TEST(SchemaIrBuilderDirectNormalizedSourceTest,
 TEST(SchemaIrBuilderDirectNormalizedSourceTest, FailsWhenSemanticRecordIsMissing) {
     DirectPipelineOutput output = make_direct_builder_fixture();
     auto* record = const_cast<SemanticRecord*>(
-        output.semantic_model.find_record("breadcrumbs.telemetry.deep.Sample"));
+        output.semantic_model.find_record("quarry.telemetry.deep.Sample"));
     ASSERT_NE(record, nullptr);
     output.semantic_model.records.clear();
 
@@ -435,8 +435,8 @@ TEST(SchemaIrBuilderDirectNormalizedSourceTest, FailsWhenSemanticRecordIsMissing
 
 TEST(SchemaIrBuilderDirectNormalizedSourceTest, FailsWhenLayoutRecordIsMissing) {
     DirectPipelineOutput output = make_direct_builder_fixture();
-    auto* layout_record = const_cast<breadcrumbs::compiler::layout::RecordLayout*>(
-        output.layout_model.find_record("breadcrumbs.telemetry.deep.Sample"));
+    auto* layout_record = const_cast<quarry::compiler::layout::RecordLayout*>(
+        output.layout_model.find_record("quarry.telemetry.deep.Sample"));
     ASSERT_NE(layout_record, nullptr);
     output.layout_model.records.clear();
 
@@ -449,7 +449,7 @@ TEST(SchemaIrBuilderDirectNormalizedSourceTest, FailsWhenLayoutRecordIsMissing) 
 TEST(SchemaIrBuilderDirectNormalizedSourceTest, FailsWhenSemanticFieldCountDiffers) {
     DirectPipelineOutput output = make_direct_builder_fixture();
     auto* record = const_cast<SemanticRecord*>(
-        output.semantic_model.find_record("breadcrumbs.telemetry.deep.Sample"));
+        output.semantic_model.find_record("quarry.telemetry.deep.Sample"));
     ASSERT_NE(record, nullptr);
     ASSERT_GE(record->fields.size(), 2U);
     record->fields.pop_back();
@@ -463,7 +463,7 @@ TEST(SchemaIrBuilderDirectNormalizedSourceTest, FailsWhenSemanticFieldCountDiffe
 TEST(SchemaIrBuilderDirectNormalizedSourceTest, FailsWhenSemanticFieldOrderDiffers) {
     DirectPipelineOutput output = make_direct_builder_fixture();
     auto* record = const_cast<SemanticRecord*>(
-        output.semantic_model.find_record("breadcrumbs.telemetry.deep.Sample"));
+        output.semantic_model.find_record("quarry.telemetry.deep.Sample"));
     ASSERT_NE(record, nullptr);
     ASSERT_GE(record->fields.size(), 2U);
     std::swap(record->fields[0], record->fields[1]);
@@ -476,8 +476,8 @@ TEST(SchemaIrBuilderDirectNormalizedSourceTest, FailsWhenSemanticFieldOrderDiffe
 
 TEST(SchemaIrBuilderDirectNormalizedSourceTest, FailsWhenLayoutFieldCountDiffers) {
     DirectPipelineOutput output = make_direct_builder_fixture();
-    auto* layout_record = const_cast<breadcrumbs::compiler::layout::RecordLayout*>(
-        output.layout_model.find_record("breadcrumbs.telemetry.deep.Sample"));
+    auto* layout_record = const_cast<quarry::compiler::layout::RecordLayout*>(
+        output.layout_model.find_record("quarry.telemetry.deep.Sample"));
     ASSERT_NE(layout_record, nullptr);
     ASSERT_GE(layout_record->fields.size(), 2U);
     layout_record->fields.pop_back();
@@ -490,8 +490,8 @@ TEST(SchemaIrBuilderDirectNormalizedSourceTest, FailsWhenLayoutFieldCountDiffers
 
 TEST(SchemaIrBuilderDirectNormalizedSourceTest, FailsWhenLayoutFieldIndexDiffers) {
     DirectPipelineOutput output = make_direct_builder_fixture();
-    auto* layout_record = const_cast<breadcrumbs::compiler::layout::RecordLayout*>(
-        output.layout_model.find_record("breadcrumbs.telemetry.deep.Sample"));
+    auto* layout_record = const_cast<quarry::compiler::layout::RecordLayout*>(
+        output.layout_model.find_record("quarry.telemetry.deep.Sample"));
     ASSERT_NE(layout_record, nullptr);
     ASSERT_GE(layout_record->fields.size(), 2U);
     layout_record->fields[1].field_index = 7U;
@@ -508,7 +508,7 @@ TEST(SchemaIrBuilderDirectNormalizedSourceTest, FailsWhenLayoutFieldIndexDiffers
 TEST(SchemaIrBuilderDirectNormalizedSourceTest, FailsWhenSemanticTypeIsInvalid) {
     DirectPipelineOutput output = make_direct_builder_fixture();
     auto* record = const_cast<SemanticRecord*>(
-        output.semantic_model.find_record("breadcrumbs.telemetry.deep.Sample"));
+        output.semantic_model.find_record("quarry.telemetry.deep.Sample"));
     ASSERT_NE(record, nullptr);
     ASSERT_GE(record->fields.size(), 2U);
     record->fields[1].type = SemanticType();
@@ -526,7 +526,7 @@ TEST(SchemaIrBuilderDirectNormalizedSourceTest,
      FailsWhenRecursiveSemanticArrayElementIsNull) {
     DirectPipelineOutput output = make_direct_builder_fixture();
     auto* record = const_cast<SemanticRecord*>(
-        output.semantic_model.find_record("breadcrumbs.telemetry.deep.Sample"));
+        output.semantic_model.find_record("quarry.telemetry.deep.Sample"));
     ASSERT_NE(record, nullptr);
     ASSERT_GE(record->fields.size(), 5U);
     SemanticArrayType array;
@@ -541,8 +541,8 @@ TEST(SchemaIrBuilderDirectNormalizedSourceTest,
 
 TEST(SchemaIrBuilderDirectNormalizedSourceTest, FailsWhenLayoutRecordIdIsZero) {
     DirectPipelineOutput output = make_direct_builder_fixture();
-    auto* layout_record = const_cast<breadcrumbs::compiler::layout::RecordLayout*>(
-        output.layout_model.find_record("breadcrumbs.telemetry.deep.Sample"));
+    auto* layout_record = const_cast<quarry::compiler::layout::RecordLayout*>(
+        output.layout_model.find_record("quarry.telemetry.deep.Sample"));
     ASSERT_NE(layout_record, nullptr);
     layout_record->record_id = 0U;
 

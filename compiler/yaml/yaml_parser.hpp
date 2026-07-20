@@ -7,7 +7,7 @@
 
 #include <optional>
 
-namespace breadcrumbs::compiler::yaml {
+namespace quarry::compiler::yaml {
 
 struct YamlParseResult {
     std::optional<YamlDocument> document;
@@ -20,4 +20,4 @@ public:
           diagnostics::DiagnosticEngine& diagnostics);
 };
 
-} // namespace breadcrumbs::compiler::yaml
+} // namespace quarry::compiler::yaml

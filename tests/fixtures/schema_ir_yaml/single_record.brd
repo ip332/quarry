@@ -1,4 +1,4 @@
-namespace: breadcrumbs.single
+namespace: quarry.single
 record: Example
 version: 1
 type: command

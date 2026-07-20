@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-namespace breadcrumbs::compiler::backend {
+namespace quarry::compiler::backend {
 namespace {
 
 struct NamedTypeInfo {
@@ -28,8 +28,8 @@ struct NamedTypeInfo {
     std::string file_path;
     std::string include_path;
     std::string cpp_name;
-    const ::breadcrumbs::schema_ir::RecordIR* record_ir = nullptr;
-    const ::breadcrumbs::schema_ir::EnumIR* enum_ir = nullptr;
+    const ::quarry::schema_ir::RecordIR* record_ir = nullptr;
+    const ::quarry::schema_ir::EnumIR* enum_ir = nullptr;
 };
 
 struct TypeCatalog {
@@ -99,14 +99,14 @@ struct RuntimeFieldEncoding {
 };
 
 struct FieldPlan {
-    const ::breadcrumbs::schema_ir::FieldIR* field = nullptr;
+    const ::quarry::schema_ir::FieldIR* field = nullptr;
     std::string name;
     std::string cpp_type;
     RuntimeFieldEncoding runtime_encoding;
 };
 
 struct RecordPlan {
-    const ::breadcrumbs::schema_ir::RecordIR* record = nullptr;
+    const ::quarry::schema_ir::RecordIR* record = nullptr;
     std::size_t source_order = 0;
     std::vector<FieldPlan> fields;
     std::vector<std::uint64_t> same_namespace_declaration_dependencies;
@@ -119,14 +119,14 @@ struct DeclarationPlan {
     };
 
     Kind kind = Kind::Enum;
-    const ::breadcrumbs::schema_ir::EnumIR* enum_ir = nullptr;
+    const ::quarry::schema_ir::EnumIR* enum_ir = nullptr;
     RecordPlan record;
     std::size_t source_order = 0;
     std::vector<std::uint64_t> same_namespace_declaration_dependencies;
 };
 
 struct NamespacePlan {
-    const ::breadcrumbs::schema_ir::NamespaceIR* namespace_ir = nullptr;
+    const ::quarry::schema_ir::NamespaceIR* namespace_ir = nullptr;
     std::string fqn;
     std::string file_path;
     std::string include_path;
@@ -266,8 +266,8 @@ void append_namespace_close(std::ostringstream& stream,
 }
 
 [[nodiscard]] std::optional<PrimitiveMapping>
-primitive_mapping(::breadcrumbs::schema_ir::PrimitiveType primitive, std::string& error_message) {
-    using ::breadcrumbs::schema_ir::PrimitiveType;
+primitive_mapping(::quarry::schema_ir::PrimitiveType primitive, std::string& error_message) {
+    using ::quarry::schema_ir::PrimitiveType;
 
     if (primitive == PrimitiveType::PRIMITIVE_TYPE_BOOL) {
         return PrimitiveMapping{.cpp_type = "bool"};
@@ -312,8 +312,8 @@ primitive_mapping(::breadcrumbs::schema_ir::PrimitiveType primitive, std::string
 }
 
 [[nodiscard]] RuntimeScalarEncoder
-runtime_scalar_encoder(::breadcrumbs::schema_ir::PrimitiveType primitive) {
-    using ::breadcrumbs::schema_ir::PrimitiveType;
+runtime_scalar_encoder(::quarry::schema_ir::PrimitiveType primitive) {
+    using ::quarry::schema_ir::PrimitiveType;
 
     if (primitive == PrimitiveType::PRIMITIVE_TYPE_BOOL) {
         return RuntimeScalarEncoder::Bool;
@@ -365,12 +365,12 @@ runtime_scalar_encoder(::breadcrumbs::schema_ir::PrimitiveType primitive) {
 }
 
 [[nodiscard]] std::optional<RuntimeEnumEncoding>
-runtime_enum_encoding(const ::breadcrumbs::schema_ir::EnumIR& enum_ir, std::string cpp_type) {
+runtime_enum_encoding(const ::quarry::schema_ir::EnumIR& enum_ir, std::string cpp_type) {
     RuntimeEnumEncoding encoding;
     encoding.cpp_type = std::move(cpp_type);
     std::uint64_t max_value = 0U;
     encoding.valid_values.reserve(static_cast<std::size_t>(enum_ir.values_size()));
-    for (const ::breadcrumbs::schema_ir::EnumValueIR& value : enum_ir.values()) {
+    for (const ::quarry::schema_ir::EnumValueIR& value : enum_ir.values()) {
         if (value.value() < 0) {
             return std::nullopt;
         }
@@ -411,14 +411,14 @@ void merge_type_requirements(TypeLoweringResult& target, const TypeLoweringResul
 lookup_named_type(const TypeCatalog& catalog, std::uint64_t ir_id, std::string& error_message);
 
 [[nodiscard]] TypeLoweringResult
-lower_field_type(const ::breadcrumbs::schema_ir::FieldType& field_type,
+lower_field_type(const ::quarry::schema_ir::FieldType& field_type,
                  const std::string& current_namespace_fqn,
                  const std::map<std::uint64_t, std::size_t>& local_declaration_ids,
                  const TypeCatalog& catalog, std::string& error_message) {
     TypeLoweringResult result;
 
     switch (field_type.kind_case()) {
-    case ::breadcrumbs::schema_ir::FieldType::kPrimitive: {
+    case ::quarry::schema_ir::FieldType::kPrimitive: {
         const std::optional<PrimitiveMapping> mapping =
             primitive_mapping(field_type.primitive(), error_message);
         if (!mapping.has_value()) {
@@ -428,16 +428,16 @@ lower_field_type(const ::breadcrumbs::schema_ir::FieldType& field_type,
         add_primitive_requirements(result, *mapping);
         return result;
     }
-    case ::breadcrumbs::schema_ir::FieldType::kString:
+    case ::quarry::schema_ir::FieldType::kString:
         result.cpp_type = "std::string";
         result.standard_includes.insert("<string>");
         return result;
-    case ::breadcrumbs::schema_ir::FieldType::kBytes:
+    case ::quarry::schema_ir::FieldType::kBytes:
         result.cpp_type = "std::vector<std::byte>";
         result.standard_includes.insert("<cstddef>");
         result.standard_includes.insert("<vector>");
         return result;
-    case ::breadcrumbs::schema_ir::FieldType::kRecord: {
+    case ::quarry::schema_ir::FieldType::kRecord: {
         const NamedTypeInfo* target =
             lookup_named_type(catalog, field_type.record().target_record_ir_id(), error_message);
         if (target == nullptr) {
@@ -464,7 +464,7 @@ lower_field_type(const ::breadcrumbs::schema_ir::FieldType& field_type,
         }
         return result;
     }
-    case ::breadcrumbs::schema_ir::FieldType::kEnumType: {
+    case ::quarry::schema_ir::FieldType::kEnumType: {
         const NamedTypeInfo* target =
             lookup_named_type(catalog, field_type.enum_type().target_enum_ir_id(), error_message);
         if (target == nullptr) {
@@ -491,7 +491,7 @@ lower_field_type(const ::breadcrumbs::schema_ir::FieldType& field_type,
         }
         return result;
     }
-    case ::breadcrumbs::schema_ir::FieldType::kArray: {
+    case ::quarry::schema_ir::FieldType::kArray: {
         TypeLoweringResult element =
             lower_field_type(field_type.array().element_type(), current_namespace_fqn,
                              local_declaration_ids, catalog, error_message);
@@ -504,7 +504,7 @@ lower_field_type(const ::breadcrumbs::schema_ir::FieldType& field_type,
         result.standard_includes.insert("<vector>");
         return result;
     }
-    case ::breadcrumbs::schema_ir::FieldType::KIND_NOT_SET:
+    case ::quarry::schema_ir::FieldType::KIND_NOT_SET:
         error_message = "backend codegen encountered a field without a type";
         return {};
     }
@@ -514,14 +514,14 @@ lower_field_type(const ::breadcrumbs::schema_ir::FieldType& field_type,
 }
 
 [[nodiscard]] RuntimeFieldEncoding
-lower_runtime_field_encoding(const ::breadcrumbs::schema_ir::FieldType& field_type,
+lower_runtime_field_encoding(const ::quarry::schema_ir::FieldType& field_type,
                              const TypeCatalog& catalog) {
     RuntimeFieldEncoding encoding;
     switch (field_type.kind_case()) {
-    case ::breadcrumbs::schema_ir::FieldType::kPrimitive:
+    case ::quarry::schema_ir::FieldType::kPrimitive:
         encoding.scalar = runtime_scalar_encoder(field_type.primitive());
         return encoding;
-    case ::breadcrumbs::schema_ir::FieldType::kEnumType: {
+    case ::quarry::schema_ir::FieldType::kEnumType: {
         const auto type_it = catalog.named_types.find(field_type.enum_type().target_enum_ir_id());
         if (type_it == catalog.named_types.end() ||
             type_it->second.kind != NamedTypeInfo::Kind::Enum ||
@@ -532,15 +532,15 @@ lower_runtime_field_encoding(const ::breadcrumbs::schema_ir::FieldType& field_ty
             runtime_enum_encoding(*type_it->second.enum_ir, type_it->second.cpp_name);
         return encoding;
     }
-    case ::breadcrumbs::schema_ir::FieldType::kString:
+    case ::quarry::schema_ir::FieldType::kString:
         encoding.variable = RuntimeVariableEncoding::String;
         encoding.max_bytes = field_type.string().max_bytes();
         return encoding;
-    case ::breadcrumbs::schema_ir::FieldType::kBytes:
+    case ::quarry::schema_ir::FieldType::kBytes:
         encoding.variable = RuntimeVariableEncoding::Bytes;
         encoding.max_bytes = field_type.bytes().max_bytes();
         return encoding;
-    case ::breadcrumbs::schema_ir::FieldType::kRecord: {
+    case ::quarry::schema_ir::FieldType::kRecord: {
         const auto type_it = catalog.named_types.find(field_type.record().target_record_ir_id());
         if (type_it == catalog.named_types.end() ||
             type_it->second.kind != NamedTypeInfo::Kind::Record ||
@@ -555,18 +555,18 @@ lower_runtime_field_encoding(const ::breadcrumbs::schema_ir::FieldType& field_ty
         };
         return encoding;
     }
-    case ::breadcrumbs::schema_ir::FieldType::kArray: {
-        const ::breadcrumbs::schema_ir::ArrayType& array_type = field_type.array();
+    case ::quarry::schema_ir::FieldType::kArray: {
+        const ::quarry::schema_ir::ArrayType& array_type = field_type.array();
         RuntimeArrayEncoding array_encoding;
         array_encoding.max_elements = array_type.max_elements();
         switch (array_type.element_type().kind_case()) {
-        case ::breadcrumbs::schema_ir::FieldType::kPrimitive:
+        case ::quarry::schema_ir::FieldType::kPrimitive:
             array_encoding.scalar = runtime_scalar_encoder(array_type.element_type().primitive());
             if (array_encoding.scalar != RuntimeScalarEncoder::Unsupported) {
                 encoding.array_encoding = std::move(array_encoding);
             }
             return encoding;
-        case ::breadcrumbs::schema_ir::FieldType::kEnumType: {
+        case ::quarry::schema_ir::FieldType::kEnumType: {
             const auto type_it =
                 catalog.named_types.find(array_type.element_type().enum_type().target_enum_ir_id());
             if (type_it == catalog.named_types.end() ||
@@ -581,17 +581,17 @@ lower_runtime_field_encoding(const ::breadcrumbs::schema_ir::FieldType& field_ty
             }
             return encoding;
         }
-        case ::breadcrumbs::schema_ir::FieldType::kString:
+        case ::quarry::schema_ir::FieldType::kString:
             array_encoding.variable = RuntimeVariableEncoding::String;
             array_encoding.max_bytes = array_type.element_type().string().max_bytes();
             encoding.array_encoding = std::move(array_encoding);
             return encoding;
-        case ::breadcrumbs::schema_ir::FieldType::kBytes:
+        case ::quarry::schema_ir::FieldType::kBytes:
             array_encoding.variable = RuntimeVariableEncoding::Bytes;
             array_encoding.max_bytes = array_type.element_type().bytes().max_bytes();
             encoding.array_encoding = std::move(array_encoding);
             return encoding;
-        case ::breadcrumbs::schema_ir::FieldType::kRecord: {
+        case ::quarry::schema_ir::FieldType::kRecord: {
             const auto type_it =
                 catalog.named_types.find(array_type.element_type().record().target_record_ir_id());
             if (type_it == catalog.named_types.end() ||
@@ -608,13 +608,13 @@ lower_runtime_field_encoding(const ::breadcrumbs::schema_ir::FieldType& field_ty
             encoding.array_encoding = std::move(array_encoding);
             return encoding;
         }
-        case ::breadcrumbs::schema_ir::FieldType::kArray:
-        case ::breadcrumbs::schema_ir::FieldType::KIND_NOT_SET:
+        case ::quarry::schema_ir::FieldType::kArray:
+        case ::quarry::schema_ir::FieldType::KIND_NOT_SET:
             return encoding;
         }
         return encoding;
     }
-    case ::breadcrumbs::schema_ir::FieldType::KIND_NOT_SET:
+    case ::quarry::schema_ir::FieldType::KIND_NOT_SET:
         return encoding;
     }
 
@@ -622,16 +622,16 @@ lower_runtime_field_encoding(const ::breadcrumbs::schema_ir::FieldType& field_ty
 }
 
 [[nodiscard]] bool
-render_field_validation_statements(const ::breadcrumbs::schema_ir::FieldType& field_type,
+render_field_validation_statements(const ::quarry::schema_ir::FieldType& field_type,
                                    std::string_view value_expression, std::size_t indent_level,
                                    std::size_t element_depth, std::ostringstream& stream,
                                    std::string& error_message) {
     switch (field_type.kind_case()) {
-    case ::breadcrumbs::schema_ir::FieldType::kPrimitive:
-    case ::breadcrumbs::schema_ir::FieldType::kRecord:
-    case ::breadcrumbs::schema_ir::FieldType::kEnumType:
+    case ::quarry::schema_ir::FieldType::kPrimitive:
+    case ::quarry::schema_ir::FieldType::kRecord:
+    case ::quarry::schema_ir::FieldType::kEnumType:
         return true;
-    case ::breadcrumbs::schema_ir::FieldType::kString: {
+    case ::quarry::schema_ir::FieldType::kString: {
         const std::uint32_t max_bytes = field_type.string().max_bytes();
         if (max_bytes > 0) {
             stream << indent(indent_level) << "if (" << value_expression << ".size() > "
@@ -641,7 +641,7 @@ render_field_validation_statements(const ::breadcrumbs::schema_ir::FieldType& fi
         }
         return true;
     }
-    case ::breadcrumbs::schema_ir::FieldType::kBytes: {
+    case ::quarry::schema_ir::FieldType::kBytes: {
         const std::uint32_t max_bytes = field_type.bytes().max_bytes();
         if (max_bytes > 0) {
             stream << indent(indent_level) << "if (" << value_expression << ".size() > "
@@ -651,7 +651,7 @@ render_field_validation_statements(const ::breadcrumbs::schema_ir::FieldType& fi
         }
         return true;
     }
-    case ::breadcrumbs::schema_ir::FieldType::kArray: {
+    case ::quarry::schema_ir::FieldType::kArray: {
         const std::uint32_t max_count = field_type.array().max_elements();
         const std::string element_name = "element_" + std::to_string(element_depth);
         stream << indent(indent_level) << "if (" << value_expression << ".size() > " << max_count
@@ -668,7 +668,7 @@ render_field_validation_statements(const ::breadcrumbs::schema_ir::FieldType& fi
         stream << indent(indent_level) << "}\n";
         return true;
     }
-    case ::breadcrumbs::schema_ir::FieldType::KIND_NOT_SET:
+    case ::quarry::schema_ir::FieldType::KIND_NOT_SET:
         error_message = "backend codegen encountered a field without a type";
         return false;
     }
@@ -773,13 +773,13 @@ lookup_named_type(const TypeCatalog& catalog, std::uint64_t ir_id, std::string& 
     return true;
 }
 
-void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
+void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
                          const CodegenOptions& options, TypeCatalog& catalog) {
     const std::string file_path = file_path_for_namespace(options, ns.fqn());
     const std::string include_path = include_path_for_namespace(options, ns.fqn());
 
     for (int index = 0; index < ns.records_size(); ++index) {
-        const ::breadcrumbs::schema_ir::RecordIR& record = ns.records(index);
+        const ::quarry::schema_ir::RecordIR& record = ns.records(index);
         catalog.named_types.emplace(record.ir_id(),
                                     NamedTypeInfo{
                                         .kind = NamedTypeInfo::Kind::Record,
@@ -793,7 +793,7 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
     }
 
     for (int index = 0; index < ns.enums_size(); ++index) {
-        const ::breadcrumbs::schema_ir::EnumIR& enum_ir = ns.enums(index);
+        const ::quarry::schema_ir::EnumIR& enum_ir = ns.enums(index);
         catalog.named_types.emplace(enum_ir.ir_id(),
                                     NamedTypeInfo{
                                         .kind = NamedTypeInfo::Kind::Enum,
@@ -811,7 +811,7 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
     }
 }
 
-[[nodiscard]] bool analyze_namespace(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
+[[nodiscard]] bool analyze_namespace(const ::quarry::schema_ir::NamespaceIR& ns,
                                      const CodegenOptions& options, const TypeCatalog& catalog,
                                      NamespacePlan& plan, std::string& error_message) {
     plan.namespace_ir = &ns;
@@ -828,7 +828,7 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
         plan.declarations.reserve(static_cast<std::size_t>(ns.enums_size() + ns.records_size()));
 
         for (int index = 0; index < ns.enums_size(); ++index) {
-            const ::breadcrumbs::schema_ir::EnumIR& enum_ir = ns.enums(index);
+            const ::quarry::schema_ir::EnumIR& enum_ir = ns.enums(index);
             plan.declarations.push_back(DeclarationPlan{
                 .kind = DeclarationPlan::Kind::Enum,
                 .enum_ir = &enum_ir,
@@ -839,7 +839,7 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
         }
 
         for (int index = 0; index < ns.records_size(); ++index) {
-            const ::breadcrumbs::schema_ir::RecordIR& record = ns.records(index);
+            const ::quarry::schema_ir::RecordIR& record = ns.records(index);
             add_record_requirements(plan.standard_includes);
             plan.includes.insert("runtime/binary_record.hpp");
             plan.declarations.push_back(DeclarationPlan{
@@ -875,7 +875,7 @@ void collect_named_types(const ::breadcrumbs::schema_ir::NamespaceIR& ns,
             record_plan.fields.reserve(static_cast<std::size_t>(record_plan.record->fields_size()));
             for (int field_index = 0; field_index < record_plan.record->fields_size();
                  ++field_index) {
-                const ::breadcrumbs::schema_ir::FieldIR& field =
+                const ::quarry::schema_ir::FieldIR& field =
                     record_plan.record->fields(field_index);
                 const TypeLoweringResult lowered = lower_field_type(
                     field.type(), ns.fqn(), local_declaration_ids, catalog, error_message);
@@ -1044,13 +1044,13 @@ void collect_planned_files(const NamespacePlan& plan, RenderGenerationPlan& gene
     return true;
 }
 
-[[nodiscard]] std::string render_enum_definition(const ::breadcrumbs::schema_ir::EnumIR& enum_ir,
+[[nodiscard]] std::string render_enum_definition(const ::quarry::schema_ir::EnumIR& enum_ir,
                                                  std::size_t indent_level) {
     std::ostringstream stream;
     stream << indent(indent_level) << "enum class " << enum_ir.name() << " : std::int64_t"
            << " {\n";
     for (int index = 0; index < enum_ir.values_size(); ++index) {
-        const ::breadcrumbs::schema_ir::EnumValueIR& value = enum_ir.values(index);
+        const ::quarry::schema_ir::EnumValueIR& value = enum_ir.values(index);
         stream << indent(indent_level + 1) << value.name() << " = " << value.value() << ",\n";
     }
     stream << indent(indent_level) << "};\n";
@@ -1253,8 +1253,8 @@ void render_unsupported_present_field_encoding(const FieldPlan& field, std::size
                                                std::ostringstream& stream) {
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
     stream << indent(indent_level + 1)
-           << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
-           << "::breadcrumbs::runtime::EncodeError::unsupported_field_type);\n";
+           << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
+           << "::quarry::runtime::EncodeError::unsupported_field_type);\n";
     stream << indent(indent_level) << "}\n";
 }
 
@@ -1263,13 +1263,13 @@ void render_scalar_field_encoding(const FieldPlan& field, std::size_t indent_lev
     const std::string append_function = runtime_append_function(field.runtime_encoding.scalar);
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
-    stream << indent(indent_level + 1) << "if (!::breadcrumbs::runtime::" << append_function
+    stream << indent(indent_level + 1) << "if (!::quarry::runtime::" << append_function
            << "(field_bytes, *value." << field.name << "())) {\n";
     stream << indent(indent_level + 2)
-           << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
-           << "::breadcrumbs::runtime::EncodeError::overflow);\n";
+           << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
+           << "::quarry::runtime::EncodeError::overflow);\n";
     stream << indent(indent_level + 1) << "}\n";
-    stream << indent(indent_level + 1) << "fields.push_back(::breadcrumbs::runtime::FieldBytes{\n";
+    stream << indent(indent_level + 1) << "fields.push_back(::quarry::runtime::FieldBytes{\n";
     stream << indent(indent_level + 2) << ".field_index = "
            << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
     stream << indent(indent_level + 2) << ".bytes = std::move(field_bytes),\n";
@@ -1296,13 +1296,13 @@ void render_enum_field_encoding(const FieldPlan& field, const RuntimeEnumEncodin
     }
     stream << ")) {\n";
     stream << indent(indent_level + 2)
-           << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
-           << "::breadcrumbs::runtime::EncodeError::unknown_enum_value);\n";
+           << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
+           << "::quarry::runtime::EncodeError::unknown_enum_value);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
-    stream << indent(indent_level + 1) << "::breadcrumbs::runtime::" << append_function
+    stream << indent(indent_level + 1) << "::quarry::runtime::" << append_function
            << "(field_bytes, static_cast<" << unsigned_type << ">(enum_numeric));\n";
-    stream << indent(indent_level + 1) << "fields.push_back(::breadcrumbs::runtime::FieldBytes{\n";
+    stream << indent(indent_level + 1) << "fields.push_back(::quarry::runtime::FieldBytes{\n";
     stream << indent(indent_level + 2) << ".field_index = "
            << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
     stream << indent(indent_level + 2) << ".bytes = std::move(field_bytes),\n";
@@ -1316,18 +1316,18 @@ void render_string_field_encoding(const FieldPlan& field, std::size_t indent_lev
     stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
            << field.runtime_encoding.max_bytes << "U) {\n";
     stream << indent(indent_level + 2)
-           << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
-           << "::breadcrumbs::runtime::EncodeError::bounds_exceeded);\n";
+           << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
+           << "::quarry::runtime::EncodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
     stream << indent(indent_level + 1)
-           << "if (!::breadcrumbs::runtime::append_string_utf8(field_bytes, *value."
+           << "if (!::quarry::runtime::append_string_utf8(field_bytes, *value."
            << field.name << "())) {\n";
     stream << indent(indent_level + 2)
-           << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
-           << "::breadcrumbs::runtime::EncodeError::invalid_utf8);\n";
+           << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
+           << "::quarry::runtime::EncodeError::invalid_utf8);\n";
     stream << indent(indent_level + 1) << "}\n";
-    stream << indent(indent_level + 1) << "fields.push_back(::breadcrumbs::runtime::FieldBytes{\n";
+    stream << indent(indent_level + 1) << "fields.push_back(::quarry::runtime::FieldBytes{\n";
     stream << indent(indent_level + 2) << ".field_index = "
            << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
     stream << indent(indent_level + 2) << ".bytes = std::move(field_bytes),\n";
@@ -1341,14 +1341,14 @@ void render_bytes_field_encoding(const FieldPlan& field, std::size_t indent_leve
     stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
            << field.runtime_encoding.max_bytes << "U) {\n";
     stream << indent(indent_level + 2)
-           << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
-           << "::breadcrumbs::runtime::EncodeError::bounds_exceeded);\n";
+           << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
+           << "::quarry::runtime::EncodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
-    stream << indent(indent_level + 1) << "::breadcrumbs::runtime::append_bytes(field_bytes, "
+    stream << indent(indent_level + 1) << "::quarry::runtime::append_bytes(field_bytes, "
            << "std::span<const std::byte>(value." << field.name << "()->data(), value."
            << field.name << "()->size()));\n";
-    stream << indent(indent_level + 1) << "fields.push_back(::breadcrumbs::runtime::FieldBytes{\n";
+    stream << indent(indent_level + 1) << "fields.push_back(::quarry::runtime::FieldBytes{\n";
     stream << indent(indent_level + 2) << ".field_index = "
            << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
     stream << indent(indent_level + 2) << ".bytes = std::move(field_bytes),\n";
@@ -1363,10 +1363,10 @@ void render_record_field_encoding(const FieldPlan& field, const RuntimeRecordEnc
            << "(*value." << field.name << "());\n";
     stream << indent(indent_level + 1) << "if (!field_bytes.has_value()) {\n";
     stream << indent(indent_level + 2)
-           << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
+           << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
            << "field_bytes.error);\n";
     stream << indent(indent_level + 1) << "}\n";
-    stream << indent(indent_level + 1) << "fields.push_back(::breadcrumbs::runtime::FieldBytes{\n";
+    stream << indent(indent_level + 1) << "fields.push_back(::quarry::runtime::FieldBytes{\n";
     stream << indent(indent_level + 2) << ".field_index = "
            << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
     stream << indent(indent_level + 2) << ".bytes = std::move(*field_bytes.value),\n";
@@ -1380,11 +1380,11 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
     stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
            << array_encoding.max_elements << "U) {\n";
     stream << indent(indent_level + 2)
-           << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
-           << "::breadcrumbs::runtime::EncodeError::bounds_exceeded);\n";
+           << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
+           << "::quarry::runtime::EncodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
-    stream << indent(indent_level + 1) << "::breadcrumbs::runtime::append_varuint(field_bytes, "
+    stream << indent(indent_level + 1) << "::quarry::runtime::append_varuint(field_bytes, "
            << "value." << field.name << "()->size());\n";
 
     if (array_encoding.record_encoding.has_value()) {
@@ -1395,14 +1395,14 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
                << record_encoding.encode_function << "(element);\n";
         stream << indent(indent_level + 2) << "if (!element_bytes.has_value()) {\n";
         stream << indent(indent_level + 3)
-               << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
+               << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
                << "element_bytes.error);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
-               << "::breadcrumbs::runtime::append_varuint(field_bytes, "
+               << "::quarry::runtime::append_varuint(field_bytes, "
                << "element_bytes.value->size());\n";
         stream << indent(indent_level + 2)
-               << "::breadcrumbs::runtime::append_bytes(field_bytes, "
+               << "::quarry::runtime::append_bytes(field_bytes, "
                << "std::span<const std::byte>(element_bytes.value->data(), "
                << "element_bytes.value->size()));\n";
         stream << indent(indent_level + 1) << "}\n";
@@ -1412,16 +1412,16 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
         stream << indent(indent_level + 2) << "if (element.size() > " << array_encoding.max_bytes
                << "U) {\n";
         stream << indent(indent_level + 3)
-               << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
-               << "::breadcrumbs::runtime::EncodeError::bounds_exceeded);\n";
+               << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
+               << "::quarry::runtime::EncodeError::bounds_exceeded);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
-               << "::breadcrumbs::runtime::append_varuint(field_bytes, element.size());\n";
+               << "::quarry::runtime::append_varuint(field_bytes, element.size());\n";
         stream << indent(indent_level + 2)
-               << "if (!::breadcrumbs::runtime::append_string_utf8(field_bytes, element)) {\n";
+               << "if (!::quarry::runtime::append_string_utf8(field_bytes, element)) {\n";
         stream << indent(indent_level + 3)
-               << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
-               << "::breadcrumbs::runtime::EncodeError::invalid_utf8);\n";
+               << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
+               << "::quarry::runtime::EncodeError::invalid_utf8);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 1) << "}\n";
     } else if (array_encoding.variable == RuntimeVariableEncoding::Bytes) {
@@ -1430,12 +1430,12 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
         stream << indent(indent_level + 2) << "if (element.size() > " << array_encoding.max_bytes
                << "U) {\n";
         stream << indent(indent_level + 3)
-               << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
-               << "::breadcrumbs::runtime::EncodeError::bounds_exceeded);\n";
+               << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
+               << "::quarry::runtime::EncodeError::bounds_exceeded);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
-               << "::breadcrumbs::runtime::append_varuint(field_bytes, element.size());\n";
-        stream << indent(indent_level + 2) << "::breadcrumbs::runtime::append_bytes(field_bytes, "
+               << "::quarry::runtime::append_varuint(field_bytes, element.size());\n";
+        stream << indent(indent_level + 2) << "::quarry::runtime::append_bytes(field_bytes, "
                << "std::span<const std::byte>(element.data(), element.size()));\n";
         stream << indent(indent_level + 1) << "}\n";
     } else if (array_encoding.enum_encoding.has_value()) {
@@ -1458,26 +1458,26 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
         }
         stream << ")) {\n";
         stream << indent(indent_level + 3)
-               << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
-               << "::breadcrumbs::runtime::EncodeError::unknown_enum_value);\n";
+               << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
+               << "::quarry::runtime::EncodeError::unknown_enum_value);\n";
         stream << indent(indent_level + 2) << "}\n";
-        stream << indent(indent_level + 2) << "::breadcrumbs::runtime::" << append_function
+        stream << indent(indent_level + 2) << "::quarry::runtime::" << append_function
                << "(field_bytes, static_cast<" << unsigned_type << ">(enum_numeric));\n";
         stream << indent(indent_level + 1) << "}\n";
     } else {
         const std::string append_function = runtime_append_function(array_encoding.scalar);
         stream << indent(indent_level + 1) << "for (const auto& element : *value." << field.name
                << "()) {\n";
-        stream << indent(indent_level + 2) << "if (!::breadcrumbs::runtime::" << append_function
+        stream << indent(indent_level + 2) << "if (!::quarry::runtime::" << append_function
                << "(field_bytes, element)) {\n";
         stream << indent(indent_level + 3)
-               << "return ::breadcrumbs::runtime::encode_failure<std::vector<std::byte>>("
-               << "::breadcrumbs::runtime::EncodeError::overflow);\n";
+               << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
+               << "::quarry::runtime::EncodeError::overflow);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 1) << "}\n";
     }
 
-    stream << indent(indent_level + 1) << "fields.push_back(::breadcrumbs::runtime::FieldBytes{\n";
+    stream << indent(indent_level + 1) << "fields.push_back(::quarry::runtime::FieldBytes{\n";
     stream << indent(indent_level + 2) << ".field_index = "
            << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
     stream << indent(indent_level + 2) << ".bytes = std::move(field_bytes),\n";
@@ -1521,9 +1521,9 @@ void render_record_encoder_definition(const RecordPlan& record_plan, std::size_t
                                       std::ostringstream& stream) {
     const std::string& record_name = record_plan.record->name();
     stream << indent(indent_level)
-           << "::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>> encode_result(const "
+           << "::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const "
            << record_name << "& value) {\n";
-    stream << indent(indent_level + 1) << "std::vector<::breadcrumbs::runtime::FieldBytes> fields;\n";
+    stream << indent(indent_level + 1) << "std::vector<::quarry::runtime::FieldBytes> fields;\n";
     if (!record_plan.fields.empty()) {
         stream << indent(indent_level + 1) << "fields.reserve(" << record_plan.fields.size()
                << "U);\n";
@@ -1533,7 +1533,7 @@ void render_record_encoder_definition(const RecordPlan& record_plan, std::size_t
     } else {
         stream << indent(indent_level + 1) << "(void)value;\n";
     }
-    stream << indent(indent_level + 1) << "return ::breadcrumbs::runtime::encode_record_result("
+    stream << indent(indent_level + 1) << "return ::quarry::runtime::encode_record_result("
            << record_plan.record->record_id() << "U, fields);\n";
     stream << indent(indent_level) << "}\n";
     stream << "\n\n";
@@ -1549,11 +1549,11 @@ void render_record_encoder_definition(const RecordPlan& record_plan, std::size_t
 
 void render_unsupported_present_field_decoding(const FieldPlan& field, std::string_view record_name,
                                                std::size_t indent_level, std::ostringstream& stream) {
-    stream << indent(indent_level) << "if (::breadcrumbs::runtime::find_field(*parsed.record, "
+    stream << indent(indent_level) << "if (::quarry::runtime::find_field(*parsed.record, "
            << static_cast<unsigned int>(field.field->field_index()) << "U) != nullptr) {\n";
-    stream << indent(indent_level + 1) << "return ::breadcrumbs::runtime::decode_failure<"
+    stream << indent(indent_level + 1) << "return ::quarry::runtime::decode_failure<"
            << record_name
-           << ">(::breadcrumbs::runtime::DecodeError::unsupported_field_type);\n";
+           << ">(::quarry::runtime::DecodeError::unsupported_field_type);\n";
     stream << indent(indent_level) << "}\n";
 }
 
@@ -1562,18 +1562,18 @@ void render_scalar_field_decoding(const FieldPlan& field, std::string_view recor
     const std::string read_function = runtime_read_function(field.runtime_encoding.scalar);
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (const auto* field = "
-           << "::breadcrumbs::runtime::find_field(*parsed.record, " << field_index
+           << "::quarry::runtime::find_field(*parsed.record, " << field_index
            << "U); field != nullptr) {\n";
-    stream << indent(indent_level + 1) << "const auto decoded = ::breadcrumbs::runtime::"
+    stream << indent(indent_level + 1) << "const auto decoded = ::quarry::runtime::"
            << read_function << "(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
            << record_name << ">(decoded.error);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(*decoded.value)) {\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
-           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
@@ -1584,12 +1584,12 @@ void render_enum_field_decoding(const FieldPlan& field, const RuntimeEnumEncodin
     const std::string read_function = enum_read_function(enum_encoding.width_bytes);
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (const auto* field = "
-           << "::breadcrumbs::runtime::find_field(*parsed.record, " << field_index
+           << "::quarry::runtime::find_field(*parsed.record, " << field_index
            << "U); field != nullptr) {\n";
-    stream << indent(indent_level + 1) << "const auto decoded = ::breadcrumbs::runtime::"
+    stream << indent(indent_level + 1) << "const auto decoded = ::quarry::runtime::"
            << read_function << "(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
            << record_name << ">(decoded.error);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1)
@@ -1605,14 +1605,14 @@ void render_enum_field_decoding(const FieldPlan& field, const RuntimeEnumEncodin
         stream << "false";
     }
     stream << ")) {\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
            << record_name
-           << ">(::breadcrumbs::runtime::DecodeError::unknown_enum_value);\n";
+           << ">(::quarry::runtime::DecodeError::unknown_enum_value);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(static_cast<" << enum_encoding.cpp_type << ">(enum_numeric))) {\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
-           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
@@ -1621,23 +1621,23 @@ void render_string_field_decoding(const FieldPlan& field, std::string_view recor
                                   std::size_t indent_level, std::ostringstream& stream) {
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (const auto* field = "
-           << "::breadcrumbs::runtime::find_field(*parsed.record, " << field_index
+           << "::quarry::runtime::find_field(*parsed.record, " << field_index
            << "U); field != nullptr) {\n";
     stream << indent(indent_level + 1) << "if (field->bytes.size() > "
            << field.runtime_encoding.max_bytes << "U) {\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
-           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1)
-           << "const auto decoded = ::breadcrumbs::runtime::read_string_utf8(field->bytes);\n";
+           << "const auto decoded = ::quarry::runtime::read_string_utf8(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
            << record_name << ">(decoded.error);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(*decoded.value)) {\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
-           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
@@ -1646,23 +1646,23 @@ void render_bytes_field_decoding(const FieldPlan& field, std::string_view record
                                  std::size_t indent_level, std::ostringstream& stream) {
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (const auto* field = "
-           << "::breadcrumbs::runtime::find_field(*parsed.record, " << field_index
+           << "::quarry::runtime::find_field(*parsed.record, " << field_index
            << "U); field != nullptr) {\n";
     stream << indent(indent_level + 1) << "if (field->bytes.size() > "
            << field.runtime_encoding.max_bytes << "U) {\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
-           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1)
-           << "const auto decoded = ::breadcrumbs::runtime::read_bytes(field->bytes);\n";
+           << "const auto decoded = ::quarry::runtime::read_bytes(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
            << record_name << ">(decoded.error);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(*decoded.value)) {\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
-           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
@@ -1673,18 +1673,18 @@ void render_record_field_decoding(const FieldPlan& field,
                                   std::ostringstream& stream) {
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (const auto* field = "
-           << "::breadcrumbs::runtime::find_field(*parsed.record, " << field_index
+           << "::quarry::runtime::find_field(*parsed.record, " << field_index
            << "U); field != nullptr) {\n";
     stream << indent(indent_level + 1) << "const auto decoded = "
            << record_encoding.decode_function << "(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
            << record_name << ">(decoded.error);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(*decoded.value)) {\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
-           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
@@ -1704,20 +1704,20 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
         is_enum_array ? array_encoding.enum_encoding->width_bytes
                       : runtime_scalar_width_bytes(array_encoding.scalar);
     stream << indent(indent_level) << "if (const auto* field = "
-           << "::breadcrumbs::runtime::find_field(*parsed.record, " << field_index
+           << "::quarry::runtime::find_field(*parsed.record, " << field_index
            << "U); field != nullptr) {\n";
     stream << indent(indent_level + 1) << "std::size_t element_offset = 0U;\n";
     stream << indent(indent_level + 1)
-           << "const auto decoded_count = ::breadcrumbs::runtime::read_varuint(field->bytes, "
+           << "const auto decoded_count = ::quarry::runtime::read_varuint(field->bytes, "
            << "element_offset);\n";
     stream << indent(indent_level + 1) << "if (!decoded_count.value.has_value() || "
            << "*decoded_count.value > " << array_encoding.max_elements << "U) {\n";
     stream << indent(indent_level + 2) << "if (!decoded_count.value.has_value()) {\n";
-    stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
+    stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
            << record_name << ">(decoded_count.error);\n";
     stream << indent(indent_level + 2) << "}\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
-           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1)
            << "const auto element_count = static_cast<std::size_t>(*decoded_count.value);\n";
@@ -1729,17 +1729,17 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
         stream << indent(indent_level + 1)
                << "for (std::size_t index = 0U; index < element_count; ++index) {\n";
         stream << indent(indent_level + 2)
-               << "const auto decoded_length = ::breadcrumbs::runtime::read_varuint("
+               << "const auto decoded_length = ::quarry::runtime::read_varuint("
                << "field->bytes, element_offset);\n";
         stream << indent(indent_level + 2)
                << "if (!decoded_length.value.has_value()) {\n";
-        stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
+        stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
                << record_name << ">(decoded_length.error);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
                << "if (*decoded_length.value > field->bytes.size() - element_offset) {\n";
-        stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
-               << record_name << ">(::breadcrumbs::runtime::DecodeError::invalid_field_length);\n";
+        stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
+               << record_name << ">(::quarry::runtime::DecodeError::invalid_field_length);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
                << "const auto element_length = static_cast<std::size_t>(*decoded_length.value);\n";
@@ -1748,59 +1748,59 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
         stream << indent(indent_level + 2) << "const auto decoded = "
                << record_encoding.decode_function << "(element_bytes);\n";
         stream << indent(indent_level + 2) << "if (!decoded.value.has_value()) {\n";
-        stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
+        stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
                << record_name << ">(decoded.error);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2) << "elements.push_back(*decoded.value);\n";
         stream << indent(indent_level + 2) << "element_offset += element_length;\n";
         stream << indent(indent_level + 1) << "}\n";
         stream << indent(indent_level + 1) << "if (element_offset != field->bytes.size()) {\n";
-        stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
-               << record_name << ">(::breadcrumbs::runtime::DecodeError::invalid_field_length);\n";
+        stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
+               << record_name << ">(::quarry::runtime::DecodeError::invalid_field_length);\n";
         stream << indent(indent_level + 1) << "}\n";
     } else if (is_string_array || is_bytes_array) {
         stream << indent(indent_level + 1)
                << "for (std::size_t index = 0U; index < element_count; ++index) {\n";
         stream << indent(indent_level + 2)
-               << "const auto decoded_length = ::breadcrumbs::runtime::read_varuint("
+               << "const auto decoded_length = ::quarry::runtime::read_varuint("
                << "field->bytes, element_offset);\n";
         stream << indent(indent_level + 2)
                << "if (!decoded_length.value.has_value() || *decoded_length.value > "
                << array_encoding.max_bytes << "U) {\n";
         stream << indent(indent_level + 3) << "if (!decoded_length.value.has_value()) {\n";
-        stream << indent(indent_level + 4) << "return ::breadcrumbs::runtime::decode_failure<"
+        stream << indent(indent_level + 4) << "return ::quarry::runtime::decode_failure<"
                << record_name << ">(decoded_length.error);\n";
         stream << indent(indent_level + 3) << "}\n";
-        stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
-               << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
+        stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
+               << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
                << "const auto element_length = static_cast<std::size_t>(*decoded_length.value);\n";
         stream << indent(indent_level + 2)
                << "if (element_length > field->bytes.size() - element_offset) {\n";
-        stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
-               << record_name << ">(::breadcrumbs::runtime::DecodeError::invalid_field_length);\n";
+        stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
+               << record_name << ">(::quarry::runtime::DecodeError::invalid_field_length);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2) << "const auto element_bytes = "
                << "field->bytes.subspan(element_offset, element_length);\n";
         if (is_string_array) {
             stream << indent(indent_level + 2)
-                   << "const auto decoded = ::breadcrumbs::runtime::read_string_utf8("
+                   << "const auto decoded = ::quarry::runtime::read_string_utf8("
                    << "element_bytes);\n";
         } else {
             stream << indent(indent_level + 2)
-                   << "const auto decoded = ::breadcrumbs::runtime::read_bytes(element_bytes);\n";
+                   << "const auto decoded = ::quarry::runtime::read_bytes(element_bytes);\n";
         }
         stream << indent(indent_level + 2) << "if (!decoded.value.has_value()) {\n";
-        stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
+        stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
                << record_name << ">(decoded.error);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2) << "elements.push_back(std::move(*decoded.value));\n";
         stream << indent(indent_level + 2) << "element_offset += element_length;\n";
         stream << indent(indent_level + 1) << "}\n";
         stream << indent(indent_level + 1) << "if (element_offset != field->bytes.size()) {\n";
-        stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
-               << record_name << ">(::breadcrumbs::runtime::DecodeError::invalid_field_length);\n";
+        stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
+               << record_name << ">(::quarry::runtime::DecodeError::invalid_field_length);\n";
         stream << indent(indent_level + 1) << "}\n";
     } else {
         stream << indent(indent_level + 1) << "const std::size_t element_width = "
@@ -1810,15 +1810,15 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
         stream << indent(indent_level + 1)
                << "if (element_width == 0U || element_count > remaining_bytes / element_width || "
                << "remaining_bytes != element_count * element_width) {\n";
-        stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
-               << record_name << ">(::breadcrumbs::runtime::DecodeError::invalid_field_length);\n";
+        stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
+               << record_name << ">(::quarry::runtime::DecodeError::invalid_field_length);\n";
         stream << indent(indent_level + 1) << "}\n";
         stream << indent(indent_level + 1)
                << "for (std::size_t index = 0U; index < element_count; ++index) {\n";
-        stream << indent(indent_level + 2) << "const auto decoded = ::breadcrumbs::runtime::"
+        stream << indent(indent_level + 2) << "const auto decoded = ::quarry::runtime::"
                << read_function << "(field->bytes.subspan(element_offset, element_width));\n";
         stream << indent(indent_level + 2) << "if (!decoded.value.has_value()) {\n";
-        stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
+        stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
                << record_name << ">(decoded.error);\n";
         stream << indent(indent_level + 2) << "}\n";
         if (is_enum_array) {
@@ -1836,9 +1836,9 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
                 stream << "false";
             }
             stream << ")) {\n";
-            stream << indent(indent_level + 3) << "return ::breadcrumbs::runtime::decode_failure<"
+            stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
                    << record_name
-                   << ">(::breadcrumbs::runtime::DecodeError::unknown_enum_value);\n";
+                   << ">(::quarry::runtime::DecodeError::unknown_enum_value);\n";
             stream << indent(indent_level + 2) << "}\n";
             stream << indent(indent_level + 2) << "elements.push_back(static_cast<"
                    << enum_encoding.cpp_type << ">(enum_numeric));\n";
@@ -1850,8 +1850,8 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
     }
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(std::move(elements))) {\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
-           << record_name << ">(::breadcrumbs::runtime::DecodeError::bounds_exceeded);\n";
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
@@ -1894,24 +1894,24 @@ void render_field_decoding(const FieldPlan& field, std::string_view record_name,
 void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t indent_level,
                                       std::ostringstream& stream) {
     const std::string& record_name = record_plan.record->name();
-    stream << indent(indent_level) << "::breadcrumbs::runtime::DecodeResult<" << record_name
+    stream << indent(indent_level) << "::quarry::runtime::DecodeResult<" << record_name
            << "> decode_" << record_name << "_result(std::span<const std::byte> input) {\n";
     stream << indent(indent_level + 1)
-           << "const auto parsed = ::breadcrumbs::runtime::parse_record(input);\n";
+           << "const auto parsed = ::quarry::runtime::parse_record(input);\n";
     stream << indent(indent_level + 1) << "if (!parsed.record.has_value()) {\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
            << record_name << ">(parsed.error);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (parsed.record->record_id != "
            << record_plan.record->record_id() << "U) {\n";
-    stream << indent(indent_level + 2) << "return ::breadcrumbs::runtime::decode_failure<"
-           << record_name << ">(::breadcrumbs::runtime::DecodeError::unexpected_record_id);\n";
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
+           << record_name << ">(::quarry::runtime::DecodeError::unexpected_record_id);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << record_name << "Builder builder;\n";
     for (const FieldPlan& field : record_plan.fields) {
         render_field_decoding(field, record_name, indent_level + 1, stream);
     }
-    stream << indent(indent_level + 1) << "return ::breadcrumbs::runtime::decoded_value<"
+    stream << indent(indent_level + 1) << "return ::quarry::runtime::decoded_value<"
            << record_name << ">(builder.build());\n";
     stream << indent(indent_level) << "}\n";
     stream << "\n\n";
@@ -1976,7 +1976,7 @@ void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t
 [[nodiscard]] bool render_namespace_file(const NamespacePlan& plan, std::string& output,
                                          std::string& error_message) {
     std::ostringstream stream;
-    stream << "// Generated by Breadcrumbs.\n";
+    stream << "// Generated by Quarry.\n";
     stream << namespace_comment(plan.fqn);
     stream << '\n';
 
@@ -1993,11 +1993,11 @@ void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t
         stream << '\n';
     }
     if (emits_records(plan)) {
-        stream << "static_assert(::breadcrumbs::runtime::kGeneratedCodeApiVersion == "
+        stream << "static_assert(::quarry::runtime::kGeneratedCodeApiVersion == "
                << kGeneratedCodeApiVersion << "U,\n";
-        stream << "              \"Generated Breadcrumbs code is incompatible with the installed "
-                  "Breadcrumbs runtime. Regenerate the code using a compatible "
-                  "breadcrumbs-schema-compiler release.\");\n";
+        stream << "              \"Generated Quarry code is incompatible with the installed "
+                  "Quarry runtime. Regenerate the code using a compatible "
+                  "quarry-schema-compiler release.\");\n";
         stream << '\n';
     }
 
@@ -2106,4 +2106,4 @@ CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
     return result;
 }
 
-} // namespace breadcrumbs::compiler::backend
+} // namespace quarry::compiler::backend

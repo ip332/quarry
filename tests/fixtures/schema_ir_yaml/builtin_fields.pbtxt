@@ -3,19 +3,19 @@ root_namespace {
   ir_id: 1
   namespaces {
     ir_id: 2
-    name: "breadcrumbs"
-    fqn: "breadcrumbs"
+    name: "quarry"
+    fqn: "quarry"
     namespaces {
       ir_id: 3
       name: "example"
-      fqn: "breadcrumbs.example"
+      fqn: "quarry.example"
       records {
         ir_id: 4
         record_id: 1
         schema_version: 1
         record_type: RECORD_TYPE_DATA
         name: "Example"
-        fqn: "breadcrumbs.example.Example"
+        fqn: "quarry.example.Example"
         fields {
           name: "active"
           type {

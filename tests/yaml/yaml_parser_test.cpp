@@ -15,21 +15,21 @@
 
 namespace {
 
-using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
-using breadcrumbs::compiler::support::LineColumn;
-using breadcrumbs::compiler::support::SourceFileId;
-using breadcrumbs::compiler::support::SourceLocation;
-using breadcrumbs::compiler::support::SourceManager;
-using breadcrumbs::compiler::support::SourceRange;
-using breadcrumbs::compiler::yaml::YamlDocument;
-using breadcrumbs::compiler::yaml::YamlMappingEntry;
-using breadcrumbs::compiler::yaml::YamlMappingNode;
-using breadcrumbs::compiler::yaml::YamlNode;
-using breadcrumbs::compiler::yaml::YamlParseResult;
-using breadcrumbs::compiler::yaml::YamlParser;
-using breadcrumbs::compiler::yaml::YamlScalarNode;
-using breadcrumbs::compiler::yaml::YamlScalarKind;
-using breadcrumbs::compiler::yaml::YamlSequenceNode;
+using quarry::compiler::diagnostics::DiagnosticEngine;
+using quarry::compiler::support::LineColumn;
+using quarry::compiler::support::SourceFileId;
+using quarry::compiler::support::SourceLocation;
+using quarry::compiler::support::SourceManager;
+using quarry::compiler::support::SourceRange;
+using quarry::compiler::yaml::YamlDocument;
+using quarry::compiler::yaml::YamlMappingEntry;
+using quarry::compiler::yaml::YamlMappingNode;
+using quarry::compiler::yaml::YamlNode;
+using quarry::compiler::yaml::YamlParseResult;
+using quarry::compiler::yaml::YamlParser;
+using quarry::compiler::yaml::YamlScalarNode;
+using quarry::compiler::yaml::YamlScalarKind;
+using quarry::compiler::yaml::YamlSequenceNode;
 
 struct ParseOutput {
     SourceManager source_manager;
@@ -249,7 +249,7 @@ TEST(YamlParserTest, RejectsMergeKeys) {
 }
 
 TEST(YamlParserTest, ParsesSchemaLanguageExampleAsGenericYaml) {
-    const ParseOutput output = parse(R"(namespace: breadcrumbs.telemetry
+    const ParseOutput output = parse(R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -270,7 +270,7 @@ fields:
     EXPECT_TRUE(output.diagnostics.empty());
 }
 
-TEST(YamlParserTest, PreservesUnknownBreadcrumbsKeys) {
+TEST(YamlParserTest, PreservesUnknownQuarryKeys) {
     const ParseOutput output = parse(R"(unknown_key:
   nested: value
 )");

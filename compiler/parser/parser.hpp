@@ -4,7 +4,7 @@
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/support/source_manager.hpp"
 
-namespace breadcrumbs::compiler::parser {
+namespace quarry::compiler::parser {
 
 struct ParseResult {
     support::SourceFileId source_file_id;
@@ -18,4 +18,4 @@ public:
                                            diagnostics::DiagnosticEngine& diagnostics);
 };
 
-} // namespace breadcrumbs::compiler::parser
+} // namespace quarry::compiler::parser

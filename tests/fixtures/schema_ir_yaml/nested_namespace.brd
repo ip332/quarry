@@ -1,4 +1,4 @@
-namespace: breadcrumbs.geo
+namespace: quarry.geo
 record: Location
 version: 1
 type: data

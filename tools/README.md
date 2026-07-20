@@ -4,18 +4,18 @@ This directory contains tools built from the compiler libraries.
 
 The schema compiler's downstream distribution decision is documented in
 `docs/schema-compiler-tool-distribution.md`. The current supported boundary is
-the installed `breadcrumbs-schema-compiler` executable and the
-`Breadcrumbs::schema_compiler` imported executable target. Compiler libraries
+the installed `quarry-schema-compiler` executable and the
+`Quarry::schema_compiler` imported executable target. Compiler libraries
 remain private implementation details.
 
-## breadcrumbs-schema-compiler
+## quarry-schema-compiler
 
-`breadcrumbs-schema-compiler` is the first end-to-end schema compiler command.
+`quarry-schema-compiler` is the first end-to-end schema compiler command.
 It compiles one YAML `.brd` source file through the production YAML frontend,
 generates C++ backend files, and writes those generated files to disk.
 
 ```text
-breadcrumbs-schema-compiler [options] INPUT
+quarry-schema-compiler [options] INPUT
 
 Options:
   -o, --output-directory PATH  Directory for generated files (default: generated)
@@ -32,7 +32,7 @@ compilation is quiet and returns exit code `0`.
 `--version` is a terminal informational option. It prints:
 
 ```text
-breadcrumbs-schema-compiler <version>
+quarry-schema-compiler <version>
 ```
 
 to stdout, writes nothing to stderr, and exits with code `0`. When combined
@@ -43,7 +43,7 @@ version and does not generate files.
 query. It prints the compiler/backend generated-code API epoch as one base-10
 integer followed by a newline, writes nothing to stderr on success, requires no
 input schema, performs no generation, and is terminal like `--help` and
-`--version`. `breadcrumbs_generate_cpp()` uses this query during CMake
+`--version`. `quarry_generate_cpp()` uses this query during CMake
 configuration before it discovers outputs.
 
 The command-line parser treats `--help` first, `--version` second, and
@@ -108,32 +108,32 @@ The tool preserves unrelated files in the output directory and does not delete
 stale generated files. It does not provide a manifest, a rollback transaction,
 concurrent writer coordination, or symlink sandboxing.
 
-Generated C++ code is supported with `Breadcrumbs::runtime` from the same
-Breadcrumbs release as the schema compiler that generated it. Generated headers
+Generated C++ code is supported with `Quarry::runtime` from the same
+Quarry release as the schema compiler that generated it. Generated headers
 also contain a narrow compile-time generated-code API guard against incompatible
 runtime headers. That guard does not enforce exact release equality or BRF wire
 compatibility. Users should regenerate generated code when upgrading
-Breadcrumbs.
+Quarry.
 
 For installed-package helper builds, the generated-code API query is compared
-against `Breadcrumbs_GENERATED_CODE_API_VERSION` during CMake configuration
+against `Quarry_GENERATED_CODE_API_VERSION` during CMake configuration
 before output discovery.
 
 The compiler executable is installed to the package executable directory, such
-as `<prefix>/bin/breadcrumbs-schema-compiler` on platforms using the default
+as `<prefix>/bin/quarry-schema-compiler` on platforms using the default
 GNU install layout. Installed use is direct invocation by absolute path or
 `PATH`, or through the imported executable target
-`Breadcrumbs::schema_compiler` from `find_package(Breadcrumbs CONFIG REQUIRED)`.
+`Quarry::schema_compiler` from `find_package(Quarry CONFIG REQUIRED)`.
 There is no package component for compiler tools.
 
 For installed native builds, use the package helper:
 
 ```cmake
-find_package(Breadcrumbs CONFIG REQUIRED)
+find_package(Quarry CONFIG REQUIRED)
 
 set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
-breadcrumbs_generate_cpp(
+quarry_generate_cpp(
     SCHEMA schema.brd
     OUTPUT_DIR "${generated_dir}"
     OUT_FILES generated_files
@@ -144,36 +144,36 @@ add_executable(app
 )
 target_sources(app PRIVATE ${generated_files})
 target_include_directories(app PRIVATE "${generated_dir}")
-target_link_libraries(app PRIVATE Breadcrumbs::runtime)
+target_link_libraries(app PRIVATE Quarry::runtime)
 ```
 
-For cross-compiling builds, the target Breadcrumbs package still provides
-`Breadcrumbs::runtime`, but the helper must be given a compiler executable that
+For cross-compiling builds, the target Quarry package still provides
+`Quarry::runtime`, but the helper must be given a compiler executable that
 runs on the build host:
 
 ```cmake
-find_package(Breadcrumbs CONFIG REQUIRED)
+find_package(Quarry CONFIG REQUIRED)
 
 set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
-breadcrumbs_generate_cpp(
+quarry_generate_cpp(
     SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/telemetry.brd"
     OUTPUT_DIR "${generated_dir}"
     OUT_FILES generated_files
-    SCHEMA_COMPILER "/opt/host-tools/bin/breadcrumbs-schema-compiler"
+    SCHEMA_COMPILER "/opt/host-tools/bin/quarry-schema-compiler"
 )
 
 add_library(telemetry)
 target_sources(telemetry PRIVATE ${generated_files})
 target_include_directories(telemetry PRIVATE "${generated_dir}")
-target_link_libraries(telemetry PRIVATE Breadcrumbs::runtime)
+target_link_libraries(telemetry PRIVATE Quarry::runtime)
 ```
 
 The path above is only an example layout; package managers or toolchains are
 responsible for provisioning the host compiler and passing its absolute path.
 
 The helper is installed with the package and auto-loaded by
-`find_package(Breadcrumbs CONFIG REQUIRED)`. It supports installed package
+`find_package(Quarry CONFIG REQUIRED)`. It supports installed package
 consumers, handles one schema per invocation, returns absolute generated paths
 through `OUT_FILES`, and does not create or mutate targets. Downstream projects
 still own include directories, target source attachment, runtime linkage, and
@@ -195,11 +195,11 @@ configuration. The helper validates that it is absolute, exists, is not a
 directory, and successfully runs `--version`; it does not search `PATH`, read
 environment-variable fallbacks, download tools, or enforce exact package
 release equality. Generated headers still enforce
-`breadcrumbs::runtime::kGeneratedCodeApiVersion` when the generated C++ is
+`quarry::runtime::kGeneratedCodeApiVersion` when the generated C++ is
 compiled against the target runtime.
 
-The installed executable links private Breadcrumbs compiler libraries into the
+The installed executable links private Quarry compiler libraries into the
 tool binary. It may still depend on system or package-manager-provided dynamic
 libraries such as libyaml, Protobuf, and absl according to the platform and
 build configuration. Those third-party libraries are not bundled by
-Breadcrumbs.
+Quarry.

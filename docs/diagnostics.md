@@ -3,7 +3,7 @@
 # Goals
 
 Compiler diagnostics help schema authors identify and fix problems in
-Breadcrumbs schema files.
+Quarry schema files.
 
 The diagnostics architecture should:
 
@@ -131,7 +131,7 @@ definition and a related location may point to the previous definition.
 
 Every diagnostic should have a stable diagnostic ID.
 
-Breadcrumbs diagnostic IDs use a stable project-specific scheme such as:
+Quarry diagnostic IDs use a stable project-specific scheme such as:
 
 ```text
 BC1001

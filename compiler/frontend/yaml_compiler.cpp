@@ -12,7 +12,7 @@
 #include <optional>
 #include <utility>
 
-namespace breadcrumbs::compiler::frontend {
+namespace quarry::compiler::frontend {
 namespace {
 
 [[nodiscard]] bool has_fatal_diagnostics(const diagnostics::DiagnosticCollection& diagnostics) {
@@ -82,4 +82,4 @@ YamlCompilationResult YamlCompiler::compile(support::SourceFileId source_file_id
     return result;
 }
 
-} // namespace breadcrumbs::compiler::frontend
+} // namespace quarry::compiler::frontend

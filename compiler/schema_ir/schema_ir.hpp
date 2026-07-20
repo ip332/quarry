@@ -1,15 +1,15 @@
 #pragma once
 
-#include "breadcrumbs/schema_ir.pb.h"
+#include "quarry/schema_ir.pb.h"
 #include "compiler/context/compiler_context.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/layout/layout.hpp"
 #include "compiler/source_schema/source_schema.hpp"
 #include "compiler/semantic/semantic.hpp"
 
-namespace breadcrumbs::compiler::schema_ir {
+namespace quarry::compiler::schema_ir {
 
-using SchemaIrModel = ::breadcrumbs::schema_ir::SchemaIR;
+using SchemaIrModel = ::quarry::schema_ir::SchemaIR;
 
 class SchemaIrBuilder {
 public:
@@ -20,4 +20,4 @@ public:
           diagnostics::DiagnosticCollection& diagnostics) const;
 };
 
-} // namespace breadcrumbs::compiler::schema_ir
+} // namespace quarry::compiler::schema_ir

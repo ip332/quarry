@@ -32,7 +32,7 @@ Current C++ generation behavior:
   * generated record values expose only const inspection methods and do not
     allow public mutation after construction
 * generates `encode_result(const Record&)` overloads that return
-  `::breadcrumbs::runtime::EncodeResult<std::vector<std::byte>>`
+  `::quarry::runtime::EncodeResult<std::vector<std::byte>>`
   * encoding is deterministic and returns either an owning byte vector or a
     structured `EncodeError`
   * encode errors distinguish schema bounds, invalid UTF-8, unknown enum
@@ -65,7 +65,7 @@ Current C++ generation behavior:
   `std::optional<std::vector<std::byte>>`
   * wrappers delegate to `encode_result` and intentionally discard error detail
 * generates `decode_RecordName_result(std::span<const std::byte>)` overloads
-  that return `::breadcrumbs::runtime::DecodeResult<RecordName>`
+  that return `::quarry::runtime::DecodeResult<RecordName>`
   * decoding structurally parses a complete top-level Binary Record Format v0.1
     record through the runtime library
   * structural parse/read failures preserve the runtime `DecodeError`
@@ -144,10 +144,10 @@ Current C++ generation behavior:
 * emits a compile-time generated-code API compatibility assertion for generated
   record headers
   * the assertion checks
-    `::breadcrumbs::runtime::kGeneratedCodeApiVersion`
+    `::quarry::runtime::kGeneratedCodeApiVersion`
   * the expected value is rendered from the backend's private configured
     generated-code API header, which is derived from the top-level
-    `BREADCRUMBS_GENERATED_CODE_API_VERSION` CMake scalar
+    `QUARRY_GENERATED_CODE_API_VERSION` CMake scalar
   * it guards only the generated C++ source/runtime header contract
   * it does not enforce package release equality, runtime ABI compatibility,
     schema-language compatibility, or BRF wire compatibility

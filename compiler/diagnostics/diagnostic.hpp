@@ -9,7 +9,7 @@
 #include <string_view>
 #include <vector>
 
-namespace breadcrumbs::compiler::diagnostics {
+namespace quarry::compiler::diagnostics {
 
 enum class Severity {
     Error,
@@ -145,4 +145,4 @@ public:
 
 using DiagnosticCollection = DiagnosticEngine;
 
-} // namespace breadcrumbs::compiler::diagnostics
+} // namespace quarry::compiler::diagnostics

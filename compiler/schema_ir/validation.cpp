@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-namespace breadcrumbs::compiler::schema_ir {
+namespace quarry::compiler::schema_ir {
 namespace {
 
 constexpr std::string_view schema_ir_pass = "schema_ir_validation";
@@ -85,7 +85,7 @@ find_source_file_id(const support::SourceManager& source_manager, std::string_vi
 }
 
 [[nodiscard]] std::optional<support::SourceRange>
-source_range_from_origin(const ::breadcrumbs::schema_ir::SourceOrigin& origin,
+source_range_from_origin(const ::quarry::schema_ir::SourceOrigin& origin,
                          const support::SourceManager& source_manager) {
     std::string_view path = origin.file();
     if (path.empty()) {
@@ -158,23 +158,23 @@ public:
     }
 
 private:
-    void collect_ids(const ::breadcrumbs::schema_ir::NamespaceIR& namespace_ir) {
+    void collect_ids(const ::quarry::schema_ir::NamespaceIR& namespace_ir) {
         const std::optional<support::SourceRange> namespace_range =
             source_range_from_origin(namespace_ir.source_origin(), source_manager_);
         register_object(namespace_ir.ir_id(), ObjectKind::Namespace, namespace_range);
 
-        for (const ::breadcrumbs::schema_ir::NamespaceIR& child : namespace_ir.namespaces()) {
+        for (const ::quarry::schema_ir::NamespaceIR& child : namespace_ir.namespaces()) {
             collect_ids(child);
         }
 
-        for (const ::breadcrumbs::schema_ir::RecordIR& record : namespace_ir.records()) {
+        for (const ::quarry::schema_ir::RecordIR& record : namespace_ir.records()) {
             const std::optional<support::SourceRange> record_range =
                 source_range_from_origin(record.source_origin(), source_manager_);
             register_object(record.ir_id(), ObjectKind::Record, record_range);
             register_record_id(record.record_id(), record_range);
         }
 
-        for (const ::breadcrumbs::schema_ir::EnumIR& enum_ir : namespace_ir.enums()) {
+        for (const ::quarry::schema_ir::EnumIR& enum_ir : namespace_ir.enums()) {
             const std::optional<support::SourceRange> enum_range =
                 source_range_from_origin(enum_ir.source_origin(), source_manager_);
             register_object(enum_ir.ir_id(), ObjectKind::Enum, enum_range);
@@ -261,7 +261,7 @@ private:
         return false;
     }
 
-    void validate_namespace(const ::breadcrumbs::schema_ir::NamespaceIR& namespace_ir,
+    void validate_namespace(const ::quarry::schema_ir::NamespaceIR& namespace_ir,
                             std::optional<std::string_view> parent_fqn, bool is_root) {
         const std::optional<support::SourceRange> namespace_range =
             source_range_from_origin(namespace_ir.source_origin(), source_manager_);
@@ -279,7 +279,7 @@ private:
                                                      namespace_ir.records_size() +
                                                      namespace_ir.enums_size()));
 
-        for (const ::breadcrumbs::schema_ir::NamespaceIR& child : namespace_ir.namespaces()) {
+        for (const ::quarry::schema_ir::NamespaceIR& child : namespace_ir.namespaces()) {
             const std::optional<support::SourceRange> child_range =
                 source_range_from_origin(child.source_origin(), source_manager_);
             const auto [it, inserted] = local_names.emplace(std::string(child.name()), child_range);
@@ -298,7 +298,7 @@ private:
             validate_namespace(child, namespace_ir.fqn(), false);
         }
 
-        for (const ::breadcrumbs::schema_ir::RecordIR& record : namespace_ir.records()) {
+        for (const ::quarry::schema_ir::RecordIR& record : namespace_ir.records()) {
             const std::optional<support::SourceRange> record_range =
                 source_range_from_origin(record.source_origin(), source_manager_);
             const auto [it, inserted] =
@@ -321,7 +321,7 @@ private:
             validate_record(record);
         }
 
-        for (const ::breadcrumbs::schema_ir::EnumIR& enum_ir : namespace_ir.enums()) {
+        for (const ::quarry::schema_ir::EnumIR& enum_ir : namespace_ir.enums()) {
             const std::optional<support::SourceRange> enum_range =
                 source_range_from_origin(enum_ir.source_origin(), source_manager_);
             const auto [it, inserted] =
@@ -345,7 +345,7 @@ private:
         }
     }
 
-    void validate_record(const ::breadcrumbs::schema_ir::RecordIR& record) {
+    void validate_record(const ::quarry::schema_ir::RecordIR& record) {
         if (record.has_schema_version() && record.schema_version() == 0U) {
             emit_diagnostic(diagnostics_, diagnostic_id("BC6012"), diagnostics::Severity::Error,
                             "schema IR record '" + std::string(record.name()) +
@@ -355,12 +355,12 @@ private:
 
         if (record.has_record_type()) {
             switch (record.record_type()) {
-            case ::breadcrumbs::schema_ir::RECORD_TYPE_UNSPECIFIED:
-            case ::breadcrumbs::schema_ir::RECORD_TYPE_DATA:
-            case ::breadcrumbs::schema_ir::RECORD_TYPE_COMMAND:
-            case ::breadcrumbs::schema_ir::RECORD_TYPE_EVENT:
-            case ::breadcrumbs::schema_ir::RECORD_TYPE_CONFIGURATION:
-            case ::breadcrumbs::schema_ir::RECORD_TYPE_DIAGNOSTICS:
+            case ::quarry::schema_ir::RECORD_TYPE_UNSPECIFIED:
+            case ::quarry::schema_ir::RECORD_TYPE_DATA:
+            case ::quarry::schema_ir::RECORD_TYPE_COMMAND:
+            case ::quarry::schema_ir::RECORD_TYPE_EVENT:
+            case ::quarry::schema_ir::RECORD_TYPE_CONFIGURATION:
+            case ::quarry::schema_ir::RECORD_TYPE_DIAGNOSTICS:
                 break;
             default:
                 emit_diagnostic(diagnostics_, diagnostic_id("BC6013"), diagnostics::Severity::Error,
@@ -376,7 +376,7 @@ private:
         std::unordered_map<std::uint32_t, std::optional<support::SourceRange>> field_indexes;
         field_indexes.reserve(static_cast<std::size_t>(record.fields_size()));
 
-        for (const ::breadcrumbs::schema_ir::FieldIR& field : record.fields()) {
+        for (const ::quarry::schema_ir::FieldIR& field : record.fields()) {
             const std::optional<support::SourceRange> field_range =
                 source_range_from_origin(field.source_origin(), source_manager_);
             const std::uint32_t field_index = field.field_index();
@@ -419,11 +419,11 @@ private:
         }
     }
 
-    void validate_enum(const ::breadcrumbs::schema_ir::EnumIR& enum_ir) {
+    void validate_enum(const ::quarry::schema_ir::EnumIR& enum_ir) {
         std::unordered_map<std::string, std::optional<support::SourceRange>> value_names;
         value_names.reserve(static_cast<std::size_t>(enum_ir.values_size()));
 
-        for (const ::breadcrumbs::schema_ir::EnumValueIR& value : enum_ir.values()) {
+        for (const ::quarry::schema_ir::EnumValueIR& value : enum_ir.values()) {
             const std::optional<support::SourceRange> value_range =
                 source_range_from_origin(value.source_origin(), source_manager_);
             const auto [it, inserted] = value_names.emplace(std::string(value.name()), value_range);
@@ -443,10 +443,10 @@ private:
         }
     }
 
-    void validate_field_type(const ::breadcrumbs::schema_ir::FieldType& field_type,
+    void validate_field_type(const ::quarry::schema_ir::FieldType& field_type,
                              const std::optional<support::SourceRange>& field_range) {
         if (field_type.has_primitive()) {
-            if (field_type.primitive() == ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_UNSPECIFIED) {
+            if (field_type.primitive() == ::quarry::schema_ir::PRIMITIVE_TYPE_UNSPECIFIED) {
                 emit_diagnostic(diagnostics_, diagnostic_id("BC6007"), diagnostics::Severity::Error,
                                 "schema IR field type primitive is unspecified", field_range);
             }
@@ -488,7 +488,7 @@ private:
                         "schema IR field type is missing", field_range);
     }
 
-    void validate_array_type(const ::breadcrumbs::schema_ir::ArrayType& array_type,
+    void validate_array_type(const ::quarry::schema_ir::ArrayType& array_type,
                              const std::optional<support::SourceRange>& field_range) {
         if (array_type.max_elements() == 0U) {
             emit_diagnostic(diagnostics_, diagnostic_id("BC6014"), diagnostics::Severity::Error,
@@ -497,7 +497,7 @@ private:
         validate_field_type(array_type.element_type(), field_range);
     }
 
-    void validate_record_reference(const ::breadcrumbs::schema_ir::RecordRef& record_ref,
+    void validate_record_reference(const ::quarry::schema_ir::RecordRef& record_ref,
                                    const std::optional<support::SourceRange>& field_range) {
         const uint64_t target_id = record_ref.target_record_ir_id();
         if (target_id == 0) {
@@ -530,7 +530,7 @@ private:
                         field_range);
     }
 
-    void validate_enum_reference(const ::breadcrumbs::schema_ir::EnumRef& enum_ref,
+    void validate_enum_reference(const ::quarry::schema_ir::EnumRef& enum_ref,
                                  const std::optional<support::SourceRange>& field_range) {
         const uint64_t target_id = enum_ref.target_enum_ir_id();
         if (target_id == 0) {
@@ -578,4 +578,4 @@ void SchemaIrValidator::validate(const SchemaIrModel& schema_ir, context::Compil
     validator.validate();
 }
 
-} // namespace breadcrumbs::compiler::schema_ir
+} // namespace quarry::compiler::schema_ir

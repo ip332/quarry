@@ -5,7 +5,7 @@
 namespace {
 
 TEST(BackendSmokeTest, ConstructsBackend) {
-    breadcrumbs::compiler::backend::Backend backend;
+    quarry::compiler::backend::Backend backend;
     (void)backend;
 }
 

@@ -3,7 +3,7 @@ compiler_version: "0.1"
 next_record_id: 3
 
 root_namespace {
-  name: "breadcrumbs"
+  name: "quarry"
 
   namespaces {
     name: "telemetry"

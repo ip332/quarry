@@ -1,8 +1,8 @@
-# Breadcrumbs Specification Authoring Guide
+# Quarry Specification Authoring Guide
 
 ## Purpose
 
-This document defines how technical specifications are written within the Breadcrumbs project.
+This document defines how technical specifications are written within the Quarry project.
 
 Its purpose is to ensure that all specifications use consistent terminology, structure, and normative language.
 
@@ -17,7 +17,7 @@ This guide is intended for:
 
 # Architecture vs Specification
 
-Breadcrumbs distinguishes between architecture and specifications.
+Quarry distinguishes between architecture and specifications.
 
 ## Architecture
 
@@ -87,7 +87,7 @@ Avoid creating empty sections.
 
 # Normative Language
 
-Breadcrumbs follows the terminology defined by RFC 2119.
+Quarry follows the terminology defined by RFC 2119.
 
 The following words have specific meanings:
 
@@ -185,8 +185,8 @@ Preferred terms:
 * envelope
 * payload
 * schema compiler
-* Breadcrumbs Agent
-* Breadcrumbs Cloud
+* Quarry Agent
+* Quarry Cloud
 
 Avoid introducing synonyms for established terms.
 
@@ -272,4 +272,4 @@ Changes should preserve compatibility whenever practical.
 
 Breaking changes should be documented explicitly and coordinated with the corresponding compatibility specification.
 
-The goal is to evolve the Breadcrumbs platform while maintaining a stable and understandable specification set.
+The goal is to evolve the Quarry platform while maintaining a stable and understandable specification set.

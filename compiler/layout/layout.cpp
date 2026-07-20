@@ -7,7 +7,7 @@
 #include <string_view>
 #include <utility>
 
-namespace breadcrumbs::compiler::layout {
+namespace quarry::compiler::layout {
 namespace {
 
 constexpr std::string_view layout_pass = "layout";
@@ -99,4 +99,4 @@ LayoutModel LayoutComputer::compute(const semantic::SemanticModel& semantic_mode
     return layout_model;
 }
 
-} // namespace breadcrumbs::compiler::layout
+} // namespace quarry::compiler::layout

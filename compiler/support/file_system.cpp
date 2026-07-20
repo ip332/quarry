@@ -5,7 +5,7 @@
 #include <iterator>
 #include <system_error>
 
-namespace breadcrumbs::compiler::support {
+namespace quarry::compiler::support {
 
 FileReadResult RealFileSystem::read_text_file(std::string_view path) const {
     const std::filesystem::path input_path{std::string(path)};
@@ -43,4 +43,4 @@ std::string RealFileSystem::normalize_path(std::string_view path) const {
     return input_path.lexically_normal().string();
 }
 
-} // namespace breadcrumbs::compiler::support
+} // namespace quarry::compiler::support

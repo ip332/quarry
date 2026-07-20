@@ -11,7 +11,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace breadcrumbs::compiler::semantic {
+namespace quarry::compiler::semantic {
 namespace {
 
 constexpr std::string_view semantic_pass = "semantic";
@@ -518,4 +518,4 @@ const SemanticEnumReferenceType& SemanticType::enum_reference() const {
 
 const SemanticArrayType& SemanticType::array() const { return std::get<SemanticArrayType>(value); }
 
-} // namespace breadcrumbs::compiler::semantic
+} // namespace quarry::compiler::semantic

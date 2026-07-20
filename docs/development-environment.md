@@ -1,6 +1,6 @@
 # Development Environment
 
-Breadcrumbs provides a Docker-based development environment so contributors
+Quarry provides a Docker-based development environment so contributors
 can build against the same toolchain CI uses. CI (`.github/workflows/ci.yml`)
 builds this repository's `Dockerfile` and runs every configure/build/test step
 with `docker compose run`, rather than installing dependencies directly onto
@@ -13,10 +13,10 @@ the runner.
 | Docker `debug` | **Authoritative, CI-equivalent.** This is what CI runs. |
 | Docker `debug-clang-tidy` | **Authoritative, CI-equivalent.** This is what CI runs. |
 | Native `debug` | **Supported, host-dependent.** Works with the dependencies below installed directly; not guaranteed identical to CI's toolchain versions. |
-| Native `debug-clang-tidy` | **Best-effort.** Available, but Breadcrumbs does not verify or enforce that a native compiler, `protoc`, Protobuf headers, and `clang-tidy` come from a coherent toolchain installation. A native-only clang-tidy include-resolution failure is not treated as a project build defect unless it also reproduces in Docker/CI. |
+| Native `debug-clang-tidy` | **Best-effort.** Available, but Quarry does not verify or enforce that a native compiler, `protoc`, Protobuf headers, and `clang-tidy` come from a coherent toolchain installation. A native-only clang-tidy include-resolution failure is not treated as a project build defect unless it also reproduces in Docker/CI. |
 
 Native `debug-clang-tidy` failures that don't reproduce in Docker are, by
-policy, host toolchain-pairing issues, not Breadcrumbs bugs — see
+policy, host toolchain-pairing issues, not Quarry bugs — see
 "Troubleshooting a native-only clang-tidy failure" below.
 
 ## Build the development image
@@ -90,7 +90,7 @@ per the support policy above.
    A mismatch between where your compiler's implicit include search finds
    Protobuf headers and where your `clang-tidy` binary's implicit search
    looks is the most common cause (see background below).
-4. Do not modify Breadcrumbs CMake files merely to mask a host-only implicit
+4. Do not modify Quarry CMake files merely to mask a host-only implicit
    include-path mismatch — add an explicit include path, disable a warning,
    or exclude a generated source. If Docker/CI is unaffected, the fix belongs
    in your host environment, not the repository.

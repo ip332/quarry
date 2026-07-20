@@ -8,7 +8,7 @@
 #include <variant>
 #include <vector>
 
-namespace breadcrumbs::compiler::yaml {
+namespace quarry::compiler::yaml {
 
 enum class YamlScalarKind {
     Plain,
@@ -52,4 +52,4 @@ struct YamlDocument {
     YamlNodePtr root;
 };
 
-} // namespace breadcrumbs::compiler::yaml
+} // namespace quarry::compiler::yaml

@@ -17,24 +17,24 @@
 
 namespace {
 
-using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
-using breadcrumbs::compiler::support::LineColumn;
-using breadcrumbs::compiler::support::SourceFileId;
-using breadcrumbs::compiler::support::SourceLocation;
-using breadcrumbs::compiler::support::SourceManager;
-using breadcrumbs::compiler::support::SourceRange;
-using breadcrumbs::compiler::source_schema::SourceSchemaAnnotation;
-using breadcrumbs::compiler::source_schema::SourceSchemaDecodeResult;
-using breadcrumbs::compiler::source_schema::SourceSchemaDocument;
-using breadcrumbs::compiler::source_schema::SourceSchemaEnum;
-using breadcrumbs::compiler::source_schema::SourceSchemaEnumValue;
-using breadcrumbs::compiler::source_schema::SourceSchemaField;
-using breadcrumbs::compiler::yaml::YamlDocument;
-using breadcrumbs::compiler::yaml::YamlMappingNode;
-using breadcrumbs::compiler::yaml::YamlNode;
-using breadcrumbs::compiler::yaml::YamlParser;
-using breadcrumbs::compiler::yaml::YamlParseResult;
-using breadcrumbs::compiler::yaml::decode_schema;
+using quarry::compiler::diagnostics::DiagnosticEngine;
+using quarry::compiler::support::LineColumn;
+using quarry::compiler::support::SourceFileId;
+using quarry::compiler::support::SourceLocation;
+using quarry::compiler::support::SourceManager;
+using quarry::compiler::support::SourceRange;
+using quarry::compiler::source_schema::SourceSchemaAnnotation;
+using quarry::compiler::source_schema::SourceSchemaDecodeResult;
+using quarry::compiler::source_schema::SourceSchemaDocument;
+using quarry::compiler::source_schema::SourceSchemaEnum;
+using quarry::compiler::source_schema::SourceSchemaEnumValue;
+using quarry::compiler::source_schema::SourceSchemaField;
+using quarry::compiler::yaml::YamlDocument;
+using quarry::compiler::yaml::YamlMappingNode;
+using quarry::compiler::yaml::YamlNode;
+using quarry::compiler::yaml::YamlParser;
+using quarry::compiler::yaml::YamlParseResult;
+using quarry::compiler::yaml::decode_schema;
 
 struct PipelineOutput {
     SourceManager source_manager;
@@ -90,41 +90,41 @@ version: 1
 type: data
 fields: {}
 )", "BC2303"},
-        StructuralFailureCase{"MissingRecord", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"MissingRecord", R"(namespace: quarry.telemetry
 version: 1
 type: data
 fields: {}
 )", "BC2303"},
-        StructuralFailureCase{"MissingVersion", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"MissingVersion", R"(namespace: quarry.telemetry
 record: Sample
 type: data
 fields: {}
 )", "BC2303"},
-        StructuralFailureCase{"MissingType", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"MissingType", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 fields: {}
 )", "BC2303"},
-        StructuralFailureCase{"MissingFields", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"MissingFields", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
 )", "BC2303"},
-        StructuralFailureCase{"DuplicateTopLevelProperty", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"DuplicateTopLevelProperty", R"(namespace: quarry.telemetry
 record: Sample
 record: Duplicate
 version: 1
 type: data
 fields: {}
 )", "BC2304"},
-        StructuralFailureCase{"UnknownTopLevelProperty", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"UnknownTopLevelProperty", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
 fields: {}
 unknown: value
 )", "BC2305"},
-        StructuralFailureCase{"PluralRecordsProperty", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"PluralRecordsProperty", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -135,32 +135,32 @@ records:
 )", "BC2305"},
         StructuralFailureCase{"NonScalarTopLevelPropertyKey", R"(? [bad]
 : value
-namespace: breadcrumbs.telemetry
+namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
 fields: {}
 )", "BC2302"},
-        StructuralFailureCase{"WrongVersionShape", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"WrongVersionShape", R"(namespace: quarry.telemetry
 record: Sample
 version: [1]
 type: data
 fields: {}
 )", "BC2302"},
-        StructuralFailureCase{"WrongFieldsShape", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"WrongFieldsShape", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
 fields: []
 )", "BC2301"},
-        StructuralFailureCase{"WrongFieldDefinitionShape", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"WrongFieldDefinitionShape", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
 fields:
   count: 1
 )", "BC2301"},
-        StructuralFailureCase{"MissingFieldType", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"MissingFieldType", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -168,7 +168,7 @@ fields:
   count:
     max_bytes: 4
 )", "BC2303"},
-        StructuralFailureCase{"DuplicateFieldProperty", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"DuplicateFieldProperty", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -177,7 +177,7 @@ fields:
     type: uint32
     type: uint64
 )", "BC2304"},
-        StructuralFailureCase{"UnknownFieldProperty", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"UnknownFieldProperty", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -186,7 +186,7 @@ fields:
     type: uint32
     bogus: 1
 )", "BC2305"},
-        StructuralFailureCase{"InvalidNativeIntegerTypedProperty", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"InvalidNativeIntegerTypedProperty", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -195,7 +195,7 @@ fields:
     type: uint32
     max_bytes: nope
 )", "BC2306"},
-        StructuralFailureCase{"WrongAnnotationsShape", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"WrongAnnotationsShape", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -204,7 +204,7 @@ fields:
   count:
     type: uint32
 )", "BC2301"},
-        StructuralFailureCase{"NonStringAnnotationValue", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"NonStringAnnotationValue", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -214,7 +214,7 @@ fields:
   count:
     type: uint32
 )", "BC2302"},
-        StructuralFailureCase{"WrongEnumsShape", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"WrongEnumsShape", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -223,7 +223,7 @@ fields:
   count:
     type: uint32
 )", "BC2301"},
-        StructuralFailureCase{"WrongEnumDefinitionShape", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"WrongEnumDefinitionShape", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -233,7 +233,7 @@ fields:
   count:
     type: uint32
 )", "BC2301"},
-        StructuralFailureCase{"MissingEnumValues", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"MissingEnumValues", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -245,7 +245,7 @@ fields:
   count:
     type: uint32
 )", "BC2303"},
-        StructuralFailureCase{"DuplicateEnumProperty", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"DuplicateEnumProperty", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -259,7 +259,7 @@ fields:
   count:
     type: uint32
 )", "BC2304"},
-        StructuralFailureCase{"UnknownEnumProperty", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"UnknownEnumProperty", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -272,7 +272,7 @@ fields:
   count:
     type: uint32
 )", "BC2305"},
-        StructuralFailureCase{"WrongEnumValuesShape", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"WrongEnumValuesShape", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -283,7 +283,7 @@ fields:
   count:
     type: uint32
 )", "BC2301"},
-        StructuralFailureCase{"InvalidExplicitEnumValue", R"(namespace: breadcrumbs.telemetry
+        StructuralFailureCase{"InvalidExplicitEnumValue", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -315,7 +315,7 @@ TEST_P(QuotedIntegerTest, RejectsQuotedNumericStringsWithNativeIntegerDiagnostic
 INSTANTIATE_TEST_SUITE_P(
     SchemaDecoderQuotedIntegers, QuotedIntegerTest,
     ::testing::Values(
-        QuotedIntegerCase{"QuotedVersion", R"(namespace: breadcrumbs.telemetry
+        QuotedIntegerCase{"QuotedVersion", R"(namespace: quarry.telemetry
 record: Sample
 version: "1"
 type: data
@@ -323,7 +323,7 @@ fields:
   count:
     type: uint32
 )",},
-        QuotedIntegerCase{"QuotedMaxBytes", R"(namespace: breadcrumbs.telemetry
+        QuotedIntegerCase{"QuotedMaxBytes", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -332,7 +332,7 @@ fields:
     type: string
     max_bytes: '32'
 )",},
-        QuotedIntegerCase{"QuotedMaxElements", R"(namespace: breadcrumbs.telemetry
+        QuotedIntegerCase{"QuotedMaxElements", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -341,7 +341,7 @@ fields:
     type: uint32[]
     max_elements: "64"
 )",},
-        QuotedIntegerCase{"QuotedEnumValue", R"(namespace: breadcrumbs.telemetry
+        QuotedIntegerCase{"QuotedEnumValue", R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -355,7 +355,7 @@ fields:
 )",}));
 
 TEST(SchemaDecoderTest, DecodesMinimalSchema) {
-    const PipelineOutput output = parse_and_decode(R"(namespace: breadcrumbs.telemetry
+    const PipelineOutput output = parse_and_decode(R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -368,7 +368,7 @@ fields:
     ASSERT_TRUE(output.decode_result.schema.has_value()) << diagnostic_summary(output.diagnostics);
 
     const SourceSchemaDocument& schema = *output.decode_result.schema;
-    EXPECT_EQ(schema.namespace_spelling, "breadcrumbs.telemetry");
+    EXPECT_EQ(schema.namespace_spelling, "quarry.telemetry");
     EXPECT_EQ(schema.record_name, "Sample");
     EXPECT_EQ(schema.version, 1);
     EXPECT_EQ(schema.record_type_spelling, "data");
@@ -383,13 +383,13 @@ fields:
 }
 
 TEST(SchemaDecoderTest, DecodesCompleteSchemaAndPreservesOptionalProperties) {
-    const PipelineOutput output = parse_and_decode(R"(namespace: breadcrumbs.telemetry
+    const PipelineOutput output = parse_and_decode(R"(namespace: quarry.telemetry
 record: Sample
 version: 2
 type: command
 imports:
-  - breadcrumbs.shared
-  - breadcrumbs.motion
+  - quarry.shared
+  - quarry.motion
 annotations:
   owner: telemetry
   stage: beta
@@ -454,7 +454,7 @@ enums:
 }
 
 TEST(SchemaDecoderTest, PreservesSourceRanges) {
-    const PipelineOutput output = parse_and_decode(R"(namespace: breadcrumbs.telemetry
+    const PipelineOutput output = parse_and_decode(R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -477,7 +477,7 @@ fields:
 }
 
 TEST(SchemaDecoderTest, AcceptsSemanticBoundaryFormsWithoutSemantics) {
-    const PipelineOutput output = parse_and_decode(R"(namespace: breadcrumbs.telemetry
+    const PipelineOutput output = parse_and_decode(R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: not_a_real_type

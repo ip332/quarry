@@ -1,4 +1,4 @@
-# Breadcrumbs Manifest Format Specification
+# Quarry Manifest Format Specification
 
 ## Status
 
@@ -12,7 +12,7 @@ Draft
 
 ## Purpose
 
-The Breadcrumbs manifest is compiler-managed persistent state.
+The Quarry manifest is compiler-managed persistent state.
 
 The manifest represents one resolved compilation. Imported schemas are resolved
 into a namespace hierarchy before manifest state is written.
@@ -48,7 +48,7 @@ The manifest contains:
 * `root_namespace`
 
 `manifest_version` is the version of the manifest file format. It is
-independent of any Breadcrumbs schema version.
+independent of any Quarry schema version.
 
 An empty `compiler_version` means the compiler version was not provided.
 
@@ -127,7 +127,7 @@ manifest_version: 1
 compiler_version: "0.1"
 next_record_id: 3
 root_namespace {
-  name: "breadcrumbs"
+  name: "quarry"
   namespaces {
     name: "telemetry"
     records {

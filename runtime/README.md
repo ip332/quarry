@@ -1,8 +1,8 @@
 # Runtime
 
-This module owns generic runtime support for Breadcrumbs binary records.
+This module owns generic runtime support for Quarry binary records.
 
-Generated C++ schema code calls the header-only `breadcrumbs_runtime` target for
+Generated C++ schema code calls the header-only `quarry_runtime` target for
 byte-level mechanics while generated code keeps schema-specific knowledge such
 as `record_id`, `field_index`, field type, and enum value sets.
 
@@ -38,16 +38,16 @@ generated decoder cause generated decoding to fail.
 
 `kGeneratedCodeApiVersion` is a narrow source-compatibility marker for generated
 C++ code. Generated headers compile-time assert that the runtime exposes the
-expected value. This guard does not represent the Breadcrumbs package release
+expected value. This guard does not represent the Quarry package release
 version, C++ ABI stability, schema-language compatibility, or BRF wire-format
 compatibility.
 
 The generated-code API version is owned by the top-level
-`BREADCRUMBS_GENERATED_CODE_API_VERSION` CMake scalar. CMake validates that it
+`QUARRY_GENERATED_CODE_API_VERSION` CMake scalar. CMake validates that it
 is a non-negative `std::uint32_t` value, configures the public runtime
 `version.hpp` header from it, configures the compiler backend's private
 generated-code API header from the same value, and writes it into installed
-package metadata as `Breadcrumbs_GENERATED_CODE_API_VERSION`. The installed
+package metadata as `Quarry_GENERATED_CODE_API_VERSION`. The installed
 schema compiler prints the backend-side value with
 `--print-generated-code-api-version`.
 
@@ -109,27 +109,27 @@ source-schema models, symbols, semantic validation, layout, or backend code.
 
 ## CMake Package
 
-`breadcrumbs_runtime` is a header-only `INTERFACE` target in the source tree.
-Installation exports it as `Breadcrumbs::runtime` through the `Breadcrumbs`
+`quarry_runtime` is a header-only `INTERFACE` target in the source tree.
+Installation exports it as `Quarry::runtime` through the `Quarry`
 CMake package:
 
 ```cmake
-find_package(Breadcrumbs CONFIG REQUIRED)
-target_link_libraries(my_app PRIVATE Breadcrumbs::runtime)
+find_package(Quarry CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE Quarry::runtime)
 ```
 
 Installed consumers should include:
 
 ```cpp
-#include <breadcrumbs/runtime/binary_record.hpp>
+#include <quarry/runtime/binary_record.hpp>
 ```
 
-The package installs `BreadcrumbsConfig.cmake`,
-`BreadcrumbsConfigVersion.cmake`, public runtime headers including
-`<breadcrumbs/runtime/version.hpp>`, and the exported runtime target. The
+The package installs `QuarryConfig.cmake`,
+`QuarryConfigVersion.cmake`, public runtime headers including
+`<quarry/runtime/version.hpp>`, and the exported runtime target. The
 packaging verification test under `tests/consumer/runtime_package` installs the
 runtime to a temporary prefix, configures a separate CMake project with
-`find_package(Breadcrumbs CONFIG REQUIRED)`, links `Breadcrumbs::runtime`, and
+`find_package(Quarry CONFIG REQUIRED)`, links `Quarry::runtime`, and
 runs a small encode/decode smoke executable.
 
 This is the complete supported installed SDK surface today. Compiler targets,
@@ -140,7 +140,7 @@ installed or exported by the runtime package; see
 ## Fuzzing
 
 BRF parser fuzz targets are available behind the opt-in
-`BREADCRUMBS_BUILD_FUZZERS` CMake option. The normal debug build does not build
+`QUARRY_BUILD_FUZZERS` CMake option. The normal debug build does not build
 or run fuzzers.
 
 The `debug-fuzz` preset builds Clang/libFuzzer targets with AddressSanitizer and

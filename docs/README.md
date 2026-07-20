@@ -1,8 +1,8 @@
-# Breadcrumbs Documentation
+# Quarry Documentation
 
-This directory contains the project documentation for Breadcrumbs.
+This directory contains the project documentation for Quarry.
 
-Breadcrumbs is a schema-driven platform for secure edge-to-cloud systems, with
+Quarry is a schema-driven platform for secure edge-to-cloud systems, with
 asset tracking as the first reference application.
 
 The documentation records stable architecture decisions and separates them from
@@ -175,7 +175,7 @@ When adding or changing documentation:
 * keep specifications focused on precise "how" details
 * use `deviceId`, `record`, `schema`, `envelope`, `payload`, and `schema compiler`
   consistently
-* use `Breadcrumbs Agent` and `Breadcrumbs Cloud` for product components
+* use `Quarry Agent` and `Quarry Cloud` for product components
 * avoid duplicating detailed explanations across documents
 
 When two documents need the same concept, keep the full explanation in the most

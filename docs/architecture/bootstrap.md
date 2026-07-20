@@ -1,7 +1,7 @@
 # Bootstrap
 
 Bootstrap is the local-only initialization step that creates the device's local
-Breadcrumbs identity material.
+Quarry identity material.
 
 This document is the home for device-local startup behavior that must be
 portable across Linux, RTOS, and bare-metal implementations without changing the

@@ -1,6 +1,0 @@
-@PACKAGE_INIT@
-
-set(Breadcrumbs_GENERATED_CODE_API_VERSION "@BREADCRUMBS_GENERATED_CODE_API_VERSION@")
-
-include("${CMAKE_CURRENT_LIST_DIR}/BreadcrumbsTargets.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/BreadcrumbsGenerate.cmake")

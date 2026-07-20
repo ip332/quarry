@@ -1,6 +1,6 @@
 # YAML Syntax Layer
 
-This module owns the generic YAML syntax layer for Breadcrumbs source files.
+This module owns the generic YAML syntax layer for Quarry source files.
 It is a migration step toward the normative YAML `.brd` format defined in
 `docs/specifications/schema-language.md`.
 
@@ -16,13 +16,13 @@ source-located YAML document model. It preserves:
 * sequence element order
 * source ranges derived from parser marks
 
-It does not decode Breadcrumbs schema vocabulary, build AST nodes, resolve
+It does not decode Quarry schema vocabulary, build AST nodes, resolve
 names, validate schema semantics, compute layout, or construct Schema IR.
 
 ## Source Schema Decoder
 
 The YAML module also contains the schema-specific decoder that turns a
-`YamlDocument` into the raw Breadcrumbs source schema model owned by
+`YamlDocument` into the raw Quarry source schema model owned by
 `compiler/source_schema`.
 
 That source schema model preserves:
@@ -82,7 +82,7 @@ are preserved in input order.
 
 ## Dependency Boundary
 
-Allowed direct Breadcrumbs dependencies:
+Allowed direct Quarry dependencies:
 
 * `compiler/support`
 * `compiler/diagnostics`

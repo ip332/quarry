@@ -1,8 +1,8 @@
-# Breadcrumbs Vision
+# Quarry Vision
 
 ## Purpose
 
-Breadcrumbs is a schema-driven platform for secure edge-to-cloud systems, with
+Quarry is a schema-driven platform for secure edge-to-cloud systems, with
 asset tracking as the first reference application.
 
 The project provides a common architecture for connected devices, local
@@ -15,14 +15,14 @@ OTA workflows.
 
 # Long-Term Vision
 
-Breadcrumbs is intended to be a portable foundation for secure connected
+Quarry is intended to be a portable foundation for secure connected
 systems across embedded Linux, RTOS, bare-metal devices, and cloud services.
 
 The long-term goal is to let teams define structured data once and derive the
 runtime, tooling, validation, documentation, and cloud integration needed to use
 that data safely across the system.
 
-Breadcrumbs should support systems in domains such as:
+Quarry should support systems in domains such as:
 
 * asset tracking
 * telemetry
@@ -43,7 +43,7 @@ platform.
 A schema is the contract between devices, services, tools, and operators.
 
 A schema defines the structure and meaning of a record payload. From that schema,
-Breadcrumbs can derive generated accessors, validators, binary codecs, inspector
+Quarry can derive generated accessors, validators, binary codecs, inspector
 metadata, generated documentation, and language bindings.
 
 This keeps production systems aligned with the stable architecture decisions:
@@ -61,7 +61,7 @@ the schema compiler.
 
 # Platform Ecosystem
 
-The long-term Breadcrumbs ecosystem includes:
+The long-term Quarry ecosystem includes:
 
 * schema language
 * schema compiler
@@ -71,7 +71,7 @@ The long-term Breadcrumbs ecosystem includes:
 * cloud services
 
 ```text
-                 Breadcrumbs Platform
+                 Quarry Platform
 
           Schema Language (DSL)
                     |
@@ -92,7 +92,7 @@ The long-term Breadcrumbs ecosystem includes:
    +----+--------+
    |             |
    v             v
-Breadcrumbs  Breadcrumbs
+Quarry  Quarry
    Agent       Cloud
    |             |
    +------+------+
@@ -108,8 +108,8 @@ The schema language describes records and compatibility rules.
 The schema compiler produces generated artifacts for devices, services, SDKs,
 tests, documentation, and inspection tools.
 
-Runtime libraries provide the common behavior needed by the Breadcrumbs Agent,
-Breadcrumbs Cloud, and supporting tools.
+Runtime libraries provide the common behavior needed by the Quarry Agent,
+Quarry Cloud, and supporting tools.
 
 The binary record format provides the record byte representation used for
 transport, local storage, cloud ingestion, and diagnostics.
@@ -124,7 +124,7 @@ operations, and reference application workflows.
 
 # Reference Application
 
-Asset tracking is the first reference application for Breadcrumbs.
+Asset tracking is the first reference application for Quarry.
 
 It demonstrates:
 
@@ -144,7 +144,7 @@ hard-coding the platform to one domain.
 
 # Non-Goals
 
-Breadcrumbs is not intended to be:
+Quarry is not intended to be:
 
 * a general-purpose broker
 * an RPC framework

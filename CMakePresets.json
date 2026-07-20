@@ -8,8 +8,8 @@
       "binaryDir": "${sourceDir}/build/debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "BREADCRUMBS_WARNINGS_AS_ERRORS": "ON",
-        "BREADCRUMBS_ENABLE_CLANG_TIDY": "OFF"
+        "QUARRY_WARNINGS_AS_ERRORS": "ON",
+        "QUARRY_ENABLE_CLANG_TIDY": "OFF"
       }
     },
     {
@@ -18,7 +18,7 @@
       "inherits": "debug",
       "binaryDir": "${sourceDir}/build/debug-clang-tidy",
       "cacheVariables": {
-        "BREADCRUMBS_ENABLE_CLANG_TIDY": "ON"
+        "QUARRY_ENABLE_CLANG_TIDY": "ON"
       }
     },
     {
@@ -28,9 +28,9 @@
       "binaryDir": "${sourceDir}/build/debug-fuzz",
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "clang++",
-        "BREADCRUMBS_BUILD_FUZZERS": "ON",
-        "BREADCRUMBS_WARNINGS_AS_ERRORS": "ON",
-        "BREADCRUMBS_ENABLE_CLANG_TIDY": "OFF"
+        "QUARRY_BUILD_FUZZERS": "ON",
+        "QUARRY_WARNINGS_AS_ERRORS": "ON",
+        "QUARRY_ENABLE_CLANG_TIDY": "OFF"
       }
     }
   ],

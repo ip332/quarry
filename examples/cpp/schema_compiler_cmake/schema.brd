@@ -1,4 +1,4 @@
-namespace: breadcrumbs.telemetry
+namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data

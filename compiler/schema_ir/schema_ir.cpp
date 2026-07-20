@@ -15,7 +15,7 @@
 #include <unordered_map>
 #include <utility>
 
-namespace breadcrumbs::compiler::schema_ir {
+namespace quarry::compiler::schema_ir {
 namespace {
 
 constexpr std::string_view schema_ir_pass = "schema_ir";
@@ -44,52 +44,52 @@ struct SchemaIrBuildState {
     return qualified;
 }
 
-[[nodiscard]] ::breadcrumbs::schema_ir::PrimitiveType
+[[nodiscard]] ::quarry::schema_ir::PrimitiveType
 primitive_type_for_semantic(semantic::SemanticPrimitiveType primitive) {
     switch (primitive) {
     case semantic::SemanticPrimitiveType::Bool:
-        return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_BOOL;
+        return ::quarry::schema_ir::PRIMITIVE_TYPE_BOOL;
     case semantic::SemanticPrimitiveType::I8:
-        return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_I8;
+        return ::quarry::schema_ir::PRIMITIVE_TYPE_I8;
     case semantic::SemanticPrimitiveType::U8:
-        return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U8;
+        return ::quarry::schema_ir::PRIMITIVE_TYPE_U8;
     case semantic::SemanticPrimitiveType::I16:
-        return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_I16;
+        return ::quarry::schema_ir::PRIMITIVE_TYPE_I16;
     case semantic::SemanticPrimitiveType::U16:
-        return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U16;
+        return ::quarry::schema_ir::PRIMITIVE_TYPE_U16;
     case semantic::SemanticPrimitiveType::I32:
-        return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_I32;
+        return ::quarry::schema_ir::PRIMITIVE_TYPE_I32;
     case semantic::SemanticPrimitiveType::U32:
-        return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32;
+        return ::quarry::schema_ir::PRIMITIVE_TYPE_U32;
     case semantic::SemanticPrimitiveType::I64:
-        return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_I64;
+        return ::quarry::schema_ir::PRIMITIVE_TYPE_I64;
     case semantic::SemanticPrimitiveType::U64:
-        return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_U64;
+        return ::quarry::schema_ir::PRIMITIVE_TYPE_U64;
     case semantic::SemanticPrimitiveType::F32:
-        return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_F32;
+        return ::quarry::schema_ir::PRIMITIVE_TYPE_F32;
     case semantic::SemanticPrimitiveType::F64:
-        return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_F64;
+        return ::quarry::schema_ir::PRIMITIVE_TYPE_F64;
     }
 
-    return ::breadcrumbs::schema_ir::PRIMITIVE_TYPE_UNSPECIFIED;
+    return ::quarry::schema_ir::PRIMITIVE_TYPE_UNSPECIFIED;
 }
 
-[[nodiscard]] ::breadcrumbs::schema_ir::RecordType
+[[nodiscard]] ::quarry::schema_ir::RecordType
 record_type_for_semantic(semantic::SemanticRecordType record_type) {
     switch (record_type) {
     case semantic::SemanticRecordType::Data:
-        return ::breadcrumbs::schema_ir::RECORD_TYPE_DATA;
+        return ::quarry::schema_ir::RECORD_TYPE_DATA;
     case semantic::SemanticRecordType::Command:
-        return ::breadcrumbs::schema_ir::RECORD_TYPE_COMMAND;
+        return ::quarry::schema_ir::RECORD_TYPE_COMMAND;
     case semantic::SemanticRecordType::Event:
-        return ::breadcrumbs::schema_ir::RECORD_TYPE_EVENT;
+        return ::quarry::schema_ir::RECORD_TYPE_EVENT;
     case semantic::SemanticRecordType::Configuration:
-        return ::breadcrumbs::schema_ir::RECORD_TYPE_CONFIGURATION;
+        return ::quarry::schema_ir::RECORD_TYPE_CONFIGURATION;
     case semantic::SemanticRecordType::Diagnostics:
-        return ::breadcrumbs::schema_ir::RECORD_TYPE_DIAGNOSTICS;
+        return ::quarry::schema_ir::RECORD_TYPE_DIAGNOSTICS;
     }
 
-    return ::breadcrumbs::schema_ir::RECORD_TYPE_UNSPECIFIED;
+    return ::quarry::schema_ir::RECORD_TYPE_UNSPECIFIED;
 }
 
 void emit_internal_error(SchemaIrBuildState state, std::string message,
@@ -106,7 +106,7 @@ void emit_internal_error(SchemaIrBuildState state, std::string message,
     }
 }
 
-void populate_source_origin(::breadcrumbs::schema_ir::SourceOrigin* origin,
+void populate_source_origin(::quarry::schema_ir::SourceOrigin* origin,
                             const support::SourceManager& source_manager,
                             support::SourceRange range) {
     if (origin == nullptr || !range.is_valid()) {
@@ -120,7 +120,7 @@ void populate_source_origin(::breadcrumbs::schema_ir::SourceOrigin* origin,
         origin->set_file(std::string(*source_path));
     }
 
-    ::breadcrumbs::schema_ir::SourceSpan* span = origin->mutable_span();
+    ::quarry::schema_ir::SourceSpan* span = origin->mutable_span();
     span->set_start_offset(static_cast<std::uint32_t>(range.begin().byte_offset()));
     span->set_end_offset(static_cast<std::uint32_t>(range.end().byte_offset()));
 
@@ -136,10 +136,10 @@ void populate_source_origin(::breadcrumbs::schema_ir::SourceOrigin* origin,
     }
 }
 
-[[nodiscard]] ::breadcrumbs::schema_ir::NamespaceIR*
-find_namespace_child(::breadcrumbs::schema_ir::NamespaceIR& parent, std::string_view name) {
+[[nodiscard]] ::quarry::schema_ir::NamespaceIR*
+find_namespace_child(::quarry::schema_ir::NamespaceIR& parent, std::string_view name) {
     for (int index = 0; index < parent.namespaces_size(); ++index) {
-        ::breadcrumbs::schema_ir::NamespaceIR* child = parent.mutable_namespaces(index);
+        ::quarry::schema_ir::NamespaceIR* child = parent.mutable_namespaces(index);
         if (child != nullptr && child->name() == name) {
             return child;
         }
@@ -147,10 +147,10 @@ find_namespace_child(::breadcrumbs::schema_ir::NamespaceIR& parent, std::string_
     return nullptr;
 }
 
-[[nodiscard]] ::breadcrumbs::schema_ir::RecordIR*
-find_record_child(::breadcrumbs::schema_ir::NamespaceIR& parent, std::string_view name) {
+[[nodiscard]] ::quarry::schema_ir::RecordIR*
+find_record_child(::quarry::schema_ir::NamespaceIR& parent, std::string_view name) {
     for (int index = 0; index < parent.records_size(); ++index) {
-        ::breadcrumbs::schema_ir::RecordIR* record = parent.mutable_records(index);
+        ::quarry::schema_ir::RecordIR* record = parent.mutable_records(index);
         if (record != nullptr && record->name() == name) {
             return record;
         }
@@ -158,10 +158,10 @@ find_record_child(::breadcrumbs::schema_ir::NamespaceIR& parent, std::string_vie
     return nullptr;
 }
 
-[[nodiscard]] ::breadcrumbs::schema_ir::EnumIR*
-find_enum_child(::breadcrumbs::schema_ir::NamespaceIR& parent, std::string_view name) {
+[[nodiscard]] ::quarry::schema_ir::EnumIR*
+find_enum_child(::quarry::schema_ir::NamespaceIR& parent, std::string_view name) {
     for (int index = 0; index < parent.enums_size(); ++index) {
-        ::breadcrumbs::schema_ir::EnumIR* enum_ir = parent.mutable_enums(index);
+        ::quarry::schema_ir::EnumIR* enum_ir = parent.mutable_enums(index);
         if (enum_ir != nullptr && enum_ir->name() == name) {
             return enum_ir;
         }
@@ -169,15 +169,15 @@ find_enum_child(::breadcrumbs::schema_ir::NamespaceIR& parent, std::string_view 
     return nullptr;
 }
 
-[[nodiscard]] ::breadcrumbs::schema_ir::NamespaceIR&
-ensure_namespace_child(::breadcrumbs::schema_ir::NamespaceIR& parent, std::string name,
+[[nodiscard]] ::quarry::schema_ir::NamespaceIR&
+ensure_namespace_child(::quarry::schema_ir::NamespaceIR& parent, std::string name,
                        const support::SourceManager& source_manager, support::SourceRange range) {
-    if (::breadcrumbs::schema_ir::NamespaceIR* existing = find_namespace_child(parent, name);
+    if (::quarry::schema_ir::NamespaceIR* existing = find_namespace_child(parent, name);
         existing != nullptr) {
         return *existing;
     }
 
-    ::breadcrumbs::schema_ir::NamespaceIR* child = parent.add_namespaces();
+    ::quarry::schema_ir::NamespaceIR* child = parent.add_namespaces();
     child->set_ir_id(0);
     child->set_name(std::move(name));
     child->set_fqn(qualify_fqn(parent.fqn(), child->name()));
@@ -185,15 +185,15 @@ ensure_namespace_child(::breadcrumbs::schema_ir::NamespaceIR& parent, std::strin
     return *child;
 }
 
-[[nodiscard]] ::breadcrumbs::schema_ir::RecordIR&
-ensure_record_child(::breadcrumbs::schema_ir::NamespaceIR& parent, std::string name,
+[[nodiscard]] ::quarry::schema_ir::RecordIR&
+ensure_record_child(::quarry::schema_ir::NamespaceIR& parent, std::string name,
                     const support::SourceManager& source_manager, support::SourceRange range) {
-    if (::breadcrumbs::schema_ir::RecordIR* existing = find_record_child(parent, name);
+    if (::quarry::schema_ir::RecordIR* existing = find_record_child(parent, name);
         existing != nullptr) {
         return *existing;
     }
 
-    ::breadcrumbs::schema_ir::RecordIR* record = parent.add_records();
+    ::quarry::schema_ir::RecordIR* record = parent.add_records();
     record->set_ir_id(0);
     record->set_name(std::move(name));
     record->set_fqn(qualify_fqn(parent.fqn(), record->name()));
@@ -201,15 +201,15 @@ ensure_record_child(::breadcrumbs::schema_ir::NamespaceIR& parent, std::string n
     return *record;
 }
 
-[[nodiscard]] ::breadcrumbs::schema_ir::EnumIR&
-ensure_enum_child(::breadcrumbs::schema_ir::NamespaceIR& parent, std::string name,
+[[nodiscard]] ::quarry::schema_ir::EnumIR&
+ensure_enum_child(::quarry::schema_ir::NamespaceIR& parent, std::string name,
                   const support::SourceManager& source_manager, support::SourceRange range) {
-    if (::breadcrumbs::schema_ir::EnumIR* existing = find_enum_child(parent, name);
+    if (::quarry::schema_ir::EnumIR* existing = find_enum_child(parent, name);
         existing != nullptr) {
         return *existing;
     }
 
-    ::breadcrumbs::schema_ir::EnumIR* enum_ir = parent.add_enums();
+    ::quarry::schema_ir::EnumIR* enum_ir = parent.add_enums();
     enum_ir->set_ir_id(0);
     enum_ir->set_name(std::move(name));
     enum_ir->set_fqn(qualify_fqn(parent.fqn(), enum_ir->name()));
@@ -230,10 +230,10 @@ ensure_enum_child(::breadcrumbs::schema_ir::NamespaceIR& parent, std::string nam
     return found->second;
 }
 
-[[nodiscard]] ::breadcrumbs::schema_ir::FieldType lower_semantic_type_with_state(
+[[nodiscard]] ::quarry::schema_ir::FieldType lower_semantic_type_with_state(
     const semantic::SemanticType& semantic_type, std::string_view record_fqn,
     std::string_view field_name, support::SourceRange field_range, SchemaIrBuildState state) {
-    ::breadcrumbs::schema_ir::FieldType field_type;
+    ::quarry::schema_ir::FieldType field_type;
     if (!semantic_type.is_valid()) {
         emit_internal_error(state,
                             "schema IR lowering encountered an invalid semantic field type for '" +
@@ -243,7 +243,7 @@ ensure_enum_child(::breadcrumbs::schema_ir::NamespaceIR& parent, std::string nam
     }
 
     return std::visit(
-        [&](const auto& typed) -> ::breadcrumbs::schema_ir::FieldType {
+        [&](const auto& typed) -> ::quarry::schema_ir::FieldType {
             using Type = std::decay_t<decltype(typed)>;
             if constexpr (std::is_same_v<Type, semantic::SemanticPrimitiveType>) {
                 field_type.set_primitive(primitive_type_for_semantic(typed));
@@ -286,13 +286,13 @@ ensure_enum_child(::breadcrumbs::schema_ir::NamespaceIR& parent, std::string nam
                     return {};
                 }
 
-                ::breadcrumbs::schema_ir::FieldType element_type = lower_semantic_type_with_state(
+                ::quarry::schema_ir::FieldType element_type = lower_semantic_type_with_state(
                     *typed.element_type, record_fqn, field_name, field_range, state);
                 if (state.failed != nullptr && *state.failed) {
                     return {};
                 }
 
-                ::breadcrumbs::schema_ir::ArrayType* array_type = field_type.mutable_array();
+                ::quarry::schema_ir::ArrayType* array_type = field_type.mutable_array();
                 array_type->set_max_elements(typed.max_elements);
                 array_type->mutable_element_type()->CopyFrom(std::move(element_type));
                 return field_type;
@@ -327,13 +327,13 @@ public:
         SchemaIrModel schema_ir;
         schema_ir.set_schema_ir_version(1);
 
-        ::breadcrumbs::schema_ir::NamespaceIR* root = schema_ir.mutable_root_namespace();
+        ::quarry::schema_ir::NamespaceIR* root = schema_ir.mutable_root_namespace();
         root->set_ir_id(next_ir_id_++);
         root->set_name("");
         root->set_fqn("");
         populate_source_origin(root->mutable_source_origin(), source_manager_, schema_.source_range);
 
-        ::breadcrumbs::schema_ir::NamespaceIR* current_namespace = root;
+        ::quarry::schema_ir::NamespaceIR* current_namespace = root;
         std::string current_namespace_fqn;
         if (schema_.namespace_name.parts.empty()) {
             emit_internal_error(state_, "schema IR lowering encountered an empty namespace name",
@@ -342,7 +342,7 @@ public:
         }
 
         for (const source_schema::SourceSchemaIdentifier& part : schema_.namespace_name.parts) {
-            ::breadcrumbs::schema_ir::NamespaceIR& child = ensure_namespace_child(
+            ::quarry::schema_ir::NamespaceIR& child = ensure_namespace_child(
                 *current_namespace, part.text, source_manager_, part.source_range);
             if (child.ir_id() == 0U) {
                 child.set_ir_id(next_ir_id_++);
@@ -352,7 +352,7 @@ public:
         }
 
         for (const source_schema::NormalizedSourceSchemaEnum& enumeration : schema_.enums) {
-            ::breadcrumbs::schema_ir::EnumIR& enum_ir = ensure_enum_child(
+            ::quarry::schema_ir::EnumIR& enum_ir = ensure_enum_child(
                 *current_namespace, enumeration.name.text, source_manager_,
                 enumeration.source_range);
             if (enum_ir.ir_id() == 0U) {
@@ -362,7 +362,7 @@ public:
                 enum_ir.ir_id();
         }
 
-        ::breadcrumbs::schema_ir::RecordIR& record = ensure_record_child(
+        ::quarry::schema_ir::RecordIR& record = ensure_record_child(
             *current_namespace, schema_.record_name.text, source_manager_,
             schema_.record_source_range);
         if (record.ir_id() == 0U) {
@@ -391,9 +391,9 @@ private:
         return layout_model_.find_record(record_fqn);
     }
 
-    void populate_enums(::breadcrumbs::schema_ir::NamespaceIR& namespace_ir) {
+    void populate_enums(::quarry::schema_ir::NamespaceIR& namespace_ir) {
         for (const source_schema::NormalizedSourceSchemaEnum& enumeration : schema_.enums) {
-            ::breadcrumbs::schema_ir::EnumIR* enum_ir = find_enum_child(namespace_ir, enumeration.name.text);
+            ::quarry::schema_ir::EnumIR* enum_ir = find_enum_child(namespace_ir, enumeration.name.text);
             if (enum_ir == nullptr) {
                 emit_internal_error(state_, "schema IR lowering could not locate enum '" +
                                                 enumeration.name.text + "'",
@@ -402,7 +402,7 @@ private:
             }
 
             for (const source_schema::NormalizedSourceSchemaEnumValue& value : enumeration.values) {
-                ::breadcrumbs::schema_ir::EnumValueIR* value_ir = enum_ir->add_values();
+                ::quarry::schema_ir::EnumValueIR* value_ir = enum_ir->add_values();
                 value_ir->set_name(value.name.text);
                 value_ir->set_value(value.value);
                 populate_source_origin(value_ir->mutable_source_origin(), source_manager_,
@@ -411,9 +411,9 @@ private:
         }
     }
 
-    void populate_record(::breadcrumbs::schema_ir::NamespaceIR& namespace_ir,
+    void populate_record(::quarry::schema_ir::NamespaceIR& namespace_ir,
                          std::string_view record_fqn,
-                         ::breadcrumbs::schema_ir::RecordIR& record) {
+                         ::quarry::schema_ir::RecordIR& record) {
         const semantic::SemanticRecord* semantic_record = find_semantic_record(record_fqn);
         const layout::RecordLayout* layout_record = find_layout_record(record_fqn);
         if (semantic_record == nullptr) {
@@ -491,7 +491,7 @@ private:
                 return;
             }
 
-            ::breadcrumbs::schema_ir::FieldIR* field_ir = record.add_fields();
+            ::quarry::schema_ir::FieldIR* field_ir = record.add_fields();
             field_ir->set_name(field.name.text);
             field_ir->set_field_index(layout_field.field_index);
             field_ir->mutable_type()->CopyFrom(lower_semantic_type_with_state(
@@ -528,4 +528,4 @@ SchemaIrModel SchemaIrBuilder::build(const source_schema::NormalizedSourceSchema
     return builder.build();
 }
 
-} // namespace breadcrumbs::compiler::schema_ir
+} // namespace quarry::compiler::schema_ir

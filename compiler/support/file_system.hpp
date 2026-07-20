@@ -3,7 +3,7 @@
 #include <string>
 #include <string_view>
 
-namespace breadcrumbs::compiler::support {
+namespace quarry::compiler::support {
 
 struct FileReadResult {
     bool found = false;
@@ -26,4 +26,4 @@ public:
     [[nodiscard]] std::string normalize_path(std::string_view path) const override;
 };
 
-} // namespace breadcrumbs::compiler::support
+} // namespace quarry::compiler::support

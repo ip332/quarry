@@ -1,4 +1,4 @@
-# Breadcrumbs Device Identity
+# Quarry Device Identity
 
 ## Status
 
@@ -6,7 +6,7 @@ Draft
 
 ## Purpose
 
-This document defines the identity model used by Breadcrumbs.
+This document defines the identity model used by Quarry.
 
 The identity model provides a stable, globally unique identifier for every managed device while supporting optional hardware- and business-specific identifiers.
 
@@ -26,11 +26,11 @@ This document intentionally separates device identity from authentication and au
 
 # Identity Attributes
 
-Every Breadcrumbs device may expose three identifiers.
+Every Quarry device may expose three identifiers.
 
 | Attribute  | Required | Mutable | Purpose                               |
 | ---------- | -------- | ------- | ------------------------------------- |
-| deviceId   | Yes      | No      | Primary Breadcrumbs device identifier |
+| deviceId   | Yes      | No      | Primary Quarry device identifier |
 | hardwareId | No       | Rarely  | Platform or hardware identifier       |
 | assetId    | No       | Yes     | Human-readable business identifier    |
 
@@ -38,7 +38,7 @@ Every Breadcrumbs device may expose three identifiers.
 
 # deviceId
 
-The deviceId is the canonical identity of a Breadcrumbs device.
+The deviceId is the canonical identity of a Quarry device.
 
 Properties:
 
@@ -82,7 +82,7 @@ raspberrypi:10000000abcd1234
 tpm:2.0:81C5...
 ```
 
-The Breadcrumbs Agent SHOULD request a hardware identifier from the application or platform during bootstrap.
+The Quarry Agent SHOULD request a hardware identifier from the application or platform during bootstrap.
 
 If unavailable, the hardwareId shall remain empty.
 
@@ -147,7 +147,7 @@ Example registration request:
 The deviceId is generated and persisted during local bootstrap.
 
 Registration submits the deviceId, optional identifiers, and public key to
-Breadcrumbs Cloud.
+Quarry Cloud.
 
 Detailed bootstrap behavior is defined in `bootstrap.md`.
 
@@ -157,7 +157,7 @@ The registration and provisioning flow is defined in `provisioning-model.md`.
 
 # Design Rules
 
-* deviceId SHALL be the canonical Breadcrumbs identity.
+* deviceId SHALL be the canonical Quarry identity.
 * hardwareId SHALL be optional.
 * assetId SHALL be optional.
 * deviceId SHALL NOT change after bootstrap.

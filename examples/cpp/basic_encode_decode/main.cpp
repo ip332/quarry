@@ -1,4 +1,4 @@
-#include <breadcrumbs/runtime/binary_record.hpp>
+#include <quarry/runtime/binary_record.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -8,12 +8,12 @@
 
 int main() {
     std::vector<std::byte> field_bytes;
-    breadcrumbs::runtime::append_u32(field_bytes, 42U);
+    quarry::runtime::append_u32(field_bytes, 42U);
 
-    const auto encoded = breadcrumbs::runtime::encode_record_result(
+    const auto encoded = quarry::runtime::encode_record_result(
         1U,
-        std::vector<breadcrumbs::runtime::FieldBytes>{
-            breadcrumbs::runtime::FieldBytes{
+        std::vector<quarry::runtime::FieldBytes>{
+            quarry::runtime::FieldBytes{
                 .field_index = 0U,
                 .bytes = field_bytes,
             },
@@ -23,19 +23,19 @@ int main() {
         return 1;
     }
 
-    const auto parsed = breadcrumbs::runtime::parse_record(std::span<const std::byte>(*encoded.value));
+    const auto parsed = quarry::runtime::parse_record(std::span<const std::byte>(*encoded.value));
     if (!parsed.record.has_value()) {
         std::cerr << "decode failed\n";
         return 1;
     }
 
-    const auto* field = breadcrumbs::runtime::find_field(*parsed.record, 0U);
+    const auto* field = quarry::runtime::find_field(*parsed.record, 0U);
     if (field == nullptr) {
         std::cerr << "field missing\n";
         return 1;
     }
 
-    const auto decoded = breadcrumbs::runtime::read_u32(field->bytes);
+    const auto decoded = quarry::runtime::read_u32(field->bytes);
     if (!decoded.value.has_value()) {
         std::cerr << "field decode failed\n";
         return 1;

@@ -12,12 +12,12 @@
 
 namespace {
 
-using breadcrumbs::compiler::context::CompilerContext;
-using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
-using breadcrumbs::compiler::frontend::YamlCompilationResult;
-using breadcrumbs::compiler::frontend::YamlCompiler;
-using breadcrumbs::compiler::schema_ir::SchemaIrModel;
-using breadcrumbs::compiler::support::SourceFileId;
+using quarry::compiler::context::CompilerContext;
+using quarry::compiler::diagnostics::DiagnosticEngine;
+using quarry::compiler::frontend::YamlCompilationResult;
+using quarry::compiler::frontend::YamlCompiler;
+using quarry::compiler::schema_ir::SchemaIrModel;
+using quarry::compiler::support::SourceFileId;
 
 [[nodiscard]] bool has_diagnostic(const DiagnosticEngine& diagnostics, std::string_view pass,
                                   std::string_view id) {
@@ -29,8 +29,8 @@ using breadcrumbs::compiler::support::SourceFileId;
     return false;
 }
 
-[[nodiscard]] const breadcrumbs::schema_ir::NamespaceIR*
-find_namespace(const breadcrumbs::schema_ir::NamespaceIR& parent, std::string_view name) {
+[[nodiscard]] const quarry::schema_ir::NamespaceIR*
+find_namespace(const quarry::schema_ir::NamespaceIR& parent, std::string_view name) {
     for (int index = 0; index < parent.namespaces_size(); ++index) {
         const auto& child = parent.namespaces(index);
         if (child.name() == name) {
@@ -40,8 +40,8 @@ find_namespace(const breadcrumbs::schema_ir::NamespaceIR& parent, std::string_vi
     return nullptr;
 }
 
-[[nodiscard]] const breadcrumbs::schema_ir::RecordIR*
-find_record(const breadcrumbs::schema_ir::NamespaceIR& parent, std::string_view name) {
+[[nodiscard]] const quarry::schema_ir::RecordIR*
+find_record(const quarry::schema_ir::NamespaceIR& parent, std::string_view name) {
     for (int index = 0; index < parent.records_size(); ++index) {
         const auto& record = parent.records(index);
         if (record.name() == name) {
@@ -57,8 +57,8 @@ find_record(const breadcrumbs::schema_ir::NamespaceIR& parent, std::string_view 
     return nullptr;
 }
 
-[[nodiscard]] const breadcrumbs::schema_ir::EnumIR*
-find_enum(const breadcrumbs::schema_ir::NamespaceIR& parent, std::string_view name) {
+[[nodiscard]] const quarry::schema_ir::EnumIR*
+find_enum(const quarry::schema_ir::NamespaceIR& parent, std::string_view name) {
     for (int index = 0; index < parent.enums_size(); ++index) {
         const auto& enumeration = parent.enums(index);
         if (enumeration.name() == name) {
@@ -93,7 +93,7 @@ TEST(YamlCompilerTest, CompilesMinimalYamlToValidatedSchemaIr) {
     DiagnosticEngine diagnostics;
 
     const YamlCompilationResult result = compile_yaml(
-        R"(namespace: breadcrumbs.telemetry
+        R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -110,9 +110,9 @@ fields:
     const SchemaIrModel& schema_ir = *result.schema_ir;
     ASSERT_TRUE(schema_ir.has_root_namespace());
     const auto& root = schema_ir.root_namespace();
-    const auto* breadcrumbs = find_namespace(root, "breadcrumbs");
-    ASSERT_NE(breadcrumbs, nullptr);
-    const auto* telemetry = find_namespace(*breadcrumbs, "telemetry");
+    const auto* quarry = find_namespace(root, "quarry");
+    ASSERT_NE(quarry, nullptr);
+    const auto* telemetry = find_namespace(*quarry, "telemetry");
     ASSERT_NE(telemetry, nullptr);
     ASSERT_EQ(telemetry->records_size(), 1);
 
@@ -121,13 +121,13 @@ fields:
     EXPECT_EQ(record.schema_version(), 1U);
     EXPECT_TRUE(record.has_schema_version());
     EXPECT_TRUE(record.has_record_type());
-    EXPECT_EQ(record.record_type(), breadcrumbs::schema_ir::RECORD_TYPE_DATA);
+    EXPECT_EQ(record.record_type(), quarry::schema_ir::RECORD_TYPE_DATA);
     EXPECT_EQ(record.record_id(), 1U);
     ASSERT_EQ(record.fields_size(), 1);
     EXPECT_EQ(record.fields(0).name(), "count");
     EXPECT_EQ(record.fields(0).field_index(), 0U);
     ASSERT_TRUE(record.fields(0).type().has_primitive());
-    EXPECT_EQ(record.fields(0).type().primitive(), breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+    EXPECT_EQ(record.fields(0).type().primitive(), quarry::schema_ir::PRIMITIVE_TYPE_U32);
 }
 
 TEST(YamlCompilerTest, CompilesEnumsStringsAndBoundedArrays) {
@@ -135,7 +135,7 @@ TEST(YamlCompilerTest, CompilesEnumsStringsAndBoundedArrays) {
     DiagnosticEngine diagnostics;
 
     const YamlCompilationResult result = compile_yaml(
-        R"(namespace: breadcrumbs.telemetry
+        R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: event
@@ -167,9 +167,9 @@ fields:
     ASSERT_TRUE(result.schema_ir.has_value());
 
     const SchemaIrModel& schema_ir = *result.schema_ir;
-    const auto* breadcrumbs = find_namespace(schema_ir.root_namespace(), "breadcrumbs");
-    ASSERT_NE(breadcrumbs, nullptr);
-    const auto* telemetry = find_namespace(*breadcrumbs, "telemetry");
+    const auto* quarry = find_namespace(schema_ir.root_namespace(), "quarry");
+    ASSERT_NE(quarry, nullptr);
+    const auto* telemetry = find_namespace(*quarry, "telemetry");
     ASSERT_NE(telemetry, nullptr);
     const auto* enumeration = find_enum(*telemetry, "Mode");
     ASSERT_NE(enumeration, nullptr);
@@ -189,7 +189,7 @@ fields:
     const auto* record = find_record(*telemetry, "Sample");
     ASSERT_NE(record, nullptr);
     EXPECT_EQ(record->schema_version(), 1U);
-    EXPECT_EQ(record->record_type(), breadcrumbs::schema_ir::RECORD_TYPE_EVENT);
+    EXPECT_EQ(record->record_type(), quarry::schema_ir::RECORD_TYPE_EVENT);
     ASSERT_EQ(record->fields_size(), 4);
     EXPECT_TRUE(record->fields(0).type().has_enum_type());
     EXPECT_EQ(record->fields(0).type().enum_type().target_enum_ir_id(), enumeration->ir_id());
@@ -201,7 +201,7 @@ fields:
     EXPECT_EQ(record->fields(3).type().array().max_elements(), 64U);
     ASSERT_TRUE(record->fields(3).type().array().element_type().has_primitive());
     EXPECT_EQ(record->fields(3).type().array().element_type().primitive(),
-              breadcrumbs::schema_ir::PRIMITIVE_TYPE_U32);
+              quarry::schema_ir::PRIMITIVE_TYPE_U32);
 }
 
 TEST(YamlCompilerTest, StopsAfterYamlSyntaxFailure) {
@@ -209,7 +209,7 @@ TEST(YamlCompilerTest, StopsAfterYamlSyntaxFailure) {
     DiagnosticEngine diagnostics;
 
     const YamlCompilationResult result =
-        compile_yaml("namespace: breadcrumbs.telemetry\nrecord: Sample\nversion: 1\nfields: [\n",
+        compile_yaml("namespace: quarry.telemetry\nrecord: Sample\nversion: 1\nfields: [\n",
                      context, diagnostics);
 
     EXPECT_FALSE(result.succeeded());
@@ -222,7 +222,7 @@ TEST(YamlCompilerTest, StopsAfterSchemaDecodeFailure) {
     DiagnosticEngine diagnostics;
 
     const YamlCompilationResult result = compile_yaml(
-        R"(namespace: breadcrumbs.telemetry
+        R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -239,7 +239,7 @@ TEST(YamlCompilerTest, StopsAfterSourceLoweringFailure) {
     DiagnosticEngine diagnostics;
 
     const YamlCompilationResult result = compile_yaml(
-        R"(namespace: breadcrumbs.telemetry
+        R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
@@ -261,7 +261,7 @@ TEST(YamlCompilerTest, StopsAfterSemanticFailure) {
     DiagnosticEngine diagnostics;
 
     const YamlCompilationResult result = compile_yaml(
-        R"(namespace: breadcrumbs.telemetry
+        R"(namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data

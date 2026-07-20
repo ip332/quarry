@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <limits>
 
-namespace breadcrumbs::compiler::support {
+namespace quarry::compiler::support {
 
 class SourceFileId {
 public:
@@ -71,4 +71,4 @@ private:
     SourceLocation end_;
 };
 
-} // namespace breadcrumbs::compiler::support
+} // namespace quarry::compiler::support

@@ -17,25 +17,25 @@
 
 namespace {
 
-using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
-using breadcrumbs::compiler::semantic::SemanticArrayType;
-using breadcrumbs::compiler::semantic::SemanticField;
-using breadcrumbs::compiler::semantic::SemanticModel;
-using breadcrumbs::compiler::semantic::SemanticPrimitiveType;
-using breadcrumbs::compiler::semantic::SemanticRecord;
-using breadcrumbs::compiler::semantic::SemanticRecordType;
-using breadcrumbs::compiler::semantic::SemanticType;
-using breadcrumbs::compiler::semantic::SemanticValidator;
-using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaDocument;
-using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaEnum;
-using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaField;
-using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaType;
-using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaTypeReference;
-using breadcrumbs::compiler::source_schema::SourceSchemaIdentifier;
-using breadcrumbs::compiler::source_schema::SourceSchemaQualifiedName;
-using breadcrumbs::compiler::support::SourceFileId;
-using breadcrumbs::compiler::symbols::NamespaceBuilder;
-using breadcrumbs::compiler::symbols::SymbolTable;
+using quarry::compiler::diagnostics::DiagnosticEngine;
+using quarry::compiler::semantic::SemanticArrayType;
+using quarry::compiler::semantic::SemanticField;
+using quarry::compiler::semantic::SemanticModel;
+using quarry::compiler::semantic::SemanticPrimitiveType;
+using quarry::compiler::semantic::SemanticRecord;
+using quarry::compiler::semantic::SemanticRecordType;
+using quarry::compiler::semantic::SemanticType;
+using quarry::compiler::semantic::SemanticValidator;
+using quarry::compiler::source_schema::NormalizedSourceSchemaDocument;
+using quarry::compiler::source_schema::NormalizedSourceSchemaEnum;
+using quarry::compiler::source_schema::NormalizedSourceSchemaField;
+using quarry::compiler::source_schema::NormalizedSourceSchemaType;
+using quarry::compiler::source_schema::NormalizedSourceSchemaTypeReference;
+using quarry::compiler::source_schema::SourceSchemaIdentifier;
+using quarry::compiler::source_schema::SourceSchemaQualifiedName;
+using quarry::compiler::support::SourceFileId;
+using quarry::compiler::symbols::NamespaceBuilder;
+using quarry::compiler::symbols::SymbolTable;
 
 struct NormalizedAnalysisOutput {
     DiagnosticEngine symbol_diagnostics;
@@ -48,9 +48,9 @@ struct NormalizedAnalysisOutput {
                                                            std::size_t end) {
     return SourceSchemaIdentifier{
         .text = std::move(text),
-        .source_range = breadcrumbs::compiler::support::SourceRange(
-            breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), begin),
-            breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), end)),
+        .source_range = quarry::compiler::support::SourceRange(
+            quarry::compiler::support::SourceLocation(SourceFileId(0), begin),
+            quarry::compiler::support::SourceLocation(SourceFileId(0), end)),
     };
 }
 
@@ -58,9 +58,9 @@ struct NormalizedAnalysisOutput {
                                                                   std::size_t begin,
                                                                   std::size_t end) {
     SourceSchemaQualifiedName name;
-    name.source_range = breadcrumbs::compiler::support::SourceRange(
-        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), begin),
-        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), end));
+    name.source_range = quarry::compiler::support::SourceRange(
+        quarry::compiler::support::SourceLocation(SourceFileId(0), begin),
+        quarry::compiler::support::SourceLocation(SourceFileId(0), end));
 
     std::size_t part_begin = 0;
     while (part_begin <= text.size()) {
@@ -83,14 +83,14 @@ struct NormalizedAnalysisOutput {
                                                            std::string type_spelling) {
     NormalizedSourceSchemaField field;
     field.name = normalized_identifier(name, 0, name.size());
-    field.source_range = breadcrumbs::compiler::support::SourceRange(
-        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), 0),
-        breadcrumbs::compiler::support::SourceLocation(
+    field.source_range = quarry::compiler::support::SourceRange(
+        quarry::compiler::support::SourceLocation(SourceFileId(0), 0),
+        quarry::compiler::support::SourceLocation(
             SourceFileId(0), name.size() + type_spelling.size() + 2U));
     if (type_spelling.size() >= 2 && type_spelling.ends_with("[]")) {
         const std::string_view element_spelling = std::string_view(type_spelling).substr(
             0, type_spelling.size() - 2);
-        breadcrumbs::compiler::source_schema::NormalizedSourceSchemaArrayType array;
+        quarry::compiler::source_schema::NormalizedSourceSchemaArrayType array;
         array.source_range = field.source_range;
         NormalizedSourceSchemaTypeReference element_reference;
         element_reference.name =
@@ -112,22 +112,22 @@ struct NormalizedAnalysisOutput {
 [[nodiscard]] NormalizedSourceSchemaDocument normalized_schema(std::string_view namespace_name,
                                                                std::string_view record_name) {
     NormalizedSourceSchemaDocument schema;
-    schema.source_range = breadcrumbs::compiler::support::SourceRange(
-        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), 0),
-        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), 0));
+    schema.source_range = quarry::compiler::support::SourceRange(
+        quarry::compiler::support::SourceLocation(SourceFileId(0), 0),
+        quarry::compiler::support::SourceLocation(SourceFileId(0), 0));
     schema.namespace_name = normalized_qualified_name(namespace_name, 0, namespace_name.size());
     schema.record_name = normalized_identifier(std::string(record_name), 0, record_name.size());
-    schema.record_source_range = breadcrumbs::compiler::support::SourceRange(
-        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), 0),
-        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), record_name.size()));
+    schema.record_source_range = quarry::compiler::support::SourceRange(
+        quarry::compiler::support::SourceLocation(SourceFileId(0), 0),
+        quarry::compiler::support::SourceLocation(SourceFileId(0), record_name.size()));
     schema.version = 1;
-    schema.version_range = breadcrumbs::compiler::support::SourceRange(
-        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), 0),
-        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), 1));
+    schema.version_range = quarry::compiler::support::SourceRange(
+        quarry::compiler::support::SourceLocation(SourceFileId(0), 0),
+        quarry::compiler::support::SourceLocation(SourceFileId(0), 1));
     schema.record_type_spelling = "data";
-    schema.record_type_range = breadcrumbs::compiler::support::SourceRange(
-        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), 0),
-        breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), 4));
+    schema.record_type_range = quarry::compiler::support::SourceRange(
+        quarry::compiler::support::SourceLocation(SourceFileId(0), 0),
+        quarry::compiler::support::SourceLocation(SourceFileId(0), 4));
     return schema;
 }
 
@@ -135,9 +135,9 @@ struct NormalizedAnalysisOutput {
                                                          std::size_t end) {
     return NormalizedSourceSchemaEnum{
         .name = normalized_identifier(std::move(name), begin, end),
-        .source_range = breadcrumbs::compiler::support::SourceRange(
-            breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), begin),
-            breadcrumbs::compiler::support::SourceLocation(SourceFileId(0), end)),
+        .source_range = quarry::compiler::support::SourceRange(
+            quarry::compiler::support::SourceLocation(SourceFileId(0), begin),
+            quarry::compiler::support::SourceLocation(SourceFileId(0), end)),
         .values = {},
         .annotations = {},
     };
@@ -209,7 +209,7 @@ void expect_enum_reference_type(const SemanticField& field, std::string_view exp
 }
 
 TEST(SemanticSmokeTest, AcceptsBuiltinFieldTypes) {
-    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    auto schema = normalized_schema("quarry.geo", "Example");
     schema.fields = {
         normalized_field("active", "bool"),
         normalized_field("count", "int32"),
@@ -230,7 +230,7 @@ TEST(SemanticSmokeTest, AcceptsBuiltinFieldTypes) {
     ASSERT_TRUE(output.semantic_diagnostics.empty())
         << diagnostics_summary(output.semantic_diagnostics);
     ASSERT_EQ(output.semantic_model.records.size(), 1U);
-    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "quarry.geo.Example");
     ASSERT_NE(record, nullptr);
     ASSERT_EQ(record->fields.size(), 6U);
     const SemanticField* label = find_field(*record, "label");
@@ -248,7 +248,7 @@ TEST(SemanticSmokeTest, AcceptsBuiltinFieldTypes) {
 }
 
 TEST(SemanticSmokeTest, NormalizesPrimitiveAliasesToCanonicalKinds) {
-    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    auto schema = normalized_schema("quarry.geo", "Example");
     schema.fields = {
         normalized_field("bool_value", "bool"),      normalized_field("i8_short", "i8"),
         normalized_field("i8_long", "int8"),         normalized_field("u8_short", "u8"),
@@ -274,7 +274,7 @@ TEST(SemanticSmokeTest, NormalizesPrimitiveAliasesToCanonicalKinds) {
         << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_TRUE(output.semantic_diagnostics.empty())
         << diagnostics_summary(output.semantic_diagnostics);
-    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "quarry.geo.Example");
     ASSERT_NE(record, nullptr);
     ASSERT_EQ(record->fields.size(), 23U);
     expect_primitive_type(record->fields[0], SemanticPrimitiveType::Bool);
@@ -305,7 +305,7 @@ TEST(SemanticSmokeTest, NormalizesPrimitiveAliasesToCanonicalKinds) {
 }
 
 TEST(SemanticSmokeTest, PreservesRecordMetadataAndBoundedFieldTypes) {
-    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    auto schema = normalized_schema("quarry.geo", "Example");
     schema.version = 7;
     schema.version_range = schema.record_source_range;
     schema.record_type_spelling = "data";
@@ -325,7 +325,7 @@ TEST(SemanticSmokeTest, PreservesRecordMetadataAndBoundedFieldTypes) {
         << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_TRUE(output.semantic_diagnostics.empty())
         << diagnostics_summary(output.semantic_diagnostics);
-    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "quarry.geo.Example");
     ASSERT_NE(record, nullptr);
     ASSERT_TRUE(record->version.has_value());
     EXPECT_EQ(record->version, 7U);
@@ -336,18 +336,18 @@ TEST(SemanticSmokeTest, PreservesRecordMetadataAndBoundedFieldTypes) {
     ASSERT_TRUE(record->fields[2].type.is_bytes());
     ASSERT_TRUE(record->fields[3].type.is_array());
     EXPECT_EQ(
-        std::get<breadcrumbs::compiler::semantic::SemanticStringType>(record->fields[1].type.value)
+        std::get<quarry::compiler::semantic::SemanticStringType>(record->fields[1].type.value)
             .max_bytes,
         16U);
     EXPECT_EQ(
-        std::get<breadcrumbs::compiler::semantic::SemanticBytesType>(record->fields[2].type.value)
+        std::get<quarry::compiler::semantic::SemanticBytesType>(record->fields[2].type.value)
             .max_bytes,
         4U);
     EXPECT_EQ(record->fields[3].type.array().max_elements, 64U);
 }
 
 TEST(SemanticSmokeTest, RejectsZeroVersionWithAValidSourceRange) {
-    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    auto schema = normalized_schema("quarry.geo", "Example");
     schema.version = 0;
     schema.version_range = schema.record_source_range;
     schema.fields = {normalized_field("active", "bool")};
@@ -358,13 +358,13 @@ TEST(SemanticSmokeTest, RejectsZeroVersionWithAValidSourceRange) {
         << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_FALSE(output.semantic_diagnostics.empty());
     EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004");
-    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "quarry.geo.Example");
     ASSERT_NE(record, nullptr);
     EXPECT_FALSE(record->version.has_value());
 }
 
 TEST(SemanticSmokeTest, RejectsNegativeVersion) {
-    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    auto schema = normalized_schema("quarry.geo", "Example");
     schema.version = -1;
     schema.version_range = schema.record_source_range;
     schema.fields = {normalized_field("active", "bool")};
@@ -375,13 +375,13 @@ TEST(SemanticSmokeTest, RejectsNegativeVersion) {
         << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_FALSE(output.semantic_diagnostics.empty());
     EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004");
-    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "quarry.geo.Example");
     ASSERT_NE(record, nullptr);
     EXPECT_FALSE(record->version.has_value());
 }
 
 TEST(SemanticSmokeTest, RejectsVersionGreaterThanUint32) {
-    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    auto schema = normalized_schema("quarry.geo", "Example");
     schema.version = static_cast<std::int64_t>(std::numeric_limits<std::uint32_t>::max()) + 1;
     schema.version_range = schema.record_source_range;
     schema.fields = {normalized_field("active", "bool")};
@@ -392,13 +392,13 @@ TEST(SemanticSmokeTest, RejectsVersionGreaterThanUint32) {
         << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_FALSE(output.semantic_diagnostics.empty());
     EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004");
-    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "quarry.geo.Example");
     ASSERT_NE(record, nullptr);
     EXPECT_FALSE(record->version.has_value());
 }
 
 TEST(SemanticSmokeTest, RejectsInvalidLogicalRecordTypeWithAValidSourceRange) {
-    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    auto schema = normalized_schema("quarry.geo", "Example");
     schema.record_type_spelling = "bogus";
     schema.record_type_range = schema.record_source_range;
     schema.fields = {normalized_field("active", "bool")};
@@ -409,15 +409,15 @@ TEST(SemanticSmokeTest, RejectsInvalidLogicalRecordTypeWithAValidSourceRange) {
         << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_FALSE(output.semantic_diagnostics.empty());
     EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5005");
-    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "quarry.geo.Example");
     ASSERT_NE(record, nullptr);
     EXPECT_FALSE(record->record_type.has_value());
 }
 
 TEST(SemanticSmokeTest, RejectsInvalidLogicalRecordTypeWithoutAValidSourceRange) {
-    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    auto schema = normalized_schema("quarry.geo", "Example");
     schema.record_type_spelling = "bogus";
-    schema.record_type_range = breadcrumbs::compiler::support::SourceRange::invalid();
+    schema.record_type_range = quarry::compiler::support::SourceRange::invalid();
     schema.fields = {normalized_field("active", "bool")};
 
     const NormalizedAnalysisOutput output = analyze_normalized(schema);
@@ -426,7 +426,7 @@ TEST(SemanticSmokeTest, RejectsInvalidLogicalRecordTypeWithoutAValidSourceRange)
         << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_FALSE(output.semantic_diagnostics.empty());
     EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5005");
-    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "quarry.geo.Example");
     ASSERT_NE(record, nullptr);
     EXPECT_FALSE(record->record_type.has_value());
 }
@@ -441,7 +441,7 @@ TEST(SemanticSmokeTest, NormalizesLogicalRecordTypesToCanonicalKinds) {
     };
 
     for (const auto& [spelling, expected] : cases) {
-        auto schema = normalized_schema("breadcrumbs.geo", "Example");
+        auto schema = normalized_schema("quarry.geo", "Example");
         schema.record_type_spelling = std::string(spelling);
         schema.record_type_range = schema.record_source_range;
         schema.fields = {normalized_field("value", "bool")};
@@ -452,7 +452,7 @@ TEST(SemanticSmokeTest, NormalizesLogicalRecordTypesToCanonicalKinds) {
             << diagnostics_summary(output.symbol_diagnostics) << spelling;
         ASSERT_TRUE(output.semantic_diagnostics.empty())
             << diagnostics_summary(output.semantic_diagnostics) << spelling;
-        const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
+        const SemanticRecord* record = find_record(output.semantic_model, "quarry.geo.Example");
         ASSERT_NE(record, nullptr);
         ASSERT_TRUE(record->record_type.has_value());
         EXPECT_EQ(*record->record_type, expected) << spelling;
@@ -473,7 +473,7 @@ TEST(SemanticSmokeTest, ReportsMissingZeroAndOverflowingStringBounds) {
           std::string("BC5004")}}};
 
     for (const Case& test_case : cases) {
-        auto schema = normalized_schema("breadcrumbs.geo", "Example");
+        auto schema = normalized_schema("quarry.geo", "Example");
         schema.fields = {normalized_field("label", "string")};
         if (test_case.max_bytes.has_value()) {
             schema.fields[0].max_bytes = *test_case.max_bytes;
@@ -489,7 +489,7 @@ TEST(SemanticSmokeTest, ReportsMissingZeroAndOverflowingStringBounds) {
                   *test_case.expected_id)
             << test_case.name;
         const SemanticRecord* record =
-            find_record(output.semantic_model, "breadcrumbs.geo.Example");
+            find_record(output.semantic_model, "quarry.geo.Example");
         ASSERT_NE(record, nullptr);
         EXPECT_TRUE(record->fields.empty()) << test_case.name;
     }
@@ -507,7 +507,7 @@ TEST(SemanticSmokeTest, ReportsMissingZeroAndOverflowingBytesBounds) {
          {"overflow", static_cast<std::int64_t>(std::numeric_limits<std::uint32_t>::max()) + 1}}};
 
     for (const Case& test_case : cases) {
-        auto schema = normalized_schema("breadcrumbs.geo", "Example");
+        auto schema = normalized_schema("quarry.geo", "Example");
         schema.fields = {normalized_field("payload", "bytes")};
         if (test_case.max_bytes.has_value()) {
             schema.fields[0].max_bytes = *test_case.max_bytes;
@@ -522,7 +522,7 @@ TEST(SemanticSmokeTest, ReportsMissingZeroAndOverflowingBytesBounds) {
         EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004")
             << test_case.name;
         const SemanticRecord* record =
-            find_record(output.semantic_model, "breadcrumbs.geo.Example");
+            find_record(output.semantic_model, "quarry.geo.Example");
         ASSERT_NE(record, nullptr);
         EXPECT_TRUE(record->fields.empty()) << test_case.name;
     }
@@ -540,7 +540,7 @@ TEST(SemanticSmokeTest, ReportsMissingZeroAndOverflowingArrayBounds) {
          {"overflow", static_cast<std::int64_t>(std::numeric_limits<std::uint32_t>::max()) + 1}}};
 
     for (const Case& test_case : cases) {
-        auto schema = normalized_schema("breadcrumbs.geo", "Example");
+        auto schema = normalized_schema("quarry.geo", "Example");
         schema.fields = {normalized_field("samples", "u32[]")};
         if (test_case.max_elements.has_value()) {
             schema.fields[0].max_elements = *test_case.max_elements;
@@ -555,14 +555,14 @@ TEST(SemanticSmokeTest, ReportsMissingZeroAndOverflowingArrayBounds) {
         EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004")
             << test_case.name;
         const SemanticRecord* record =
-            find_record(output.semantic_model, "breadcrumbs.geo.Example");
+            find_record(output.semantic_model, "quarry.geo.Example");
         ASSERT_NE(record, nullptr);
         EXPECT_TRUE(record->fields.empty()) << test_case.name;
     }
 }
 
 TEST(SemanticSmokeTest, ReportsInvalidBoundPlacementOnOtherFieldKinds) {
-    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    auto schema = normalized_schema("quarry.geo", "Example");
     schema.fields = {normalized_field("active", "bool")};
     schema.fields[0].max_bytes = 16;
     schema.fields[0].max_bytes_range = schema.fields[0].source_range;
@@ -573,13 +573,13 @@ TEST(SemanticSmokeTest, ReportsInvalidBoundPlacementOnOtherFieldKinds) {
         << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_FALSE(output.semantic_diagnostics.empty());
     EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004");
-    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "quarry.geo.Example");
     ASSERT_NE(record, nullptr);
     EXPECT_TRUE(record->fields.empty());
 }
 
 TEST(SemanticSmokeTest, ReportsInvalidMaxElementsOnNonArrayFields) {
-    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    auto schema = normalized_schema("quarry.geo", "Example");
     schema.fields = {normalized_field("count", "u32")};
     schema.fields[0].max_elements = 4;
     schema.fields[0].max_elements_range = schema.fields[0].source_range;
@@ -590,13 +590,13 @@ TEST(SemanticSmokeTest, ReportsInvalidMaxElementsOnNonArrayFields) {
         << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_FALSE(output.semantic_diagnostics.empty());
     EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5004");
-    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "quarry.geo.Example");
     ASSERT_NE(record, nullptr);
     EXPECT_TRUE(record->fields.empty());
 }
 
 TEST(SemanticSmokeTest, CollectsNestedNamespaceDeclarations) {
-    auto schema = normalized_schema("breadcrumbs.geo", "Location");
+    auto schema = normalized_schema("quarry.geo", "Location");
     schema.fields = {};
 
     const NormalizedAnalysisOutput output = analyze_normalized(schema);
@@ -605,22 +605,22 @@ TEST(SemanticSmokeTest, CollectsNestedNamespaceDeclarations) {
         << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_TRUE(output.semantic_diagnostics.empty())
         << diagnostics_summary(output.semantic_diagnostics);
-    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Location");
+    const SemanticRecord* record = find_record(output.semantic_model, "quarry.geo.Location");
     ASSERT_NE(record, nullptr);
     const auto& global = output.symbol_table->global_scope();
-    const auto* breadcrumbs = global.find_local("breadcrumbs");
-    ASSERT_NE(breadcrumbs, nullptr);
-    ASSERT_NE(breadcrumbs->child_scope, nullptr);
-    const auto* geo = breadcrumbs->child_scope->find_local("geo");
+    const auto* quarry = global.find_local("quarry");
+    ASSERT_NE(quarry, nullptr);
+    ASSERT_NE(quarry->child_scope, nullptr);
+    const auto* geo = quarry->child_scope->find_local("geo");
     ASSERT_NE(geo, nullptr);
     ASSERT_NE(geo->child_scope, nullptr);
     EXPECT_NE(output.symbol_table->lookup(
-                  normalized_qualified_name("breadcrumbs.geo.Location", 0, 24), global),
+                  normalized_qualified_name("quarry.geo.Location", 0, 24), global),
               nullptr);
 }
 
 TEST(SemanticSmokeTest, ReportsDuplicateDeclarationsInTheSameScope) {
-    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    auto schema = normalized_schema("quarry.geo", "Example");
     schema.enums.push_back(normalized_enum("Example", 64, 71));
 
     const NormalizedAnalysisOutput output = analyze_normalized(schema);
@@ -631,13 +631,13 @@ TEST(SemanticSmokeTest, ReportsDuplicateDeclarationsInTheSameScope) {
 }
 
 TEST(SemanticSmokeTest, ResolvesRecordAndEnumReferencesToCanonicalFQNs) {
-    auto schema = normalized_schema("breadcrumbs.geo", "Route");
+    auto schema = normalized_schema("quarry.geo", "Route");
     schema.enums.push_back(normalized_enum("Mode", 64, 68));
     schema.fields = {
         normalized_field("relative_location", "Route"),
-        normalized_field("qualified_location", "breadcrumbs.geo.Route"),
+        normalized_field("qualified_location", "quarry.geo.Route"),
         normalized_field("relative_mode", "Mode"),
-        normalized_field("qualified_mode", "breadcrumbs.geo.Mode"),
+        normalized_field("qualified_mode", "quarry.geo.Mode"),
     };
 
     const NormalizedAnalysisOutput output = analyze_normalized(schema);
@@ -646,17 +646,17 @@ TEST(SemanticSmokeTest, ResolvesRecordAndEnumReferencesToCanonicalFQNs) {
         << diagnostics_summary(output.symbol_diagnostics);
     ASSERT_TRUE(output.semantic_diagnostics.empty())
         << diagnostics_summary(output.semantic_diagnostics);
-    const SemanticRecord* route = find_record(output.semantic_model, "breadcrumbs.geo.Route");
+    const SemanticRecord* route = find_record(output.semantic_model, "quarry.geo.Route");
     ASSERT_NE(route, nullptr);
     ASSERT_EQ(route->fields.size(), 4U);
-    expect_record_reference_type(route->fields[0], "breadcrumbs.geo.Route");
-    expect_record_reference_type(route->fields[1], "breadcrumbs.geo.Route");
-    expect_enum_reference_type(route->fields[2], "breadcrumbs.geo.Mode");
-    expect_enum_reference_type(route->fields[3], "breadcrumbs.geo.Mode");
+    expect_record_reference_type(route->fields[0], "quarry.geo.Route");
+    expect_record_reference_type(route->fields[1], "quarry.geo.Route");
+    expect_enum_reference_type(route->fields[2], "quarry.geo.Mode");
+    expect_enum_reference_type(route->fields[3], "quarry.geo.Mode");
 }
 
 TEST(SemanticSmokeTest, ReportsUnresolvedNamedTypeDiagnostics) {
-    auto schema = normalized_schema("breadcrumbs.geo", "Example");
+    auto schema = normalized_schema("quarry.geo", "Example");
     schema.fields = {normalized_field("missing", "MissingType")};
 
     const NormalizedAnalysisOutput output = analyze_normalized(schema);
@@ -666,13 +666,13 @@ TEST(SemanticSmokeTest, ReportsUnresolvedNamedTypeDiagnostics) {
     ASSERT_EQ(output.semantic_diagnostics.diagnostics().size(), 1U);
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].id().str(), "BC5001");
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].compiler_pass(), "semantic");
-    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.geo.Example");
+    const SemanticRecord* record = find_record(output.semantic_model, "quarry.geo.Example");
     ASSERT_NE(record, nullptr);
     EXPECT_TRUE(record->fields.empty());
 }
 
 TEST(SemanticSmokeTest, ReportsNamespaceUsedAsTypeDiagnostics) {
-    auto schema = normalized_schema("breadcrumbs.vehicle.geo", "Journey");
+    auto schema = normalized_schema("quarry.vehicle.geo", "Journey");
     schema.fields = {normalized_field("destination", "geo")};
 
     const NormalizedAnalysisOutput output = analyze_normalized(schema);
@@ -683,13 +683,13 @@ TEST(SemanticSmokeTest, ReportsNamespaceUsedAsTypeDiagnostics) {
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].id().str(), "BC5002");
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].compiler_pass(), "semantic");
     const SemanticRecord* journey =
-        find_record(output.semantic_model, "breadcrumbs.vehicle.geo.Journey");
+        find_record(output.semantic_model, "quarry.vehicle.geo.Journey");
     ASSERT_NE(journey, nullptr);
     EXPECT_TRUE(journey->fields.empty());
 }
 
 TEST(SemanticSmokeTest, ReportsLexicalShadowingInQualifiedTypeResolution) {
-    auto schema = normalized_schema("breadcrumbs.vehicle", "geo");
+    auto schema = normalized_schema("quarry.vehicle", "geo");
     schema.fields = {normalized_field("destination", "geo.Location")};
 
     const NormalizedAnalysisOutput output = analyze_normalized(schema);
@@ -699,18 +699,18 @@ TEST(SemanticSmokeTest, ReportsLexicalShadowingInQualifiedTypeResolution) {
     ASSERT_EQ(output.semantic_diagnostics.diagnostics().size(), 1U);
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].id().str(), "BC5001");
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].compiler_pass(), "semantic");
-    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.vehicle.geo");
+    const SemanticRecord* record = find_record(output.semantic_model, "quarry.vehicle.geo");
     ASSERT_NE(record, nullptr);
     EXPECT_TRUE(record->fields.empty());
 }
 
 TEST(SemanticSmokeTest, ContinuesAfterMultipleSemanticErrors) {
-    auto schema = normalized_schema("breadcrumbs.vehicle", "geo");
+    auto schema = normalized_schema("quarry.vehicle", "geo");
     schema.fields = {
         normalized_field("shadowed", "geo.Location"),
         normalized_field("missing", "MissingType"),
         normalized_field("payload", "bytes"),
-        normalized_field("home", "breadcrumbs.vehicle.geo"),
+        normalized_field("home", "quarry.vehicle.geo"),
     };
 
     const NormalizedAnalysisOutput output = analyze_normalized(schema);
@@ -721,11 +721,11 @@ TEST(SemanticSmokeTest, ContinuesAfterMultipleSemanticErrors) {
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[0].id().str(), "BC5001");
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[1].id().str(), "BC5001");
     EXPECT_EQ(output.semantic_diagnostics.diagnostics()[2].id().str(), "BC5004");
-    const SemanticRecord* record = find_record(output.semantic_model, "breadcrumbs.vehicle.geo");
+    const SemanticRecord* record = find_record(output.semantic_model, "quarry.vehicle.geo");
     ASSERT_NE(record, nullptr);
     ASSERT_EQ(record->fields.size(), 1U);
     EXPECT_EQ(record->fields[0].name, "home");
-    expect_record_reference_type(record->fields[0], "breadcrumbs.vehicle.geo");
+    expect_record_reference_type(record->fields[0], "quarry.vehicle.geo");
 }
 
 TEST(SemanticSmokeTest, SupportsRecursiveArraySemanticTypes) {

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Breadcrumbs distinguishes between logical identities used by developers and
+Quarry distinguishes between logical identities used by developers and
 compact binary identities used by the binary format.
 
 The goal is to allow schemas to evolve while preserving binary compatibility.
@@ -14,11 +14,11 @@ normative specification.
 
 ## Identity Model
 
-Breadcrumbs separates record identity from generated language representation.
+Quarry separates record identity from generated language representation.
 
 ## Identity Layers
 
-Breadcrumbs distinguishes three related concepts:
+Quarry distinguishes three related concepts:
 
 * logical identity, represented by the Fully Qualified Name
 * binary identity, represented by `recordId`
@@ -49,12 +49,12 @@ The FQN consists of:
 Examples:
 
 ```text
-breadcrumbs.telemetry.Location
-breadcrumbs.vehicle.BatteryStatus
+quarry.telemetry.Location
+quarry.vehicle.BatteryStatus
 ```
 
 The Fully Qualified Name (FQN) is the authoritative logical identity of a record
-within a Breadcrumbs schema.
+within a Quarry schema.
 
 Logical identity is independent of generated code and programming language
 representations.
@@ -114,36 +114,36 @@ Illustrative example:
 
 ```text
 existing record:
-breadcrumbs.telemetry.Location
+quarry.telemetry.Location
 
 renamed record:
-breadcrumbs.telemetry.GpsLocation
+quarry.telemetry.GpsLocation
 
 explicit rename relationship:
-breadcrumbs.telemetry.GpsLocation was renamed from breadcrumbs.telemetry.Location
+quarry.telemetry.GpsLocation was renamed from quarry.telemetry.Location
 ```
 
 With an explicit rename:
 
 ```text
-breadcrumbs.telemetry.Location
+quarry.telemetry.Location
 recordId = 17
 
 becomes:
 
-breadcrumbs.telemetry.GpsLocation
+quarry.telemetry.GpsLocation
 recordId = 17
 ```
 
 Without an explicit rename, the compiler treats this as:
 
 ```text
-breadcrumbs.telemetry.Location removed
-breadcrumbs.telemetry.GpsLocation added
-new recordId allocated for breadcrumbs.telemetry.GpsLocation
+quarry.telemetry.Location removed
+quarry.telemetry.GpsLocation added
+new recordId allocated for quarry.telemetry.GpsLocation
 
 illustrative recordId:
-breadcrumbs.telemetry.GpsLocation
+quarry.telemetry.GpsLocation
 recordId = 42
 ```
 

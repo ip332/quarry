@@ -10,7 +10,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace breadcrumbs::compiler::source_schema {
+namespace quarry::compiler::source_schema {
 namespace {
 
 constexpr std::string_view normalization_pass = "source-schema-normalization";
@@ -360,4 +360,4 @@ normalize_source_schema(const SourceSchemaDocument& schema,
     return result;
 }
 
-} // namespace breadcrumbs::compiler::source_schema
+} // namespace quarry::compiler::source_schema

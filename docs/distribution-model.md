@@ -1,6 +1,6 @@
 # Distribution Model
 
-Breadcrumbs currently supports a small downstream SDK consisting of the
+Quarry currently supports a small downstream SDK consisting of the
 header-only runtime plus the installed schema compiler executable target. The
 installed package surface is intentionally smaller than the source-tree build
 graph.
@@ -9,34 +9,34 @@ graph.
 
 The supported installed SDK surface is:
 
-* `Breadcrumbs::runtime`
-* `Breadcrumbs::schema_compiler`
+* `Quarry::runtime`
+* `Quarry::schema_compiler`
 * public runtime headers, including
-  `<breadcrumbs/runtime/binary_record.hpp>` and
-  `<breadcrumbs/runtime/version.hpp>`
-* `BreadcrumbsConfig.cmake`
-* `BreadcrumbsConfigVersion.cmake`
-* `Breadcrumbs_GENERATED_CODE_API_VERSION` package metadata
-* `breadcrumbs_generate_cpp()` from the installed package config
+  `<quarry/runtime/binary_record.hpp>` and
+  `<quarry/runtime/version.hpp>`
+* `QuarryConfig.cmake`
+* `QuarryConfigVersion.cmake`
+* `Quarry_GENERATED_CODE_API_VERSION` package metadata
+* `quarry_generate_cpp()` from the installed package config
 
 Downstream CMake projects consume the runtime with:
 
 ```cmake
-find_package(Breadcrumbs CONFIG REQUIRED)
-target_link_libraries(my_app PRIVATE Breadcrumbs::runtime)
+find_package(Quarry CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE Quarry::runtime)
 ```
 
 They may invoke the installed compiler with:
 
 ```cmake
-$<TARGET_FILE:Breadcrumbs::schema_compiler>
+$<TARGET_FILE:Quarry::schema_compiler>
 ```
 
 For installed native builds, they may ask the package helper to create the
 custom command and return generated files:
 
 ```cmake
-breadcrumbs_generate_cpp(
+quarry_generate_cpp(
     SCHEMA schema.brd
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
     OUT_FILES generated_files
@@ -47,28 +47,28 @@ The runtime is header-only. Installed consumers should not need
 repository-relative include paths.
 
 The supported helper-based CMake generation pattern is documented and tested in
-`examples/cpp/schema_compiler_cmake`. Breadcrumbs does not provide depfiles,
+`examples/cpp/schema_compiler_cmake`. Quarry does not provide depfiles,
 manifest files, target mutation, stale-output cleanup, source-tree
 `add_subdirectory()` helper support, imported-target compiler overrides, or
 host-tools package discovery. The helper verifies the generated-output
 inventory at build time before normal generation and fails before writing files
 if the configured inventory is stale. Native builds use
-`Breadcrumbs::schema_compiler` by default; cross-compiling builds must pass
+`Quarry::schema_compiler` by default; cross-compiling builds must pass
 `SCHEMA_COMPILER <absolute-host-executable>` explicitly. Before output
 discovery, the helper also compares the selected compiler's
-generated-code API query against `Breadcrumbs_GENERATED_CODE_API_VERSION` and
+generated-code API query against `Quarry_GENERATED_CODE_API_VERSION` and
 fails configuration on mismatch.
 
 ## Artifact Classification
 
 | Artifact | Current target or location | External role | Classification |
 | --- | --- | --- | --- |
-| Runtime library | `breadcrumbs_runtime`, exported as `Breadcrumbs::runtime` | Link through CMake and include public runtime headers | Supported public SDK |
-| Runtime headers | `runtime/binary_record.hpp`, `include/breadcrumbs/runtime/binary_record.hpp` | Compile generated or handwritten C++ that uses BRF runtime mechanics | Supported public SDK |
-| CMake package files | `BreadcrumbsConfig.cmake`, `BreadcrumbsConfigVersion.cmake`, `BreadcrumbsTargets.cmake`, `BreadcrumbsGenerate.cmake` | Package discovery for the runtime, schema compiler target, generated-code API package metadata, and installed-package generation helper | Supported public SDK |
-| Schema compiler executable | `breadcrumbs_schema_compiler`, exported as `Breadcrumbs::schema_compiler`, installed as `breadcrumbs-schema-compiler` | Direct CLI invocation or CMake command use through `$<TARGET_FILE:...>` | Installed tool target |
+| Runtime library | `quarry_runtime`, exported as `Quarry::runtime` | Link through CMake and include public runtime headers | Supported public SDK |
+| Runtime headers | `runtime/binary_record.hpp`, `include/quarry/runtime/binary_record.hpp` | Compile generated or handwritten C++ that uses BRF runtime mechanics | Supported public SDK |
+| CMake package files | `QuarryConfig.cmake`, `QuarryConfigVersion.cmake`, `QuarryTargets.cmake`, `QuarryGenerate.cmake` | Package discovery for the runtime, schema compiler target, generated-code API package metadata, and installed-package generation helper | Supported public SDK |
+| Schema compiler executable | `quarry_schema_compiler`, exported as `Quarry::schema_compiler`, installed as `quarry-schema-compiler` | Direct CLI invocation or CMake command use through `$<TARGET_FILE:...>` | Installed tool target |
 | Generated C++ code | Backend output under caller-selected paths | Owned by the downstream project that generated it | Downstream-owned build artifact |
-| Compiler libraries | `breadcrumbs_compiler_*`, `breadcrumbs_schema_ir_proto` | Internal source-tree composition and tests | Implementation detail |
+| Compiler libraries | `quarry_compiler_*`, `quarry_schema_ir_proto` | Internal source-tree composition and tests | Implementation detail |
 | Generated protobuf C++ | Build-tree `schema_ir.pb.*` | Compiler implementation dependency | Implementation detail |
 | Fuzz targets and corpus | `fuzz/` | Parser hardening during development | Development-only |
 | Tests and fixtures | `tests/` | Repository validation | Test-only |
@@ -87,26 +87,26 @@ Install only the header-only runtime and its CMake package metadata.
 
 This is the current supported model. It matches the implemented install/export
 rules, has a small dependency surface, and lets generated code depend on
-`Breadcrumbs::runtime` without making compiler internals public.
+`Quarry::runtime` without making compiler internals public.
 Generated C++ headers use the runtime's generated-code API compatibility
 constant to fail compilation with incompatible runtime headers. That check is
 separate from package release version and BRF wire-format version.
 The package exposes the target runtime's generated-code API value as
-`Breadcrumbs_GENERATED_CODE_API_VERSION`. Host compiler/runtime API
+`Quarry_GENERATED_CODE_API_VERSION`. Host compiler/runtime API
 compatibility for explicit `SCHEMA_COMPILER` overrides is enforced during CMake
 configuration by comparing that package value against the compiler's
 generated-code API query before any output discovery occurs.
 
 ### Runtime + Compiler SDK
 
-Install the runtime and `breadcrumbs-schema-compiler`.
+Install the runtime and `quarry-schema-compiler`.
 
 This is partially implemented. The standalone executable is installed to the
 standard executable directory, verified from a clean prefix, and exposed through
-the existing package as imported executable target `Breadcrumbs::schema_compiler`.
+the existing package as imported executable target `Quarry::schema_compiler`.
 No package component, compiler libraries, compiler headers, generated protobuf
 targets, or source-tree/compiler-SDK helper APIs are installed. The installed
-native package does include the narrow `breadcrumbs_generate_cpp()` convenience
+native package does include the narrow `quarry_generate_cpp()` convenience
 helper, which creates a custom command and returns generated files without
 mutating downstream targets.
 `docs/schema-compiler-tool-distribution.md` owns the detailed tool-distribution
@@ -132,13 +132,13 @@ is intentionally installable and verified by an external consumer test.
 
 The current install/export boundary should remain limited to:
 
-* `install(TARGETS breadcrumbs_runtime EXPORT BreadcrumbsTargets)`
-* `install(TARGETS breadcrumbs_schema_compiler)` as a standalone executable
-  in the `BreadcrumbsTargets` export set
+* `install(TARGETS quarry_runtime EXPORT QuarryTargets)`
+* `install(TARGETS quarry_schema_compiler)` as a standalone executable
+  in the `QuarryTargets` export set
 * installing runtime public headers
-* installing the `Breadcrumbs` config, version, and target files
-* exporting the `Breadcrumbs::runtime` imported target
-* exporting the `Breadcrumbs::schema_compiler` imported executable target
+* installing the `Quarry` config, version, and target files
+* exporting the `Quarry::runtime` imported target
+* exporting the `Quarry::schema_compiler` imported executable target
 
 No compiler libraries, generated protobuf targets, tests, fuzzers, examples, or
 schema compiler helper targets should be exported by the current package.
@@ -155,7 +155,7 @@ decision. In particular:
 * installing compiler libraries needs a public compiler SDK contract
 * configure-time host compiler/runtime generated-code API validation needs a
   narrow compiler scalar query and helper comparison against the package's
-  `Breadcrumbs_GENERATED_CODE_API_VERSION` value
+  `Quarry_GENERATED_CODE_API_VERSION` value
 * broader generated-code CMake helper support needs source-tree, multi-schema,
   imported-target compiler override, and cleanup policies beyond the current
   helper

@@ -1,0 +1,6 @@
+@PACKAGE_INIT@
+
+set(Quarry_GENERATED_CODE_API_VERSION "@QUARRY_GENERATED_CODE_API_VERSION@")
+
+include("${CMAKE_CURRENT_LIST_DIR}/QuarryTargets.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/QuarryGenerate.cmake")

@@ -8,7 +8,7 @@
 #include <string_view>
 #include <vector>
 
-namespace breadcrumbs::compiler::parser {
+namespace quarry::compiler::parser {
 
 enum class TokenKind {
     Identifier,
@@ -98,4 +98,4 @@ private:
     std::size_t offset_ = 0;
 };
 
-} // namespace breadcrumbs::compiler::parser
+} // namespace quarry::compiler::parser

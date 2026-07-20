@@ -12,45 +12,45 @@
 
 #include <gtest/gtest.h>
 
-#ifndef BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION
-#error "BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION must be defined"
+#ifndef QUARRY_TEST_GENERATED_CODE_API_VERSION
+#error "QUARRY_TEST_GENERATED_CODE_API_VERSION must be defined"
 #endif
 
-static_assert(::breadcrumbs::runtime::kGeneratedCodeApiVersion ==
-              BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION);
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion ==
+              QUARRY_TEST_GENERATED_CODE_API_VERSION);
 
 namespace {
 
-using breadcrumbs::runtime::FieldBytes;
-using breadcrumbs::runtime::DecodeError;
-using breadcrumbs::runtime::EncodeError;
-using breadcrumbs::runtime::append_bool;
-using breadcrumbs::runtime::append_bytes;
-using breadcrumbs::runtime::append_f32;
-using breadcrumbs::runtime::append_f64;
-using breadcrumbs::runtime::append_i16;
-using breadcrumbs::runtime::append_i32;
-using breadcrumbs::runtime::append_string_utf8;
-using breadcrumbs::runtime::append_u32;
-using breadcrumbs::runtime::append_varuint;
-using breadcrumbs::runtime::decoded_value;
-using breadcrumbs::runtime::decode_failure;
-using breadcrumbs::runtime::encode_record;
-using breadcrumbs::runtime::encode_record_result;
-using breadcrumbs::runtime::encode_success;
-using breadcrumbs::runtime::encode_failure;
-using breadcrumbs::runtime::find_field;
-using breadcrumbs::runtime::is_valid_utf8;
-using breadcrumbs::runtime::parse_record;
-using breadcrumbs::runtime::read_bytes;
-using breadcrumbs::runtime::read_bool;
-using breadcrumbs::runtime::read_f32;
-using breadcrumbs::runtime::read_f64;
-using breadcrumbs::runtime::read_i16;
-using breadcrumbs::runtime::read_i32;
-using breadcrumbs::runtime::read_string_utf8;
-using breadcrumbs::runtime::read_u32;
-using breadcrumbs::runtime::read_varuint;
+using quarry::runtime::FieldBytes;
+using quarry::runtime::DecodeError;
+using quarry::runtime::EncodeError;
+using quarry::runtime::append_bool;
+using quarry::runtime::append_bytes;
+using quarry::runtime::append_f32;
+using quarry::runtime::append_f64;
+using quarry::runtime::append_i16;
+using quarry::runtime::append_i32;
+using quarry::runtime::append_string_utf8;
+using quarry::runtime::append_u32;
+using quarry::runtime::append_varuint;
+using quarry::runtime::decoded_value;
+using quarry::runtime::decode_failure;
+using quarry::runtime::encode_record;
+using quarry::runtime::encode_record_result;
+using quarry::runtime::encode_success;
+using quarry::runtime::encode_failure;
+using quarry::runtime::find_field;
+using quarry::runtime::is_valid_utf8;
+using quarry::runtime::parse_record;
+using quarry::runtime::read_bytes;
+using quarry::runtime::read_bool;
+using quarry::runtime::read_f32;
+using quarry::runtime::read_f64;
+using quarry::runtime::read_i16;
+using quarry::runtime::read_i32;
+using quarry::runtime::read_string_utf8;
+using quarry::runtime::read_u32;
+using quarry::runtime::read_varuint;
 
 [[nodiscard]] std::byte b(unsigned int value) {
     return static_cast<std::byte>(static_cast<std::uint8_t>(value));

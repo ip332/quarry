@@ -1,4 +1,4 @@
-# Breadcrumbs Security Architecture
+# Quarry Security Architecture
 
 ## Status
 
@@ -6,7 +6,7 @@ Draft
 
 ## Purpose
 
-This document defines the security architecture of the Breadcrumbs platform.
+This document defines the security architecture of the Quarry platform.
 
 Security is treated as a cross-cutting concern and is intentionally separated from:
 
@@ -34,7 +34,7 @@ Each of those documents references this architecture rather than defining indepe
 
 # Security Layers
 
-Breadcrumbs separates security into four independent layers.
+Quarry separates security into four independent layers.
 
 ## Layer 1 – Transport Security
 
@@ -64,7 +64,7 @@ Authenticate the device.
 
 Mutual TLS (mTLS)
 
-The canonical identity of a Breadcrumbs device is the immutable deviceId.
+The canonical identity of a Quarry device is the immutable deviceId.
 
 The device certificate binds the device's cryptographic key pair to the deviceId.
 
@@ -115,7 +115,7 @@ Protection mechanisms may include:
 
 # Trust Decisions
 
-Breadcrumbs intentionally separates:
+Quarry intentionally separates:
 
 * transport security
 * authentication
@@ -176,7 +176,7 @@ Only managed devices may:
 
 # Cryptographic Material
 
-Each Breadcrumbs device owns:
+Each Quarry device owns:
 
 * immutable UUIDv7 deviceId
 * private key
@@ -200,7 +200,7 @@ Future implementations may protect the private key using:
 
 Initial implementation:
 
-Breadcrumbs Certificate Authority.
+Quarry Certificate Authority.
 
 Future implementations may support:
 
@@ -260,7 +260,7 @@ If a certificate is compromised:
 
 # Trust Anchors
 
-The Breadcrumbs Agent maintains:
+The Quarry Agent maintains:
 
 * trusted root certificates
 * intermediate certificates
@@ -282,13 +282,13 @@ Future implementations may support:
 * Secure Elements
 * Hardware Security Modules
 
-The Breadcrumbs architecture does not require hardware-backed cryptography.
+The Quarry architecture does not require hardware-backed cryptography.
 
 ---
 
 # Threat Model
 
-Breadcrumbs is designed to protect against:
+Quarry is designed to protect against:
 
 * passive network monitoring
 * active man-in-the-middle attacks

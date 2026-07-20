@@ -12,17 +12,17 @@
 
 namespace {
 
-using breadcrumbs::compiler::diagnostics::DiagnosticCollection;
-using breadcrumbs::compiler::layout::LayoutComputer;
-using breadcrumbs::compiler::layout::LayoutModel;
-using breadcrumbs::compiler::semantic::SemanticField;
-using breadcrumbs::compiler::semantic::SemanticModel;
-using breadcrumbs::compiler::semantic::SemanticPrimitiveType;
-using breadcrumbs::compiler::semantic::SemanticRecord;
-using breadcrumbs::compiler::semantic::SemanticType;
+using quarry::compiler::diagnostics::DiagnosticCollection;
+using quarry::compiler::layout::LayoutComputer;
+using quarry::compiler::layout::LayoutModel;
+using quarry::compiler::semantic::SemanticField;
+using quarry::compiler::semantic::SemanticModel;
+using quarry::compiler::semantic::SemanticPrimitiveType;
+using quarry::compiler::semantic::SemanticRecord;
+using quarry::compiler::semantic::SemanticType;
 
 struct LayoutOutput {
-    breadcrumbs::compiler::context::CompilerContext context;
+    quarry::compiler::context::CompilerContext context;
     DiagnosticCollection layout_diagnostics;
     LayoutModel layout_model;
 };
@@ -68,7 +68,7 @@ struct LayoutOutput {
     return model;
 }
 
-[[nodiscard]] const breadcrumbs::compiler::layout::RecordLayout*
+[[nodiscard]] const quarry::compiler::layout::RecordLayout*
 find_record(const LayoutModel& model, std::string_view fqn) {
     return model.find_record(fqn);
 }
@@ -124,12 +124,12 @@ TEST(LayoutSmokeTest, CanonicalFqnOrderControlsRecordIds) {
 
 TEST(LayoutSmokeTest, NestedNamespaceRecordsAreIndependent) {
     const LayoutOutput output = run_layout_pipeline(make_model(
-        {make_record("breadcrumbs.geo.Location", 2U), make_record("breadcrumbs.geo.vehicle.Route", 1U)}));
+        {make_record("quarry.geo.Location", 2U), make_record("quarry.geo.vehicle.Route", 1U)}));
 
     ASSERT_TRUE(output.layout_diagnostics.empty())
         << diagnostics_summary(output.layout_diagnostics);
-    const auto* location = find_record(output.layout_model, "breadcrumbs.geo.Location");
-    const auto* route = find_record(output.layout_model, "breadcrumbs.geo.vehicle.Route");
+    const auto* location = find_record(output.layout_model, "quarry.geo.Location");
+    const auto* route = find_record(output.layout_model, "quarry.geo.vehicle.Route");
     ASSERT_NE(location, nullptr);
     ASSERT_NE(route, nullptr);
     ASSERT_EQ(location->fields.size(), 2U);

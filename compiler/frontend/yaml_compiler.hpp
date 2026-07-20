@@ -5,7 +5,7 @@
 
 #include <optional>
 
-namespace breadcrumbs::compiler::frontend {
+namespace quarry::compiler::frontend {
 
 struct YamlCompilationResult {
     std::optional<schema_ir::SchemaIrModel> schema_ir;
@@ -20,4 +20,4 @@ public:
             diagnostics::DiagnosticCollection& diagnostics) const;
 };
 
-} // namespace breadcrumbs::compiler::frontend
+} // namespace quarry::compiler::frontend

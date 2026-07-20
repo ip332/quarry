@@ -1,4 +1,4 @@
-# Breadcrumbs Provisioning Model
+# Quarry Provisioning Model
 
 ## Status
 
@@ -6,9 +6,9 @@ Draft
 
 ## Purpose
 
-This document defines how a Breadcrumbs device becomes a trusted managed device.
+This document defines how a Quarry device becomes a trusted managed device.
 
-Provisioning establishes operational trust between the Breadcrumbs Agent and Breadcrumbs Cloud.
+Provisioning establishes operational trust between the Quarry Agent and Quarry Cloud.
 
 Provisioning is independent of manufacturing and is performed after the device has network connectivity.
 

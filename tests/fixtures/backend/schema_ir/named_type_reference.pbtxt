@@ -3,23 +3,23 @@ root_namespace {
   ir_id: 1
   namespaces {
     ir_id: 2
-    name: "breadcrumbs"
-    fqn: "breadcrumbs"
+    name: "quarry"
+    fqn: "quarry"
     namespaces {
       ir_id: 3
       name: "geo"
-      fqn: "breadcrumbs.geo"
+      fqn: "quarry.geo"
       records {
         ir_id: 4
         record_id: 1
         name: "Location"
-        fqn: "breadcrumbs.geo.Location"
+        fqn: "quarry.geo.Location"
       }
       records {
         ir_id: 5
         record_id: 2
         name: "Route"
-        fqn: "breadcrumbs.geo.Route"
+        fqn: "quarry.geo.Route"
         fields {
           name: "origin"
           type {

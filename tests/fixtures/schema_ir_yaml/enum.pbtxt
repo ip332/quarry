@@ -3,19 +3,19 @@ root_namespace {
   ir_id: 1
   namespaces {
     ir_id: 2
-    name: "breadcrumbs"
-    fqn: "breadcrumbs"
+    name: "quarry"
+    fqn: "quarry"
     namespaces {
       ir_id: 3
       name: "enums"
-      fqn: "breadcrumbs.enums"
+      fqn: "quarry.enums"
       records {
         ir_id: 5
         record_id: 1
         schema_version: 1
         record_type: RECORD_TYPE_DATA
         name: "Example"
-        fqn: "breadcrumbs.enums.Example"
+        fqn: "quarry.enums.Example"
         fields {
           name: "fix_type"
           type {
@@ -28,7 +28,7 @@ root_namespace {
       enums {
         ir_id: 4
         name: "FixType"
-        fqn: "breadcrumbs.enums.FixType"
+        fqn: "quarry.enums.FixType"
         values {
           name: "one"
           value: 1

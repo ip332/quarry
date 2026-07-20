@@ -15,7 +15,7 @@
 #include <utility>
 #include <vector>
 
-namespace breadcrumbs::runtime {
+namespace quarry::runtime {
 
 inline constexpr std::uint8_t kBinaryRecordHeaderVersion = 1U;
 inline constexpr std::size_t kBinaryRecordHeaderSize = 16U;
@@ -256,13 +256,13 @@ inline bool append_string_utf8(std::vector<std::byte>& output, std::string_view 
 
 inline bool append_f32(std::vector<std::byte>& output, float value) {
     static_assert(std::numeric_limits<float>::is_iec559,
-                  "Breadcrumbs f32 encoding requires IEEE 754 binary32 floats");
+                  "Quarry f32 encoding requires IEEE 754 binary32 floats");
     return append_u32(output, std::bit_cast<std::uint32_t>(value));
 }
 
 inline bool append_f64(std::vector<std::byte>& output, double value) {
     static_assert(std::numeric_limits<double>::is_iec559,
-                  "Breadcrumbs f64 encoding requires IEEE 754 binary64 doubles");
+                  "Quarry f64 encoding requires IEEE 754 binary64 doubles");
     return append_u64(output, std::bit_cast<std::uint64_t>(value));
 }
 
@@ -532,7 +532,7 @@ inline DecodeValueResult<std::int64_t> read_i64(std::span<const std::byte> input
 
 inline DecodeValueResult<float> read_f32(std::span<const std::byte> input) {
     static_assert(std::numeric_limits<float>::is_iec559,
-                  "Breadcrumbs f32 decoding requires IEEE 754 binary32 floats");
+                  "Quarry f32 decoding requires IEEE 754 binary32 floats");
     DecodeValueResult<std::uint32_t> value = read_u32(input);
     if (!value.value.has_value()) {
         return decode_error<float>(value.error);
@@ -542,7 +542,7 @@ inline DecodeValueResult<float> read_f32(std::span<const std::byte> input) {
 
 inline DecodeValueResult<double> read_f64(std::span<const std::byte> input) {
     static_assert(std::numeric_limits<double>::is_iec559,
-                  "Breadcrumbs f64 decoding requires IEEE 754 binary64 floats");
+                  "Quarry f64 decoding requires IEEE 754 binary64 floats");
     DecodeValueResult<std::uint64_t> value = read_u64(input);
     if (!value.value.has_value()) {
         return decode_error<double>(value.error);
@@ -616,4 +616,4 @@ encode_record(std::uint32_t record_id, std::span<const FieldBytes> fields) {
     return std::move(encoded.value);
 }
 
-} // namespace breadcrumbs::runtime
+} // namespace quarry::runtime

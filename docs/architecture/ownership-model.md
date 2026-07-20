@@ -1,4 +1,4 @@
-# Breadcrumbs Ownership Model
+# Quarry Ownership Model
 
 ## Status
 
@@ -6,7 +6,7 @@ Draft
 
 ## Purpose
 
-This document defines how Breadcrumbs devices are owned, claimed, assigned, transferred, suspended, and retired.
+This document defines how Quarry devices are owned, claimed, assigned, transferred, suspended, and retired.
 
 Ownership determines who is allowed to approve a device, assign it to a fleet, configure it, receive telemetry, issue commands, and authorize OTA updates.
 
@@ -27,7 +27,7 @@ Ownership determines who is allowed to approve a device, assign it to a fleet, c
 
 ## Device
 
-A physical or virtual endpoint running the Breadcrumbs Agent.
+A physical or virtual endpoint running the Quarry Agent.
 
 A device has a stable deviceId.
 
@@ -44,7 +44,7 @@ The device identity is defined in `device-identity.md`.
 
 The entity responsible for a device.
 
-In Breadcrumbs v0.1, an owner may be:
+In Quarry v0.1, an owner may be:
 
 * a user
 * an organization
@@ -64,7 +64,7 @@ An organization may contain:
 * devices
 * policies
 
-For single-user deployments, Breadcrumbs may create a default personal organization.
+For single-user deployments, Quarry may create a default personal organization.
 
 ---
 
@@ -205,7 +205,7 @@ Characteristics:
 
 # Claiming Flow
 
-1. Device self-registers with Breadcrumbs Cloud.
+1. Device self-registers with Quarry Cloud.
 2. Cloud creates an unclaimed device record.
 3. User or organization administrator reviews the device.
 4. Administrator claims the device.

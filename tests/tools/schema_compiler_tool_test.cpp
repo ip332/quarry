@@ -11,8 +11,8 @@
 
 #include <gtest/gtest.h>
 
-#ifndef BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION
-#error "BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION must be defined"
+#ifndef QUARRY_TEST_GENERATED_CODE_API_VERSION
+#error "QUARRY_TEST_GENERATED_CODE_API_VERSION must be defined"
 #endif
 
 #ifndef _WIN32
@@ -27,7 +27,7 @@ namespace {
     const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
     const std::filesystem::path directory =
         std::filesystem::temp_directory_path() /
-        (std::string("breadcrumbs-schema-compiler-") + std::string(stem) + "-" +
+        (std::string("quarry-schema-compiler-") + std::string(stem) + "-" +
          std::to_string(suffix));
     std::filesystem::remove_all(directory);
     std::filesystem::create_directories(directory);
@@ -97,7 +97,7 @@ struct CommandResult {
         close(stderr_fd);
 
         std::vector<std::string> argument_storage;
-        argument_storage.push_back(BREADCRUMBS_SCHEMA_COMPILER_TOOL);
+        argument_storage.push_back(QUARRY_SCHEMA_COMPILER_TOOL);
         argument_storage.insert(argument_storage.end(), arguments.begin(), arguments.end());
 
         std::vector<char*> argv;
@@ -166,7 +166,7 @@ TEST(SchemaCompilerToolTest, HelpReturnsSuccess) {
     const CommandResult result = run_tool({"--help"}, root);
 
     EXPECT_EQ(result.status, 0);
-    EXPECT_NE(result.stdout_text.find("breadcrumbs-schema-compiler [options] INPUT"),
+    EXPECT_NE(result.stdout_text.find("quarry-schema-compiler [options] INPUT"),
               std::string::npos);
     EXPECT_NE(result.stdout_text.find("--list-outputs"), std::string::npos);
     EXPECT_TRUE(result.stderr_text.empty());
@@ -178,7 +178,7 @@ TEST(SchemaCompilerToolTest, HelpIsTerminalBeforeListOutputs) {
     const CommandResult result = run_tool({"--help", "--list-outputs"}, root);
 
     EXPECT_EQ(result.status, 0);
-    EXPECT_NE(result.stdout_text.find("breadcrumbs-schema-compiler [options] INPUT"),
+    EXPECT_NE(result.stdout_text.find("quarry-schema-compiler [options] INPUT"),
               std::string::npos);
     EXPECT_TRUE(result.stderr_text.empty());
 }
@@ -190,7 +190,7 @@ TEST(SchemaCompilerToolTest, HelpIsTerminalBeforeGeneratedCodeApiVersionQuery) {
         run_tool({"--help", "--print-generated-code-api-version"}, root);
 
     EXPECT_EQ(result.status, 0);
-    EXPECT_NE(result.stdout_text.find("breadcrumbs-schema-compiler [options] INPUT"),
+    EXPECT_NE(result.stdout_text.find("quarry-schema-compiler [options] INPUT"),
               std::string::npos);
     EXPECT_TRUE(result.stderr_text.empty());
 }
@@ -201,7 +201,7 @@ TEST(SchemaCompilerToolTest, VersionReturnsSuccessWithoutInput) {
     const CommandResult result = run_tool({"--version"}, root);
 
     EXPECT_EQ(result.status, 0);
-    EXPECT_EQ(result.stdout_text, "breadcrumbs-schema-compiler 0.1.0\n");
+    EXPECT_EQ(result.stdout_text, "quarry-schema-compiler 0.1.0\n");
     EXPECT_TRUE(result.stderr_text.empty());
 }
 
@@ -210,7 +210,7 @@ TEST(SchemaCompilerToolTest, VersionIsTerminalWhenCombinedWithInputAndOptions) {
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
     write_text_file(input,
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -222,7 +222,7 @@ TEST(SchemaCompilerToolTest, VersionIsTerminalWhenCombinedWithInputAndOptions) {
         run_tool({"--version", "--output-directory", output.string(), input.string()}, root);
 
     EXPECT_EQ(result.status, 0);
-    EXPECT_EQ(result.stdout_text, "breadcrumbs-schema-compiler 0.1.0\n");
+    EXPECT_EQ(result.stdout_text, "quarry-schema-compiler 0.1.0\n");
     EXPECT_TRUE(result.stderr_text.empty());
     EXPECT_FALSE(std::filesystem::exists(output));
 }
@@ -231,7 +231,7 @@ TEST(SchemaCompilerToolTest, VersionIsTerminalBeforeListOutputs) {
     const std::filesystem::path root = make_temp_directory("version-list-outputs");
     const std::filesystem::path input = root / "schema.brd";
     write_text_file(input,
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -242,7 +242,7 @@ TEST(SchemaCompilerToolTest, VersionIsTerminalBeforeListOutputs) {
     const CommandResult result = run_tool({"--version", "--list-outputs", input.string()}, root);
 
     EXPECT_EQ(result.status, 0);
-    EXPECT_EQ(result.stdout_text, "breadcrumbs-schema-compiler 0.1.0\n");
+    EXPECT_EQ(result.stdout_text, "quarry-schema-compiler 0.1.0\n");
     EXPECT_TRUE(result.stderr_text.empty());
 }
 
@@ -251,7 +251,7 @@ TEST(SchemaCompilerToolTest, VersionIsTerminalBeforeGeneratedCodeApiVersionQuery
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
     write_text_file(input,
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -278,7 +278,7 @@ TEST(SchemaCompilerToolTest, GeneratedCodeApiVersionQueryReturnsExactValue) {
 
     EXPECT_EQ(result.status, 0);
     EXPECT_EQ(result.stdout_text,
-              std::to_string(BREADCRUMBS_TEST_GENERATED_CODE_API_VERSION) + "\n");
+              std::to_string(QUARRY_TEST_GENERATED_CODE_API_VERSION) + "\n");
     EXPECT_TRUE(result.stderr_text.empty());
     EXPECT_FALSE(std::filesystem::exists(root / "generated"));
 }
@@ -288,7 +288,7 @@ TEST(SchemaCompilerToolTest, GeneratedCodeApiVersionQueryRejectsGenerationArgume
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
     write_text_file(input,
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -333,7 +333,7 @@ TEST(SchemaCompilerToolTest, InvalidYamlReturnsFailureWithoutOutput) {
     const std::filesystem::path root = make_temp_directory("invalid-yaml");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "out";
-    write_text_file(input, "namespace: breadcrumbs.telemetry\nrecord: Sample\nfields: [\n");
+    write_text_file(input, "namespace: quarry.telemetry\nrecord: Sample\nfields: [\n");
 
     const CommandResult result =
         run_tool({"--output-directory", output.string(), input.string()}, root);
@@ -358,7 +358,7 @@ TEST(SchemaCompilerToolTest, ListOutputsPrintsRelativePathsAndDoesNotWriteFiles)
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = "generated output with spaces";
     write_text_file(input,
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -371,7 +371,7 @@ TEST(SchemaCompilerToolTest, ListOutputsPrintsRelativePathsAndDoesNotWriteFiles)
 
     EXPECT_EQ(result.status, 0) << result.stderr_text;
     EXPECT_EQ(result.stdout_text,
-              "generated output with spaces/breadcrumbs/telemetry.generated.hpp\n");
+              "generated output with spaces/quarry/telemetry.generated.hpp\n");
     EXPECT_TRUE(result.stderr_text.empty());
     EXPECT_FALSE(std::filesystem::exists(root / output));
 }
@@ -384,7 +384,7 @@ TEST(SchemaCompilerToolTest, ListOutputsPrintsAbsolutePathsAndDoesNotCreateOutpu
     const std::filesystem::path output = root / "generated output with spaces";
     std::filesystem::create_directories(working_directory);
     write_text_file(input,
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -397,7 +397,7 @@ TEST(SchemaCompilerToolTest, ListOutputsPrintsAbsolutePathsAndDoesNotCreateOutpu
                  working_directory);
 
     EXPECT_EQ(result.status, 0) << result.stderr_text;
-    EXPECT_EQ(result.stdout_text, (output / "breadcrumbs" / "telemetry.generated.hpp").string() +
+    EXPECT_EQ(result.stdout_text, (output / "quarry" / "telemetry.generated.hpp").string() +
                                       "\n");
     EXPECT_TRUE(result.stderr_text.empty());
     EXPECT_FALSE(std::filesystem::exists(output));
@@ -409,7 +409,7 @@ TEST(SchemaCompilerToolTest, ListOutputsReflectsCustomFileExtension) {
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
     write_text_file(input,
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -423,7 +423,7 @@ TEST(SchemaCompilerToolTest, ListOutputsReflectsCustomFileExtension) {
                  root);
 
     EXPECT_EQ(result.status, 0) << result.stderr_text;
-    EXPECT_EQ(result.stdout_text, (output / "breadcrumbs" / "telemetry.hpp").string() + "\n");
+    EXPECT_EQ(result.stdout_text, (output / "quarry" / "telemetry.hpp").string() + "\n");
     EXPECT_TRUE(result.stderr_text.empty());
     EXPECT_FALSE(std::filesystem::exists(output));
 }
@@ -432,7 +432,7 @@ TEST(SchemaCompilerToolTest, ListOutputsFailureDoesNotWriteFiles) {
     const std::filesystem::path root = make_temp_directory("list-outputs-invalid-yaml");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "out";
-    write_text_file(input, "namespace: breadcrumbs.telemetry\nrecord: Sample\nfields: [\n");
+    write_text_file(input, "namespace: quarry.telemetry\nrecord: Sample\nfields: [\n");
 
     const CommandResult result =
         run_tool({"--list-outputs", "--output-directory", output.string(), input.string()}, root);
@@ -448,7 +448,7 @@ TEST(SchemaCompilerToolTest, ListOutputsMatchesNormalGenerationInventory) {
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
     write_text_file(input,
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -480,7 +480,7 @@ TEST(SchemaCompilerToolTest, ValidYamlWritesGeneratedFiles) {
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
     write_text_file(input,
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -507,13 +507,13 @@ TEST(SchemaCompilerToolTest, ExistingGeneratedFileIsReplacedAndUnrelatedOutputIs
     const std::filesystem::path root = make_temp_directory("replace-existing");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    const std::filesystem::path generated_file = output / "breadcrumbs" / "telemetry.generated.hpp";
+    const std::filesystem::path generated_file = output / "quarry" / "telemetry.generated.hpp";
     const std::filesystem::path temporary_file =
-        output / "breadcrumbs" / "telemetry.generated.hpp.tmp-breadcrumbs-schema-compiler";
+        output / "quarry" / "telemetry.generated.hpp.tmp-quarry-schema-compiler";
     const std::filesystem::path unrelated_file = output / "keep.txt";
 
     write_text_file(input,
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -545,7 +545,7 @@ TEST(SchemaCompilerToolTest, AbsolutePathsWorkFromUnrelatedWorkingDirectory) {
     const std::filesystem::path output = root / "generated";
     std::filesystem::create_directories(working_directory);
     write_text_file(input,
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -559,7 +559,7 @@ TEST(SchemaCompilerToolTest, AbsolutePathsWorkFromUnrelatedWorkingDirectory) {
     EXPECT_EQ(result.status, 0) << result.stderr_text;
     EXPECT_TRUE(result.stdout_text.empty());
     EXPECT_TRUE(result.stderr_text.empty());
-    EXPECT_TRUE(std::filesystem::exists(output / "breadcrumbs" / "telemetry.generated.hpp"));
+    EXPECT_TRUE(std::filesystem::exists(output / "quarry" / "telemetry.generated.hpp"));
     EXPECT_FALSE(std::filesystem::exists(working_directory / "generated"));
 }
 
@@ -570,12 +570,12 @@ TEST(SchemaCompilerToolTest, PathsWithSpacesWorkWithDirectArguments) {
     const std::filesystem::path output = root / "generated output with spaces";
     const std::filesystem::path input = input_directory / "schema file with spaces.brd";
     const std::filesystem::path generated_file =
-        output / "breadcrumbs" / "telemetry.generated.hpp";
+        output / "quarry" / "telemetry.generated.hpp";
     const std::filesystem::path temporary_file =
-        output / "breadcrumbs" / "telemetry.generated.hpp.tmp-breadcrumbs-schema-compiler";
+        output / "quarry" / "telemetry.generated.hpp.tmp-quarry-schema-compiler";
     std::filesystem::create_directories(working_directory);
     write_text_file(input,
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"

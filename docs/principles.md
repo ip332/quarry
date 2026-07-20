@@ -1,4 +1,4 @@
-# Breadcrumbs Architectural Principles
+# Quarry Architectural Principles
 
 ## Status
 
@@ -7,9 +7,9 @@ Draft
 ## Purpose
 
 This document defines the core architectural principles used across
-Breadcrumbs.
+Quarry.
 
-Breadcrumbs is designed for systems that span constrained devices, local
+Quarry is designed for systems that span constrained devices, local
 storage, network transport, cloud ingestion, and operations tooling. The same
 architecture must work for Linux, RTOS, and bare-metal implementations.
 
@@ -19,7 +19,7 @@ architecture must work for Linux, RTOS, and bare-metal implementations.
 
 ## Embedded-First
 
-Breadcrumbs starts from the constraints of embedded systems.
+Quarry starts from the constraints of embedded systems.
 
 Architectural decisions should favor:
 
@@ -114,7 +114,7 @@ Immutable records simplify:
 
 # Data Model Principles
 
-The record is the central architectural abstraction in Breadcrumbs.
+The record is the central architectural abstraction in Quarry.
 
 Each record contains:
 

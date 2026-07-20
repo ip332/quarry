@@ -323,7 +323,7 @@ Illustrative Schema IR object graph:
 
 ```text
 SchemaIR
-  root_namespace: breadcrumbs
+  root_namespace: quarry
     namespace: telemetry
       record: Location
         field: latitude

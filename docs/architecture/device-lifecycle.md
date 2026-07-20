@@ -1,4 +1,4 @@
-# Breadcrumbs Device Lifecycle
+# Quarry Device Lifecycle
 
 ## Status
 
@@ -6,7 +6,7 @@ Draft
 
 ## Purpose
 
-This document defines the lifecycle of a Breadcrumbs device from first boot through retirement.
+This document defines the lifecycle of a Quarry device from first boot through retirement.
 
 The lifecycle model is used to define:
 
@@ -37,7 +37,7 @@ This document intentionally avoids protocol and implementation details, which ar
 
 ## UNINITIALIZED
 
-The device has no Breadcrumbs identity.
+The device has no Quarry identity.
 
 Characteristics:
 

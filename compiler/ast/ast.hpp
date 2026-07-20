@@ -12,7 +12,7 @@
 #include <variant>
 #include <vector>
 
-namespace breadcrumbs::compiler::ast {
+namespace quarry::compiler::ast {
 
 struct IdentifierSyntax {
     support::SourceRange source_range;
@@ -126,4 +126,4 @@ using Ast = SchemaFileSyntax;
 void dump_schema_file(const SchemaFileSyntax& schema_file, std::ostream& output);
 [[nodiscard]] std::string dump_schema_file(const SchemaFileSyntax& schema_file);
 
-} // namespace breadcrumbs::compiler::ast
+} // namespace quarry::compiler::ast

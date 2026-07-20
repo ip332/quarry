@@ -2,7 +2,7 @@
 
 ## Goals
 
-The Breadcrumbs schema compiler turns schema source files into validated
+The Quarry schema compiler turns schema source files into validated
 compiler models and generated artifacts.
 
 The compiler architecture should:
@@ -64,7 +64,7 @@ an installed external compiler SDK. `compiler/README.md` owns the supported
 source-tree entry-point boundary.
 
 Runtime binary-record mechanics live outside the compiler. Generated C++ schema
-artifacts may depend on the small `breadcrumbs_runtime` target for byte-level
+artifacts may depend on the small `quarry_runtime` target for byte-level
 encoding and structural parsing, but runtime code must not depend on compiler
 IRs, YAML, Schema IR protobufs, semantic analysis, layout internals, or backend
 code. Generated C++ keeps schema-specific decode policy, including expected
@@ -81,8 +81,8 @@ corpus entries are stored as reviewable hexadecimal byte files under
 `fuzz/corpus/brf`.
 
 The installed CMake package exposes the header-only runtime as
-`Breadcrumbs::runtime` and the schema compiler host executable as
-`Breadcrumbs::schema_compiler`. Compiler libraries, compiler headers, generated
+`Quarry::runtime` and the schema compiler host executable as
+`Quarry::schema_compiler`. Compiler libraries, compiler headers, generated
 Schema IR protobuf targets, tests, and fuzzers remain source-tree artifacts and
 are not installed as public SDK surfaces. `docs/distribution-model.md` owns the
 supported downstream SDK boundary and classifies generated code, generated

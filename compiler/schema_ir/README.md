@@ -1,7 +1,7 @@
 # Schema IR
 
 Owns lowering from normalized source schema into the protobuf Schema IR
-defined by `proto/breadcrumbs/schema_ir.proto`.
+defined by `proto/quarry/schema_ir.proto`.
 
 Responsibilities:
 
@@ -33,7 +33,7 @@ diagnostics for IR integrity issues. It does not mutate the IR.
 
 Public lowering surface:
 
-* `SchemaIrModel` aliases the protobuf `breadcrumbs::schema_ir::SchemaIR`
+* `SchemaIrModel` aliases the protobuf `quarry::schema_ir::SchemaIR`
 * `SchemaIrBuilder::build(const source_schema::NormalizedSourceSchemaDocument&,
   const semantic::SemanticModel&, const layout::LayoutModel&,
   context::CompilerContext&, diagnostics::DiagnosticCollection&)`

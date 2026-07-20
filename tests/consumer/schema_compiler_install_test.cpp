@@ -21,7 +21,7 @@ namespace {
     const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
     const std::filesystem::path directory =
         std::filesystem::temp_directory_path() /
-        (std::string("breadcrumbs-schema-compiler-install-") + std::string(stem) + "-" +
+        (std::string("quarry-schema-compiler-install-") + std::string(stem) + "-" +
          std::to_string(suffix));
     std::filesystem::remove_all(directory);
     std::filesystem::create_directories(directory);
@@ -148,7 +148,7 @@ TEST(SchemaCompilerInstallTest, InstalledExecutableRunsFromCleanPrefix) {
     const std::filesystem::path input = input_directory / "schema.brd";
     std::filesystem::create_directories(working_directory);
     write_text_file(input,
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -156,26 +156,26 @@ TEST(SchemaCompilerInstallTest, InstalledExecutableRunsFromCleanPrefix) {
                     "  count:\n"
                     "    type: uint32\n");
 
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
-                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"--install", QUARRY_TEST_BUILD_DIR, "--prefix",
                                    install_prefix.string()},
                                   root, "install"),
-                   "install Breadcrumbs");
+                   "install Quarry");
 
     const std::filesystem::path executable =
-        install_prefix / BREADCRUMBS_TEST_INSTALL_BINDIR / "breadcrumbs-schema-compiler";
+        install_prefix / QUARRY_TEST_INSTALL_BINDIR / "quarry-schema-compiler";
     ASSERT_TRUE(std::filesystem::exists(executable));
 
     const CommandResult version = run_executable(executable, {"--version"}, working_directory,
                                                  "installed-version");
     EXPECT_EQ(version.status, 0);
-    EXPECT_EQ(version.stdout_text, "breadcrumbs-schema-compiler 0.1.0\n");
+    EXPECT_EQ(version.stdout_text, "quarry-schema-compiler 0.1.0\n");
     EXPECT_TRUE(version.stderr_text.empty());
 
     const CommandResult help = run_executable(executable, {"--help"}, working_directory,
                                               "installed-help");
     EXPECT_EQ(help.status, 0);
-    EXPECT_NE(help.stdout_text.find("breadcrumbs-schema-compiler [options] INPUT"),
+    EXPECT_NE(help.stdout_text.find("quarry-schema-compiler [options] INPUT"),
               std::string::npos);
     EXPECT_NE(help.stdout_text.find("--list-outputs"), std::string::npos);
     EXPECT_TRUE(help.stderr_text.empty());
@@ -184,7 +184,7 @@ TEST(SchemaCompilerInstallTest, InstalledExecutableRunsFromCleanPrefix) {
         executable, {"--list-outputs", "--output-directory", output.string(), input.string()},
         working_directory, "installed-list-outputs");
     EXPECT_EQ(listed.status, 0) << listed.stderr_text;
-    EXPECT_EQ(listed.stdout_text, (output / "breadcrumbs" / "telemetry.generated.hpp").string() +
+    EXPECT_EQ(listed.stdout_text, (output / "quarry" / "telemetry.generated.hpp").string() +
                                       "\n");
     EXPECT_TRUE(listed.stderr_text.empty());
     EXPECT_FALSE(std::filesystem::exists(output));
@@ -198,9 +198,9 @@ TEST(SchemaCompilerInstallTest, InstalledExecutableRunsFromCleanPrefix) {
     EXPECT_TRUE(compile.stderr_text.empty());
 
     const std::filesystem::path generated_file =
-        output / "breadcrumbs" / "telemetry.generated.hpp";
+        output / "quarry" / "telemetry.generated.hpp";
     const std::filesystem::path temporary_file =
-        output / "breadcrumbs" / "telemetry.generated.hpp.tmp-breadcrumbs-schema-compiler";
+        output / "quarry" / "telemetry.generated.hpp.tmp-quarry-schema-compiler";
     ASSERT_TRUE(std::filesystem::exists(generated_file));
     EXPECT_FALSE(std::filesystem::exists(temporary_file));
     EXPECT_FALSE(std::filesystem::exists(working_directory / "generated"));
@@ -208,20 +208,20 @@ TEST(SchemaCompilerInstallTest, InstalledExecutableRunsFromCleanPrefix) {
     const std::string generated = read_text_file(generated_file);
     EXPECT_NE(generated.find("struct Sample"), std::string::npos);
     EXPECT_NE(generated.find("std::uint32_t"), std::string::npos);
-    EXPECT_EQ(generated.find(BREADCRUMBS_TEST_SOURCE_DIR), std::string::npos);
-    EXPECT_EQ(generated.find(BREADCRUMBS_TEST_BUILD_DIR), std::string::npos);
+    EXPECT_EQ(generated.find(QUARRY_TEST_SOURCE_DIR), std::string::npos);
+    EXPECT_EQ(generated.find(QUARRY_TEST_BUILD_DIR), std::string::npos);
 
     EXPECT_FALSE(std::filesystem::exists(install_prefix / "include" / "compiler"));
-    EXPECT_FALSE(std::filesystem::exists(install_prefix / "include" / "breadcrumbs" / "schema_ir"));
-    EXPECT_FALSE(std::filesystem::exists(install_prefix / "lib" / "cmake" / "Breadcrumbs" /
-                                         "BreadcrumbsCompilerTargets.cmake"));
+    EXPECT_FALSE(std::filesystem::exists(install_prefix / "include" / "quarry" / "schema_ir"));
+    EXPECT_FALSE(std::filesystem::exists(install_prefix / "lib" / "cmake" / "Quarry" /
+                                         "QuarryCompilerTargets.cmake"));
 
     const std::filesystem::path targets_file =
-        install_prefix / "lib" / "cmake" / "Breadcrumbs" / "BreadcrumbsTargets.cmake";
+        install_prefix / "lib" / "cmake" / "Quarry" / "QuarryTargets.cmake";
     const std::string targets = read_text_file(targets_file);
-    EXPECT_NE(targets.find("add_executable(Breadcrumbs::schema_compiler IMPORTED)"),
+    EXPECT_NE(targets.find("add_executable(Quarry::schema_compiler IMPORTED)"),
               std::string::npos);
-    EXPECT_EQ(targets.find("breadcrumbs_compiler_backend"), std::string::npos);
+    EXPECT_EQ(targets.find("quarry_compiler_backend"), std::string::npos);
     EXPECT_EQ(targets.find("protobuf::"), std::string::npos);
     EXPECT_EQ(targets.find("absl::"), std::string::npos);
 }

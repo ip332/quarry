@@ -9,7 +9,7 @@
 #include <string_view>
 #include <vector>
 
-namespace breadcrumbs::compiler::layout {
+namespace quarry::compiler::layout {
 
 struct FieldLayout {
     std::uint32_t field_index = 0;
@@ -34,4 +34,4 @@ public:
                                       diagnostics::DiagnosticCollection& diagnostics) const;
 };
 
-} // namespace breadcrumbs::compiler::layout
+} // namespace quarry::compiler::layout

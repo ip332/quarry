@@ -3,19 +3,19 @@ root_namespace {
   ir_id: 1
   namespaces {
     ir_id: 2
-    name: "breadcrumbs"
-    fqn: "breadcrumbs"
+    name: "quarry"
+    fqn: "quarry"
     namespaces {
       ir_id: 3
       name: "geo"
-      fqn: "breadcrumbs.geo"
+      fqn: "quarry.geo"
       records {
         ir_id: 5
         record_id: 1
         schema_version: 1
         record_type: RECORD_TYPE_EVENT
         name: "Route"
-        fqn: "breadcrumbs.geo.Route"
+        fqn: "quarry.geo.Route"
         fields {
           name: "mode"
           type {
@@ -28,7 +28,7 @@ root_namespace {
       enums {
         ir_id: 4
         name: "Mode"
-        fqn: "breadcrumbs.geo.Mode"
+        fqn: "quarry.geo.Mode"
         values {
           name: "inactive"
         }

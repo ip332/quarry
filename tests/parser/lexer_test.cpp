@@ -9,15 +9,15 @@
 
 namespace {
 
-using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
-using breadcrumbs::compiler::parser::Lexer;
-using breadcrumbs::compiler::parser::Token;
-using breadcrumbs::compiler::parser::TokenKind;
-using breadcrumbs::compiler::support::LineColumn;
-using breadcrumbs::compiler::support::SourceFileId;
-using breadcrumbs::compiler::support::SourceLocation;
-using breadcrumbs::compiler::support::SourceManager;
-using breadcrumbs::compiler::support::SourceRange;
+using quarry::compiler::diagnostics::DiagnosticEngine;
+using quarry::compiler::parser::Lexer;
+using quarry::compiler::parser::Token;
+using quarry::compiler::parser::TokenKind;
+using quarry::compiler::support::LineColumn;
+using quarry::compiler::support::SourceFileId;
+using quarry::compiler::support::SourceLocation;
+using quarry::compiler::support::SourceManager;
+using quarry::compiler::support::SourceRange;
 
 class LexerTest : public testing::Test {
 protected:

@@ -2,7 +2,7 @@
 
 ## Goals
 
-This document defines the Breadcrumbs schema compiler pipeline from parsed
+This document defines the Quarry schema compiler pipeline from parsed
 source files to Schema IR.
 
 The compiler is described as a sequence of pure transformations. Each pass
@@ -251,7 +251,7 @@ and conflicting declarations before resolving references between declarations.
 ### Purpose
 
 The semantic validator checks that the schema is meaningful according to the
-Breadcrumbs schema language and converts the normalized source-schema model
+Quarry schema language and converts the normalized source-schema model
 into the Semantic Model.
 
 ### Input Representation

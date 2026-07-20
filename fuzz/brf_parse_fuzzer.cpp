@@ -15,13 +15,13 @@ namespace {
 }
 
 void verify_parse_success(std::span<const std::byte> input,
-                          const breadcrumbs::runtime::ParsedRecord& record) {
+                          const quarry::runtime::ParsedRecord& record) {
     std::uint16_t previous_index = 0U;
     bool have_previous_index = false;
     std::vector<std::pair<const std::byte*, const std::byte*>> ranges;
     ranges.reserve(record.fields.size());
 
-    for (const breadcrumbs::runtime::FieldView& field : record.fields) {
+    for (const quarry::runtime::FieldView& field : record.fields) {
         if (have_previous_index && previous_index >= field.field_index) {
             fail_invariant();
         }
@@ -40,8 +40,8 @@ void verify_parse_success(std::span<const std::byte> input,
             ranges.emplace_back(field_begin, field_end);
         }
 
-        const breadcrumbs::runtime::FieldView* found =
-            breadcrumbs::runtime::find_field(record, field.field_index);
+        const quarry::runtime::FieldView* found =
+            quarry::runtime::find_field(record, field.field_index);
         if (found == nullptr || found->field_index != field.field_index) {
             fail_invariant();
         }
@@ -59,9 +59,9 @@ void verify_parse_success(std::span<const std::byte> input,
 
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
     const auto input = std::as_bytes(std::span<const std::uint8_t>(data, size));
-    const auto parsed = breadcrumbs::runtime::parse_record(input);
+    const auto parsed = quarry::runtime::parse_record(input);
     if (parsed.record.has_value()) {
-        if (parsed.error != breadcrumbs::runtime::DecodeError::none) {
+        if (parsed.error != quarry::runtime::DecodeError::none) {
             fail_invariant();
         }
         verify_parse_success(input, *parsed.record);

@@ -12,13 +12,13 @@
 
 namespace {
 
-using breadcrumbs::compiler::support::FileReadResult;
-using breadcrumbs::compiler::support::LineColumn;
-using breadcrumbs::compiler::support::RealFileSystem;
-using breadcrumbs::compiler::support::SourceFileId;
-using breadcrumbs::compiler::support::SourceLocation;
-using breadcrumbs::compiler::support::SourceManager;
-using breadcrumbs::compiler::support::SourceRange;
+using quarry::compiler::support::FileReadResult;
+using quarry::compiler::support::LineColumn;
+using quarry::compiler::support::RealFileSystem;
+using quarry::compiler::support::SourceFileId;
+using quarry::compiler::support::SourceLocation;
+using quarry::compiler::support::SourceManager;
+using quarry::compiler::support::SourceRange;
 
 TEST(SourceLocationTest, RepresentsValidAndInvalidLocations) {
     const SourceLocation invalid;
@@ -163,7 +163,7 @@ TEST(SourceManagerTest, RejectsInvalidIdsAndOffsets) {
 }
 
 TEST(RealFileSystemTest, ReadsFilesAndNormalizesPaths) {
-    const auto directory = std::filesystem::temp_directory_path() / "breadcrumbs-support-test";
+    const auto directory = std::filesystem::temp_directory_path() / "quarry-support-test";
     std::filesystem::create_directories(directory);
 
     const auto source_file = directory / "source.bc";

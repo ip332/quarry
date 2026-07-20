@@ -25,7 +25,7 @@ def main() -> int:
         print(f"no .hex seeds found in {corpus_dir}", file=sys.stderr)
         return 2
 
-    with tempfile.TemporaryDirectory(prefix="breadcrumbs-brf-corpus-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="quarry-brf-corpus-") as temp_dir:
         raw_dir = pathlib.Path(temp_dir)
         raw_paths = []
         for seed in seeds:

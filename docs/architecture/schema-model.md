@@ -1,4 +1,4 @@
-# Breadcrumbs Schema Model
+# Quarry Schema Model
 
 ## Status
 
@@ -6,7 +6,7 @@ Draft
 
 ## Purpose
 
-This document defines the schema model used by Breadcrumbs records.
+This document defines the schema model used by Quarry records.
 
 The schema model describes how payload data is defined, evolved, validated, and
 accessed across devices, cloud services, tools, and SDKs.
@@ -18,7 +18,7 @@ implementations of that contract.
 
 # Design Goals
 
-The Breadcrumbs schema model is designed to support:
+The Quarry schema model is designed to support:
 
 * embedded-first implementations
 * serialized-first record access
@@ -36,11 +36,11 @@ The Breadcrumbs schema model is designed to support:
 
 ---
 
-# Breadcrumbs Schema Language
+# Quarry Schema Language
 
-Breadcrumbs defines a project-specific schema language.
+Quarry defines a project-specific schema language.
 
-The Breadcrumbs schema language is a DSL for describing the logical data model
+The Quarry schema language is a DSL for describing the logical data model
 of record payloads. It is not a general-purpose serialization language and is
 not tied to a specific binary encoding.
 
@@ -54,13 +54,13 @@ The DSL should be:
 * independent from a specific transport protocol
 
 The public language shall not contain author-assigned numeric field indexes.
-Internal field indexes are generated and maintained by the Breadcrumbs schema
+Internal field indexes are generated and maintained by the Quarry schema
 compiler.
 
 Authors never assign or reference field indexes directly.
 
 The schema language may support import or export formats for tooling, but the
-Breadcrumbs DSL is the canonical authoring language.
+Quarry DSL is the canonical authoring language.
 
 ---
 
@@ -84,7 +84,7 @@ for compatibility.
 
 # Schema Identity
 
-Breadcrumbs uses human-readable schema identity.
+Quarry uses human-readable schema identity.
 
 A schema has:
 
@@ -95,7 +95,7 @@ A schema has:
 Example:
 
 ```yaml
-namespace: breadcrumbs.telemetry
+namespace: quarry.telemetry
 record: Location
 version: 1
 ```
@@ -110,7 +110,7 @@ record family.
 Example:
 
 ```text
-breadcrumbs.telemetry.Location
+quarry.telemetry.Location
 ```
 
 ## Schema Version
@@ -135,7 +135,7 @@ Format:
 Example:
 
 ```text
-breadcrumbs.telemetry.Location@1
+quarry.telemetry.Location@1
 ```
 
 A record that carries a binary payload shall identify the schema reference
@@ -166,7 +166,7 @@ Each schema includes:
 Example:
 
 ```yaml
-namespace: breadcrumbs.telemetry
+namespace: quarry.telemetry
 record: Location
 version: 1
 recordType: telemetry
@@ -214,10 +214,10 @@ Supported field categories may include:
 
 # Field Index
 
-Breadcrumbs schemas do not expose author-assigned numeric field indexes in
+Quarry schemas do not expose author-assigned numeric field indexes in
 the public language.
 
-Internal field indexes are generated and maintained by the Breadcrumbs schema
+Internal field indexes are generated and maintained by the Quarry schema
 compiler.
 
 Authors never assign or reference field indexes directly.
@@ -245,7 +245,7 @@ reserved:
 
 # Field Presence
 
-Breadcrumbs records are sparse binary records.
+Quarry records are sparse binary records.
 
 Every declared field has associated presence information.
 
@@ -294,7 +294,7 @@ Each schema has an explicit version.
 
 The schema version is part of the schema reference.
 
-For v0.1, Breadcrumbs uses simple integer schema versions.
+For v0.1, Quarry uses simple integer schema versions.
 
 Example:
 
@@ -404,8 +404,8 @@ and tools should consume generated artifacts produced by the schema compiler.
 The following questions remain open and should be resolved in later
 specification documents.
 
-* What is the exact syntax of the Breadcrumbs schema language?
-* What is the physical binary encoding for Breadcrumbs records?
+* What is the exact syntax of the Quarry schema language?
+* What is the physical binary encoding for Quarry records?
 
 ---
 

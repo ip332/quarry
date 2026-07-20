@@ -11,18 +11,18 @@
 
 namespace {
 
-using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
-using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaDocument;
-using breadcrumbs::compiler::source_schema::NormalizedSourceSchemaEnum;
-using breadcrumbs::compiler::source_schema::SourceSchemaIdentifier;
-using breadcrumbs::compiler::source_schema::SourceSchemaQualifiedName;
-using breadcrumbs::compiler::support::SourceFileId;
-using breadcrumbs::compiler::support::SourceLocation;
-using breadcrumbs::compiler::support::SourceRange;
-using breadcrumbs::compiler::symbols::NamespaceBuilder;
-using breadcrumbs::compiler::symbols::Scope;
-using breadcrumbs::compiler::symbols::Symbol;
-using breadcrumbs::compiler::symbols::SymbolKind;
+using quarry::compiler::diagnostics::DiagnosticEngine;
+using quarry::compiler::source_schema::NormalizedSourceSchemaDocument;
+using quarry::compiler::source_schema::NormalizedSourceSchemaEnum;
+using quarry::compiler::source_schema::SourceSchemaIdentifier;
+using quarry::compiler::source_schema::SourceSchemaQualifiedName;
+using quarry::compiler::support::SourceFileId;
+using quarry::compiler::support::SourceLocation;
+using quarry::compiler::support::SourceRange;
+using quarry::compiler::symbols::NamespaceBuilder;
+using quarry::compiler::symbols::Scope;
+using quarry::compiler::symbols::Symbol;
+using quarry::compiler::symbols::SymbolKind;
 
 [[nodiscard]] SourceRange range(std::size_t begin, std::size_t end) {
     const SourceFileId file_id(0);
@@ -75,7 +75,7 @@ using breadcrumbs::compiler::symbols::SymbolKind;
 }
 
 TEST(SymbolsSmokeTest, BuildsNestedNamespaceScopes) {
-    auto schema = make_normalized_schema("breadcrumbs.geo", "Location");
+    auto schema = make_normalized_schema("quarry.geo", "Location");
     schema.enums.push_back(NormalizedSourceSchemaEnum{
         .name = source_identifier("FixType", 64, 71),
         .source_range = range(64, 71),
@@ -89,13 +89,13 @@ TEST(SymbolsSmokeTest, BuildsNestedNamespaceScopes) {
 
     ASSERT_TRUE(diagnostics.empty());
     const Scope& global = model.global_scope();
-    const Symbol* breadcrumbs = find_symbol(global, "breadcrumbs");
-    ASSERT_NE(breadcrumbs, nullptr);
-    ASSERT_EQ(breadcrumbs->kind, SymbolKind::Namespace);
-    ASSERT_NE(breadcrumbs->child_scope, nullptr);
+    const Symbol* quarry = find_symbol(global, "quarry");
+    ASSERT_NE(quarry, nullptr);
+    ASSERT_EQ(quarry->kind, SymbolKind::Namespace);
+    ASSERT_NE(quarry->child_scope, nullptr);
 
-    const Scope& breadcrumbs_scope = *breadcrumbs->child_scope;
-    const Symbol* geo = find_symbol(breadcrumbs_scope, "geo");
+    const Scope& quarry_scope = *quarry->child_scope;
+    const Symbol* geo = find_symbol(quarry_scope, "geo");
     ASSERT_NE(geo, nullptr);
     ASSERT_NE(geo->child_scope, nullptr);
 
@@ -109,32 +109,32 @@ TEST(SymbolsSmokeTest, BuildsNestedNamespaceScopes) {
 }
 
 TEST(SymbolsSmokeTest, ResolvesCurrentAndEnclosingScopeNames) {
-    const auto schema = make_normalized_schema("breadcrumbs.geo", "Location");
+    const auto schema = make_normalized_schema("quarry.geo", "Location");
     DiagnosticEngine diagnostics;
     NamespaceBuilder builder;
     const auto model = builder.build(schema, diagnostics);
 
     const Scope& global = model.global_scope();
-    const Symbol* breadcrumbs = find_symbol(global, "breadcrumbs");
-    ASSERT_NE(breadcrumbs, nullptr);
-    const Scope& breadcrumbs_scope = *breadcrumbs->child_scope;
-    const Symbol* geo = find_symbol(breadcrumbs_scope, "geo");
+    const Symbol* quarry = find_symbol(global, "quarry");
+    ASSERT_NE(quarry, nullptr);
+    const Scope& quarry_scope = *quarry->child_scope;
+    const Symbol* geo = find_symbol(quarry_scope, "geo");
     ASSERT_NE(geo, nullptr);
     const Scope& geo_scope = *geo->child_scope;
 
     EXPECT_EQ(model.resolve_unqualified("Location", geo_scope)->name, "Location");
     EXPECT_EQ(model.resolve_unqualified("geo", geo_scope)->name, "geo");
-    EXPECT_EQ(model.resolve_unqualified("breadcrumbs", geo_scope)->name, "breadcrumbs");
+    EXPECT_EQ(model.resolve_unqualified("quarry", geo_scope)->name, "quarry");
 }
 
 TEST(SymbolsSmokeTest, ResolvesQualifiedNames) {
-    const auto schema = make_normalized_schema("breadcrumbs.geo", "Location");
+    const auto schema = make_normalized_schema("quarry.geo", "Location");
     DiagnosticEngine diagnostics;
     NamespaceBuilder builder;
     const auto model = builder.build(schema, diagnostics);
 
     const Scope& global = model.global_scope();
-    const Symbol* result = model.resolve(source_qualified_name("breadcrumbs.geo.Location", 0, 24),
+    const Symbol* result = model.resolve(source_qualified_name("quarry.geo.Location", 0, 24),
                                          global);
     ASSERT_NE(result, nullptr);
     EXPECT_EQ(result->kind, SymbolKind::Record);
@@ -142,7 +142,7 @@ TEST(SymbolsSmokeTest, ResolvesQualifiedNames) {
 }
 
 TEST(SymbolsSmokeTest, DetectsDuplicateDeclarationsInSameScope) {
-    auto schema = make_normalized_schema("breadcrumbs.geo", "Location");
+    auto schema = make_normalized_schema("quarry.geo", "Location");
     schema.enums.push_back(NormalizedSourceSchemaEnum{
         .name = source_identifier("Location", 64, 72),
         .source_range = range(64, 72),
@@ -163,15 +163,15 @@ TEST(SymbolsSmokeTest, DetectsDuplicateDeclarationsInSameScope) {
     EXPECT_EQ(diagnostics.diagnostics()[0].related_locations()[0].range(),
               std::optional<SourceRange>(range(64, 72)));
 
-    const Symbol* breadcrumbs = find_symbol(model.global_scope(), "breadcrumbs");
-    ASSERT_NE(breadcrumbs, nullptr);
-    const Symbol* geo = find_symbol(*breadcrumbs->child_scope, "geo");
+    const Symbol* quarry = find_symbol(model.global_scope(), "quarry");
+    ASSERT_NE(quarry, nullptr);
+    const Symbol* geo = find_symbol(*quarry->child_scope, "geo");
     ASSERT_NE(geo, nullptr);
     ASSERT_NE(find_symbol(*geo->child_scope, "Location"), nullptr);
 }
 
 TEST(SymbolsSmokeTest, DetectsUnresolvedNamesWhenAsked) {
-    const auto schema = make_normalized_schema("breadcrumbs.geo", "Location");
+    const auto schema = make_normalized_schema("quarry.geo", "Location");
     DiagnosticEngine diagnostics;
     NamespaceBuilder builder;
     const auto model = builder.build(schema, diagnostics);

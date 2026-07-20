@@ -3,7 +3,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace breadcrumbs::compiler::context {
+namespace quarry::compiler::context {
 
 CompilerContext::CompilerContext() : CompilerContext(std::make_unique<support::RealFileSystem>()) {}
 
@@ -34,4 +34,4 @@ const diagnostics::DiagnosticEngine& CompilerContext::diagnostic_engine() const 
     return diagnostic_engine_;
 }
 
-} // namespace breadcrumbs::compiler::context
+} // namespace quarry::compiler::context

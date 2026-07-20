@@ -23,7 +23,7 @@ namespace {
     const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
     const std::filesystem::path directory =
         std::filesystem::temp_directory_path() /
-        (std::string("breadcrumbs-schema-compiler-package-") + std::string(stem) + "-" +
+        (std::string("quarry-schema-compiler-package-") + std::string(stem) + "-" +
          std::to_string(suffix));
     std::filesystem::remove_all(directory);
     std::filesystem::create_directories(directory);
@@ -176,7 +176,7 @@ void expect_success(const CommandResult& result, std::string_view step) {
 
 [[nodiscard]] std::filesystem::path installed_schema_compiler(
     const std::filesystem::path& install_prefix) {
-    return install_prefix / "bin" / "breadcrumbs-schema-compiler";
+    return install_prefix / "bin" / "quarry-schema-compiler";
 }
 
 [[nodiscard]] std::filesystem::path write_schema_compiler_wrapper(
@@ -236,48 +236,48 @@ TEST(SchemaCompilerPackageTest, ImportedExecutableTargetGeneratesDownstreamCode)
     const std::filesystem::path install_prefix = root / "install prefix with spaces";
     const std::filesystem::path consumer_build = root / "consumer build with spaces";
 
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
-                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"--install", QUARRY_TEST_BUILD_DIR, "--prefix",
                                    install_prefix.string()},
                                   root, "install"),
-                   "install Breadcrumbs package");
+                   "install Quarry package");
 
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
-                                  {"-S", BREADCRUMBS_SCHEMA_COMPILER_PACKAGE_CONSUMER_SOURCE_DIR,
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"-S", QUARRY_SCHEMA_COMPILER_PACKAGE_CONSUMER_SOURCE_DIR,
                                    "-B", consumer_build.string(),
                                    "-DCMAKE_PREFIX_PATH=" + install_prefix.string(),
                                    "-DCMAKE_CXX_COMPILER=" +
-                                       std::string(BREADCRUMBS_TEST_CXX_COMPILER),
-                                   "-DEXPECTED_BREADCRUMBS_PREFIX=" + install_prefix.string()},
+                                       std::string(QUARRY_TEST_CXX_COMPILER),
+                                   "-DEXPECTED_QUARRY_PREFIX=" + install_prefix.string()},
                                   root, "configure-consumer"),
                    "configure external consumer");
 
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                   {"--build", consumer_build.string()}, root, "build-consumer"),
                    "build external consumer");
 
     const std::filesystem::path generated_header =
-        consumer_build / "generated" / "breadcrumbs" / "telemetry.generated.hpp";
+        consumer_build / "generated" / "quarry" / "telemetry.generated.hpp";
     ASSERT_TRUE(std::filesystem::exists(generated_header));
     const std::string generated = read_text_file(generated_header);
     EXPECT_NE(generated.find("struct Sample"), std::string::npos);
     EXPECT_NE(generated.find("std::uint32_t"), std::string::npos);
-    EXPECT_EQ(generated.find(BREADCRUMBS_TEST_BUILD_DIR), std::string::npos);
+    EXPECT_EQ(generated.find(QUARRY_TEST_BUILD_DIR), std::string::npos);
 
     const std::filesystem::path executable =
-        consumer_build / "breadcrumbs_schema_compiler_cmake";
+        consumer_build / "quarry_schema_compiler_cmake";
     expect_success(run_executable(executable, {}, root, "run-consumer"),
                    "run external consumer");
 
     const std::filesystem::path targets_file =
-        install_prefix / "lib" / "cmake" / "Breadcrumbs" / "BreadcrumbsTargets.cmake";
+        install_prefix / "lib" / "cmake" / "Quarry" / "QuarryTargets.cmake";
     const std::string targets = read_text_file(targets_file);
-    EXPECT_NE(targets.find("add_executable(Breadcrumbs::schema_compiler IMPORTED)"),
+    EXPECT_NE(targets.find("add_executable(Quarry::schema_compiler IMPORTED)"),
               std::string::npos);
-    EXPECT_EQ(targets.find("breadcrumbs_compiler_backend"), std::string::npos);
+    EXPECT_EQ(targets.find("quarry_compiler_backend"), std::string::npos);
     EXPECT_EQ(targets.find("protobuf::"), std::string::npos);
     EXPECT_EQ(targets.find("absl::"), std::string::npos);
-    EXPECT_EQ(targets.find("breadcrumbs_yaml"), std::string::npos);
+    EXPECT_EQ(targets.find("quarry_yaml"), std::string::npos);
 }
 
 TEST(SchemaCompilerPackageTest, ManualCustomCommandStillGeneratesDownstreamCode) {
@@ -291,7 +291,7 @@ TEST(SchemaCompilerPackageTest, ManualCustomCommandStillGeneratesDownstreamCode)
     const std::filesystem::path consumer_build = root / "manual build with spaces";
 
     write_text_file(consumer_source / "schema.brd",
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -299,9 +299,9 @@ TEST(SchemaCompilerPackageTest, ManualCustomCommandStillGeneratesDownstreamCode)
                     "  count:\n"
                     "    type: uint32\n");
     write_text_file(consumer_source / "main.cpp",
-                    "#include <breadcrumbs/telemetry.generated.hpp>\n"
+                    "#include <quarry/telemetry.generated.hpp>\n"
                     "int main() {\n"
-                    "  breadcrumbs::telemetry::SampleBuilder builder;\n"
+                    "  quarry::telemetry::SampleBuilder builder;\n"
                     "  if (!builder.set_count(7)) { return 1; }\n"
                     "  const auto sample = builder.build();\n"
                     "  return sample.has_count() ? 0 : 1;\n"
@@ -309,34 +309,34 @@ TEST(SchemaCompilerPackageTest, ManualCustomCommandStillGeneratesDownstreamCode)
     write_text_file(consumer_source / "CMakeLists.txt",
                     "cmake_minimum_required(VERSION 3.20)\n"
                     "project(manual_schema_compiler_consumer LANGUAGES CXX)\n"
-                    "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+                    "find_package(Quarry CONFIG REQUIRED)\n"
                     "set(generated_dir \"${CMAKE_CURRENT_BINARY_DIR}/generated\")\n"
-                    "set(generated_header \"${generated_dir}/breadcrumbs/telemetry.generated.hpp\")\n"
+                    "set(generated_header \"${generated_dir}/quarry/telemetry.generated.hpp\")\n"
                     "add_custom_command(\n"
                     "  OUTPUT \"${generated_header}\"\n"
-                    "  COMMAND \"$<TARGET_FILE:Breadcrumbs::schema_compiler>\"\n"
+                    "  COMMAND \"$<TARGET_FILE:Quarry::schema_compiler>\"\n"
                     "          --output-directory \"${generated_dir}\"\n"
                     "          \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\"\n"
                     "  DEPENDS \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\"\n"
-                    "          Breadcrumbs::schema_compiler\n"
+                    "          Quarry::schema_compiler\n"
                     "  VERBATIM)\n"
                     "add_executable(manual_consumer main.cpp \"${generated_header}\")\n"
                     "target_include_directories(manual_consumer PRIVATE \"${generated_dir}\")\n"
-                    "target_link_libraries(manual_consumer PRIVATE Breadcrumbs::runtime)\n");
+                    "target_link_libraries(manual_consumer PRIVATE Quarry::runtime)\n");
 
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
-                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"--install", QUARRY_TEST_BUILD_DIR, "--prefix",
                                    install_prefix.string()},
                                   root, "install"),
-                   "install Breadcrumbs package");
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                   "install Quarry package");
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                   {"-S", consumer_source.string(), "-B", consumer_build.string(),
                                    "-DCMAKE_PREFIX_PATH=" + install_prefix.string(),
                                    "-DCMAKE_CXX_COMPILER=" +
-                                       std::string(BREADCRUMBS_TEST_CXX_COMPILER)},
+                                       std::string(QUARRY_TEST_CXX_COMPILER)},
                                   root, "configure-manual"),
                    "configure manual consumer");
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                   {"--build", consumer_build.string()}, root, "build-manual"),
                    "build manual consumer");
     expect_success(run_executable(consumer_build / "manual_consumer", {}, root, "run-manual"),
@@ -355,7 +355,7 @@ TEST(SchemaCompilerPackageTest, HelperReconfiguresWhenSchemaInventoryChanges) {
     const std::filesystem::path schema = consumer_source / "schema.brd";
 
     write_text_file(schema,
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -365,8 +365,8 @@ TEST(SchemaCompilerPackageTest, HelperReconfiguresWhenSchemaInventoryChanges) {
     write_text_file(consumer_source / "CMakeLists.txt",
                     "cmake_minimum_required(VERSION 3.20)\n"
                     "project(helper_reconfigure LANGUAGES NONE)\n"
-                    "find_package(Breadcrumbs CONFIG REQUIRED)\n"
-                    "breadcrumbs_generate_cpp(\n"
+                    "find_package(Quarry CONFIG REQUIRED)\n"
+                    "quarry_generate_cpp(\n"
                     "  SCHEMA schema.brd\n"
                     "  OUTPUT_DIR generated\n"
                     "  OUT_FILES generated_files\n"
@@ -375,25 +375,25 @@ TEST(SchemaCompilerPackageTest, HelperReconfiguresWhenSchemaInventoryChanges) {
                     "\"${generated_files}\\n\")\n"
                     "add_custom_target(generated ALL DEPENDS ${generated_files})\n");
 
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
-                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"--install", QUARRY_TEST_BUILD_DIR, "--prefix",
                                    install_prefix.string()},
                                   root, "install"),
-                   "install Breadcrumbs package");
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                   "install Quarry package");
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                   {"-S", consumer_source.string(), "-B", consumer_build.string(),
                                    "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
                                   root, "configure-helper-reconfigure"),
                    "configure helper reconfigure consumer");
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                   {"--build", consumer_build.string()},
                                   root, "build-helper-reconfigure"),
                    "build helper reconfigure consumer");
-    EXPECT_TRUE(std::filesystem::exists(consumer_build / "generated" / "breadcrumbs" /
+    EXPECT_TRUE(std::filesystem::exists(consumer_build / "generated" / "quarry" /
                                         "telemetry.hpp"));
 
     write_text_file(schema,
-                    "namespace: breadcrumbs.telemetry.v2\n"
+                    "namespace: quarry.telemetry.v2\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -401,14 +401,14 @@ TEST(SchemaCompilerPackageTest, HelperReconfiguresWhenSchemaInventoryChanges) {
                     "  count:\n"
                     "    type: uint32\n");
 
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                   {"--build", consumer_build.string()},
                                   root, "rebuild-helper-reconfigure"),
                    "rebuild helper reconfigure consumer");
-    EXPECT_TRUE(std::filesystem::exists(consumer_build / "generated" / "breadcrumbs" /
+    EXPECT_TRUE(std::filesystem::exists(consumer_build / "generated" / "quarry" /
                                         "telemetry" / "v2.hpp"));
     const std::string outputs = read_text_file(consumer_build / "outputs.txt");
-    EXPECT_NE(outputs.find("generated/breadcrumbs/telemetry/v2.hpp"), std::string::npos);
+    EXPECT_NE(outputs.find("generated/quarry/telemetry/v2.hpp"), std::string::npos);
 }
 
 TEST(SchemaCompilerPackageTest, HelperNativeExplicitOverrideUsesSelectedCompiler) {
@@ -426,7 +426,7 @@ TEST(SchemaCompilerPackageTest, HelperNativeExplicitOverrideUsesSelectedCompiler
                                       installed_schema_compiler(install_prefix), log_path);
 
     write_text_file(consumer_source / "schema.brd",
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -436,8 +436,8 @@ TEST(SchemaCompilerPackageTest, HelperNativeExplicitOverrideUsesSelectedCompiler
     write_text_file(consumer_source / "CMakeLists.txt",
                     "cmake_minimum_required(VERSION 3.20)\n"
                     "project(native_override LANGUAGES NONE)\n"
-                    "find_package(Breadcrumbs CONFIG REQUIRED)\n"
-                    "breadcrumbs_generate_cpp(\n"
+                    "find_package(Quarry CONFIG REQUIRED)\n"
+                    "quarry_generate_cpp(\n"
                     "  SCHEMA schema.brd\n"
                     "  OUTPUT_DIR generated\n"
                     "  OUT_FILES generated_files\n"
@@ -448,22 +448,22 @@ TEST(SchemaCompilerPackageTest, HelperNativeExplicitOverrideUsesSelectedCompiler
                         "\"${generated_files}\\n\")\n"
                         "add_custom_target(generated ALL DEPENDS ${generated_files})\n");
 
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
-                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"--install", QUARRY_TEST_BUILD_DIR, "--prefix",
                                    install_prefix.string()},
                                   root, "install"),
-                   "install Breadcrumbs package");
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                   "install Quarry package");
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                   {"-S", consumer_source.string(), "-B", consumer_build.string(),
                                    "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
                                   root, "configure-native-override"),
                    "configure native override consumer");
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                   {"--build", consumer_build.string()},
                                   root, "build-native-override"),
                    "build native override consumer");
 
-    EXPECT_TRUE(std::filesystem::exists(consumer_build / "generated" / "breadcrumbs" /
+    EXPECT_TRUE(std::filesystem::exists(consumer_build / "generated" / "quarry" /
                                         "telemetry.generated.hpp"));
     const std::string log = read_text_file(log_path);
     EXPECT_NE(log.find("--print-generated-code-api-version"), std::string::npos);
@@ -481,7 +481,7 @@ TEST(SchemaCompilerPackageTest, HelperCrossCompilingRequiresExplicitCompiler) {
     const std::filesystem::path install_prefix = root / "install prefix with spaces";
     const std::filesystem::path consumer_source = root / "cross source";
     write_text_file(consumer_source / "schema.brd",
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -489,17 +489,17 @@ TEST(SchemaCompilerPackageTest, HelperCrossCompilingRequiresExplicitCompiler) {
     write_text_file(consumer_source / "CMakeLists.txt",
                     "cmake_minimum_required(VERSION 3.20)\n"
                     "project(cross_no_override LANGUAGES NONE)\n"
-                    "find_package(Breadcrumbs CONFIG REQUIRED)\n"
-                    "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated "
+                    "find_package(Quarry CONFIG REQUIRED)\n"
+                    "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated "
                     "OUT_FILES files)\n");
 
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
-                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"--install", QUARRY_TEST_BUILD_DIR, "--prefix",
                                    install_prefix.string()},
                                   root, "install"),
-                   "install Breadcrumbs package");
+                   "install Quarry package");
     const CommandResult result = run_executable(
-        BREADCRUMBS_TEST_CMAKE_COMMAND,
+        QUARRY_TEST_CMAKE_COMMAND,
         {"-S", consumer_source.string(), "-B", (root / "cross build").string(),
          "-DCMAKE_PREFIX_PATH=" + install_prefix.string(), "-DCMAKE_SYSTEM_NAME=Generic"},
         root, "configure-cross-no-override");
@@ -523,7 +523,7 @@ TEST(SchemaCompilerPackageTest, HelperCrossCompilingAcceptsExplicitCompiler) {
                                       installed_schema_compiler(install_prefix), log_path);
 
     write_text_file(consumer_source / "schema.brd",
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -531,14 +531,14 @@ TEST(SchemaCompilerPackageTest, HelperCrossCompilingAcceptsExplicitCompiler) {
     write_text_file(consumer_source / "CMakeLists.txt",
                     "cmake_minimum_required(VERSION 3.20)\n"
                     "project(cross_override LANGUAGES NONE)\n"
-                    "find_package(Breadcrumbs CONFIG REQUIRED)\n"
-                    "if(NOT DEFINED Breadcrumbs_GENERATED_CODE_API_VERSION)\n"
-                    "  message(FATAL_ERROR \"Breadcrumbs_GENERATED_CODE_API_VERSION is not defined\")\n"
+                    "find_package(Quarry CONFIG REQUIRED)\n"
+                    "if(NOT DEFINED Quarry_GENERATED_CODE_API_VERSION)\n"
+                    "  message(FATAL_ERROR \"Quarry_GENERATED_CODE_API_VERSION is not defined\")\n"
                     "endif()\n"
-                    "if(NOT Breadcrumbs_GENERATED_CODE_API_VERSION MATCHES \"^[0-9]+$\")\n"
-                    "  message(FATAL_ERROR \"Breadcrumbs_GENERATED_CODE_API_VERSION is not numeric\")\n"
+                    "if(NOT Quarry_GENERATED_CODE_API_VERSION MATCHES \"^[0-9]+$\")\n"
+                    "  message(FATAL_ERROR \"Quarry_GENERATED_CODE_API_VERSION is not numeric\")\n"
                     "endif()\n"
-                    "breadcrumbs_generate_cpp(\n"
+                    "quarry_generate_cpp(\n"
                     "  SCHEMA schema.brd\n"
                     "  OUTPUT_DIR generated\n"
                     "  OUT_FILES generated_files\n"
@@ -547,22 +547,22 @@ TEST(SchemaCompilerPackageTest, HelperCrossCompilingAcceptsExplicitCompiler) {
                         "\")\n"
                         "add_custom_target(generated ALL DEPENDS ${generated_files})\n");
 
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
-                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"--install", QUARRY_TEST_BUILD_DIR, "--prefix",
                                    install_prefix.string()},
                                   root, "install"),
-                   "install Breadcrumbs package");
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                   "install Quarry package");
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                   {"-S", consumer_source.string(), "-B", consumer_build.string(),
                                    "-DCMAKE_PREFIX_PATH=" + install_prefix.string(),
                                    "-DCMAKE_SYSTEM_NAME=Generic"},
                                   root, "configure-cross-override"),
                    "configure cross override consumer");
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                   {"--build", consumer_build.string()},
                                   root, "build-cross-override"),
                    "build cross override consumer");
-    EXPECT_TRUE(std::filesystem::exists(consumer_build / "generated" / "breadcrumbs" /
+    EXPECT_TRUE(std::filesystem::exists(consumer_build / "generated" / "quarry" /
                                         "telemetry.generated.hpp"));
     const std::string log = read_text_file(log_path);
     EXPECT_NE(log.find("--print-generated-code-api-version"), std::string::npos);
@@ -585,7 +585,7 @@ TEST(SchemaCompilerPackageTest,
         root / "mismatch compiler.sh", installed_schema_compiler(install_prefix), log_path, "2");
 
     write_text_file(consumer_source / "schema.brd",
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -595,8 +595,8 @@ TEST(SchemaCompilerPackageTest,
     write_text_file(consumer_source / "CMakeLists.txt",
                     "cmake_minimum_required(VERSION 3.20)\n"
                     "project(query_mismatch LANGUAGES NONE)\n"
-                    "find_package(Breadcrumbs CONFIG REQUIRED)\n"
-                    "breadcrumbs_generate_cpp(\n"
+                    "find_package(Quarry CONFIG REQUIRED)\n"
+                    "quarry_generate_cpp(\n"
                     "  SCHEMA schema.brd\n"
                     "  OUTPUT_DIR generated\n"
                     "  OUT_FILES generated_files\n"
@@ -604,12 +604,12 @@ TEST(SchemaCompilerPackageTest,
                         wrapper.string() +
                         "\")\n");
 
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
-                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"--install", QUARRY_TEST_BUILD_DIR, "--prefix",
                                    install_prefix.string()},
                                   root, "install"),
-                   "install Breadcrumbs package");
-    const CommandResult result = run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                   "install Quarry package");
+    const CommandResult result = run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                                 {"-S", consumer_source.string(), "-B",
                                                  consumer_build.string(),
                                                  "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
@@ -636,23 +636,23 @@ TEST(SchemaCompilerPackageTest, HelperAllowsOnlyOneCompilerPerBuildTree) {
 
     const std::filesystem::path root = make_temp_directory("one compiler");
     const std::filesystem::path install_prefix = root / "install prefix with spaces";
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
-                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"--install", QUARRY_TEST_BUILD_DIR, "--prefix",
                                    install_prefix.string()},
                                   root, "install"),
-                   "install Breadcrumbs package");
+                   "install Quarry package");
 
     auto write_two_schema_project = [&](const std::filesystem::path& source,
                                         std::string_view first_compiler,
                                         std::string_view second_compiler) {
         write_text_file(source / "first.brd",
-                        "namespace: breadcrumbs.one\n"
+                        "namespace: quarry.one\n"
                         "record: First\n"
                         "version: 1\n"
                         "type: data\n"
                         "fields: {}\n");
         write_text_file(source / "second.brd",
-                        "namespace: breadcrumbs.two\n"
+                        "namespace: quarry.two\n"
                         "record: Second\n"
                         "version: 1\n"
                         "type: data\n"
@@ -660,14 +660,14 @@ TEST(SchemaCompilerPackageTest, HelperAllowsOnlyOneCompilerPerBuildTree) {
         write_text_file(source / "CMakeLists.txt",
                         "cmake_minimum_required(VERSION 3.20)\n"
                         "project(one_compiler LANGUAGES NONE)\n"
-                        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
-                        "breadcrumbs_generate_cpp(\n"
+                        "find_package(Quarry CONFIG REQUIRED)\n"
+                        "quarry_generate_cpp(\n"
                         "  SCHEMA first.brd\n"
                         "  OUTPUT_DIR one\n"
                         "  OUT_FILES first_files\n" +
                             std::string(first_compiler) +
                             ")\n"
-                            "breadcrumbs_generate_cpp(\n"
+                            "quarry_generate_cpp(\n"
                             "  SCHEMA second.brd\n"
                             "  OUTPUT_DIR two\n"
                             "  OUT_FILES second_files\n" +
@@ -687,7 +687,7 @@ TEST(SchemaCompilerPackageTest, HelperAllowsOnlyOneCompilerPerBuildTree) {
     write_two_schema_project(same_source,
                              "  SCHEMA_COMPILER \"" + wrapper_a.string() + "\"\n",
                              "  SCHEMA_COMPILER \"" + wrapper_a.string() + "\"\n");
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                   {"-S", same_source.string(), "-B",
                                    (root / "same compiler build").string(),
                                    "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
@@ -697,7 +697,7 @@ TEST(SchemaCompilerPackageTest, HelperAllowsOnlyOneCompilerPerBuildTree) {
     const std::filesystem::path native_same_source = root / "native same source";
     write_two_schema_project(native_same_source, "",
                              "  SCHEMA_COMPILER \"" + real_compiler.string() + "\"\n");
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                   {"-S", native_same_source.string(), "-B",
                                    (root / "native same build").string(),
                                    "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
@@ -709,7 +709,7 @@ TEST(SchemaCompilerPackageTest, HelperAllowsOnlyOneCompilerPerBuildTree) {
                              "  SCHEMA_COMPILER \"" + wrapper_a.string() + "\"\n",
                              "  SCHEMA_COMPILER \"" + wrapper_b.string() + "\"\n");
     const CommandResult different_result = run_executable(
-        BREADCRUMBS_TEST_CMAKE_COMMAND,
+        QUARRY_TEST_CMAKE_COMMAND,
         {"-S", different_source.string(), "-B", (root / "different compiler build").string(),
          "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
         root, "configure-different-compilers");
@@ -723,7 +723,7 @@ TEST(SchemaCompilerPackageTest, HelperAllowsOnlyOneCompilerPerBuildTree) {
     write_two_schema_project(native_different_source, "",
                              "  SCHEMA_COMPILER \"" + wrapper_a.string() + "\"\n");
     const CommandResult native_different_result = run_executable(
-        BREADCRUMBS_TEST_CMAKE_COMMAND,
+        QUARRY_TEST_CMAKE_COMMAND,
         {"-S", native_different_source.string(), "-B",
          (root / "native different build").string(),
          "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
@@ -740,19 +740,19 @@ TEST(SchemaCompilerPackageTest, BuildTimeInventoryVerificationReportsDrift) {
 
     const std::filesystem::path root = make_temp_directory("verify outputs");
     const std::filesystem::path install_prefix = root / "install prefix with spaces";
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
-                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"--install", QUARRY_TEST_BUILD_DIR, "--prefix",
                                    install_prefix.string()},
                                   root, "install"),
-                   "install Breadcrumbs package");
+                   "install Quarry package");
 
     const std::filesystem::path module =
-        install_prefix / "lib" / "cmake" / "Breadcrumbs" / "BreadcrumbsGenerate.cmake";
+        install_prefix / "lib" / "cmake" / "Quarry" / "QuarryGenerate.cmake";
     const std::filesystem::path schema = root / "schema.brd";
     const std::filesystem::path output_dir = root / "output dir with spaces";
     std::filesystem::create_directories(output_dir);
     write_text_file(schema,
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -778,12 +778,12 @@ TEST(SchemaCompilerPackageTest, BuildTimeInventoryVerificationReportsDrift) {
     auto run_verify = [&](std::string_view name, const std::filesystem::path& compiler,
                           const std::vector<std::filesystem::path>& expected) {
         return run_executable(
-            BREADCRUMBS_TEST_CMAKE_COMMAND,
-            {"-DBREADCRUMBS_VERIFY_OUTPUT_INVENTORY=TRUE",
-             "-DBREADCRUMBS_VERIFY_COMPILER=" + compiler.string(),
-             "-DBREADCRUMBS_VERIFY_SCHEMA=" + schema.string(),
-             "-DBREADCRUMBS_VERIFY_OUTPUT_DIR=" + output_dir.string(),
-             "-DBREADCRUMBS_VERIFY_EXPECTED_OUTPUTS=" + join_cmake_list(expected), "-P",
+            QUARRY_TEST_CMAKE_COMMAND,
+            {"-DQUARRY_VERIFY_OUTPUT_INVENTORY=TRUE",
+             "-DQUARRY_VERIFY_COMPILER=" + compiler.string(),
+             "-DQUARRY_VERIFY_SCHEMA=" + schema.string(),
+             "-DQUARRY_VERIFY_OUTPUT_DIR=" + output_dir.string(),
+             "-DQUARRY_VERIFY_EXPECTED_OUTPUTS=" + join_cmake_list(expected), "-P",
              module.string()},
             root, name);
     };
@@ -869,7 +869,7 @@ TEST(SchemaCompilerPackageTest, HelperFailsBeforeGenerationWhenInventoryDrifts) 
     const std::filesystem::path schema = consumer_source / "schema.brd";
 
     write_text_file(schema,
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -880,8 +880,8 @@ TEST(SchemaCompilerPackageTest, HelperFailsBeforeGenerationWhenInventoryDrifts) 
                     "cmake_minimum_required(VERSION 3.20)\n"
                     "set(CMAKE_SUPPRESS_REGENERATION TRUE)\n"
                     "project(helper_drift LANGUAGES NONE)\n"
-                    "find_package(Breadcrumbs CONFIG REQUIRED)\n"
-                    "breadcrumbs_generate_cpp(\n"
+                    "find_package(Quarry CONFIG REQUIRED)\n"
+                    "quarry_generate_cpp(\n"
                     "  SCHEMA schema.brd\n"
                     "  OUTPUT_DIR generated\n"
                     "  OUT_FILES generated_files\n"
@@ -890,27 +890,27 @@ TEST(SchemaCompilerPackageTest, HelperFailsBeforeGenerationWhenInventoryDrifts) 
                     "\"${generated_files}\\n\")\n"
                     "add_custom_target(generated ALL DEPENDS ${generated_files})\n");
 
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
-                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"--install", QUARRY_TEST_BUILD_DIR, "--prefix",
                                    install_prefix.string()},
                                   root, "install"),
-                   "install Breadcrumbs package");
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+                   "install Quarry package");
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                   {"-S", consumer_source.string(), "-B", consumer_build.string(),
                                    "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
                                   root, "configure-helper-drift"),
                    "configure helper drift consumer");
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                   {"--build", consumer_build.string()},
                                   root, "build-helper-drift"),
                    "initial helper drift build");
 
     const std::filesystem::path original_output =
-        consumer_build / "generated" / "breadcrumbs" / "telemetry.hpp";
+        consumer_build / "generated" / "quarry" / "telemetry.hpp";
     ASSERT_TRUE(std::filesystem::exists(original_output));
 
     write_text_file(schema,
-                    "namespace: breadcrumbs.telemetry.v2\n"
+                    "namespace: quarry.telemetry.v2\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -920,26 +920,26 @@ TEST(SchemaCompilerPackageTest, HelperFailsBeforeGenerationWhenInventoryDrifts) 
     std::filesystem::remove(original_output);
 
     const CommandResult stale_build = run_executable(
-        BREADCRUMBS_TEST_CMAKE_COMMAND, {"--build", consumer_build.string()}, root,
+        QUARRY_TEST_CMAKE_COMMAND, {"--build", consumer_build.string()}, root,
         "stale-helper-drift-build");
     EXPECT_NE(stale_build.status, 0);
     const std::string combined_diagnostics = stale_build.stdout_text + stale_build.stderr_text;
     EXPECT_NE(combined_diagnostics.find("generated-output inventory changed"),
               std::string::npos);
     EXPECT_FALSE(std::filesystem::exists(original_output));
-    EXPECT_FALSE(std::filesystem::exists(consumer_build / "generated" / "breadcrumbs" /
+    EXPECT_FALSE(std::filesystem::exists(consumer_build / "generated" / "quarry" /
                                          "telemetry" / "v2.hpp"));
 
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                   {"-S", consumer_source.string(), "-B", consumer_build.string(),
                                    "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
                                   root, "reconfigure-helper-drift"),
                    "reconfigure helper drift consumer");
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
                                   {"--build", consumer_build.string()},
                                   root, "rebuild-helper-drift"),
                    "rebuild helper drift consumer");
-    EXPECT_TRUE(std::filesystem::exists(consumer_build / "generated" / "breadcrumbs" /
+    EXPECT_TRUE(std::filesystem::exists(consumer_build / "generated" / "quarry" /
                                         "telemetry" / "v2.hpp"));
 }
 
@@ -950,11 +950,11 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
 
     const std::filesystem::path root = make_temp_directory("helper failures");
     const std::filesystem::path install_prefix = root / "install prefix with spaces";
-    expect_success(run_executable(BREADCRUMBS_TEST_CMAKE_COMMAND,
-                                  {"--install", BREADCRUMBS_TEST_BUILD_DIR, "--prefix",
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"--install", QUARRY_TEST_BUILD_DIR, "--prefix",
                                    install_prefix.string()},
                                   root, "install"),
-                   "install Breadcrumbs package");
+                   "install Quarry package");
 
     struct ConfigureFailureCase {
         std::string_view name;
@@ -967,7 +967,7 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         const std::filesystem::path build = root / (std::string(failure_case.name) + " build");
         write_text_file(source / "CMakeLists.txt", failure_case.cmake_lists);
         const CommandResult result = run_executable(
-            BREADCRUMBS_TEST_CMAKE_COMMAND,
+            QUARRY_TEST_CMAKE_COMMAND,
             {"-S", source.string(), "-B", build.string(),
              "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
             root, failure_case.name);
@@ -978,7 +978,7 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
     };
 
     const std::string module_path =
-        (install_prefix / "lib" / "cmake" / "Breadcrumbs" / "BreadcrumbsGenerate.cmake").string();
+        (install_prefix / "lib" / "cmake" / "Quarry" / "QuarryGenerate.cmake").string();
     expect_configure_failure({
         .name = "missing-compiler-target",
         .cmake_lists =
@@ -987,7 +987,7 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         "include(\"" +
             module_path +
             "\")\n"
-        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files)\n",
+        "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files)\n",
         .expected = "target is not",
     });
 
@@ -996,12 +996,12 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         .cmake_lists =
         "cmake_minimum_required(VERSION 3.20)\n"
         "project(missing_runtime_metadata LANGUAGES NONE)\n"
-        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
-        "unset(Breadcrumbs_GENERATED_CODE_API_VERSION)\n"
+        "find_package(Quarry CONFIG REQUIRED)\n"
+        "unset(Quarry_GENERATED_CODE_API_VERSION)\n"
         "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
-        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "\"namespace: quarry.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
         "fields: {}\\n\")\n"
-        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files)\n",
+        "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files)\n",
         .expected = "does not provide a valid",
     });
 
@@ -1010,18 +1010,18 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         .cmake_lists =
         "cmake_minimum_required(VERSION 3.20)\n"
         "project(malformed_runtime_metadata LANGUAGES NONE)\n"
-        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
-        "set(Breadcrumbs_GENERATED_CODE_API_VERSION invalid)\n"
+        "find_package(Quarry CONFIG REQUIRED)\n"
+        "set(Quarry_GENERATED_CODE_API_VERSION invalid)\n"
         "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
-        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "\"namespace: quarry.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
         "fields: {}\\n\")\n"
-        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files)\n",
+        "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files)\n",
         .expected = "canonical non-negative decimal integer",
     });
 
     const std::filesystem::path non_imported_source = root / "non imported target source";
     write_text_file(non_imported_source / "schema.brd",
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -1031,16 +1031,16 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
                     "cmake_minimum_required(VERSION 3.20)\n"
                     "project(non_imported_compiler LANGUAGES CXX)\n"
                     "add_executable(local_compiler dummy.cpp)\n"
-                    "add_executable(Breadcrumbs::schema_compiler ALIAS local_compiler)\n"
+                    "add_executable(Quarry::schema_compiler ALIAS local_compiler)\n"
                     "include(\"" +
                         module_path +
                         "\")\n"
-                        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated "
+                        "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated "
                         "OUT_FILES files)\n");
     const CommandResult non_imported_result = run_executable(
-        BREADCRUMBS_TEST_CMAKE_COMMAND,
+        QUARRY_TEST_CMAKE_COMMAND,
         {"-S", non_imported_source.string(), "-B", (root / "non imported target build").string(),
-         "-DCMAKE_CXX_COMPILER=" + std::string(BREADCRUMBS_TEST_CXX_COMPILER)},
+         "-DCMAKE_CXX_COMPILER=" + std::string(QUARRY_TEST_CXX_COMPILER)},
         root, "non-imported-target");
     EXPECT_NE(non_imported_result.status, 0);
     EXPECT_NE(non_imported_result.stderr_text.find("imported executable target"),
@@ -1051,8 +1051,8 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         .cmake_lists =
         "cmake_minimum_required(VERSION 3.20)\n"
         "project(missing_schema LANGUAGES NONE)\n"
-        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
-        "breadcrumbs_generate_cpp(SCHEMA missing.brd OUTPUT_DIR generated OUT_FILES files)\n",
+        "find_package(Quarry CONFIG REQUIRED)\n"
+        "quarry_generate_cpp(SCHEMA missing.brd OUTPUT_DIR generated OUT_FILES files)\n",
         .expected = "schema file does not exist",
     });
 
@@ -1061,11 +1061,11 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         .cmake_lists =
         "cmake_minimum_required(VERSION 3.20)\n"
         "project(relative_compiler LANGUAGES NONE)\n"
-        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "find_package(Quarry CONFIG REQUIRED)\n"
         "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
-        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "\"namespace: quarry.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
         "fields: {}\\n\")\n"
-        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
+        "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
         "SCHEMA_COMPILER relative/compiler)\n",
         .expected = "SCHEMA_COMPILER must be an absolute path",
     });
@@ -1075,11 +1075,11 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         .cmake_lists =
         "cmake_minimum_required(VERSION 3.20)\n"
         "project(missing_compiler LANGUAGES NONE)\n"
-        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "find_package(Quarry CONFIG REQUIRED)\n"
         "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
-        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "\"namespace: quarry.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
         "fields: {}\\n\")\n"
-        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
+        "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
         "SCHEMA_COMPILER \"" +
             (root / "missing compiler").string() +
             "\")\n",
@@ -1093,11 +1093,11 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         .cmake_lists =
         "cmake_minimum_required(VERSION 3.20)\n"
         "project(directory_compiler LANGUAGES NONE)\n"
-        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "find_package(Quarry CONFIG REQUIRED)\n"
         "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
-        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "\"namespace: quarry.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
         "fields: {}\\n\")\n"
-        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
+        "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
         "SCHEMA_COMPILER \"" +
             compiler_directory.string() +
             "\")\n",
@@ -1111,11 +1111,11 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         .cmake_lists =
         "cmake_minimum_required(VERSION 3.20)\n"
         "project(non_runnable_compiler LANGUAGES NONE)\n"
-        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "find_package(Quarry CONFIG REQUIRED)\n"
         "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
-        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "\"namespace: quarry.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
         "fields: {}\\n\")\n"
-        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
+        "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
         "SCHEMA_COMPILER \"" +
             non_runnable.string() +
             "\")\n",
@@ -1129,11 +1129,11 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         .cmake_lists =
         "cmake_minimum_required(VERSION 3.20)\n"
         "project(bad_version_compiler LANGUAGES NONE)\n"
-        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "find_package(Quarry CONFIG REQUIRED)\n"
         "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
-        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "\"namespace: quarry.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
         "fields: {}\\n\")\n"
-        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
+        "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
         "SCHEMA_COMPILER \"" +
             bad_version.string() +
             "\")\n",
@@ -1148,11 +1148,11 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         .cmake_lists =
         "cmake_minimum_required(VERSION 3.20)\n"
         "project(failing_query_compiler LANGUAGES NONE)\n"
-        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "find_package(Quarry CONFIG REQUIRED)\n"
         "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
-        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "\"namespace: quarry.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
         "fields: {}\\n\")\n"
-        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
+        "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
         "SCHEMA_COMPILER \"" +
             failing_query.string() +
             "\")\n",
@@ -1164,12 +1164,12 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         .cmake_lists =
         "cmake_minimum_required(VERSION 3.20)\n"
         "project(genex_compiler LANGUAGES NONE)\n"
-        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "find_package(Quarry CONFIG REQUIRED)\n"
         "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
-        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "\"namespace: quarry.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
         "fields: {}\\n\")\n"
-        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
-        "SCHEMA_COMPILER \"$<TARGET_FILE:Breadcrumbs::schema_compiler>\")\n",
+        "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
+        "SCHEMA_COMPILER \"$<TARGET_FILE:Quarry::schema_compiler>\")\n",
         .expected = "generator",
     });
 
@@ -1178,26 +1178,26 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
         .cmake_lists =
         "cmake_minimum_required(VERSION 3.20)\n"
         "project(missing_compiler_value LANGUAGES NONE)\n"
-        "find_package(Breadcrumbs CONFIG REQUIRED)\n"
+        "find_package(Quarry CONFIG REQUIRED)\n"
         "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\" "
-        "\"namespace: breadcrumbs.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
+        "\"namespace: quarry.telemetry\\nrecord: Sample\\nversion: 1\\ntype: data\\n"
         "fields: {}\\n\")\n"
-        "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
+        "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated OUT_FILES files "
         "SCHEMA_COMPILER)\n",
         .expected = "missing value for SCHEMA_COMPILER",
     });
 
     const std::filesystem::path invalid_source = root / "invalid schema source";
     write_text_file(invalid_source / "schema.brd",
-                    "namespace: breadcrumbs.telemetry\nrecord: Sample\nfields: [\n");
+                    "namespace: quarry.telemetry\nrecord: Sample\nfields: [\n");
     write_text_file(invalid_source / "CMakeLists.txt",
                     "cmake_minimum_required(VERSION 3.20)\n"
                     "project(invalid_schema LANGUAGES NONE)\n"
-                    "find_package(Breadcrumbs CONFIG REQUIRED)\n"
-                    "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated "
+                    "find_package(Quarry CONFIG REQUIRED)\n"
+                    "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated "
                     "OUT_FILES files)\n");
     const CommandResult invalid_result = run_executable(
-        BREADCRUMBS_TEST_CMAKE_COMMAND,
+        QUARRY_TEST_CMAKE_COMMAND,
         {"-S", invalid_source.string(), "-B", (root / "invalid schema build").string(),
          "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
         root, "invalid-schema");
@@ -1206,7 +1206,7 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
 
     const std::filesystem::path duplicate_source = root / "duplicate output source";
     write_text_file(duplicate_source / "schema.brd",
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -1216,13 +1216,13 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
     write_text_file(duplicate_source / "CMakeLists.txt",
                     "cmake_minimum_required(VERSION 3.20)\n"
                     "project(duplicate_outputs LANGUAGES NONE)\n"
-                    "find_package(Breadcrumbs CONFIG REQUIRED)\n"
-                    "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated "
+                    "find_package(Quarry CONFIG REQUIRED)\n"
+                    "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated "
                     "OUT_FILES first)\n"
-                    "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated "
+                    "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated "
                     "OUT_FILES second)\n");
     const CommandResult duplicate_result = run_executable(
-        BREADCRUMBS_TEST_CMAKE_COMMAND,
+        QUARRY_TEST_CMAKE_COMMAND,
         {"-S", duplicate_source.string(), "-B", (root / "duplicate output build").string(),
          "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
         root, "duplicate-output");
@@ -1231,7 +1231,7 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
 
     const std::filesystem::path cross_source = root / "cross source";
     write_text_file(cross_source / "schema.brd",
-                    "namespace: breadcrumbs.telemetry\n"
+                    "namespace: quarry.telemetry\n"
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
@@ -1239,11 +1239,11 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
     write_text_file(cross_source / "CMakeLists.txt",
                     "cmake_minimum_required(VERSION 3.20)\n"
                     "project(cross_rejected LANGUAGES NONE)\n"
-                    "find_package(Breadcrumbs CONFIG REQUIRED)\n"
-                    "breadcrumbs_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated "
+                    "find_package(Quarry CONFIG REQUIRED)\n"
+                    "quarry_generate_cpp(SCHEMA schema.brd OUTPUT_DIR generated "
                     "OUT_FILES files)\n");
     const CommandResult cross_result = run_executable(
-        BREADCRUMBS_TEST_CMAKE_COMMAND,
+        QUARRY_TEST_CMAKE_COMMAND,
         {"-S", cross_source.string(), "-B", (root / "cross build").string(),
          "-DCMAKE_PREFIX_PATH=" + install_prefix.string(), "-DCMAKE_SYSTEM_NAME=Generic"},
         root, "cross-rejected");

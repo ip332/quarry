@@ -50,7 +50,7 @@ Current implementation status:
   grammar
 * the repository also contains a separate generic YAML syntax layer under
   `compiler/yaml`; it preserves YAML order and source ranges but does not yet
-  decode Breadcrumbs schema vocabulary
+  decode Quarry schema vocabulary
 * the production-facing YAML orchestration layer now compiles import-free YAML
   through validated Schema IR without a compatibility AST hop after source-
   schema normalization

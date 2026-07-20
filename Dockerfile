@@ -1,4 +1,4 @@
-# Development toolchain image for Breadcrumbs.
+# Development toolchain image for Quarry.
 #
 # Matches the packages installed by .github/workflows/ci.yml on ubuntu-latest,
 # plus the clang-tidy/clang-format/pre-commit tooling used for local

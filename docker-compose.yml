@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: breadcrumbs-dev
+    image: quarry-dev
     working_dir: /workspace
     volumes:
       - .:/workspace

@@ -16,7 +16,7 @@ namespace {
     const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
     const std::filesystem::path directory =
         std::filesystem::temp_directory_path() /
-        (std::string("breadcrumbs-runtime-package-") + std::string(stem) + "-" +
+        (std::string("quarry-runtime-package-") + std::string(stem) + "-" +
          std::to_string(suffix));
     std::filesystem::remove_all(directory);
     std::filesystem::create_directories(directory);
@@ -80,22 +80,22 @@ TEST(RuntimePackageConsumerTest, InstalledRuntimePackageBuildsExternalConsumer) 
     const std::filesystem::path install_prefix = root / "install";
     const std::filesystem::path consumer_build = root / "consumer-build";
 
-    const std::string install_command = std::string(shell_quote(BREADCRUMBS_TEST_CMAKE_COMMAND)) +
+    const std::string install_command = std::string(shell_quote(QUARRY_TEST_CMAKE_COMMAND)) +
                                         " --install " +
-                                        shell_quote(BREADCRUMBS_TEST_BUILD_DIR) + " --prefix " +
+                                        shell_quote(QUARRY_TEST_BUILD_DIR) + " --prefix " +
                                         shell_quote(install_prefix.string());
     expect_success(run_command(install_command, root, "install"), "install runtime package");
 
     const std::string configure_command =
-        std::string(shell_quote(BREADCRUMBS_TEST_CMAKE_COMMAND)) + " -S " +
-        shell_quote(BREADCRUMBS_RUNTIME_PACKAGE_CONSUMER_SOURCE_DIR) + " -B " +
+        std::string(shell_quote(QUARRY_TEST_CMAKE_COMMAND)) + " -S " +
+        shell_quote(QUARRY_RUNTIME_PACKAGE_CONSUMER_SOURCE_DIR) + " -B " +
         shell_quote(consumer_build.string()) + " -DCMAKE_PREFIX_PATH=" +
         shell_quote(install_prefix.string()) + " -DCMAKE_CXX_COMPILER=" +
-        shell_quote(BREADCRUMBS_TEST_CXX_COMPILER);
+        shell_quote(QUARRY_TEST_CXX_COMPILER);
     expect_success(run_command(configure_command, root, "configure-consumer"),
                    "configure external consumer");
 
-    const std::string build_command = std::string(shell_quote(BREADCRUMBS_TEST_CMAKE_COMMAND)) +
+    const std::string build_command = std::string(shell_quote(QUARRY_TEST_CMAKE_COMMAND)) +
                                       " --build " + shell_quote(consumer_build.string());
     expect_success(run_command(build_command, root, "build-consumer"), "build external consumer");
 

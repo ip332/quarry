@@ -6,7 +6,7 @@
 #include <string_view>
 #include <vector>
 
-namespace breadcrumbs::compiler::backend {
+namespace quarry::compiler::backend {
 
 struct CodegenOptions {
     std::string output_directory = "generated";
@@ -62,4 +62,4 @@ public:
                                          const CodegenOptions& options) const;
 };
 
-} // namespace breadcrumbs::compiler::backend
+} // namespace quarry::compiler::backend

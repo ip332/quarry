@@ -69,13 +69,13 @@ a symbol prefix.
 Example schema namespace:
 
 ```text
-breadcrumbs.telemetry
+quarry.telemetry
 ```
 
 Example generated C symbol prefix:
 
 ```text
-breadcrumbs_telemetry_
+quarry_telemetry_
 ```
 
 ---

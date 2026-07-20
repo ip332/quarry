@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-namespace breadcrumbs::fuzz_generated {
+namespace quarry::fuzz_generated {
 
 enum class Mode : std::uint8_t {
     Off = 0,
@@ -448,4 +448,4 @@ inline std::optional<Example> decode_Example(std::span<const std::byte> input) {
     return std::move(decoded.value);
 }
 
-} // namespace breadcrumbs::fuzz_generated
+} // namespace quarry::fuzz_generated

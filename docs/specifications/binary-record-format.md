@@ -1,4 +1,4 @@
-# Breadcrumbs Binary Record Format Specification
+# Quarry Binary Record Format Specification
 
 ## Status
 
@@ -10,7 +10,7 @@ Draft
 
 ## Purpose
 
-This document defines the binary representation of Breadcrumbs records and
+This document defines the binary representation of Quarry records and
 field payloads.
 
 The binary record format defines how record headers, field directories,

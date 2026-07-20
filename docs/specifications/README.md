@@ -1,8 +1,8 @@
-# Breadcrumbs Specifications
+# Quarry Specifications
 
 ## Purpose
 
-This directory contains formal Markdown specifications for Breadcrumbs.
+This directory contains formal Markdown specifications for Quarry.
 
 Specifications define implementation-level "how" details that follow the stable
 architecture decisions in `docs/architecture/`.
@@ -15,12 +15,12 @@ examples.
 
 # Specification Format
 
-Breadcrumbs specifications are written in Markdown.
+Quarry specifications are written in Markdown.
 
 Do not define JSON Schema, YAML meta-specifications, or external schema formats
-to validate Breadcrumbs `.brd` schema files.
+to validate Quarry `.brd` schema files.
 
-Validation of `.brd` files is the responsibility of the Breadcrumbs schema
+Validation of `.brd` files is the responsibility of the Quarry schema
 compiler.
 
 Markdown specifications SHALL use the shared structure defined in

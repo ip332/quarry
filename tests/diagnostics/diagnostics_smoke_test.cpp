@@ -14,20 +14,20 @@
 
 namespace {
 
-using breadcrumbs::compiler::context::CompilerContext;
-using breadcrumbs::compiler::diagnostics::Diagnostic;
-using breadcrumbs::compiler::diagnostics::DiagnosticEngine;
-using breadcrumbs::compiler::diagnostics::DiagnosticFormatter;
-using breadcrumbs::compiler::diagnostics::DiagnosticId;
-using breadcrumbs::compiler::diagnostics::RelatedLocation;
-using breadcrumbs::compiler::diagnostics::Severity;
-using breadcrumbs::compiler::diagnostics::to_string;
-using breadcrumbs::compiler::support::FileReadResult;
-using breadcrumbs::compiler::support::FileSystem;
-using breadcrumbs::compiler::support::SourceFileId;
-using breadcrumbs::compiler::support::SourceLocation;
-using breadcrumbs::compiler::support::SourceManager;
-using breadcrumbs::compiler::support::SourceRange;
+using quarry::compiler::context::CompilerContext;
+using quarry::compiler::diagnostics::Diagnostic;
+using quarry::compiler::diagnostics::DiagnosticEngine;
+using quarry::compiler::diagnostics::DiagnosticFormatter;
+using quarry::compiler::diagnostics::DiagnosticId;
+using quarry::compiler::diagnostics::RelatedLocation;
+using quarry::compiler::diagnostics::Severity;
+using quarry::compiler::diagnostics::to_string;
+using quarry::compiler::support::FileReadResult;
+using quarry::compiler::support::FileSystem;
+using quarry::compiler::support::SourceFileId;
+using quarry::compiler::support::SourceLocation;
+using quarry::compiler::support::SourceManager;
+using quarry::compiler::support::SourceRange;
 
 class RecordingFileSystem final : public FileSystem {
 public:

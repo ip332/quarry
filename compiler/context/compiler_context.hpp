@@ -6,7 +6,7 @@
 
 #include <memory>
 
-namespace breadcrumbs::compiler::context {
+namespace quarry::compiler::context {
 
 class CompilerContext {
 public:
@@ -34,4 +34,4 @@ private:
     diagnostics::DiagnosticEngine diagnostic_engine_;
 };
 
-} // namespace breadcrumbs::compiler::context
+} // namespace quarry::compiler::context

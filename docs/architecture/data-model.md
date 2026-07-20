@@ -1,4 +1,4 @@
-# Breadcrumbs Data Model
+# Quarry Data Model
 
 ## Status
 
@@ -6,7 +6,7 @@ Draft
 
 ## Purpose
 
-This document defines the logical data model used throughout Breadcrumbs.
+This document defines the logical data model used throughout Quarry.
 
 The central architectural abstraction is the **record**.
 
@@ -18,7 +18,7 @@ and inspected by tools.
 
 # Record-Centered Architecture
 
-Every meaningful interaction in Breadcrumbs is represented as a record.
+Every meaningful interaction in Quarry is represented as a record.
 
 Examples include:
 
@@ -119,7 +119,7 @@ A schema defines:
 * field presence semantics
 * compatibility rules
 
-Author schemas in the Breadcrumbs schema language and compile them with the
+Author schemas in the Quarry schema language and compile them with the
 schema compiler.
 
 ---
@@ -145,7 +145,7 @@ as the canonical representation.
 
 # Local Storage
 
-The Breadcrumbs Agent stores records directly in binary form.
+The Quarry Agent stores records directly in binary form.
 
 Local persistence should avoid format conversion whenever practical.
 
