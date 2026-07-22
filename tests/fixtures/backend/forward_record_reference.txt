@@ -11,7 +11,7 @@
 
 #include "runtime/binary_record.hpp"
 
-static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 1U,
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 2U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 struct B {
@@ -63,7 +63,7 @@ private:
   if (value.has_count()) {
     std::vector<std::byte> field_bytes;
     if (!::quarry::runtime::append_u32(field_bytes, *value.count())) {
-      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow);
+      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow, {{.field_index = 0U, .array_index = std::nullopt}});
     }
     fields.push_back(::quarry::runtime::FieldBytes{
       .field_index = 0U,
@@ -95,10 +95,10 @@ std::optional<std::vector<std::byte>> encode(const B& value) {
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
     const auto decoded = ::quarry::runtime::read_u32(field->bytes);
     if (!decoded.value.has_value()) {
-      return ::quarry::runtime::decode_failure<B>(decoded.error);
+      return ::quarry::runtime::decode_failure<B>(decoded.error, {{.field_index = 0U, .array_index = std::nullopt}});
     }
     if (!builder.set_count(*decoded.value)) {
-      return ::quarry::runtime::decode_failure<B>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<B>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
     }
   }
   return ::quarry::runtime::decoded_value<B>(builder.build());
@@ -162,7 +162,12 @@ private:
   if (value.has_value()) {
     auto field_bytes = ::encode_result(*value.value());
     if (!field_bytes.has_value()) {
-      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(field_bytes.error);
+      auto nested_path = std::move(field_bytes.path);
+      nested_path.push_back(::quarry::runtime::PathElement{
+        .field_index = 0U,
+        .array_index = std::nullopt,
+      });
+      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(field_bytes.error, std::move(nested_path));
     }
     fields.push_back(::quarry::runtime::FieldBytes{
       .field_index = 0U,
@@ -192,12 +197,17 @@ std::optional<std::vector<std::byte>> encode(const A& value) {
   }
   ABuilder builder;
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
-    const auto decoded = ::decode_B_result(field->bytes);
+    auto decoded = ::decode_B_result(field->bytes);
     if (!decoded.value.has_value()) {
-      return ::quarry::runtime::decode_failure<A>(decoded.error);
+      auto nested_path = std::move(decoded.path);
+      nested_path.push_back(::quarry::runtime::PathElement{
+        .field_index = 0U,
+        .array_index = std::nullopt,
+      });
+      return ::quarry::runtime::decode_failure<A>(decoded.error, std::move(nested_path));
     }
     if (!builder.set_value(*decoded.value)) {
-      return ::quarry::runtime::decode_failure<A>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<A>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
     }
   }
   return ::quarry::runtime::decoded_value<A>(builder.build());

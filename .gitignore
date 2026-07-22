@@ -77,3 +77,6 @@ Testing/
 # Local review archives
 *.tar
 *.tar.gz
+
+# Local agent reports
+REPORT.md

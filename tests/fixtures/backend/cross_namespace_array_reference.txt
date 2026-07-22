@@ -11,7 +11,7 @@
 
 #include "runtime/binary_record.hpp"
 
-static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 1U,
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 2U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 namespace alpha {
@@ -71,7 +71,7 @@ namespace one {
       if (value.has_id()) {
         std::vector<std::byte> field_bytes;
         if (!::quarry::runtime::append_u32(field_bytes, *value.id())) {
-          return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow);
+          return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow, {{.field_index = 0U, .array_index = std::nullopt}});
         }
         fields.push_back(::quarry::runtime::FieldBytes{
           .field_index = 0U,
@@ -103,10 +103,10 @@ namespace one {
       if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
         const auto decoded = ::quarry::runtime::read_u32(field->bytes);
         if (!decoded.value.has_value()) {
-          return ::quarry::runtime::decode_failure<Element>(decoded.error);
+          return ::quarry::runtime::decode_failure<Element>(decoded.error, {{.field_index = 0U, .array_index = std::nullopt}});
         }
         if (!builder.set_id(*decoded.value)) {
-          return ::quarry::runtime::decode_failure<Element>(::quarry::runtime::DecodeError::bounds_exceeded);
+          return ::quarry::runtime::decode_failure<Element>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
         }
       }
       return ::quarry::runtime::decoded_value<Element>(builder.build());
@@ -136,7 +136,7 @@ namespace one {
 #include "alpha/one.generated.hpp"
 #include "runtime/binary_record.hpp"
 
-static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 1U,
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 2U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 namespace beta {
@@ -222,14 +222,20 @@ namespace two {
       fields.reserve(2U);
       if (value.has_elements()) {
         if (value.elements()->size() > 2U) {
-          return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded);
+          return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
         }
         std::vector<std::byte> field_bytes;
         ::quarry::runtime::append_varuint(field_bytes, value.elements()->size());
-        for (const auto& element : *value.elements()) {
+        for (std::size_t element_index = 0U; element_index < value.elements()->size(); ++element_index) {
+          const auto& element = (*value.elements())[element_index];
           auto element_bytes = ::alpha::one::encode_result(element);
           if (!element_bytes.has_value()) {
-            return ::quarry::runtime::encode_failure<std::vector<std::byte>>(element_bytes.error);
+            auto nested_path = std::move(element_bytes.path);
+            nested_path.push_back(::quarry::runtime::PathElement{
+              .field_index = 0U,
+              .array_index = static_cast<std::uint32_t>(element_index),
+            });
+            return ::quarry::runtime::encode_failure<std::vector<std::byte>>(element_bytes.error, std::move(nested_path));
           }
           ::quarry::runtime::append_varuint(field_bytes, element_bytes.value->size());
           ::quarry::runtime::append_bytes(field_bytes, std::span<const std::byte>(element_bytes.value->data(), element_bytes.value->size()));
@@ -241,14 +247,15 @@ namespace two {
       }
       if (value.has_modes()) {
         if (value.modes()->size() > 2U) {
-          return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded);
+          return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}});
         }
         std::vector<std::byte> field_bytes;
         ::quarry::runtime::append_varuint(field_bytes, value.modes()->size());
-        for (const auto& element : *value.modes()) {
+        for (std::size_t element_index = 0U; element_index < value.modes()->size(); ++element_index) {
+          const auto& element = (*value.modes())[element_index];
           const auto enum_numeric = static_cast<std::int64_t>(element);
           if (!(enum_numeric == 0 || enum_numeric == 1)) {
-            return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::unknown_enum_value);
+            return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::unknown_enum_value, {{.field_index = 1U, .array_index = static_cast<std::uint32_t>(element_index)}});
           }
           ::quarry::runtime::append_u8(field_bytes, static_cast<std::uint8_t>(enum_numeric));
         }
@@ -284,9 +291,9 @@ namespace two {
         const auto decoded_count = ::quarry::runtime::read_varuint(field->bytes, element_offset);
         if (!decoded_count.value.has_value() || *decoded_count.value > 2U) {
           if (!decoded_count.value.has_value()) {
-            return ::quarry::runtime::decode_failure<Basket>(decoded_count.error);
+            return ::quarry::runtime::decode_failure<Basket>(decoded_count.error, {{.field_index = 0U, .array_index = std::nullopt}});
           }
-          return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::bounds_exceeded);
+          return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
         }
         const auto element_count = static_cast<std::size_t>(*decoded_count.value);
         std::vector<::alpha::one::Element> elements;
@@ -294,25 +301,30 @@ namespace two {
         for (std::size_t index = 0U; index < element_count; ++index) {
           const auto decoded_length = ::quarry::runtime::read_varuint(field->bytes, element_offset);
           if (!decoded_length.value.has_value()) {
-            return ::quarry::runtime::decode_failure<Basket>(decoded_length.error);
+            return ::quarry::runtime::decode_failure<Basket>(decoded_length.error, {{.field_index = 0U, .array_index = static_cast<std::uint32_t>(index)}});
           }
           if (*decoded_length.value > field->bytes.size() - element_offset) {
-            return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::invalid_field_length);
+            return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 0U, .array_index = static_cast<std::uint32_t>(index)}});
           }
           const auto element_length = static_cast<std::size_t>(*decoded_length.value);
           const auto element_bytes = field->bytes.subspan(element_offset, element_length);
-          const auto decoded = ::alpha::one::decode_Element_result(element_bytes);
+          auto decoded = ::alpha::one::decode_Element_result(element_bytes);
           if (!decoded.value.has_value()) {
-            return ::quarry::runtime::decode_failure<Basket>(decoded.error);
+            auto nested_path = std::move(decoded.path);
+            nested_path.push_back(::quarry::runtime::PathElement{
+              .field_index = 0U,
+              .array_index = static_cast<std::uint32_t>(index),
+            });
+            return ::quarry::runtime::decode_failure<Basket>(decoded.error, std::move(nested_path));
           }
           elements.push_back(*decoded.value);
           element_offset += element_length;
         }
         if (element_offset != field->bytes.size()) {
-          return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::invalid_field_length);
+          return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 0U, .array_index = std::nullopt}});
         }
         if (!builder.set_elements(std::move(elements))) {
-          return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::bounds_exceeded);
+          return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
         }
       }
       if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 1U); field != nullptr) {
@@ -320,9 +332,9 @@ namespace two {
         const auto decoded_count = ::quarry::runtime::read_varuint(field->bytes, element_offset);
         if (!decoded_count.value.has_value() || *decoded_count.value > 2U) {
           if (!decoded_count.value.has_value()) {
-            return ::quarry::runtime::decode_failure<Basket>(decoded_count.error);
+            return ::quarry::runtime::decode_failure<Basket>(decoded_count.error, {{.field_index = 1U, .array_index = std::nullopt}});
           }
-          return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::bounds_exceeded);
+          return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}});
         }
         const auto element_count = static_cast<std::size_t>(*decoded_count.value);
         std::vector<::alpha::one::Mode> elements;
@@ -330,22 +342,22 @@ namespace two {
         const std::size_t element_width = 1U;
         const std::size_t remaining_bytes = field->bytes.size() - element_offset;
         if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
-          return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::invalid_field_length);
+          return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 1U, .array_index = std::nullopt}});
         }
         for (std::size_t index = 0U; index < element_count; ++index) {
           const auto decoded = ::quarry::runtime::read_u8(field->bytes.subspan(element_offset, element_width));
           if (!decoded.value.has_value()) {
-            return ::quarry::runtime::decode_failure<Basket>(decoded.error);
+            return ::quarry::runtime::decode_failure<Basket>(decoded.error, {{.field_index = 1U, .array_index = static_cast<std::uint32_t>(index)}});
           }
           const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);
           if (!(enum_numeric == 0 || enum_numeric == 1)) {
-            return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::unknown_enum_value);
+            return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::unknown_enum_value, {{.field_index = 1U, .array_index = static_cast<std::uint32_t>(index)}});
           }
           elements.push_back(static_cast<::alpha::one::Mode>(enum_numeric));
           element_offset += element_width;
         }
         if (!builder.set_modes(std::move(elements))) {
-          return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::bounds_exceeded);
+          return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}});
         }
       }
       return ::quarry::runtime::decoded_value<Basket>(builder.build());

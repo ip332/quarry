@@ -12,7 +12,7 @@
 
 #include "runtime/binary_record.hpp"
 
-static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 1U,
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 2U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 enum class Mode : std::int64_t {
@@ -69,7 +69,7 @@ private:
   if (value.has_count()) {
     std::vector<std::byte> field_bytes;
     if (!::quarry::runtime::append_u32(field_bytes, *value.count())) {
-      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow);
+      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow, {{.field_index = 0U, .array_index = std::nullopt}});
     }
     fields.push_back(::quarry::runtime::FieldBytes{
       .field_index = 0U,
@@ -101,10 +101,10 @@ std::optional<std::vector<std::byte>> encode(const Child& value) {
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
     const auto decoded = ::quarry::runtime::read_u32(field->bytes);
     if (!decoded.value.has_value()) {
-      return ::quarry::runtime::decode_failure<Child>(decoded.error);
+      return ::quarry::runtime::decode_failure<Child>(decoded.error, {{.field_index = 0U, .array_index = std::nullopt}});
     }
     if (!builder.set_count(*decoded.value)) {
-      return ::quarry::runtime::decode_failure<Child>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Child>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
     }
   }
   return ::quarry::runtime::decoded_value<Child>(builder.build());
@@ -466,11 +466,11 @@ private:
   fields.reserve(12U);
   if (value.has_name()) {
     if (value.name()->size() > 16U) {
-      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded);
+      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
     }
     std::vector<std::byte> field_bytes;
     if (!::quarry::runtime::append_string_utf8(field_bytes, *value.name())) {
-      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::invalid_utf8);
+      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::invalid_utf8, {{.field_index = 0U, .array_index = std::nullopt}});
     }
     fields.push_back(::quarry::runtime::FieldBytes{
       .field_index = 0U,
@@ -479,7 +479,7 @@ private:
   }
   if (value.has_payload()) {
     if (value.payload()->size() > 4U) {
-      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded);
+      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}});
     }
     std::vector<std::byte> field_bytes;
     ::quarry::runtime::append_bytes(field_bytes, std::span<const std::byte>(value.payload()->data(), value.payload()->size()));
@@ -490,13 +490,14 @@ private:
   }
   if (value.has_counts()) {
     if (value.counts()->size() > 4U) {
-      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded);
+      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 2U, .array_index = std::nullopt}});
     }
     std::vector<std::byte> field_bytes;
     ::quarry::runtime::append_varuint(field_bytes, value.counts()->size());
-    for (const auto& element : *value.counts()) {
+    for (std::size_t element_index = 0U; element_index < value.counts()->size(); ++element_index) {
+      const auto& element = (*value.counts())[element_index];
       if (!::quarry::runtime::append_u32(field_bytes, element)) {
-        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow);
+        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow, {{.field_index = 2U, .array_index = static_cast<std::uint32_t>(element_index)}});
       }
     }
     fields.push_back(::quarry::runtime::FieldBytes{
@@ -506,13 +507,14 @@ private:
   }
   if (value.has_distances()) {
     if (value.distances()->size() > 2U) {
-      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded);
+      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 3U, .array_index = std::nullopt}});
     }
     std::vector<std::byte> field_bytes;
     ::quarry::runtime::append_varuint(field_bytes, value.distances()->size());
-    for (const auto& element : *value.distances()) {
+    for (std::size_t element_index = 0U; element_index < value.distances()->size(); ++element_index) {
+      const auto& element = (*value.distances())[element_index];
       if (!::quarry::runtime::append_f64(field_bytes, element)) {
-        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow);
+        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow, {{.field_index = 3U, .array_index = static_cast<std::uint32_t>(element_index)}});
       }
     }
     fields.push_back(::quarry::runtime::FieldBytes{
@@ -522,14 +524,15 @@ private:
   }
   if (value.has_modes()) {
     if (value.modes()->size() > 2U) {
-      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded);
+      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 4U, .array_index = std::nullopt}});
     }
     std::vector<std::byte> field_bytes;
     ::quarry::runtime::append_varuint(field_bytes, value.modes()->size());
-    for (const auto& element : *value.modes()) {
+    for (std::size_t element_index = 0U; element_index < value.modes()->size(); ++element_index) {
+      const auto& element = (*value.modes())[element_index];
       const auto enum_numeric = static_cast<std::int64_t>(element);
       if (!(enum_numeric == 0 || enum_numeric == 1)) {
-        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::unknown_enum_value);
+        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::unknown_enum_value, {{.field_index = 4U, .array_index = static_cast<std::uint32_t>(element_index)}});
       }
       ::quarry::runtime::append_u8(field_bytes, static_cast<std::uint8_t>(enum_numeric));
     }
@@ -540,14 +543,20 @@ private:
   }
   if (value.has_children()) {
     if (value.children()->size() > 3U) {
-      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded);
+      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 5U, .array_index = std::nullopt}});
     }
     std::vector<std::byte> field_bytes;
     ::quarry::runtime::append_varuint(field_bytes, value.children()->size());
-    for (const auto& element : *value.children()) {
+    for (std::size_t element_index = 0U; element_index < value.children()->size(); ++element_index) {
+      const auto& element = (*value.children())[element_index];
       auto element_bytes = ::encode_result(element);
       if (!element_bytes.has_value()) {
-        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(element_bytes.error);
+        auto nested_path = std::move(element_bytes.path);
+        nested_path.push_back(::quarry::runtime::PathElement{
+          .field_index = 5U,
+          .array_index = static_cast<std::uint32_t>(element_index),
+        });
+        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(element_bytes.error, std::move(nested_path));
       }
       ::quarry::runtime::append_varuint(field_bytes, element_bytes.value->size());
       ::quarry::runtime::append_bytes(field_bytes, std::span<const std::byte>(element_bytes.value->data(), element_bytes.value->size()));
@@ -559,13 +568,14 @@ private:
   }
   if (value.has_flags()) {
     if (value.flags()->size() > 3U) {
-      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded);
+      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 6U, .array_index = std::nullopt}});
     }
     std::vector<std::byte> field_bytes;
     ::quarry::runtime::append_varuint(field_bytes, value.flags()->size());
-    for (const auto& element : *value.flags()) {
+    for (std::size_t element_index = 0U; element_index < value.flags()->size(); ++element_index) {
+      const auto& element = (*value.flags())[element_index];
       if (!::quarry::runtime::append_bool(field_bytes, element)) {
-        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow);
+        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow, {{.field_index = 6U, .array_index = static_cast<std::uint32_t>(element_index)}});
       }
     }
     fields.push_back(::quarry::runtime::FieldBytes{
@@ -575,13 +585,14 @@ private:
   }
   if (value.has_deltas()) {
     if (value.deltas()->size() > 3U) {
-      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded);
+      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 7U, .array_index = std::nullopt}});
     }
     std::vector<std::byte> field_bytes;
     ::quarry::runtime::append_varuint(field_bytes, value.deltas()->size());
-    for (const auto& element : *value.deltas()) {
+    for (std::size_t element_index = 0U; element_index < value.deltas()->size(); ++element_index) {
+      const auto& element = (*value.deltas())[element_index];
       if (!::quarry::runtime::append_i16(field_bytes, element)) {
-        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow);
+        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow, {{.field_index = 7U, .array_index = static_cast<std::uint32_t>(element_index)}});
       }
     }
     fields.push_back(::quarry::runtime::FieldBytes{
@@ -591,13 +602,14 @@ private:
   }
   if (value.has_ratios()) {
     if (value.ratios()->size() > 2U) {
-      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded);
+      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 8U, .array_index = std::nullopt}});
     }
     std::vector<std::byte> field_bytes;
     ::quarry::runtime::append_varuint(field_bytes, value.ratios()->size());
-    for (const auto& element : *value.ratios()) {
+    for (std::size_t element_index = 0U; element_index < value.ratios()->size(); ++element_index) {
+      const auto& element = (*value.ratios())[element_index];
       if (!::quarry::runtime::append_f32(field_bytes, element)) {
-        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow);
+        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow, {{.field_index = 8U, .array_index = static_cast<std::uint32_t>(element_index)}});
       }
     }
     fields.push_back(::quarry::runtime::FieldBytes{
@@ -608,7 +620,7 @@ private:
   if (value.has_active()) {
     std::vector<std::byte> field_bytes;
     if (!::quarry::runtime::append_bool(field_bytes, *value.active())) {
-      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow);
+      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::overflow, {{.field_index = 9U, .array_index = std::nullopt}});
     }
     fields.push_back(::quarry::runtime::FieldBytes{
       .field_index = 9U,
@@ -617,17 +629,18 @@ private:
   }
   if (value.has_tags()) {
     if (value.tags()->size() > 3U) {
-      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded);
+      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 10U, .array_index = std::nullopt}});
     }
     std::vector<std::byte> field_bytes;
     ::quarry::runtime::append_varuint(field_bytes, value.tags()->size());
-    for (const auto& element : *value.tags()) {
+    for (std::size_t element_index = 0U; element_index < value.tags()->size(); ++element_index) {
+      const auto& element = (*value.tags())[element_index];
       if (element.size() > 8U) {
-        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded);
+        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 10U, .array_index = static_cast<std::uint32_t>(element_index)}});
       }
       ::quarry::runtime::append_varuint(field_bytes, element.size());
       if (!::quarry::runtime::append_string_utf8(field_bytes, element)) {
-        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::invalid_utf8);
+        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::invalid_utf8, {{.field_index = 10U, .array_index = static_cast<std::uint32_t>(element_index)}});
       }
     }
     fields.push_back(::quarry::runtime::FieldBytes{
@@ -637,13 +650,14 @@ private:
   }
   if (value.has_chunks()) {
     if (value.chunks()->size() > 3U) {
-      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded);
+      return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 11U, .array_index = std::nullopt}});
     }
     std::vector<std::byte> field_bytes;
     ::quarry::runtime::append_varuint(field_bytes, value.chunks()->size());
-    for (const auto& element : *value.chunks()) {
+    for (std::size_t element_index = 0U; element_index < value.chunks()->size(); ++element_index) {
+      const auto& element = (*value.chunks())[element_index];
       if (element.size() > 3U) {
-        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded);
+        return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 11U, .array_index = static_cast<std::uint32_t>(element_index)}});
       }
       ::quarry::runtime::append_varuint(field_bytes, element.size());
       ::quarry::runtime::append_bytes(field_bytes, std::span<const std::byte>(element.data(), element.size()));
@@ -677,26 +691,26 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
   ExampleBuilder builder;
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
     if (field->bytes.size() > 16U) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
     }
     const auto decoded = ::quarry::runtime::read_string_utf8(field->bytes);
     if (!decoded.value.has_value()) {
-      return ::quarry::runtime::decode_failure<Example>(decoded.error);
+      return ::quarry::runtime::decode_failure<Example>(decoded.error, {{.field_index = 0U, .array_index = std::nullopt}});
     }
     if (!builder.set_name(*decoded.value)) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
     }
   }
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 1U); field != nullptr) {
     if (field->bytes.size() > 4U) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}});
     }
     const auto decoded = ::quarry::runtime::read_bytes(field->bytes);
     if (!decoded.value.has_value()) {
-      return ::quarry::runtime::decode_failure<Example>(decoded.error);
+      return ::quarry::runtime::decode_failure<Example>(decoded.error, {{.field_index = 1U, .array_index = std::nullopt}});
     }
     if (!builder.set_payload(*decoded.value)) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}});
     }
   }
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 2U); field != nullptr) {
@@ -704,9 +718,9 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     const auto decoded_count = ::quarry::runtime::read_varuint(field->bytes, element_offset);
     if (!decoded_count.value.has_value() || *decoded_count.value > 4U) {
       if (!decoded_count.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded_count.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded_count.error, {{.field_index = 2U, .array_index = std::nullopt}});
       }
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 2U, .array_index = std::nullopt}});
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
     std::vector<std::uint32_t> elements;
@@ -714,18 +728,18 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     const std::size_t element_width = 4U;
     const std::size_t remaining_bytes = field->bytes.size() - element_offset;
     if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 2U, .array_index = std::nullopt}});
     }
     for (std::size_t index = 0U; index < element_count; ++index) {
       const auto decoded = ::quarry::runtime::read_u32(field->bytes.subspan(element_offset, element_width));
       if (!decoded.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded.error, {{.field_index = 2U, .array_index = static_cast<std::uint32_t>(index)}});
       }
       elements.push_back(*decoded.value);
       element_offset += element_width;
     }
     if (!builder.set_counts(std::move(elements))) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 2U, .array_index = std::nullopt}});
     }
   }
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 3U); field != nullptr) {
@@ -733,9 +747,9 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     const auto decoded_count = ::quarry::runtime::read_varuint(field->bytes, element_offset);
     if (!decoded_count.value.has_value() || *decoded_count.value > 2U) {
       if (!decoded_count.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded_count.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded_count.error, {{.field_index = 3U, .array_index = std::nullopt}});
       }
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 3U, .array_index = std::nullopt}});
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
     std::vector<double> elements;
@@ -743,18 +757,18 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     const std::size_t element_width = 8U;
     const std::size_t remaining_bytes = field->bytes.size() - element_offset;
     if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 3U, .array_index = std::nullopt}});
     }
     for (std::size_t index = 0U; index < element_count; ++index) {
       const auto decoded = ::quarry::runtime::read_f64(field->bytes.subspan(element_offset, element_width));
       if (!decoded.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded.error, {{.field_index = 3U, .array_index = static_cast<std::uint32_t>(index)}});
       }
       elements.push_back(*decoded.value);
       element_offset += element_width;
     }
     if (!builder.set_distances(std::move(elements))) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 3U, .array_index = std::nullopt}});
     }
   }
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 4U); field != nullptr) {
@@ -762,9 +776,9 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     const auto decoded_count = ::quarry::runtime::read_varuint(field->bytes, element_offset);
     if (!decoded_count.value.has_value() || *decoded_count.value > 2U) {
       if (!decoded_count.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded_count.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded_count.error, {{.field_index = 4U, .array_index = std::nullopt}});
       }
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 4U, .array_index = std::nullopt}});
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
     std::vector<::Mode> elements;
@@ -772,22 +786,22 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     const std::size_t element_width = 1U;
     const std::size_t remaining_bytes = field->bytes.size() - element_offset;
     if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 4U, .array_index = std::nullopt}});
     }
     for (std::size_t index = 0U; index < element_count; ++index) {
       const auto decoded = ::quarry::runtime::read_u8(field->bytes.subspan(element_offset, element_width));
       if (!decoded.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded.error, {{.field_index = 4U, .array_index = static_cast<std::uint32_t>(index)}});
       }
       const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);
       if (!(enum_numeric == 0 || enum_numeric == 1)) {
-        return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::unknown_enum_value);
+        return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::unknown_enum_value, {{.field_index = 4U, .array_index = static_cast<std::uint32_t>(index)}});
       }
       elements.push_back(static_cast<::Mode>(enum_numeric));
       element_offset += element_width;
     }
     if (!builder.set_modes(std::move(elements))) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 4U, .array_index = std::nullopt}});
     }
   }
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 5U); field != nullptr) {
@@ -795,9 +809,9 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     const auto decoded_count = ::quarry::runtime::read_varuint(field->bytes, element_offset);
     if (!decoded_count.value.has_value() || *decoded_count.value > 3U) {
       if (!decoded_count.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded_count.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded_count.error, {{.field_index = 5U, .array_index = std::nullopt}});
       }
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 5U, .array_index = std::nullopt}});
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
     std::vector<::Child> elements;
@@ -805,25 +819,30 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     for (std::size_t index = 0U; index < element_count; ++index) {
       const auto decoded_length = ::quarry::runtime::read_varuint(field->bytes, element_offset);
       if (!decoded_length.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded_length.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded_length.error, {{.field_index = 5U, .array_index = static_cast<std::uint32_t>(index)}});
       }
       if (*decoded_length.value > field->bytes.size() - element_offset) {
-        return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length);
+        return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 5U, .array_index = static_cast<std::uint32_t>(index)}});
       }
       const auto element_length = static_cast<std::size_t>(*decoded_length.value);
       const auto element_bytes = field->bytes.subspan(element_offset, element_length);
-      const auto decoded = ::decode_Child_result(element_bytes);
+      auto decoded = ::decode_Child_result(element_bytes);
       if (!decoded.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded.error);
+        auto nested_path = std::move(decoded.path);
+        nested_path.push_back(::quarry::runtime::PathElement{
+          .field_index = 5U,
+          .array_index = static_cast<std::uint32_t>(index),
+        });
+        return ::quarry::runtime::decode_failure<Example>(decoded.error, std::move(nested_path));
       }
       elements.push_back(*decoded.value);
       element_offset += element_length;
     }
     if (element_offset != field->bytes.size()) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 5U, .array_index = std::nullopt}});
     }
     if (!builder.set_children(std::move(elements))) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 5U, .array_index = std::nullopt}});
     }
   }
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 6U); field != nullptr) {
@@ -831,9 +850,9 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     const auto decoded_count = ::quarry::runtime::read_varuint(field->bytes, element_offset);
     if (!decoded_count.value.has_value() || *decoded_count.value > 3U) {
       if (!decoded_count.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded_count.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded_count.error, {{.field_index = 6U, .array_index = std::nullopt}});
       }
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 6U, .array_index = std::nullopt}});
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
     std::vector<bool> elements;
@@ -841,18 +860,18 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     const std::size_t element_width = 1U;
     const std::size_t remaining_bytes = field->bytes.size() - element_offset;
     if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 6U, .array_index = std::nullopt}});
     }
     for (std::size_t index = 0U; index < element_count; ++index) {
       const auto decoded = ::quarry::runtime::read_bool(field->bytes.subspan(element_offset, element_width));
       if (!decoded.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded.error, {{.field_index = 6U, .array_index = static_cast<std::uint32_t>(index)}});
       }
       elements.push_back(*decoded.value);
       element_offset += element_width;
     }
     if (!builder.set_flags(std::move(elements))) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 6U, .array_index = std::nullopt}});
     }
   }
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 7U); field != nullptr) {
@@ -860,9 +879,9 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     const auto decoded_count = ::quarry::runtime::read_varuint(field->bytes, element_offset);
     if (!decoded_count.value.has_value() || *decoded_count.value > 3U) {
       if (!decoded_count.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded_count.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded_count.error, {{.field_index = 7U, .array_index = std::nullopt}});
       }
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 7U, .array_index = std::nullopt}});
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
     std::vector<std::int16_t> elements;
@@ -870,18 +889,18 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     const std::size_t element_width = 2U;
     const std::size_t remaining_bytes = field->bytes.size() - element_offset;
     if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 7U, .array_index = std::nullopt}});
     }
     for (std::size_t index = 0U; index < element_count; ++index) {
       const auto decoded = ::quarry::runtime::read_i16(field->bytes.subspan(element_offset, element_width));
       if (!decoded.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded.error, {{.field_index = 7U, .array_index = static_cast<std::uint32_t>(index)}});
       }
       elements.push_back(*decoded.value);
       element_offset += element_width;
     }
     if (!builder.set_deltas(std::move(elements))) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 7U, .array_index = std::nullopt}});
     }
   }
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 8U); field != nullptr) {
@@ -889,9 +908,9 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     const auto decoded_count = ::quarry::runtime::read_varuint(field->bytes, element_offset);
     if (!decoded_count.value.has_value() || *decoded_count.value > 2U) {
       if (!decoded_count.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded_count.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded_count.error, {{.field_index = 8U, .array_index = std::nullopt}});
       }
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 8U, .array_index = std::nullopt}});
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
     std::vector<float> elements;
@@ -899,27 +918,27 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     const std::size_t element_width = 4U;
     const std::size_t remaining_bytes = field->bytes.size() - element_offset;
     if (element_width == 0U || element_count > remaining_bytes / element_width || remaining_bytes != element_count * element_width) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 8U, .array_index = std::nullopt}});
     }
     for (std::size_t index = 0U; index < element_count; ++index) {
       const auto decoded = ::quarry::runtime::read_f32(field->bytes.subspan(element_offset, element_width));
       if (!decoded.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded.error, {{.field_index = 8U, .array_index = static_cast<std::uint32_t>(index)}});
       }
       elements.push_back(*decoded.value);
       element_offset += element_width;
     }
     if (!builder.set_ratios(std::move(elements))) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 8U, .array_index = std::nullopt}});
     }
   }
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 9U); field != nullptr) {
     const auto decoded = ::quarry::runtime::read_bool(field->bytes);
     if (!decoded.value.has_value()) {
-      return ::quarry::runtime::decode_failure<Example>(decoded.error);
+      return ::quarry::runtime::decode_failure<Example>(decoded.error, {{.field_index = 9U, .array_index = std::nullopt}});
     }
     if (!builder.set_active(*decoded.value)) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 9U, .array_index = std::nullopt}});
     }
   }
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 10U); field != nullptr) {
@@ -927,9 +946,9 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     const auto decoded_count = ::quarry::runtime::read_varuint(field->bytes, element_offset);
     if (!decoded_count.value.has_value() || *decoded_count.value > 3U) {
       if (!decoded_count.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded_count.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded_count.error, {{.field_index = 10U, .array_index = std::nullopt}});
       }
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 10U, .array_index = std::nullopt}});
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
     std::vector<std::string> elements;
@@ -938,27 +957,27 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
       const auto decoded_length = ::quarry::runtime::read_varuint(field->bytes, element_offset);
       if (!decoded_length.value.has_value() || *decoded_length.value > 8U) {
         if (!decoded_length.value.has_value()) {
-          return ::quarry::runtime::decode_failure<Example>(decoded_length.error);
+          return ::quarry::runtime::decode_failure<Example>(decoded_length.error, {{.field_index = 10U, .array_index = static_cast<std::uint32_t>(index)}});
         }
-        return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+        return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 10U, .array_index = static_cast<std::uint32_t>(index)}});
       }
       const auto element_length = static_cast<std::size_t>(*decoded_length.value);
       if (element_length > field->bytes.size() - element_offset) {
-        return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length);
+        return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 10U, .array_index = static_cast<std::uint32_t>(index)}});
       }
       const auto element_bytes = field->bytes.subspan(element_offset, element_length);
       const auto decoded = ::quarry::runtime::read_string_utf8(element_bytes);
       if (!decoded.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded.error, {{.field_index = 10U, .array_index = static_cast<std::uint32_t>(index)}});
       }
       elements.push_back(std::move(*decoded.value));
       element_offset += element_length;
     }
     if (element_offset != field->bytes.size()) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 10U, .array_index = std::nullopt}});
     }
     if (!builder.set_tags(std::move(elements))) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 10U, .array_index = std::nullopt}});
     }
   }
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 11U); field != nullptr) {
@@ -966,9 +985,9 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     const auto decoded_count = ::quarry::runtime::read_varuint(field->bytes, element_offset);
     if (!decoded_count.value.has_value() || *decoded_count.value > 3U) {
       if (!decoded_count.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded_count.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded_count.error, {{.field_index = 11U, .array_index = std::nullopt}});
       }
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 11U, .array_index = std::nullopt}});
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
     std::vector<std::vector<std::byte>> elements;
@@ -977,27 +996,27 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
       const auto decoded_length = ::quarry::runtime::read_varuint(field->bytes, element_offset);
       if (!decoded_length.value.has_value() || *decoded_length.value > 3U) {
         if (!decoded_length.value.has_value()) {
-          return ::quarry::runtime::decode_failure<Example>(decoded_length.error);
+          return ::quarry::runtime::decode_failure<Example>(decoded_length.error, {{.field_index = 11U, .array_index = static_cast<std::uint32_t>(index)}});
         }
-        return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+        return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 11U, .array_index = static_cast<std::uint32_t>(index)}});
       }
       const auto element_length = static_cast<std::size_t>(*decoded_length.value);
       if (element_length > field->bytes.size() - element_offset) {
-        return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length);
+        return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 11U, .array_index = static_cast<std::uint32_t>(index)}});
       }
       const auto element_bytes = field->bytes.subspan(element_offset, element_length);
       const auto decoded = ::quarry::runtime::read_bytes(element_bytes);
       if (!decoded.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded.error);
+        return ::quarry::runtime::decode_failure<Example>(decoded.error, {{.field_index = 11U, .array_index = static_cast<std::uint32_t>(index)}});
       }
       elements.push_back(std::move(*decoded.value));
       element_offset += element_length;
     }
     if (element_offset != field->bytes.size()) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 11U, .array_index = std::nullopt}});
     }
     if (!builder.set_chunks(std::move(elements))) {
-      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded);
+      return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 11U, .array_index = std::nullopt}});
     }
   }
   return ::quarry::runtime::decoded_value<Example>(builder.build());

@@ -10,7 +10,7 @@
 
 #include "runtime/binary_record.hpp"
 
-static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 1U,
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 2U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 struct Example {};

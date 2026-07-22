@@ -582,7 +582,7 @@ TEST(SchemaCompilerPackageTest,
     const std::filesystem::path consumer_build = root / "query mismatch build";
     const std::filesystem::path log_path = root / "query mismatch invocations.log";
     const std::filesystem::path wrapper = write_schema_compiler_query_wrapper(
-        root / "mismatch compiler.sh", installed_schema_compiler(install_prefix), log_path, "2");
+        root / "mismatch compiler.sh", installed_schema_compiler(install_prefix), log_path, "1");
 
     write_text_file(consumer_source / "schema.brd",
                     "namespace: quarry.telemetry\n"

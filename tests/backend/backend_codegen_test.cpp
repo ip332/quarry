@@ -323,6 +323,48 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
     return schema_ir;
 }
 
+[[nodiscard]] SchemaIrModel make_manual_record_array_enum_schema_ir() {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    auto* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    root->set_name("");
+    root->set_fqn("");
+
+    auto* mode_enum = root->add_enums();
+    mode_enum->set_ir_id(2);
+    mode_enum->set_name("Mode");
+    mode_enum->set_fqn("Mode");
+    auto* off_value = mode_enum->add_values();
+    off_value->set_name("Off");
+    off_value->set_value(0);
+    auto* on_value = mode_enum->add_values();
+    on_value->set_name("On");
+    on_value->set_value(1);
+
+    auto* element = root->add_records();
+    element->set_ir_id(3);
+    element->set_record_id(1);
+    element->set_name("Element");
+    element->set_fqn("Element");
+    auto* mode_field = element->add_fields();
+    mode_field->set_name("mode");
+    mode_field->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(2);
+
+    auto* basket = root->add_records();
+    basket->set_ir_id(4);
+    basket->set_record_id(2);
+    basket->set_name("Basket");
+    basket->set_fqn("Basket");
+    auto* elements_field = basket->add_fields();
+    elements_field->set_name("elements");
+    auto* array_type = elements_field->mutable_type()->mutable_array();
+    array_type->set_max_elements(4);
+    array_type->mutable_element_type()->mutable_record()->set_target_record_ir_id(3);
+
+    return schema_ir;
+}
+
 TEST(BackendCodegenTest, EmptySchemaGeneratesNoFiles) {
     const CodegenResult result = run_backend_fixture("empty", CodegenOptions{});
     EXPECT_TRUE(result.success) << result.error_message;
@@ -2349,6 +2391,119 @@ TEST(BackendCodegenTest, GeneratedRecordArrayDecoderRejectsMalformedPayloads) {
         "      decoded->children()->size() != 1U || !(*decoded->children())[0].has_count() ||\n"
         "      *(*decoded->children())[0].count() != 0x01020304U) {\n"
         "    return 2;\n"
+        "  }\n"
+        "  return 0;\n"
+        "}\n";
+
+    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
+}
+
+TEST(BackendCodegenTest, GeneratedRecordArrayDecoderPropagatesNestedFieldAndArrayIndexPath) {
+    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+
+    const std::string header_include =
+        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string translation_source =
+        "#include \"" + header_include +
+        "\"\n"
+        "#include <cstddef>\n"
+        "#include <vector>\n"
+        "int main() {\n"
+        "  const auto byte = [](unsigned int value) {\n"
+        "    return static_cast<std::byte>(static_cast<unsigned char>(value));\n"
+        "  };\n"
+        "  const auto append_u32 = [&](std::vector<std::byte>& out, unsigned int value) {\n"
+        "    out.push_back(byte((value >> 24U) & 0xFFU));\n"
+        "    out.push_back(byte((value >> 16U) & 0xFFU));\n"
+        "    out.push_back(byte((value >> 8U) & 0xFFU));\n"
+        "    out.push_back(byte(value & 0xFFU));\n"
+        "  };\n"
+        "  const auto make_child = [&](unsigned int count_field_length,\n"
+        "                              std::vector<std::byte> count_payload) {\n"
+        "    std::vector<std::byte> out{byte(0x01), byte(0x00), byte(0x01), byte(0x00)};\n"
+        "    append_u32(out, 1U);\n"
+        "    append_u32(out, 0U);\n"
+        "    append_u32(out, static_cast<unsigned int>(3U + count_payload.size()));\n"
+        "    out.push_back(byte(0x00));\n"
+        "    out.push_back(byte(0x00));\n"
+        "    out.push_back(byte(count_field_length));\n"
+        "    out.insert(out.end(), count_payload.begin(), count_payload.end());\n"
+        "    return out;\n"
+        "  };\n"
+        "  const auto valid_child =\n"
+        "      make_child(4U, {byte(0x00), byte(0x00), byte(0x00), byte(0x07)});\n"
+        "  const auto malformed_child = make_child(3U, {byte(0xAA), byte(0xBB), byte(0xCC)});\n"
+        "  std::vector<std::byte> children_payload;\n"
+        "  children_payload.push_back(byte(0x02));\n"
+        "  children_payload.push_back(byte(static_cast<unsigned int>(valid_child.size())));\n"
+        "  children_payload.insert(children_payload.end(), valid_child.begin(),\n"
+        "                          valid_child.end());\n"
+        "  children_payload.push_back(byte(static_cast<unsigned int>(malformed_child.size())));\n"
+        "  children_payload.insert(children_payload.end(), malformed_child.begin(),\n"
+        "                          malformed_child.end());\n"
+        "  std::vector<std::byte> parent{byte(0x01), byte(0x00), byte(0x01), byte(0x00)};\n"
+        "  append_u32(parent, 2U);\n"
+        "  append_u32(parent, 0U);\n"
+        "  append_u32(parent, static_cast<unsigned int>(3U + children_payload.size()));\n"
+        "  parent.push_back(byte(0x05));\n"
+        "  parent.push_back(byte(0x00));\n"
+        "  parent.push_back(byte(static_cast<unsigned int>(children_payload.size())));\n"
+        "  parent.insert(parent.end(), children_payload.begin(), children_payload.end());\n"
+        "  const auto decoded = decode_Example_result(parent);\n"
+        "  if (decoded.value.has_value()) { return 1; }\n"
+        "  if (decoded.error != ::quarry::runtime::DecodeError::invalid_field_length) {\n"
+        "    return 2;\n"
+        "  }\n"
+        "  if (decoded.path.size() != 2U) { return 3; }\n"
+        "  if (static_cast<unsigned int>(decoded.path[0].field_index) != 0U ||\n"
+        "      decoded.path[0].array_index.has_value()) {\n"
+        "    return 4;\n"
+        "  }\n"
+        "  if (static_cast<unsigned int>(decoded.path[1].field_index) != 5U) { return 5; }\n"
+        "  if (!decoded.path[1].array_index.has_value() ||\n"
+        "      *decoded.path[1].array_index != 1U) {\n"
+        "    return 6;\n"
+        "  }\n"
+        "  return 0;\n"
+        "}\n";
+
+    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
+}
+
+TEST(BackendCodegenTest, GeneratedRecordArrayEncoderPropagatesNestedFieldAndArrayIndexPath) {
+    const CodegenResult result =
+        Backend{}.generate(make_manual_record_array_enum_schema_ir(), CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+    ASSERT_EQ(result.files.front().path, "generated/schema.generated.hpp");
+
+    const std::string translation_source =
+        "#include \"schema.generated.hpp\"\n"
+        "#include <vector>\n"
+        "int main() {\n"
+        "  ::ElementBuilder element_builder;\n"
+        "  if (!element_builder.set_mode(static_cast<::Mode>(99))) { return 1; }\n"
+        "  ::BasketBuilder basket_builder;\n"
+        "  if (!basket_builder.set_elements(std::vector<::Element>{\n"
+        "          element_builder.build(), element_builder.build()})) {\n"
+        "    return 2;\n"
+        "  }\n"
+        "  const auto encoded = encode_result(basket_builder.build());\n"
+        "  if (encoded.value.has_value()) { return 3; }\n"
+        "  if (encoded.error != ::quarry::runtime::EncodeError::unknown_enum_value) {\n"
+        "    return 4;\n"
+        "  }\n"
+        "  if (encoded.path.size() != 2U) { return 5; }\n"
+        "  if (static_cast<unsigned int>(encoded.path[0].field_index) != 0U ||\n"
+        "      encoded.path[0].array_index.has_value()) {\n"
+        "    return 6;\n"
+        "  }\n"
+        "  if (static_cast<unsigned int>(encoded.path[1].field_index) != 0U) { return 7; }\n"
+        "  if (!encoded.path[1].array_index.has_value() ||\n"
+        "      *encoded.path[1].array_index != 0U) {\n"
+        "    return 8;\n"
         "  }\n"
         "  return 0;\n"
         "}\n";

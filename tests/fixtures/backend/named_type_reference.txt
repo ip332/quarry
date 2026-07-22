@@ -10,7 +10,7 @@
 
 #include "runtime/binary_record.hpp"
 
-static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 1U,
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 2U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 namespace quarry {
@@ -133,7 +133,12 @@ namespace geo {
       if (value.has_origin()) {
         auto field_bytes = ::quarry::geo::encode_result(*value.origin());
         if (!field_bytes.has_value()) {
-          return ::quarry::runtime::encode_failure<std::vector<std::byte>>(field_bytes.error);
+          auto nested_path = std::move(field_bytes.path);
+          nested_path.push_back(::quarry::runtime::PathElement{
+            .field_index = 0U,
+            .array_index = std::nullopt,
+          });
+          return ::quarry::runtime::encode_failure<std::vector<std::byte>>(field_bytes.error, std::move(nested_path));
         }
         fields.push_back(::quarry::runtime::FieldBytes{
           .field_index = 0U,
@@ -143,7 +148,12 @@ namespace geo {
       if (value.has_fallback()) {
         auto field_bytes = ::quarry::geo::encode_result(*value.fallback());
         if (!field_bytes.has_value()) {
-          return ::quarry::runtime::encode_failure<std::vector<std::byte>>(field_bytes.error);
+          auto nested_path = std::move(field_bytes.path);
+          nested_path.push_back(::quarry::runtime::PathElement{
+            .field_index = 1U,
+            .array_index = std::nullopt,
+          });
+          return ::quarry::runtime::encode_failure<std::vector<std::byte>>(field_bytes.error, std::move(nested_path));
         }
         fields.push_back(::quarry::runtime::FieldBytes{
           .field_index = 1U,
@@ -173,21 +183,31 @@ namespace geo {
       }
       RouteBuilder builder;
       if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
-        const auto decoded = ::quarry::geo::decode_Location_result(field->bytes);
+        auto decoded = ::quarry::geo::decode_Location_result(field->bytes);
         if (!decoded.value.has_value()) {
-          return ::quarry::runtime::decode_failure<Route>(decoded.error);
+          auto nested_path = std::move(decoded.path);
+          nested_path.push_back(::quarry::runtime::PathElement{
+            .field_index = 0U,
+            .array_index = std::nullopt,
+          });
+          return ::quarry::runtime::decode_failure<Route>(decoded.error, std::move(nested_path));
         }
         if (!builder.set_origin(*decoded.value)) {
-          return ::quarry::runtime::decode_failure<Route>(::quarry::runtime::DecodeError::bounds_exceeded);
+          return ::quarry::runtime::decode_failure<Route>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
         }
       }
       if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 1U); field != nullptr) {
-        const auto decoded = ::quarry::geo::decode_Location_result(field->bytes);
+        auto decoded = ::quarry::geo::decode_Location_result(field->bytes);
         if (!decoded.value.has_value()) {
-          return ::quarry::runtime::decode_failure<Route>(decoded.error);
+          auto nested_path = std::move(decoded.path);
+          nested_path.push_back(::quarry::runtime::PathElement{
+            .field_index = 1U,
+            .array_index = std::nullopt,
+          });
+          return ::quarry::runtime::decode_failure<Route>(decoded.error, std::move(nested_path));
         }
         if (!builder.set_fallback(*decoded.value)) {
-          return ::quarry::runtime::decode_failure<Route>(::quarry::runtime::DecodeError::bounds_exceeded);
+          return ::quarry::runtime::decode_failure<Route>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}});
         }
       }
       return ::quarry::runtime::decoded_value<Route>(builder.build());

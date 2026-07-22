@@ -67,14 +67,21 @@ enum class EncodeError {
     overflow,
 };
 
+struct PathElement {
+    std::uint8_t field_index = 0U;
+    std::optional<std::uint32_t> array_index;
+};
+
 template <typename T, typename E>
 struct CodecResult {
     std::optional<T> value;
     E error;
+    std::vector<PathElement> path;
 
     CodecResult() = delete;
-    CodecResult(std::optional<T> result_value, E result_error)
-        : value(std::move(result_value)), error(result_error) {}
+    CodecResult(std::optional<T> result_value, E result_error,
+                std::vector<PathElement> result_path = {})
+        : value(std::move(result_value)), error(result_error), path(std::move(result_path)) {}
 
     [[nodiscard]] bool has_value() const { return value.has_value(); }
     explicit operator bool() const { return has_value(); }
@@ -116,8 +123,8 @@ inline DecodeValueResult<T> decode_success(T value) {
 }
 
 template <typename T>
-inline EncodeResult<T> encode_failure(EncodeError error) {
-    return EncodeResult<T>(std::nullopt, error);
+inline EncodeResult<T> encode_failure(EncodeError error, std::vector<PathElement> path = {}) {
+    return EncodeResult<T>(std::nullopt, error, std::move(path));
 }
 
 template <typename T>
@@ -126,8 +133,8 @@ inline EncodeResult<T> encode_success(T value) {
 }
 
 template <typename T>
-inline DecodeResult<T> decode_failure(DecodeError error) {
-    return DecodeResult<T>(std::nullopt, error);
+inline DecodeResult<T> decode_failure(DecodeError error, std::vector<PathElement> path = {}) {
+    return DecodeResult<T>(std::nullopt, error, std::move(path));
 }
 
 template <typename T>

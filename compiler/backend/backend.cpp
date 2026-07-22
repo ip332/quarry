@@ -1251,23 +1251,27 @@ void collect_planned_files(const NamespacePlan& plan, RenderGenerationPlan& gene
 
 void render_unsupported_present_field_encoding(const FieldPlan& field, std::size_t indent_level,
                                                std::ostringstream& stream) {
+    const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
     stream << indent(indent_level + 1)
            << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
-           << "::quarry::runtime::EncodeError::unsupported_field_type);\n";
+           << "::quarry::runtime::EncodeError::unsupported_field_type, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level) << "}\n";
 }
 
 void render_scalar_field_encoding(const FieldPlan& field, std::size_t indent_level,
                                   std::ostringstream& stream) {
     const std::string append_function = runtime_append_function(field.runtime_encoding.scalar);
+    const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
     stream << indent(indent_level + 1) << "if (!::quarry::runtime::" << append_function
            << "(field_bytes, *value." << field.name << "())) {\n";
     stream << indent(indent_level + 2)
            << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
-           << "::quarry::runtime::EncodeError::overflow);\n";
+           << "::quarry::runtime::EncodeError::overflow, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "fields.push_back(::quarry::runtime::FieldBytes{\n";
     stream << indent(indent_level + 2) << ".field_index = "
@@ -1281,6 +1285,7 @@ void render_enum_field_encoding(const FieldPlan& field, const RuntimeEnumEncodin
                                 std::size_t indent_level, std::ostringstream& stream) {
     const std::string append_function = enum_append_function(enum_encoding.width_bytes);
     const std::string unsigned_type = enum_unsigned_type(enum_encoding.width_bytes);
+    const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
     stream << indent(indent_level + 1) << "const auto enum_numeric = static_cast<std::int64_t>(*value."
            << field.name << "());\n";
@@ -1297,7 +1302,8 @@ void render_enum_field_encoding(const FieldPlan& field, const RuntimeEnumEncodin
     stream << ")) {\n";
     stream << indent(indent_level + 2)
            << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
-           << "::quarry::runtime::EncodeError::unknown_enum_value);\n";
+           << "::quarry::runtime::EncodeError::unknown_enum_value, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
     stream << indent(indent_level + 1) << "::quarry::runtime::" << append_function
@@ -1312,12 +1318,14 @@ void render_enum_field_encoding(const FieldPlan& field, const RuntimeEnumEncodin
 
 void render_string_field_encoding(const FieldPlan& field, std::size_t indent_level,
                                   std::ostringstream& stream) {
+    const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
     stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
            << field.runtime_encoding.max_bytes << "U) {\n";
     stream << indent(indent_level + 2)
            << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
-           << "::quarry::runtime::EncodeError::bounds_exceeded);\n";
+           << "::quarry::runtime::EncodeError::bounds_exceeded, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
     stream << indent(indent_level + 1)
@@ -1325,7 +1333,8 @@ void render_string_field_encoding(const FieldPlan& field, std::size_t indent_lev
            << field.name << "())) {\n";
     stream << indent(indent_level + 2)
            << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
-           << "::quarry::runtime::EncodeError::invalid_utf8);\n";
+           << "::quarry::runtime::EncodeError::invalid_utf8, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "fields.push_back(::quarry::runtime::FieldBytes{\n";
     stream << indent(indent_level + 2) << ".field_index = "
@@ -1337,12 +1346,14 @@ void render_string_field_encoding(const FieldPlan& field, std::size_t indent_lev
 
 void render_bytes_field_encoding(const FieldPlan& field, std::size_t indent_level,
                                  std::ostringstream& stream) {
+    const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
     stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
            << field.runtime_encoding.max_bytes << "U) {\n";
     stream << indent(indent_level + 2)
            << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
-           << "::quarry::runtime::EncodeError::bounds_exceeded);\n";
+           << "::quarry::runtime::EncodeError::bounds_exceeded, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
     stream << indent(indent_level + 1) << "::quarry::runtime::append_bytes(field_bytes, "
@@ -1358,13 +1369,19 @@ void render_bytes_field_encoding(const FieldPlan& field, std::size_t indent_leve
 
 void render_record_field_encoding(const FieldPlan& field, const RuntimeRecordEncoding& record_encoding,
                                   std::size_t indent_level, std::ostringstream& stream) {
+    const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
     stream << indent(indent_level + 1) << "auto field_bytes = " << record_encoding.encode_function
            << "(*value." << field.name << "());\n";
     stream << indent(indent_level + 1) << "if (!field_bytes.has_value()) {\n";
+    stream << indent(indent_level + 2) << "auto nested_path = std::move(field_bytes.path);\n";
+    stream << indent(indent_level + 2) << "nested_path.push_back(::quarry::runtime::PathElement{\n";
+    stream << indent(indent_level + 3) << ".field_index = " << field_index << "U,\n";
+    stream << indent(indent_level + 3) << ".array_index = std::nullopt,\n";
+    stream << indent(indent_level + 2) << "});\n";
     stream << indent(indent_level + 2)
            << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
-           << "field_bytes.error);\n";
+           << "field_bytes.error, std::move(nested_path));\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "fields.push_back(::quarry::runtime::FieldBytes{\n";
     stream << indent(indent_level + 2) << ".field_index = "
@@ -1376,12 +1393,14 @@ void render_record_field_encoding(const FieldPlan& field, const RuntimeRecordEnc
 
 void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncoding& array_encoding,
                                  std::size_t indent_level, std::ostringstream& stream) {
+    const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
     stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
            << array_encoding.max_elements << "U) {\n";
     stream << indent(indent_level + 2)
            << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
-           << "::quarry::runtime::EncodeError::bounds_exceeded);\n";
+           << "::quarry::runtime::EncodeError::bounds_exceeded, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
     stream << indent(indent_level + 1) << "::quarry::runtime::append_varuint(field_bytes, "
@@ -1389,14 +1408,24 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
 
     if (array_encoding.record_encoding.has_value()) {
         const RuntimeRecordEncoding& record_encoding = *array_encoding.record_encoding;
-        stream << indent(indent_level + 1) << "for (const auto& element : *value." << field.name
-               << "()) {\n";
+        stream << indent(indent_level + 1)
+               << "for (std::size_t element_index = 0U; element_index < value." << field.name
+               << "()->size(); ++element_index) {\n";
+        stream << indent(indent_level + 2) << "const auto& element = (*value." << field.name
+               << "())[element_index];\n";
         stream << indent(indent_level + 2) << "auto element_bytes = "
                << record_encoding.encode_function << "(element);\n";
         stream << indent(indent_level + 2) << "if (!element_bytes.has_value()) {\n";
+        stream << indent(indent_level + 3) << "auto nested_path = std::move(element_bytes.path);\n";
+        stream << indent(indent_level + 3)
+               << "nested_path.push_back(::quarry::runtime::PathElement{\n";
+        stream << indent(indent_level + 4) << ".field_index = " << field_index << "U,\n";
+        stream << indent(indent_level + 4)
+               << ".array_index = static_cast<std::uint32_t>(element_index),\n";
+        stream << indent(indent_level + 3) << "});\n";
         stream << indent(indent_level + 3)
                << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
-               << "element_bytes.error);\n";
+               << "element_bytes.error, std::move(nested_path));\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
                << "::quarry::runtime::append_varuint(field_bytes, "
@@ -1407,13 +1436,18 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
                << "element_bytes.value->size()));\n";
         stream << indent(indent_level + 1) << "}\n";
     } else if (array_encoding.variable == RuntimeVariableEncoding::String) {
-        stream << indent(indent_level + 1) << "for (const auto& element : *value." << field.name
-               << "()) {\n";
+        stream << indent(indent_level + 1)
+               << "for (std::size_t element_index = 0U; element_index < value." << field.name
+               << "()->size(); ++element_index) {\n";
+        stream << indent(indent_level + 2) << "const auto& element = (*value." << field.name
+               << "())[element_index];\n";
         stream << indent(indent_level + 2) << "if (element.size() > " << array_encoding.max_bytes
                << "U) {\n";
         stream << indent(indent_level + 3)
                << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
-               << "::quarry::runtime::EncodeError::bounds_exceeded);\n";
+               << "::quarry::runtime::EncodeError::bounds_exceeded, "
+               << "{{.field_index = " << field_index
+               << "U, .array_index = static_cast<std::uint32_t>(element_index)}});\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
                << "::quarry::runtime::append_varuint(field_bytes, element.size());\n";
@@ -1421,17 +1455,24 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
                << "if (!::quarry::runtime::append_string_utf8(field_bytes, element)) {\n";
         stream << indent(indent_level + 3)
                << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
-               << "::quarry::runtime::EncodeError::invalid_utf8);\n";
+               << "::quarry::runtime::EncodeError::invalid_utf8, "
+               << "{{.field_index = " << field_index
+               << "U, .array_index = static_cast<std::uint32_t>(element_index)}});\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 1) << "}\n";
     } else if (array_encoding.variable == RuntimeVariableEncoding::Bytes) {
-        stream << indent(indent_level + 1) << "for (const auto& element : *value." << field.name
-               << "()) {\n";
+        stream << indent(indent_level + 1)
+               << "for (std::size_t element_index = 0U; element_index < value." << field.name
+               << "()->size(); ++element_index) {\n";
+        stream << indent(indent_level + 2) << "const auto& element = (*value." << field.name
+               << "())[element_index];\n";
         stream << indent(indent_level + 2) << "if (element.size() > " << array_encoding.max_bytes
                << "U) {\n";
         stream << indent(indent_level + 3)
                << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
-               << "::quarry::runtime::EncodeError::bounds_exceeded);\n";
+               << "::quarry::runtime::EncodeError::bounds_exceeded, "
+               << "{{.field_index = " << field_index
+               << "U, .array_index = static_cast<std::uint32_t>(element_index)}});\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
                << "::quarry::runtime::append_varuint(field_bytes, element.size());\n";
@@ -1442,8 +1483,11 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
         const RuntimeEnumEncoding& enum_encoding = *array_encoding.enum_encoding;
         const std::string append_function = enum_append_function(enum_encoding.width_bytes);
         const std::string unsigned_type = enum_unsigned_type(enum_encoding.width_bytes);
-        stream << indent(indent_level + 1) << "for (const auto& element : *value." << field.name
-               << "()) {\n";
+        stream << indent(indent_level + 1)
+               << "for (std::size_t element_index = 0U; element_index < value." << field.name
+               << "()->size(); ++element_index) {\n";
+        stream << indent(indent_level + 2) << "const auto& element = (*value." << field.name
+               << "())[element_index];\n";
         stream << indent(indent_level + 2)
                << "const auto enum_numeric = static_cast<std::int64_t>(element);\n";
         stream << indent(indent_level + 2) << "if (!(";
@@ -1459,20 +1503,27 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
         stream << ")) {\n";
         stream << indent(indent_level + 3)
                << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
-               << "::quarry::runtime::EncodeError::unknown_enum_value);\n";
+               << "::quarry::runtime::EncodeError::unknown_enum_value, "
+               << "{{.field_index = " << field_index
+               << "U, .array_index = static_cast<std::uint32_t>(element_index)}});\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2) << "::quarry::runtime::" << append_function
                << "(field_bytes, static_cast<" << unsigned_type << ">(enum_numeric));\n";
         stream << indent(indent_level + 1) << "}\n";
     } else {
         const std::string append_function = runtime_append_function(array_encoding.scalar);
-        stream << indent(indent_level + 1) << "for (const auto& element : *value." << field.name
-               << "()) {\n";
+        stream << indent(indent_level + 1)
+               << "for (std::size_t element_index = 0U; element_index < value." << field.name
+               << "()->size(); ++element_index) {\n";
+        stream << indent(indent_level + 2) << "const auto& element = (*value." << field.name
+               << "())[element_index];\n";
         stream << indent(indent_level + 2) << "if (!::quarry::runtime::" << append_function
                << "(field_bytes, element)) {\n";
         stream << indent(indent_level + 3)
                << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
-               << "::quarry::runtime::EncodeError::overflow);\n";
+               << "::quarry::runtime::EncodeError::overflow, "
+               << "{{.field_index = " << field_index
+               << "U, .array_index = static_cast<std::uint32_t>(element_index)}});\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 1) << "}\n";
     }
@@ -1549,11 +1600,13 @@ void render_record_encoder_definition(const RecordPlan& record_plan, std::size_t
 
 void render_unsupported_present_field_decoding(const FieldPlan& field, std::string_view record_name,
                                                std::size_t indent_level, std::ostringstream& stream) {
+    const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (::quarry::runtime::find_field(*parsed.record, "
-           << static_cast<unsigned int>(field.field->field_index()) << "U) != nullptr) {\n";
+           << field_index << "U) != nullptr) {\n";
     stream << indent(indent_level + 1) << "return ::quarry::runtime::decode_failure<"
            << record_name
-           << ">(::quarry::runtime::DecodeError::unsupported_field_type);\n";
+           << ">(::quarry::runtime::DecodeError::unsupported_field_type, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level) << "}\n";
 }
 
@@ -1568,12 +1621,14 @@ void render_scalar_field_decoding(const FieldPlan& field, std::string_view recor
            << read_function << "(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
     stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(decoded.error);\n";
+           << record_name << ">(decoded.error, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(*decoded.value)) {\n";
     stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
@@ -1590,7 +1645,8 @@ void render_enum_field_decoding(const FieldPlan& field, const RuntimeEnumEncodin
            << read_function << "(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
     stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(decoded.error);\n";
+           << record_name << ">(decoded.error, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1)
            << "const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);\n";
@@ -1607,12 +1663,14 @@ void render_enum_field_decoding(const FieldPlan& field, const RuntimeEnumEncodin
     stream << ")) {\n";
     stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
            << record_name
-           << ">(::quarry::runtime::DecodeError::unknown_enum_value);\n";
+           << ">(::quarry::runtime::DecodeError::unknown_enum_value, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(static_cast<" << enum_encoding.cpp_type << ">(enum_numeric))) {\n";
     stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
@@ -1626,18 +1684,21 @@ void render_string_field_decoding(const FieldPlan& field, std::string_view recor
     stream << indent(indent_level + 1) << "if (field->bytes.size() > "
            << field.runtime_encoding.max_bytes << "U) {\n";
     stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1)
            << "const auto decoded = ::quarry::runtime::read_string_utf8(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
     stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(decoded.error);\n";
+           << record_name << ">(decoded.error, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(*decoded.value)) {\n";
     stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
@@ -1651,18 +1712,21 @@ void render_bytes_field_decoding(const FieldPlan& field, std::string_view record
     stream << indent(indent_level + 1) << "if (field->bytes.size() > "
            << field.runtime_encoding.max_bytes << "U) {\n";
     stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1)
            << "const auto decoded = ::quarry::runtime::read_bytes(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
     stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(decoded.error);\n";
+           << record_name << ">(decoded.error, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(*decoded.value)) {\n";
     stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
@@ -1675,16 +1739,22 @@ void render_record_field_decoding(const FieldPlan& field,
     stream << indent(indent_level) << "if (const auto* field = "
            << "::quarry::runtime::find_field(*parsed.record, " << field_index
            << "U); field != nullptr) {\n";
-    stream << indent(indent_level + 1) << "const auto decoded = "
+    stream << indent(indent_level + 1) << "auto decoded = "
            << record_encoding.decode_function << "(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
+    stream << indent(indent_level + 2) << "auto nested_path = std::move(decoded.path);\n";
+    stream << indent(indent_level + 2) << "nested_path.push_back(::quarry::runtime::PathElement{\n";
+    stream << indent(indent_level + 3) << ".field_index = " << field_index << "U,\n";
+    stream << indent(indent_level + 3) << ".array_index = std::nullopt,\n";
+    stream << indent(indent_level + 2) << "});\n";
     stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(decoded.error);\n";
+           << record_name << ">(decoded.error, std::move(nested_path));\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(*decoded.value)) {\n";
     stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }
@@ -1714,10 +1784,12 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
            << "*decoded_count.value > " << array_encoding.max_elements << "U) {\n";
     stream << indent(indent_level + 2) << "if (!decoded_count.value.has_value()) {\n";
     stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(decoded_count.error);\n";
+           << record_name << ">(decoded_count.error, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 2) << "}\n";
     stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1)
            << "const auto element_count = static_cast<std::size_t>(*decoded_count.value);\n";
@@ -1734,29 +1806,41 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
         stream << indent(indent_level + 2)
                << "if (!decoded_length.value.has_value()) {\n";
         stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
-               << record_name << ">(decoded_length.error);\n";
+               << record_name << ">(decoded_length.error, "
+               << "{{.field_index = " << field_index
+               << "U, .array_index = static_cast<std::uint32_t>(index)}});\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
                << "if (*decoded_length.value > field->bytes.size() - element_offset) {\n";
         stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
-               << record_name << ">(::quarry::runtime::DecodeError::invalid_field_length);\n";
+               << record_name << ">(::quarry::runtime::DecodeError::invalid_field_length, "
+               << "{{.field_index = " << field_index
+               << "U, .array_index = static_cast<std::uint32_t>(index)}});\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
                << "const auto element_length = static_cast<std::size_t>(*decoded_length.value);\n";
         stream << indent(indent_level + 2) << "const auto element_bytes = "
                << "field->bytes.subspan(element_offset, element_length);\n";
-        stream << indent(indent_level + 2) << "const auto decoded = "
+        stream << indent(indent_level + 2) << "auto decoded = "
                << record_encoding.decode_function << "(element_bytes);\n";
         stream << indent(indent_level + 2) << "if (!decoded.value.has_value()) {\n";
+        stream << indent(indent_level + 3) << "auto nested_path = std::move(decoded.path);\n";
+        stream << indent(indent_level + 3)
+               << "nested_path.push_back(::quarry::runtime::PathElement{\n";
+        stream << indent(indent_level + 4) << ".field_index = " << field_index << "U,\n";
+        stream << indent(indent_level + 4)
+               << ".array_index = static_cast<std::uint32_t>(index),\n";
+        stream << indent(indent_level + 3) << "});\n";
         stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
-               << record_name << ">(decoded.error);\n";
+               << record_name << ">(decoded.error, std::move(nested_path));\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2) << "elements.push_back(*decoded.value);\n";
         stream << indent(indent_level + 2) << "element_offset += element_length;\n";
         stream << indent(indent_level + 1) << "}\n";
         stream << indent(indent_level + 1) << "if (element_offset != field->bytes.size()) {\n";
         stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-               << record_name << ">(::quarry::runtime::DecodeError::invalid_field_length);\n";
+               << record_name << ">(::quarry::runtime::DecodeError::invalid_field_length, "
+               << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
         stream << indent(indent_level + 1) << "}\n";
     } else if (is_string_array || is_bytes_array) {
         stream << indent(indent_level + 1)
@@ -1769,17 +1853,23 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
                << array_encoding.max_bytes << "U) {\n";
         stream << indent(indent_level + 3) << "if (!decoded_length.value.has_value()) {\n";
         stream << indent(indent_level + 4) << "return ::quarry::runtime::decode_failure<"
-               << record_name << ">(decoded_length.error);\n";
+               << record_name << ">(decoded_length.error, "
+               << "{{.field_index = " << field_index
+               << "U, .array_index = static_cast<std::uint32_t>(index)}});\n";
         stream << indent(indent_level + 3) << "}\n";
         stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
-               << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
+               << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded, "
+               << "{{.field_index = " << field_index
+               << "U, .array_index = static_cast<std::uint32_t>(index)}});\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
                << "const auto element_length = static_cast<std::size_t>(*decoded_length.value);\n";
         stream << indent(indent_level + 2)
                << "if (element_length > field->bytes.size() - element_offset) {\n";
         stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
-               << record_name << ">(::quarry::runtime::DecodeError::invalid_field_length);\n";
+               << record_name << ">(::quarry::runtime::DecodeError::invalid_field_length, "
+               << "{{.field_index = " << field_index
+               << "U, .array_index = static_cast<std::uint32_t>(index)}});\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2) << "const auto element_bytes = "
                << "field->bytes.subspan(element_offset, element_length);\n";
@@ -1793,14 +1883,17 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
         }
         stream << indent(indent_level + 2) << "if (!decoded.value.has_value()) {\n";
         stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
-               << record_name << ">(decoded.error);\n";
+               << record_name << ">(decoded.error, "
+               << "{{.field_index = " << field_index
+               << "U, .array_index = static_cast<std::uint32_t>(index)}});\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2) << "elements.push_back(std::move(*decoded.value));\n";
         stream << indent(indent_level + 2) << "element_offset += element_length;\n";
         stream << indent(indent_level + 1) << "}\n";
         stream << indent(indent_level + 1) << "if (element_offset != field->bytes.size()) {\n";
         stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-               << record_name << ">(::quarry::runtime::DecodeError::invalid_field_length);\n";
+               << record_name << ">(::quarry::runtime::DecodeError::invalid_field_length, "
+               << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
         stream << indent(indent_level + 1) << "}\n";
     } else {
         stream << indent(indent_level + 1) << "const std::size_t element_width = "
@@ -1811,7 +1904,8 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
                << "if (element_width == 0U || element_count > remaining_bytes / element_width || "
                << "remaining_bytes != element_count * element_width) {\n";
         stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-               << record_name << ">(::quarry::runtime::DecodeError::invalid_field_length);\n";
+               << record_name << ">(::quarry::runtime::DecodeError::invalid_field_length, "
+               << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
         stream << indent(indent_level + 1) << "}\n";
         stream << indent(indent_level + 1)
                << "for (std::size_t index = 0U; index < element_count; ++index) {\n";
@@ -1819,7 +1913,9 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
                << read_function << "(field->bytes.subspan(element_offset, element_width));\n";
         stream << indent(indent_level + 2) << "if (!decoded.value.has_value()) {\n";
         stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
-               << record_name << ">(decoded.error);\n";
+               << record_name << ">(decoded.error, "
+               << "{{.field_index = " << field_index
+               << "U, .array_index = static_cast<std::uint32_t>(index)}});\n";
         stream << indent(indent_level + 2) << "}\n";
         if (is_enum_array) {
             const RuntimeEnumEncoding& enum_encoding = *array_encoding.enum_encoding;
@@ -1838,7 +1934,9 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
             stream << ")) {\n";
             stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
                    << record_name
-                   << ">(::quarry::runtime::DecodeError::unknown_enum_value);\n";
+                   << ">(::quarry::runtime::DecodeError::unknown_enum_value, "
+                   << "{{.field_index = " << field_index
+                   << "U, .array_index = static_cast<std::uint32_t>(index)}});\n";
             stream << indent(indent_level + 2) << "}\n";
             stream << indent(indent_level + 2) << "elements.push_back(static_cast<"
                    << enum_encoding.cpp_type << ">(enum_numeric));\n";
@@ -1851,7 +1949,8 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(std::move(elements))) {\n";
     stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded);\n";
+           << record_name << ">(::quarry::runtime::DecodeError::bounds_exceeded, "
+           << "{{.field_index = " << field_index << "U, .array_index = std::nullopt}});\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level) << "}\n";
 }

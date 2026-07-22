@@ -98,9 +98,19 @@ Current C++ generation behavior:
   * decoded values are materialized through the generated builder, preserving
     presence and existing bounds validation
   * nested records and record-array elements propagate the child codec's root
-    error code directly
-  * generated error results intentionally do not yet include field paths, array
-    indexes, byte offsets, or diagnostic strings
+    error code unchanged, and append a `PathElement` frame (the field's own
+    `field_index`, plus an `array_index` when the frame is an array element) as
+    the failure unwinds outward, so `path.front()` is the innermost failure
+    site and `path.back()` is the outermost field
+  * leaf field-level failures (bounds, UTF-8, unknown enum value, unsupported
+    field type, structural read failures) attach a single-frame path directly
+    at the point of failure
+  * whole-field structural failures with no specific element attributable
+    (array element-count/length parsing before any element loop, trailing-byte
+    mismatches after the loop, builder rejection after all elements decoded)
+    attach a field-level frame with no `array_index`
+  * generated error results do not yet include byte-offset context or
+    diagnostic strings
 * generates `decode_RecordName(std::span<const std::byte>)` compatibility
   wrappers that return `std::optional<RecordName>`
   * wrappers delegate to `decode_RecordName_result` and intentionally discard

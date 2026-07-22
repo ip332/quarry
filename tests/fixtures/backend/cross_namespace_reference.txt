@@ -10,7 +10,7 @@
 
 #include "runtime/binary_record.hpp"
 
-static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 1U,
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 2U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 namespace alpha {
@@ -77,7 +77,7 @@ namespace one {
 #include "alpha/one.generated.hpp"
 #include "runtime/binary_record.hpp"
 
-static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 1U,
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 2U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 namespace beta {
@@ -132,7 +132,12 @@ namespace two {
       if (value.has_first()) {
         auto field_bytes = ::alpha::one::encode_result(*value.first());
         if (!field_bytes.has_value()) {
-          return ::quarry::runtime::encode_failure<std::vector<std::byte>>(field_bytes.error);
+          auto nested_path = std::move(field_bytes.path);
+          nested_path.push_back(::quarry::runtime::PathElement{
+            .field_index = 0U,
+            .array_index = std::nullopt,
+          });
+          return ::quarry::runtime::encode_failure<std::vector<std::byte>>(field_bytes.error, std::move(nested_path));
         }
         fields.push_back(::quarry::runtime::FieldBytes{
           .field_index = 0U,
@@ -162,12 +167,17 @@ namespace two {
       }
       SecondBuilder builder;
       if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
-        const auto decoded = ::alpha::one::decode_First_result(field->bytes);
+        auto decoded = ::alpha::one::decode_First_result(field->bytes);
         if (!decoded.value.has_value()) {
-          return ::quarry::runtime::decode_failure<Second>(decoded.error);
+          auto nested_path = std::move(decoded.path);
+          nested_path.push_back(::quarry::runtime::PathElement{
+            .field_index = 0U,
+            .array_index = std::nullopt,
+          });
+          return ::quarry::runtime::decode_failure<Second>(decoded.error, std::move(nested_path));
         }
         if (!builder.set_first(*decoded.value)) {
-          return ::quarry::runtime::decode_failure<Second>(::quarry::runtime::DecodeError::bounds_exceeded);
+          return ::quarry::runtime::decode_failure<Second>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
         }
       }
       return ::quarry::runtime::decoded_value<Second>(builder.build());

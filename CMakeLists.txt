@@ -15,7 +15,7 @@ option(QUARRY_BUILD_FUZZERS "Build libFuzzer targets for BRF parser hardening" O
 
 # Compatibility epoch for generated C++ source and Quarry runtime headers.
 # This is distinct from the package release version and BRF wire-format version.
-set(QUARRY_GENERATED_CODE_API_VERSION 1)
+set(QUARRY_GENERATED_CODE_API_VERSION 2)
 if(NOT QUARRY_GENERATED_CODE_API_VERSION MATCHES "^[0-9]+$")
     message(FATAL_ERROR "QUARRY_GENERATED_CODE_API_VERSION must be a non-negative integer")
 endif()

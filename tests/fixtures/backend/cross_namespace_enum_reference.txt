@@ -27,7 +27,7 @@ namespace one {
 #include "alpha/one.generated.hpp"
 #include "runtime/binary_record.hpp"
 
-static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 1U,
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 2U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 namespace beta {
@@ -82,7 +82,7 @@ namespace two {
       if (value.has_mode()) {
         const auto enum_numeric = static_cast<std::int64_t>(*value.mode());
         if (!(enum_numeric == 0 || enum_numeric == 1)) {
-          return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::unknown_enum_value);
+          return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::unknown_enum_value, {{.field_index = 0U, .array_index = std::nullopt}});
         }
         std::vector<std::byte> field_bytes;
         ::quarry::runtime::append_u8(field_bytes, static_cast<std::uint8_t>(enum_numeric));
@@ -116,14 +116,14 @@ namespace two {
       if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
         const auto decoded = ::quarry::runtime::read_u8(field->bytes);
         if (!decoded.value.has_value()) {
-          return ::quarry::runtime::decode_failure<Config>(decoded.error);
+          return ::quarry::runtime::decode_failure<Config>(decoded.error, {{.field_index = 0U, .array_index = std::nullopt}});
         }
         const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);
         if (!(enum_numeric == 0 || enum_numeric == 1)) {
-          return ::quarry::runtime::decode_failure<Config>(::quarry::runtime::DecodeError::unknown_enum_value);
+          return ::quarry::runtime::decode_failure<Config>(::quarry::runtime::DecodeError::unknown_enum_value, {{.field_index = 0U, .array_index = std::nullopt}});
         }
         if (!builder.set_mode(static_cast<::alpha::one::Mode>(enum_numeric))) {
-          return ::quarry::runtime::decode_failure<Config>(::quarry::runtime::DecodeError::bounds_exceeded);
+          return ::quarry::runtime::decode_failure<Config>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
         }
       }
       return ::quarry::runtime::decoded_value<Config>(builder.build());
