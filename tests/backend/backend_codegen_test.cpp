@@ -692,6 +692,47 @@ TEST(BackendCodegenTest, GeneratedScalarDecoderReadsManualBytes) {
     compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
 }
 
+TEST(BackendCodegenTest, GeneratedScalarDecoderReportsFieldPayloadByteOffset) {
+    const CodegenResult result = run_backend_fixture("builtin_scalar_fields", CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+
+    const std::string header_include =
+        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string translation_source =
+        "#include \"" + header_include +
+        "\"\n"
+        "#include <cstddef>\n"
+        "#include <vector>\n"
+        "int main() {\n"
+        "  const auto byte = [](unsigned int value) {\n"
+        "    return static_cast<std::byte>(static_cast<unsigned char>(value));\n"
+        "  };\n"
+        "  const std::vector<std::byte> input{\n"
+        "      byte(0x01), byte(0x00), byte(0x01), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x01),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x06),\n"
+        "      byte(0x01), byte(0x00), byte(0x03),\n"
+        "      byte(0xAA), byte(0xBB), byte(0xCC)};\n"
+        "  const auto decoded = decode_Example_result(input);\n"
+        "  if (decoded.value.has_value()) { return 1; }\n"
+        "  if (decoded.error != ::quarry::runtime::DecodeError::invalid_field_length) {\n"
+        "    return 2;\n"
+        "  }\n"
+        "  if (decoded.path.size() != 1U ||\n"
+        "      static_cast<unsigned int>(decoded.path[0].field_index) != 1U ||\n"
+        "      decoded.path[0].array_index.has_value()) {\n"
+        "    return 3;\n"
+        "  }\n"
+        "  if (!decoded.byte_offset.has_value() || *decoded.byte_offset != 19U) {\n"
+        "    return 4;\n"
+        "  }\n"
+        "  return 0;\n"
+        "}\n";
+
+    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
+}
+
 TEST(BackendCodegenTest, GeneratedScalarDecoderRoundTripsAndPreservesPresence) {
     const CodegenResult result = run_backend_fixture("builtin_scalar_fields", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
@@ -1284,6 +1325,7 @@ TEST(BackendCodegenTest, GeneratedDiagnosticCodecsPropagateNestedAndRecordArrayE
         "  if (invalid_nested.has_value() || invalid_nested.error != EncodeError::invalid_utf8) {\n"
         "    return 4;\n"
         "  }\n"
+        "  if (invalid_nested.byte_offset.has_value()) { return 20; }\n"
         "\n"
         "  GroupBuilder invalid_group_builder;\n"
         "  if (!invalid_group_builder.set_middles(std::vector<Middle>{invalid_middle_builder.build()})) {\n"
@@ -1293,6 +1335,7 @@ TEST(BackendCodegenTest, GeneratedDiagnosticCodecsPropagateNestedAndRecordArrayE
         "  if (invalid_array.has_value() || invalid_array.error != EncodeError::invalid_utf8) {\n"
         "    return 6;\n"
         "  }\n"
+        "  if (invalid_array.byte_offset.has_value()) { return 21; }\n"
         "\n"
         "  const std::vector<std::byte> wrong_nested_record_id{\n"
         "      byte(0x01), byte(0x00), byte(0x01), byte(0x00),\n"
@@ -1305,8 +1348,13 @@ TEST(BackendCodegenTest, GeneratedDiagnosticCodecsPropagateNestedAndRecordArrayE
         "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
         "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
         "  };\n"
-        "  if (decode_Middle_result(wrong_nested_record_id).error != DecodeError::unexpected_record_id) {\n"
+        "  const auto wrong_nested_result = decode_Middle_result(wrong_nested_record_id);\n"
+        "  if (wrong_nested_result.error != DecodeError::unexpected_record_id) {\n"
         "    return 7;\n"
+        "  }\n"
+        "  if (!wrong_nested_result.byte_offset.has_value() ||\n"
+        "      *wrong_nested_result.byte_offset != 19U) {\n"
+        "    return 22;\n"
         "  }\n"
         "\n"
         "  const std::vector<std::byte> wrong_array_element_record_id{\n"
@@ -1321,9 +1369,13 @@ TEST(BackendCodegenTest, GeneratedDiagnosticCodecsPropagateNestedAndRecordArrayE
         "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
         "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
         "  };\n"
-        "  if (decode_Group_result(wrong_array_element_record_id).error !=\n"
-        "      DecodeError::unexpected_record_id) {\n"
+        "  const auto wrong_array_result = decode_Group_result(wrong_array_element_record_id);\n"
+        "  if (wrong_array_result.error != DecodeError::unexpected_record_id) {\n"
         "    return 8;\n"
+        "  }\n"
+        "  if (!wrong_array_result.byte_offset.has_value() ||\n"
+        "      *wrong_array_result.byte_offset != 21U) {\n"
+        "    return 23;\n"
         "  }\n"
         "  return 0;\n"
         "}\n");
@@ -1994,6 +2046,47 @@ TEST(BackendCodegenTest, GeneratedArrayCodecHandlesMixedFixedWidthArrays) {
     compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
 }
 
+TEST(BackendCodegenTest, GeneratedArrayDecoderReportsByteOffsetForCountVaruintFailure) {
+    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1u);
+
+    const std::string header_include =
+        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string translation_source =
+        "#include \"" + header_include +
+        "\"\n"
+        "#include <cstddef>\n"
+        "#include <vector>\n"
+        "int main() {\n"
+        "  const auto byte = [](unsigned int value) {\n"
+        "    return static_cast<std::byte>(static_cast<unsigned char>(value));\n"
+        "  };\n"
+        "  const std::vector<std::byte> missing_count{\n"
+        "      byte(0x01), byte(0x00), byte(0x01), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x02),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x00),\n"
+        "      byte(0x00), byte(0x00), byte(0x00), byte(0x03),\n"
+        "      byte(0x02), byte(0x00), byte(0x00)};\n"
+        "  const auto decoded = decode_Example_result(missing_count);\n"
+        "  if (decoded.value.has_value()) { return 1; }\n"
+        "  if (decoded.error != ::quarry::runtime::DecodeError::malformed_varuint) {\n"
+        "    return 2;\n"
+        "  }\n"
+        "  if (decoded.path.size() != 1U ||\n"
+        "      static_cast<unsigned int>(decoded.path[0].field_index) != 2U ||\n"
+        "      decoded.path[0].array_index.has_value()) {\n"
+        "    return 3;\n"
+        "  }\n"
+        "  if (!decoded.byte_offset.has_value() || *decoded.byte_offset != 19U) {\n"
+        "    return 4;\n"
+        "  }\n"
+        "  return 0;\n"
+        "}\n";
+
+    compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
+}
+
 TEST(BackendCodegenTest, GeneratedArrayDecoderRejectsMalformedPayloads) {
     const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
@@ -2466,6 +2559,9 @@ TEST(BackendCodegenTest, GeneratedRecordArrayDecoderPropagatesNestedFieldAndArra
         "      *decoded.path[1].array_index != 1U) {\n"
         "    return 6;\n"
         "  }\n"
+        "  if (!decoded.byte_offset.has_value() || *decoded.byte_offset != 64U) {\n"
+        "    return 7;\n"
+        "  }\n"
         "  return 0;\n"
         "}\n";
 
@@ -2505,6 +2601,7 @@ TEST(BackendCodegenTest, GeneratedRecordArrayEncoderPropagatesNestedFieldAndArra
         "      *encoded.path[1].array_index != 0U) {\n"
         "    return 8;\n"
         "  }\n"
+        "  if (encoded.byte_offset.has_value()) { return 9; }\n"
         "  return 0;\n"
         "}\n";
 

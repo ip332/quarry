@@ -28,6 +28,7 @@ struct FieldBytes {
 struct FieldView {
     std::uint8_t field_index = 0U;
     std::span<const std::byte> bytes;
+    std::uint64_t field_offset = 0U;
 };
 
 struct ParsedRecord {
@@ -77,11 +78,14 @@ struct CodecResult {
     std::optional<T> value;
     E error;
     std::vector<PathElement> path;
+    std::optional<std::uint64_t> byte_offset;
 
     CodecResult() = delete;
     CodecResult(std::optional<T> result_value, E result_error,
-                std::vector<PathElement> result_path = {})
-        : value(std::move(result_value)), error(result_error), path(std::move(result_path)) {}
+                std::vector<PathElement> result_path = {},
+                std::optional<std::uint64_t> result_byte_offset = std::nullopt)
+        : value(std::move(result_value)), error(result_error), path(std::move(result_path)),
+          byte_offset(result_byte_offset) {}
 
     [[nodiscard]] bool has_value() const { return value.has_value(); }
     explicit operator bool() const { return has_value(); }
@@ -96,6 +100,7 @@ using DecodeResult = CodecResult<T, DecodeError>;
 struct ParseRecordResult {
     std::optional<ParsedRecord> record;
     DecodeError error = DecodeError::none;
+    std::optional<std::uint64_t> offset;
 };
 
 template <typename T>
@@ -104,12 +109,14 @@ struct DecodeValueResult {
     DecodeError error = DecodeError::none;
 };
 
-inline ParseRecordResult parse_error(DecodeError error) {
-    return ParseRecordResult{.record = std::nullopt, .error = error};
+inline ParseRecordResult parse_error(DecodeError error,
+                                     std::optional<std::uint64_t> offset = std::nullopt) {
+    return ParseRecordResult{.record = std::nullopt, .error = error, .offset = offset};
 }
 
 inline ParseRecordResult parse_success(ParsedRecord record) {
-    return ParseRecordResult{.record = std::move(record), .error = DecodeError::none};
+    return ParseRecordResult{.record = std::move(record), .error = DecodeError::none,
+                             .offset = std::nullopt};
 }
 
 template <typename T>
@@ -133,8 +140,9 @@ inline EncodeResult<T> encode_success(T value) {
 }
 
 template <typename T>
-inline DecodeResult<T> decode_failure(DecodeError error, std::vector<PathElement> path = {}) {
-    return DecodeResult<T>(std::nullopt, error, std::move(path));
+inline DecodeResult<T> decode_failure(DecodeError error, std::vector<PathElement> path = {},
+                                      std::optional<std::uint64_t> byte_offset = std::nullopt) {
+    return DecodeResult<T>(std::nullopt, error, std::move(path), byte_offset);
 }
 
 template <typename T>
@@ -344,11 +352,11 @@ inline const FieldView* find_field(const ParsedRecord& record, std::uint8_t fiel
 
 inline ParseRecordResult parse_record(std::span<const std::byte> input) {
     if (input.size() < kBinaryRecordHeaderSize) {
-        return parse_error(DecodeError::truncated_header);
+        return parse_error(DecodeError::truncated_header, 0U);
     }
 
     if (byte_value(input[0]) != kBinaryRecordHeaderVersion) {
-        return parse_error(DecodeError::unsupported_version);
+        return parse_error(DecodeError::unsupported_version, 0U);
     }
     const std::uint8_t flags = byte_value(input[1]);
     const std::uint8_t directory_entry_count = byte_value(input[2]);
@@ -357,16 +365,19 @@ inline ParseRecordResult parse_record(std::span<const std::byte> input) {
     const std::uint32_t reserved1 = read_raw_u32(input.subspan(8U, 4U));
     const std::uint32_t payload_length = read_raw_u32(input.subspan(12U, 4U));
     if (flags != 0U) {
-        return parse_error(DecodeError::unsupported_flags);
+        return parse_error(DecodeError::unsupported_flags, 1U);
     }
-    if (reserved0 != 0U || reserved1 != 0U) {
-        return parse_error(DecodeError::invalid_header);
+    if (reserved0 != 0U) {
+        return parse_error(DecodeError::invalid_header, 3U);
+    }
+    if (reserved1 != 0U) {
+        return parse_error(DecodeError::invalid_header, 8U);
     }
     if (payload_length > input.size() - kBinaryRecordHeaderSize) {
-        return parse_error(DecodeError::invalid_payload_length);
+        return parse_error(DecodeError::invalid_payload_length, 12U);
     }
     if (input.size() != kBinaryRecordHeaderSize + static_cast<std::size_t>(payload_length)) {
-        return parse_error(DecodeError::invalid_payload_length);
+        return parse_error(DecodeError::invalid_payload_length, 12U);
     }
 
     struct DirectoryEntry {
@@ -381,30 +392,38 @@ inline ParseRecordResult parse_record(std::span<const std::byte> input) {
     entries.reserve(directory_entry_count);
     std::size_t directory_offset = 0U;
     for (std::uint16_t index = 0U; index < directory_entry_count; ++index) {
+        const std::size_t entry_start = directory_offset;
         if (directory_offset >= body.size()) {
-            return parse_error(DecodeError::malformed_directory);
+            return parse_error(DecodeError::malformed_directory,
+                              kBinaryRecordHeaderSize + entry_start);
         }
         DirectoryEntry entry;
         entry.field_index = byte_value(body[directory_offset]);
         ++directory_offset;
 
+        const std::size_t field_offset_varuint_start = directory_offset;
         DecodeValueResult<std::uint64_t> field_offset = read_varuint(body, directory_offset);
         if (!field_offset.value.has_value()) {
-            return parse_error(field_offset.error);
+            return parse_error(field_offset.error,
+                              kBinaryRecordHeaderSize + field_offset_varuint_start);
         }
+        const std::size_t field_length_varuint_start = directory_offset;
         DecodeValueResult<std::uint64_t> field_length = read_varuint(body, directory_offset);
         if (!field_length.value.has_value()) {
-            return parse_error(field_length.error);
+            return parse_error(field_length.error,
+                              kBinaryRecordHeaderSize + field_length_varuint_start);
         }
         entry.field_offset = *field_offset.value;
         entry.field_length = *field_length.value;
 
         if (!entries.empty()) {
             if (entries.back().field_index == entry.field_index) {
-                return parse_error(DecodeError::duplicate_field);
+                return parse_error(DecodeError::duplicate_field,
+                                  kBinaryRecordHeaderSize + entry_start);
             }
             if (entries.back().field_index > entry.field_index) {
-                return parse_error(DecodeError::unsorted_directory);
+                return parse_error(DecodeError::unsorted_directory,
+                                  kBinaryRecordHeaderSize + entry_start);
             }
         }
         entries.push_back(entry);
@@ -417,16 +436,21 @@ inline ParseRecordResult parse_record(std::span<const std::byte> input) {
     std::vector<std::pair<std::size_t, std::size_t>> ranges;
     ranges.reserve(entries.size());
 
+    const std::uint64_t payload_region_start =
+        static_cast<std::uint64_t>(kBinaryRecordHeaderSize) + static_cast<std::uint64_t>(payload_start);
     for (const DirectoryEntry& entry : entries) {
         if (entry.field_offset > payload_size || entry.field_length > payload_size) {
-            return parse_error(DecodeError::invalid_field_range);
+            return parse_error(DecodeError::invalid_field_range,
+                              payload_region_start + entry.field_offset);
         }
         if (entry.field_offset > std::numeric_limits<std::uint64_t>::max() - entry.field_length) {
-            return parse_error(DecodeError::invalid_field_range);
+            return parse_error(DecodeError::invalid_field_range,
+                              payload_region_start + entry.field_offset);
         }
         const std::uint64_t field_end = entry.field_offset + entry.field_length;
         if (field_end > payload_size) {
-            return parse_error(DecodeError::invalid_field_range);
+            return parse_error(DecodeError::invalid_field_range,
+                              payload_region_start + entry.field_offset);
         }
         const auto start = static_cast<std::size_t>(entry.field_offset);
         const auto length = static_cast<std::size_t>(entry.field_length);
@@ -434,13 +458,15 @@ inline ParseRecordResult parse_record(std::span<const std::byte> input) {
         fields.push_back(FieldView{
             .field_index = entry.field_index,
             .bytes = body.subspan(payload_start + start, length),
+            .field_offset = payload_region_start + start,
         });
     }
 
     std::sort(ranges.begin(), ranges.end());
     for (std::size_t index = 1U; index < ranges.size(); ++index) {
         if (ranges[index - 1U].second > ranges[index].first) {
-            return parse_error(DecodeError::overlapping_field_range);
+            return parse_error(DecodeError::overlapping_field_range,
+                              kBinaryRecordHeaderSize + payload_start + ranges[index].first);
         }
     }
 

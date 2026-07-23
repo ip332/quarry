@@ -11,7 +11,7 @@
 
 #include "runtime/binary_record.hpp"
 
-static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 2U,
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 3U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 enum class Status : std::int64_t {
@@ -91,19 +91,19 @@ std::optional<std::vector<std::byte>> encode(const Child& value) {
 ::quarry::runtime::DecodeResult<Child> decode_Child_result(std::span<const std::byte> input) {
   const auto parsed = ::quarry::runtime::parse_record(input);
   if (!parsed.record.has_value()) {
-    return ::quarry::runtime::decode_failure<Child>(parsed.error);
+    return ::quarry::runtime::decode_failure<Child>(parsed.error, {}, parsed.offset);
   }
   if (parsed.record->record_id != 2U) {
-    return ::quarry::runtime::decode_failure<Child>(::quarry::runtime::DecodeError::unexpected_record_id);
+    return ::quarry::runtime::decode_failure<Child>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
   }
   ChildBuilder builder;
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
     const auto decoded = ::quarry::runtime::read_u32(field->bytes);
     if (!decoded.value.has_value()) {
-      return ::quarry::runtime::decode_failure<Child>(decoded.error, {{.field_index = 0U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Child>(decoded.error, {{.field_index = 0U, .array_index = std::nullopt}}, field->field_offset);
     }
     if (!builder.set_count(*decoded.value)) {
-      return ::quarry::runtime::decode_failure<Child>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Child>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}}, field->field_offset);
     }
   }
   return ::quarry::runtime::decoded_value<Child>(builder.build());
@@ -229,10 +229,10 @@ std::optional<std::vector<std::byte>> encode(const Wrapper& value) {
 ::quarry::runtime::DecodeResult<Wrapper> decode_Wrapper_result(std::span<const std::byte> input) {
   const auto parsed = ::quarry::runtime::parse_record(input);
   if (!parsed.record.has_value()) {
-    return ::quarry::runtime::decode_failure<Wrapper>(parsed.error);
+    return ::quarry::runtime::decode_failure<Wrapper>(parsed.error, {}, parsed.offset);
   }
   if (parsed.record->record_id != 1U) {
-    return ::quarry::runtime::decode_failure<Wrapper>(::quarry::runtime::DecodeError::unexpected_record_id);
+    return ::quarry::runtime::decode_failure<Wrapper>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
   }
   WrapperBuilder builder;
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
@@ -243,23 +243,26 @@ std::optional<std::vector<std::byte>> encode(const Wrapper& value) {
         .field_index = 0U,
         .array_index = std::nullopt,
       });
-      return ::quarry::runtime::decode_failure<Wrapper>(decoded.error, std::move(nested_path));
+      const std::optional<std::uint64_t> nested_offset = decoded.byte_offset.has_value()
+        ? std::optional<std::uint64_t>(field->field_offset + *decoded.byte_offset)
+        : std::nullopt;
+      return ::quarry::runtime::decode_failure<Wrapper>(decoded.error, std::move(nested_path), nested_offset);
     }
     if (!builder.set_child(*decoded.value)) {
-      return ::quarry::runtime::decode_failure<Wrapper>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Wrapper>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}}, field->field_offset);
     }
   }
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 1U); field != nullptr) {
     const auto decoded = ::quarry::runtime::read_u8(field->bytes);
     if (!decoded.value.has_value()) {
-      return ::quarry::runtime::decode_failure<Wrapper>(decoded.error, {{.field_index = 1U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Wrapper>(decoded.error, {{.field_index = 1U, .array_index = std::nullopt}}, field->field_offset);
     }
     const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);
     if (!(enum_numeric == 0 || enum_numeric == 1)) {
-      return ::quarry::runtime::decode_failure<Wrapper>(::quarry::runtime::DecodeError::unknown_enum_value, {{.field_index = 1U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Wrapper>(::quarry::runtime::DecodeError::unknown_enum_value, {{.field_index = 1U, .array_index = std::nullopt}}, field->field_offset);
     }
     if (!builder.set_state(static_cast<::Status>(enum_numeric))) {
-      return ::quarry::runtime::decode_failure<Wrapper>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Wrapper>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}}, field->field_offset);
     }
   }
   return ::quarry::runtime::decoded_value<Wrapper>(builder.build());

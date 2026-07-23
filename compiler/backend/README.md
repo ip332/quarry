@@ -109,10 +109,11 @@ Current C++ generation behavior:
     (array element-count/length parsing before any element loop, trailing-byte
     mismatches after the loop, builder rejection after all elements decoded)
     attach a field-level frame with no `array_index`
-  * generated error results do not yet include byte-offset context or
-    diagnostic strings; a decode-only, absolute-from-top-level-input
-    `byte_offset` model is decided but not implemented — see
-    `runtime/README.md`'s "Byte-Offset Context" section
+  * decode failures also carry an absolute-from-top-level-input
+    `byte_offset`, translated across nested-record and array-element
+    forwarding the same way `path` accumulates; encode results never carry
+    one — see `runtime/README.md`'s "Byte-Offset Context" section
+  * generated error results do not yet include diagnostic strings
 * generates `decode_RecordName(std::span<const std::byte>)` compatibility
   wrappers that return `std::optional<RecordName>`
   * wrappers delegate to `decode_RecordName_result` and intentionally discard

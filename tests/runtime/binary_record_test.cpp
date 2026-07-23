@@ -430,6 +430,153 @@ TEST(BinaryRecordRuntimeTest, AllowsDistinctZeroLengthFieldsAtSameOffset) {
     EXPECT_TRUE(record.fields[1].bytes.empty());
 }
 
+TEST(BinaryRecordRuntimeTest, ReportsByteOffsetForTopLevelHeaderFailures) {
+    const std::vector<std::byte> valid_empty{
+        b(0x01), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+        b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00),
+    };
+
+    const auto truncated = parse_record(std::span<const std::byte>(valid_empty).first(15U));
+    EXPECT_EQ(truncated.error, DecodeError::truncated_header);
+    ASSERT_TRUE(truncated.offset.has_value());
+    EXPECT_EQ(*truncated.offset, 0U);
+
+    std::vector<std::byte> unsupported_version = valid_empty;
+    unsupported_version[0] = b(0x02);
+    const auto version_result = parse_record(unsupported_version);
+    EXPECT_EQ(version_result.error, DecodeError::unsupported_version);
+    ASSERT_TRUE(version_result.offset.has_value());
+    EXPECT_EQ(*version_result.offset, 0U);
+
+    std::vector<std::byte> nonzero_flags = valid_empty;
+    nonzero_flags[1] = b(0x01);
+    const auto flags_result = parse_record(nonzero_flags);
+    EXPECT_EQ(flags_result.error, DecodeError::unsupported_flags);
+    ASSERT_TRUE(flags_result.offset.has_value());
+    EXPECT_EQ(*flags_result.offset, 1U);
+
+    std::vector<std::byte> nonzero_reserved0 = valid_empty;
+    nonzero_reserved0[3] = b(0x01);
+    const auto reserved0_result = parse_record(nonzero_reserved0);
+    EXPECT_EQ(reserved0_result.error, DecodeError::invalid_header);
+    ASSERT_TRUE(reserved0_result.offset.has_value());
+    EXPECT_EQ(*reserved0_result.offset, 3U);
+
+    std::vector<std::byte> nonzero_reserved1 = valid_empty;
+    nonzero_reserved1[8] = b(0x01);
+    const auto reserved1_result = parse_record(nonzero_reserved1);
+    EXPECT_EQ(reserved1_result.error, DecodeError::invalid_header);
+    ASSERT_TRUE(reserved1_result.offset.has_value());
+    EXPECT_EQ(*reserved1_result.offset, 8U);
+
+    std::vector<std::byte> too_long_payload = valid_empty;
+    too_long_payload[15] = b(0x01);
+    const auto too_long_result = parse_record(too_long_payload);
+    EXPECT_EQ(too_long_result.error, DecodeError::invalid_payload_length);
+    ASSERT_TRUE(too_long_result.offset.has_value());
+    EXPECT_EQ(*too_long_result.offset, 12U);
+
+    std::vector<std::byte> trailing = valid_empty;
+    trailing.push_back(b(0x00));
+    const auto trailing_result = parse_record(trailing);
+    EXPECT_EQ(trailing_result.error, DecodeError::invalid_payload_length);
+    ASSERT_TRUE(trailing_result.offset.has_value());
+    EXPECT_EQ(*trailing_result.offset, 12U);
+}
+
+TEST(BinaryRecordRuntimeTest, ReportsByteOffsetForFieldDirectoryAndVaruintFailures) {
+    const auto truncated_field_offset_varuint = parse_record(std::vector<std::byte>{
+        b(0x01), b(0x00), b(0x01), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+        b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+        b(0x00),
+    });
+    EXPECT_EQ(truncated_field_offset_varuint.error, DecodeError::malformed_varuint);
+    ASSERT_TRUE(truncated_field_offset_varuint.offset.has_value());
+    EXPECT_EQ(*truncated_field_offset_varuint.offset, 17U);
+
+    const auto overflowing_field_offset_varuint = parse_record(std::vector<std::byte>{
+        b(0x01), b(0x00), b(0x01), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+        b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x0C),
+        b(0x00), b(0x80), b(0x80), b(0x80), b(0x80), b(0x80), b(0x80), b(0x80),
+        b(0x80), b(0x80), b(0x80), b(0x00),
+    });
+    EXPECT_EQ(overflowing_field_offset_varuint.error, DecodeError::malformed_varuint);
+    ASSERT_TRUE(overflowing_field_offset_varuint.offset.has_value());
+    EXPECT_EQ(*overflowing_field_offset_varuint.offset, 17U);
+
+    const auto duplicate = parse_record(std::vector<std::byte>{
+        b(0x01), b(0x00), b(0x02), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+        b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x07),
+        b(0x01), b(0x00), b(0x00), b(0x01), b(0x00), b(0x00), b(0xAA),
+    });
+    EXPECT_EQ(duplicate.error, DecodeError::duplicate_field);
+    ASSERT_TRUE(duplicate.offset.has_value());
+    EXPECT_EQ(*duplicate.offset, 19U);
+
+    const auto unsorted = parse_record(std::vector<std::byte>{
+        b(0x01), b(0x00), b(0x02), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+        b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x07),
+        b(0x02), b(0x00), b(0x00), b(0x01), b(0x00), b(0x00), b(0xAA),
+    });
+    EXPECT_EQ(unsorted.error, DecodeError::unsorted_directory);
+    ASSERT_TRUE(unsorted.offset.has_value());
+    EXPECT_EQ(*unsorted.offset, 19U);
+
+    const auto missing_directory_bytes = parse_record(std::vector<std::byte>{
+        b(0x01), b(0x00), b(0x02), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+        b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x03),
+        b(0x00), b(0x00), b(0x00),
+    });
+    EXPECT_EQ(missing_directory_bytes.error, DecodeError::malformed_directory);
+    ASSERT_TRUE(missing_directory_bytes.offset.has_value());
+    EXPECT_EQ(*missing_directory_bytes.offset, 19U);
+}
+
+TEST(BinaryRecordRuntimeTest, ReportsByteOffsetForFieldRangeFailures) {
+    const auto out_of_range = parse_record(std::vector<std::byte>{
+        b(0x01), b(0x00), b(0x01), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+        b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x04),
+        b(0x00), b(0x01), b(0x04), b(0xAA),
+    });
+    EXPECT_EQ(out_of_range.error, DecodeError::invalid_field_range);
+    ASSERT_TRUE(out_of_range.offset.has_value());
+    EXPECT_EQ(*out_of_range.offset, 20U);
+
+    const auto overlapping = parse_record(std::vector<std::byte>{
+        b(0x01), b(0x00), b(0x02), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+        b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x0A),
+        b(0x00), b(0x00), b(0x02), b(0x01), b(0x01), b(0x02), b(0xAA), b(0xBB),
+        b(0xCC), b(0xDD),
+    });
+    EXPECT_EQ(overlapping.error, DecodeError::overlapping_field_range);
+    ASSERT_TRUE(overlapping.offset.has_value());
+    EXPECT_EQ(*overlapping.offset, 23U);
+}
+
+TEST(BinaryRecordRuntimeTest, PopulatesFieldViewOffsetOnSuccessfulParse) {
+    const std::vector<std::byte> input{
+        b(0x01), b(0x00), b(0x02), b(0x00), b(0x00), b(0x00), b(0x00), b(0x01),
+        b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x00), b(0x09),
+        b(0x00), b(0x01), b(0x01), b(0x02), b(0x00), b(0x01), b(0xBB), b(0xAA),
+        b(0xCC),
+    };
+
+    const auto parsed = parse_record(input);
+
+    ASSERT_TRUE(parsed.record.has_value());
+    const auto& record = require_value(parsed.record);
+    const auto* first = find_field(record, 0U);
+    const auto* second = find_field(record, 2U);
+    ASSERT_NE(first, nullptr);
+    ASSERT_NE(second, nullptr);
+    // Directory: fieldIndex(1) + offset(1) + length(1) per entry, 2 entries = 6 bytes.
+    // Payload region starts at 16 (header) + 6 (directory) = 22.
+    // Field 0 claims payload offset 1 (its bytes live at absolute 23).
+    // Field 2 claims payload offset 0 (its bytes live at absolute 22).
+    EXPECT_EQ(first->field_offset, 23U);
+    EXPECT_EQ(second->field_offset, 22U);
+}
+
 TEST(BinaryRecordRuntimeTest, DecodesScalarValuesBigEndian) {
     const std::vector<std::byte> false_value{b(0x00)};
     const std::vector<std::byte> true_value{b(0x01)};

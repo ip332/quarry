@@ -10,7 +10,7 @@
 
 #include "runtime/binary_record.hpp"
 
-static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 2U,
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 3U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 struct Example {};
@@ -41,10 +41,10 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
 ::quarry::runtime::DecodeResult<Example> decode_Example_result(std::span<const std::byte> input) {
   const auto parsed = ::quarry::runtime::parse_record(input);
   if (!parsed.record.has_value()) {
-    return ::quarry::runtime::decode_failure<Example>(parsed.error);
+    return ::quarry::runtime::decode_failure<Example>(parsed.error, {}, parsed.offset);
   }
   if (parsed.record->record_id != 1U) {
-    return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::unexpected_record_id);
+    return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
   }
   ExampleBuilder builder;
   return ::quarry::runtime::decoded_value<Example>(builder.build());

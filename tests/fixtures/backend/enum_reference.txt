@@ -11,7 +11,7 @@
 
 #include "runtime/binary_record.hpp"
 
-static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 2U,
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 3U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 enum class Color : std::int64_t {
@@ -93,23 +93,23 @@ std::optional<std::vector<std::byte>> encode(const Paint& value) {
 ::quarry::runtime::DecodeResult<Paint> decode_Paint_result(std::span<const std::byte> input) {
   const auto parsed = ::quarry::runtime::parse_record(input);
   if (!parsed.record.has_value()) {
-    return ::quarry::runtime::decode_failure<Paint>(parsed.error);
+    return ::quarry::runtime::decode_failure<Paint>(parsed.error, {}, parsed.offset);
   }
   if (parsed.record->record_id != 1U) {
-    return ::quarry::runtime::decode_failure<Paint>(::quarry::runtime::DecodeError::unexpected_record_id);
+    return ::quarry::runtime::decode_failure<Paint>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
   }
   PaintBuilder builder;
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
     const auto decoded = ::quarry::runtime::read_u8(field->bytes);
     if (!decoded.value.has_value()) {
-      return ::quarry::runtime::decode_failure<Paint>(decoded.error, {{.field_index = 0U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Paint>(decoded.error, {{.field_index = 0U, .array_index = std::nullopt}}, field->field_offset);
     }
     const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);
     if (!(enum_numeric == 1 || enum_numeric == 2)) {
-      return ::quarry::runtime::decode_failure<Paint>(::quarry::runtime::DecodeError::unknown_enum_value, {{.field_index = 0U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Paint>(::quarry::runtime::DecodeError::unknown_enum_value, {{.field_index = 0U, .array_index = std::nullopt}}, field->field_offset);
     }
     if (!builder.set_color(static_cast<::Color>(enum_numeric))) {
-      return ::quarry::runtime::decode_failure<Paint>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Paint>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}}, field->field_offset);
     }
   }
   return ::quarry::runtime::decoded_value<Paint>(builder.build());

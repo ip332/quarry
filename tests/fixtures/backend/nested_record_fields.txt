@@ -12,7 +12,7 @@
 
 #include "runtime/binary_record.hpp"
 
-static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 2U,
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 3U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 struct Inner {
@@ -176,31 +176,31 @@ std::optional<std::vector<std::byte>> encode(const Inner& value) {
 ::quarry::runtime::DecodeResult<Inner> decode_Inner_result(std::span<const std::byte> input) {
   const auto parsed = ::quarry::runtime::parse_record(input);
   if (!parsed.record.has_value()) {
-    return ::quarry::runtime::decode_failure<Inner>(parsed.error);
+    return ::quarry::runtime::decode_failure<Inner>(parsed.error, {}, parsed.offset);
   }
   if (parsed.record->record_id != 1U) {
-    return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::unexpected_record_id);
+    return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
   }
   InnerBuilder builder;
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
     const auto decoded = ::quarry::runtime::read_u32(field->bytes);
     if (!decoded.value.has_value()) {
-      return ::quarry::runtime::decode_failure<Inner>(decoded.error, {{.field_index = 0U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Inner>(decoded.error, {{.field_index = 0U, .array_index = std::nullopt}}, field->field_offset);
     }
     if (!builder.set_count(*decoded.value)) {
-      return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}}, field->field_offset);
     }
   }
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 1U); field != nullptr) {
     if (field->bytes.size() > 8U) {
-      return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}}, field->field_offset);
     }
     const auto decoded = ::quarry::runtime::read_string_utf8(field->bytes);
     if (!decoded.value.has_value()) {
-      return ::quarry::runtime::decode_failure<Inner>(decoded.error, {{.field_index = 1U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Inner>(decoded.error, {{.field_index = 1U, .array_index = std::nullopt}}, field->field_offset);
     }
     if (!builder.set_label(*decoded.value)) {
-      return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}}, field->field_offset);
     }
   }
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 2U); field != nullptr) {
@@ -208,38 +208,39 @@ std::optional<std::vector<std::byte>> encode(const Inner& value) {
     const auto decoded_count = ::quarry::runtime::read_varuint(field->bytes, element_offset);
     if (!decoded_count.value.has_value() || *decoded_count.value > 2U) {
       if (!decoded_count.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Inner>(decoded_count.error, {{.field_index = 2U, .array_index = std::nullopt}});
+        return ::quarry::runtime::decode_failure<Inner>(decoded_count.error, {{.field_index = 2U, .array_index = std::nullopt}}, field->field_offset);
       }
-      return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 2U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 2U, .array_index = std::nullopt}}, field->field_offset);
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
     std::vector<std::string> elements;
     elements.reserve(element_count);
     for (std::size_t index = 0U; index < element_count; ++index) {
+      const std::size_t element_length_start = element_offset;
       const auto decoded_length = ::quarry::runtime::read_varuint(field->bytes, element_offset);
       if (!decoded_length.value.has_value() || *decoded_length.value > 4U) {
         if (!decoded_length.value.has_value()) {
-          return ::quarry::runtime::decode_failure<Inner>(decoded_length.error, {{.field_index = 2U, .array_index = static_cast<std::uint32_t>(index)}});
+          return ::quarry::runtime::decode_failure<Inner>(decoded_length.error, {{.field_index = 2U, .array_index = static_cast<std::uint32_t>(index)}}, field->field_offset + element_length_start);
         }
-        return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 2U, .array_index = static_cast<std::uint32_t>(index)}});
+        return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 2U, .array_index = static_cast<std::uint32_t>(index)}}, field->field_offset + element_length_start);
       }
       const auto element_length = static_cast<std::size_t>(*decoded_length.value);
       if (element_length > field->bytes.size() - element_offset) {
-        return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 2U, .array_index = static_cast<std::uint32_t>(index)}});
+        return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 2U, .array_index = static_cast<std::uint32_t>(index)}}, field->field_offset + element_offset);
       }
       const auto element_bytes = field->bytes.subspan(element_offset, element_length);
       const auto decoded = ::quarry::runtime::read_string_utf8(element_bytes);
       if (!decoded.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Inner>(decoded.error, {{.field_index = 2U, .array_index = static_cast<std::uint32_t>(index)}});
+        return ::quarry::runtime::decode_failure<Inner>(decoded.error, {{.field_index = 2U, .array_index = static_cast<std::uint32_t>(index)}}, field->field_offset + element_offset);
       }
       elements.push_back(std::move(*decoded.value));
       element_offset += element_length;
     }
     if (element_offset != field->bytes.size()) {
-      return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 2U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 2U, .array_index = std::nullopt}}, field->field_offset + element_offset);
     }
     if (!builder.set_tags(std::move(elements))) {
-      return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 2U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 2U, .array_index = std::nullopt}}, field->field_offset);
     }
   }
   return ::quarry::runtime::decoded_value<Inner>(builder.build());
@@ -331,10 +332,10 @@ std::optional<std::vector<std::byte>> encode(const Middle& value) {
 ::quarry::runtime::DecodeResult<Middle> decode_Middle_result(std::span<const std::byte> input) {
   const auto parsed = ::quarry::runtime::parse_record(input);
   if (!parsed.record.has_value()) {
-    return ::quarry::runtime::decode_failure<Middle>(parsed.error);
+    return ::quarry::runtime::decode_failure<Middle>(parsed.error, {}, parsed.offset);
   }
   if (parsed.record->record_id != 2U) {
-    return ::quarry::runtime::decode_failure<Middle>(::quarry::runtime::DecodeError::unexpected_record_id);
+    return ::quarry::runtime::decode_failure<Middle>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
   }
   MiddleBuilder builder;
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
@@ -345,10 +346,13 @@ std::optional<std::vector<std::byte>> encode(const Middle& value) {
         .field_index = 0U,
         .array_index = std::nullopt,
       });
-      return ::quarry::runtime::decode_failure<Middle>(decoded.error, std::move(nested_path));
+      const std::optional<std::uint64_t> nested_offset = decoded.byte_offset.has_value()
+        ? std::optional<std::uint64_t>(field->field_offset + *decoded.byte_offset)
+        : std::nullopt;
+      return ::quarry::runtime::decode_failure<Middle>(decoded.error, std::move(nested_path), nested_offset);
     }
     if (!builder.set_inner(*decoded.value)) {
-      return ::quarry::runtime::decode_failure<Middle>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Middle>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}}, field->field_offset);
     }
   }
   return ::quarry::runtime::decoded_value<Middle>(builder.build());
@@ -477,10 +481,10 @@ std::optional<std::vector<std::byte>> encode(const Outer& value) {
 ::quarry::runtime::DecodeResult<Outer> decode_Outer_result(std::span<const std::byte> input) {
   const auto parsed = ::quarry::runtime::parse_record(input);
   if (!parsed.record.has_value()) {
-    return ::quarry::runtime::decode_failure<Outer>(parsed.error);
+    return ::quarry::runtime::decode_failure<Outer>(parsed.error, {}, parsed.offset);
   }
   if (parsed.record->record_id != 3U) {
-    return ::quarry::runtime::decode_failure<Outer>(::quarry::runtime::DecodeError::unexpected_record_id);
+    return ::quarry::runtime::decode_failure<Outer>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
   }
   OuterBuilder builder;
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
@@ -491,10 +495,13 @@ std::optional<std::vector<std::byte>> encode(const Outer& value) {
         .field_index = 0U,
         .array_index = std::nullopt,
       });
-      return ::quarry::runtime::decode_failure<Outer>(decoded.error, std::move(nested_path));
+      const std::optional<std::uint64_t> nested_offset = decoded.byte_offset.has_value()
+        ? std::optional<std::uint64_t>(field->field_offset + *decoded.byte_offset)
+        : std::nullopt;
+      return ::quarry::runtime::decode_failure<Outer>(decoded.error, std::move(nested_path), nested_offset);
     }
     if (!builder.set_middle(*decoded.value)) {
-      return ::quarry::runtime::decode_failure<Outer>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Outer>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}}, field->field_offset);
     }
   }
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 1U); field != nullptr) {
@@ -505,10 +512,13 @@ std::optional<std::vector<std::byte>> encode(const Outer& value) {
         .field_index = 1U,
         .array_index = std::nullopt,
       });
-      return ::quarry::runtime::decode_failure<Outer>(decoded.error, std::move(nested_path));
+      const std::optional<std::uint64_t> nested_offset = decoded.byte_offset.has_value()
+        ? std::optional<std::uint64_t>(field->field_offset + *decoded.byte_offset)
+        : std::nullopt;
+      return ::quarry::runtime::decode_failure<Outer>(decoded.error, std::move(nested_path), nested_offset);
     }
     if (!builder.set_fallback(*decoded.value)) {
-      return ::quarry::runtime::decode_failure<Outer>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Outer>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}}, field->field_offset);
     }
   }
   return ::quarry::runtime::decoded_value<Outer>(builder.build());
@@ -615,10 +625,10 @@ std::optional<std::vector<std::byte>> encode(const Group& value) {
 ::quarry::runtime::DecodeResult<Group> decode_Group_result(std::span<const std::byte> input) {
   const auto parsed = ::quarry::runtime::parse_record(input);
   if (!parsed.record.has_value()) {
-    return ::quarry::runtime::decode_failure<Group>(parsed.error);
+    return ::quarry::runtime::decode_failure<Group>(parsed.error, {}, parsed.offset);
   }
   if (parsed.record->record_id != 4U) {
-    return ::quarry::runtime::decode_failure<Group>(::quarry::runtime::DecodeError::unexpected_record_id);
+    return ::quarry::runtime::decode_failure<Group>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
   }
   GroupBuilder builder;
   if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
@@ -626,20 +636,21 @@ std::optional<std::vector<std::byte>> encode(const Group& value) {
     const auto decoded_count = ::quarry::runtime::read_varuint(field->bytes, element_offset);
     if (!decoded_count.value.has_value() || *decoded_count.value > 2U) {
       if (!decoded_count.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Group>(decoded_count.error, {{.field_index = 0U, .array_index = std::nullopt}});
+        return ::quarry::runtime::decode_failure<Group>(decoded_count.error, {{.field_index = 0U, .array_index = std::nullopt}}, field->field_offset);
       }
-      return ::quarry::runtime::decode_failure<Group>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Group>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}}, field->field_offset);
     }
     const auto element_count = static_cast<std::size_t>(*decoded_count.value);
     std::vector<::Middle> elements;
     elements.reserve(element_count);
     for (std::size_t index = 0U; index < element_count; ++index) {
+      const std::size_t element_length_start = element_offset;
       const auto decoded_length = ::quarry::runtime::read_varuint(field->bytes, element_offset);
       if (!decoded_length.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Group>(decoded_length.error, {{.field_index = 0U, .array_index = static_cast<std::uint32_t>(index)}});
+        return ::quarry::runtime::decode_failure<Group>(decoded_length.error, {{.field_index = 0U, .array_index = static_cast<std::uint32_t>(index)}}, field->field_offset + element_length_start);
       }
       if (*decoded_length.value > field->bytes.size() - element_offset) {
-        return ::quarry::runtime::decode_failure<Group>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 0U, .array_index = static_cast<std::uint32_t>(index)}});
+        return ::quarry::runtime::decode_failure<Group>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 0U, .array_index = static_cast<std::uint32_t>(index)}}, field->field_offset + element_offset);
       }
       const auto element_length = static_cast<std::size_t>(*decoded_length.value);
       const auto element_bytes = field->bytes.subspan(element_offset, element_length);
@@ -650,16 +661,19 @@ std::optional<std::vector<std::byte>> encode(const Group& value) {
           .field_index = 0U,
           .array_index = static_cast<std::uint32_t>(index),
         });
-        return ::quarry::runtime::decode_failure<Group>(decoded.error, std::move(nested_path));
+        const std::optional<std::uint64_t> nested_offset = decoded.byte_offset.has_value()
+          ? std::optional<std::uint64_t>(field->field_offset + element_offset + *decoded.byte_offset)
+          : std::nullopt;
+        return ::quarry::runtime::decode_failure<Group>(decoded.error, std::move(nested_path), nested_offset);
       }
       elements.push_back(*decoded.value);
       element_offset += element_length;
     }
     if (element_offset != field->bytes.size()) {
-      return ::quarry::runtime::decode_failure<Group>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 0U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Group>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 0U, .array_index = std::nullopt}}, field->field_offset + element_offset);
     }
     if (!builder.set_middles(std::move(elements))) {
-      return ::quarry::runtime::decode_failure<Group>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
+      return ::quarry::runtime::decode_failure<Group>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}}, field->field_offset);
     }
   }
   return ::quarry::runtime::decoded_value<Group>(builder.build());

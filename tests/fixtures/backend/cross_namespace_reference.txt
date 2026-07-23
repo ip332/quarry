@@ -10,7 +10,7 @@
 
 #include "runtime/binary_record.hpp"
 
-static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 2U,
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 3U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 namespace alpha {
@@ -44,10 +44,10 @@ namespace one {
     ::quarry::runtime::DecodeResult<First> decode_First_result(std::span<const std::byte> input) {
       const auto parsed = ::quarry::runtime::parse_record(input);
       if (!parsed.record.has_value()) {
-        return ::quarry::runtime::decode_failure<First>(parsed.error);
+        return ::quarry::runtime::decode_failure<First>(parsed.error, {}, parsed.offset);
       }
       if (parsed.record->record_id != 1U) {
-        return ::quarry::runtime::decode_failure<First>(::quarry::runtime::DecodeError::unexpected_record_id);
+        return ::quarry::runtime::decode_failure<First>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
       }
       FirstBuilder builder;
       return ::quarry::runtime::decoded_value<First>(builder.build());
@@ -77,7 +77,7 @@ namespace one {
 #include "alpha/one.generated.hpp"
 #include "runtime/binary_record.hpp"
 
-static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 2U,
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 3U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 namespace beta {
@@ -160,10 +160,10 @@ namespace two {
     ::quarry::runtime::DecodeResult<Second> decode_Second_result(std::span<const std::byte> input) {
       const auto parsed = ::quarry::runtime::parse_record(input);
       if (!parsed.record.has_value()) {
-        return ::quarry::runtime::decode_failure<Second>(parsed.error);
+        return ::quarry::runtime::decode_failure<Second>(parsed.error, {}, parsed.offset);
       }
       if (parsed.record->record_id != 2U) {
-        return ::quarry::runtime::decode_failure<Second>(::quarry::runtime::DecodeError::unexpected_record_id);
+        return ::quarry::runtime::decode_failure<Second>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
       }
       SecondBuilder builder;
       if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
@@ -174,10 +174,13 @@ namespace two {
             .field_index = 0U,
             .array_index = std::nullopt,
           });
-          return ::quarry::runtime::decode_failure<Second>(decoded.error, std::move(nested_path));
+          const std::optional<std::uint64_t> nested_offset = decoded.byte_offset.has_value()
+            ? std::optional<std::uint64_t>(field->field_offset + *decoded.byte_offset)
+            : std::nullopt;
+          return ::quarry::runtime::decode_failure<Second>(decoded.error, std::move(nested_path), nested_offset);
         }
         if (!builder.set_first(*decoded.value)) {
-          return ::quarry::runtime::decode_failure<Second>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
+          return ::quarry::runtime::decode_failure<Second>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}}, field->field_offset);
         }
       }
       return ::quarry::runtime::decoded_value<Second>(builder.build());

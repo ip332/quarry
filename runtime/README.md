@@ -27,7 +27,8 @@ Current support:
 * owning `std::vector<std::byte>` encode results
 * compact runtime parse/read errors used by generated decoders
 * structured encode and decode result helpers for generated diagnostic codec
-  APIs, including nested field-path and array-index diagnostic context
+  APIs, including nested field-path, array-index, and byte-offset diagnostic
+  context for decode failures
 * a generated-code API compatibility constant used by generated C++ headers to
   verify that they are being compiled with a compatible runtime header
 
@@ -62,9 +63,9 @@ types. Generated compatibility wrappers may still collapse those errors to
 `std::nullopt`.
 
 Generated nested-record and record-array codecs propagate the child codec's
-root error code unchanged, and extend a structured path as the failure
-unwinds outward. Error results do not yet carry byte offsets or diagnostic
-strings.
+root error code unchanged, and extend a structured path and a translated
+absolute byte offset as the failure unwinds outward. Error results do not yet
+carry diagnostic strings.
 
 ### Codec Diagnostic Context
 
@@ -96,22 +97,22 @@ failure occurred, not only which error kind occurred.
 * This is a breaking change to `CodecResult`'s shape, reflected in
   `kGeneratedCodeApiVersion`.
 
-### Byte-Offset Context (Decided, Not Yet Implemented)
+### Byte-Offset Context
 
-A future increment will add a single `std::optional<std::uint64_t>
-byte_offset` member to `CodecResult<T, E>`, populated for decode failures
-only. The design is decided; no code in this revision implements it.
+`CodecResult<T, E>` carries a `std::optional<std::uint64_t> byte_offset`
+member alongside `value`, `error`, and `path`, populated for decode failures
+only.
 
 * **Decode only.** Every `EncodeError` origin is a schema-value violation
   against an already-fully-known value, never malformed wire bytes — there is
   no meaningful byte position to report, and approximating one (e.g. "where
   this field would have landed in the output") would require computing the
-  final field layout before validation runs, inverting the current
-  single-pass, fail-fast encode architecture, and would be actively wrong
-  whenever field declaration order and `field_index` order diverge.
-  `EncodeResult.byte_offset` stays permanently `std::nullopt`; the member
-  exists so `CodecResult<T, E>` remains one shared type across encode and
-  decode rather than bifurcating the result type.
+  final field layout before validation runs, inverting the single-pass,
+  fail-fast encode architecture, and would be actively wrong whenever field
+  declaration order and `field_index` order diverge. `EncodeResult.byte_offset`
+  stays permanently `std::nullopt`; the member exists so `CodecResult<T, E>`
+  remains one shared type across encode and decode rather than bifurcating the
+  result type.
 * **Absolute, not relative.** `byte_offset` is measured from the start of the
   byte span given to the top-level generated decoder — the same buffer the
   caller already has — not from the start of whatever nested/embedded record
@@ -123,42 +124,43 @@ only. The design is decided; no code in this revision implements it.
   Field Directory `fieldOffset`/`fieldLength`, and avoids a truncation risk on
   32-bit embedded targets that a platform-width `size_t` would carry.
 * **Deterministic byte per error category** (no "near the error" wording):
-  * Whole-record failures detected before any field is examined (truncated
-    header, unsupported version/flags, invalid/reserved header bytes,
-    invalid payload length, unexpected record ID) identify the start of that
-    record. `invalid_header`'s two independent reserved-byte checks and
-    `invalid_payload_length`'s two independent checks currently share one
-    error value each; implementing this requires either splitting those
-    checks so each reports its own byte, or defining a documented tie-break
-    (e.g. always the first-checked field) — the follow-up PR must pick one
-    rather than leaving it ambiguous.
+  * Whole-record failures detected before any field is examined identify the
+    start of that record (offset `0`): truncated header, unsupported version,
+    unexpected record ID. `unsupported_flags` identifies the flags byte
+    (offset `1`).
+  * `invalid_header`'s two independent reserved-byte checks were split into
+    two separate return sites so each reports its own byte precisely:
+    `reserved0` at offset `3`, `reserved1` at offset `8` (previously combined
+    into one check with no way to distinguish them).
+    `invalid_payload_length`'s two independent checks were left combined,
+    since both are about the same header field being inconsistent with the
+    input: both report offset `12`, the start of the `payloadLength` field.
   * Field Directory failures (malformed directory, malformed varuint,
-    duplicate/unsorted entries, invalid/overlapping field range) identify the
-    start of the specific directory entry (or the claimed field-payload
-    position, for range failures) being parsed when the failure occurred.
+    duplicate/unsorted entries) identify the start of the specific directory
+    entry being parsed when the failure occurred. Invalid/overlapping field
+    range failures identify the claimed field-payload position instead (the
+    position the directory entry asserts, even though that assertion is
+    itself invalid).
   * Field-level failures on an otherwise structurally valid field (invalid
     field length, invalid bool, invalid UTF-8, unknown enum value,
     unsupported field type, decode-time bounds rejection) identify the start
-    of that field's payload.
-  * Array element failures (element-count/length varuint or bounds failures,
-    fixed-width/string/bytes/record element failures) identify the start of
-    the specific element (or its length prefix, for length-varuint failures)
-    within the array field's payload. Trailing unconsumed array bytes
-    identify the first unconsumed byte — more precise than the array's
-    field-level `path` frame alone.
-  * Implementers must capture a varuint read's starting position *before*
-    calling `read_varuint`, not after: `read_varuint` mutates its `offset`
-    output parameter during the read, including partial advancement before a
-    terminal failure.
-* **Runtime support required, not yet present.** `FieldView` (returned by
-  `find_field`) carries only `field_index` and a byte span today; it will
-  need an offset member so field-level generated decoders can report a
-  position without re-deriving it. `ParseRecordResult` will need an offset
-  member so `parse_record`'s structural failures can carry one through to
-  the generated `decode_..._result` wrapper. `read_varuint` itself needs no
-  signature change — its callers already hold the pre-call cursor.
-* This changes the shape of a type generated code depends on and will
-  require bumping `kGeneratedCodeApiVersion` again in the implementing PR.
+    of that field's payload, via the new `FieldView::field_offset` member.
+  * Array element failures identify the start of the specific element (or its
+    length prefix, for length-varuint failures) within the array field's
+    payload. Trailing unconsumed array bytes identify the first unconsumed
+    byte — more precise than the array's field-level `path` frame alone.
+  * Every varuint read site that contributes to a reported offset captures
+    its cursor position *before* calling `read_varuint`, not after:
+    `read_varuint` mutates its `offset` output parameter during the read,
+    including partial advancement before a terminal failure.
+* **Runtime support added.** `FieldView` gained a `field_offset` member so
+  field-level generated decoders can report a position without re-deriving
+  it. `ParseRecordResult` gained an `offset` member so `parse_record`'s
+  structural failures carry one through to the generated
+  `decode_..._result` wrapper. `read_varuint` itself needed no signature
+  change — its callers already held the pre-call cursor.
+* This is a breaking change to `CodecResult`'s shape, reflected in
+  `kGeneratedCodeApiVersion` (bumped again for this change).
 
 Generated string codecs validate UTF-8 on both encode and decode. Embedded
 U+0000 is valid, and no Unicode normalization is performed. Generated bytes
@@ -195,8 +197,8 @@ Out of scope:
 * dynamic Schema IR or manifest interpretation
 * nested arrays
 * unknown-field preservation
-* byte-offset context for codec errors (decided but not yet implemented; see
-  "Byte-Offset Context" above)
+* byte-offset context for encode errors (see "Byte-Offset Context" above for
+  why); diagnostic strings for codec errors
 * generated read/view APIs
 * zero-copy or caller-provided output buffers
 

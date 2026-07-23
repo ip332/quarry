@@ -621,7 +621,7 @@ TEST(SchemaCompilerPackageTest,
               std::string::npos);
     EXPECT_NE(result.stderr_text.find("Target runtime generated-code API version"),
               std::string::npos);
-    EXPECT_NE(result.stderr_text.find("  2"), std::string::npos);
+    EXPECT_NE(result.stderr_text.find("  3"), std::string::npos);
     EXPECT_NE(result.stderr_text.find("  1"), std::string::npos);
     const std::string log = read_text_file(log_path);
     EXPECT_NE(log.find("--print-generated-code-api-version"), std::string::npos);

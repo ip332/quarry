@@ -10,7 +10,7 @@
 
 #include "runtime/binary_record.hpp"
 
-static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 2U,
+static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 3U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 namespace quarry {
@@ -44,10 +44,10 @@ namespace geo {
     ::quarry::runtime::DecodeResult<Location> decode_Location_result(std::span<const std::byte> input) {
       const auto parsed = ::quarry::runtime::parse_record(input);
       if (!parsed.record.has_value()) {
-        return ::quarry::runtime::decode_failure<Location>(parsed.error);
+        return ::quarry::runtime::decode_failure<Location>(parsed.error, {}, parsed.offset);
       }
       if (parsed.record->record_id != 1U) {
-        return ::quarry::runtime::decode_failure<Location>(::quarry::runtime::DecodeError::unexpected_record_id);
+        return ::quarry::runtime::decode_failure<Location>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
       }
       LocationBuilder builder;
       return ::quarry::runtime::decoded_value<Location>(builder.build());
@@ -176,10 +176,10 @@ namespace geo {
     ::quarry::runtime::DecodeResult<Route> decode_Route_result(std::span<const std::byte> input) {
       const auto parsed = ::quarry::runtime::parse_record(input);
       if (!parsed.record.has_value()) {
-        return ::quarry::runtime::decode_failure<Route>(parsed.error);
+        return ::quarry::runtime::decode_failure<Route>(parsed.error, {}, parsed.offset);
       }
       if (parsed.record->record_id != 2U) {
-        return ::quarry::runtime::decode_failure<Route>(::quarry::runtime::DecodeError::unexpected_record_id);
+        return ::quarry::runtime::decode_failure<Route>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
       }
       RouteBuilder builder;
       if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 0U); field != nullptr) {
@@ -190,10 +190,13 @@ namespace geo {
             .field_index = 0U,
             .array_index = std::nullopt,
           });
-          return ::quarry::runtime::decode_failure<Route>(decoded.error, std::move(nested_path));
+          const std::optional<std::uint64_t> nested_offset = decoded.byte_offset.has_value()
+            ? std::optional<std::uint64_t>(field->field_offset + *decoded.byte_offset)
+            : std::nullopt;
+          return ::quarry::runtime::decode_failure<Route>(decoded.error, std::move(nested_path), nested_offset);
         }
         if (!builder.set_origin(*decoded.value)) {
-          return ::quarry::runtime::decode_failure<Route>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
+          return ::quarry::runtime::decode_failure<Route>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}}, field->field_offset);
         }
       }
       if (const auto* field = ::quarry::runtime::find_field(*parsed.record, 1U); field != nullptr) {
@@ -204,10 +207,13 @@ namespace geo {
             .field_index = 1U,
             .array_index = std::nullopt,
           });
-          return ::quarry::runtime::decode_failure<Route>(decoded.error, std::move(nested_path));
+          const std::optional<std::uint64_t> nested_offset = decoded.byte_offset.has_value()
+            ? std::optional<std::uint64_t>(field->field_offset + *decoded.byte_offset)
+            : std::nullopt;
+          return ::quarry::runtime::decode_failure<Route>(decoded.error, std::move(nested_path), nested_offset);
         }
         if (!builder.set_fallback(*decoded.value)) {
-          return ::quarry::runtime::decode_failure<Route>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}});
+          return ::quarry::runtime::decode_failure<Route>(::quarry::runtime::DecodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}}, field->field_offset);
         }
       }
       return ::quarry::runtime::decoded_value<Route>(builder.build());
