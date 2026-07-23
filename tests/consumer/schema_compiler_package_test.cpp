@@ -17,6 +17,10 @@
 #include <unistd.h>
 #endif
 
+#ifndef QUARRY_TEST_GENERATED_CODE_API_VERSION
+#error "QUARRY_TEST_GENERATED_CODE_API_VERSION must be defined"
+#endif
+
 namespace {
 
 [[nodiscard]] std::filesystem::path make_temp_directory(std::string_view stem) {
@@ -581,8 +585,14 @@ TEST(SchemaCompilerPackageTest,
     const std::filesystem::path consumer_source = root / "query mismatch source";
     const std::filesystem::path consumer_build = root / "query mismatch build";
     const std::filesystem::path log_path = root / "query mismatch invocations.log";
+    // Deliberately different from the real package epoch (QUARRY_TEST_GENERATED_CODE_API_VERSION)
+    // so this test keeps exercising a genuine mismatch after future epoch bumps, without needing
+    // a matching manual update here.
+    const std::string mismatched_compiler_api_version =
+        std::to_string(QUARRY_TEST_GENERATED_CODE_API_VERSION + 1);
     const std::filesystem::path wrapper = write_schema_compiler_query_wrapper(
-        root / "mismatch compiler.sh", installed_schema_compiler(install_prefix), log_path, "1");
+        root / "mismatch compiler.sh", installed_schema_compiler(install_prefix), log_path,
+        mismatched_compiler_api_version);
 
     write_text_file(consumer_source / "schema.brd",
                     "namespace: quarry.telemetry\n"
@@ -621,8 +631,11 @@ TEST(SchemaCompilerPackageTest,
               std::string::npos);
     EXPECT_NE(result.stderr_text.find("Target runtime generated-code API version"),
               std::string::npos);
-    EXPECT_NE(result.stderr_text.find("  3"), std::string::npos);
-    EXPECT_NE(result.stderr_text.find("  1"), std::string::npos);
+    EXPECT_NE(result.stderr_text.find(
+                  "  " + std::to_string(QUARRY_TEST_GENERATED_CODE_API_VERSION)),
+              std::string::npos);
+    EXPECT_NE(result.stderr_text.find("  " + mismatched_compiler_api_version),
+              std::string::npos);
     const std::string log = read_text_file(log_path);
     EXPECT_NE(log.find("--print-generated-code-api-version"), std::string::npos);
     EXPECT_EQ(log.find("--list-outputs"), std::string::npos);

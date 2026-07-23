@@ -85,7 +85,8 @@ target_compile_definitions(schema_compiler_package_test PRIVATE
     QUARRY_TEST_CMAKE_COMMAND="${CMAKE_COMMAND}"
     QUARRY_TEST_BUILD_DIR="${CMAKE_BINARY_DIR}"
     QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
-    QUARRY_SCHEMA_COMPILER_PACKAGE_CONSUMER_SOURCE_DIR="${CMAKE_SOURCE_DIR}/examples/cpp/schema_compiler_cmake")
+    QUARRY_SCHEMA_COMPILER_PACKAGE_CONSUMER_SOURCE_DIR="${CMAKE_SOURCE_DIR}/examples/cpp/schema_compiler_cmake"
+    QUARRY_TEST_GENERATED_CODE_API_VERSION=${QUARRY_GENERATED_CODE_API_VERSION})
 add_quarry_gtest(schema_compiler_tool_test tools/schema_compiler_tool_test.cpp
                       quarry_compiler_support)
 add_dependencies(schema_compiler_tool_test quarry_schema_compiler)
