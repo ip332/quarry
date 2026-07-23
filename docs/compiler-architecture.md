@@ -91,12 +91,17 @@ protobufs, tools, tests, fuzzers, and examples.
 contract, native imported-target discovery policy, and downstream CMake
 integration boundaries.
 
-Generated-output naming belongs to backend-owned planning. The compiler keeps a
-single internal generated-output planning model that feeds rendering and the
-schema compiler's `--list-outputs` query mode without reimplementing filename
-rules outside the backend. Tool-side file writing remains separate, and no
-CMake helper, depfile, manifest, or stale-output cleanup policy is implied by
-the query mode.
+Generated-output naming belongs to backend-owned planning. `GenerationPlan`
+(backend-internal `build_render_generation_plan`) is the single, canonical
+generated-output planning model that feeds both rendering (`Backend::generate`)
+and the schema compiler's `--list-outputs` query mode (`Backend::plan`), so
+filenames, output directories, and include paths are computed exactly once and
+cannot diverge between the two modes. No filename, output-directory, or
+include-path computation is reimplemented anywhere outside this stage — not in
+the CLI tool, and not in the CMake helper, which treats `--list-outputs`'
+printed paths as authoritative rather than predicting them. Tool-side file
+writing remains separate, and no CMake helper, depfile, manifest, or
+stale-output cleanup policy is implied by the query mode.
 
 ---
 

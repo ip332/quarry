@@ -15,6 +15,18 @@ Current C++ generation behavior:
 * accepts Schema IR plus backend options only
 * emits files only for namespaces that directly own records or enums
 * derives output file paths from the namespace FQN and configured output root
+  * `GenerationPlan` (built by the internal `build_render_generation_plan`
+    stage) is the single, canonical model for generated filenames, output
+    directories, and include paths — there is no second filename-computation
+    path anywhere in the backend, CLI tool, or CMake helper
+  * `Backend::plan()` (backing `--list-outputs`) and `Backend::generate()`
+    (backing actual file writing) both call `build_render_generation_plan`
+    and share the same `output_path_for_planned_file()` function to turn a
+    planned relative path into the final output path, so the two modes
+    cannot diverge
+  * the CMake helper (`quarry_generate_cpp()`) never predicts or recomputes
+    filenames itself; it takes the compiler's `--list-outputs` output as the
+    literal, authoritative file list
 * uses include paths relative to the generated include root
   * for example, `generated/alpha/one.generated.hpp` is included as
     `"alpha/one.generated.hpp"`
