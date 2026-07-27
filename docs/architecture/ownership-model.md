@@ -274,7 +274,12 @@ A suspended device may later be restored.
 
 Transition:
 
-CLAIMED, ASSIGNED, SUSPENDED, or QUARANTINED → RETIRED
+CLAIMED, ASSIGNED, or SUSPENDED → RETIRED
+
+QUARANTINED is a device-lifecycle state, not an ownership state (see
+`device-lifecycle.md`), so it is not enumerated as an ownership transition
+source here; a device's lifecycle state does not restrict which ownership
+states may transition to RETIRED.
 
 ---
 
@@ -309,6 +314,14 @@ REGISTERED
 → MANAGED
 
 A device shall not enter normal MANAGED operation until ownership has been established.
+
+Ownership state and device lifecycle state are tracked independently. This
+document's Ownership States govern administrative control (who may approve,
+assign, configure, and retire a device); `device-lifecycle.md`'s device
+states govern trust, connectivity, and security posture. Not every lifecycle
+state has a corresponding ownership state — for example, QUARANTINED
+(security-related isolation) is lifecycle-only and does not appear in the
+Ownership States list or in any ownership transition above.
 
 ---
 
