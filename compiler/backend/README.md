@@ -184,6 +184,29 @@ Current C++ generation behavior:
 * backend code-generation tests consume validated Schema IR directly and do
   not exercise either source frontend
 
+Internal rendering helper architecture:
+
+* one dispatcher per direction (`render_field_encoding`, `render_field_decoding`)
+  routes to exactly one type-specific renderer per schema field kind (scalar,
+  enum, string, bytes, record, array); each type-specific renderer holds real,
+  substantial logic and is not a thin wrapper
+* small lookup/utility helpers (runtime scalar append/read function names,
+  enum append/read function names and width, namespace/path formatting,
+  include requirement merging, the internal-to-public `GenerationPlan`
+  conversion) each centralize one genuine mapping or transformation reused at
+  real call sites — none of them merely forward their arguments unchanged
+* `include_path_for_namespace` currently computes the same value as
+  `file_stem_for_namespace` (the output-directory prefix that
+  `file_path_for_namespace` adds is deliberately omitted for `#include` text),
+  but keeps a distinct name because its one call site stores both values into
+  different fields for different purposes — the name documents that contract
+  even though the two happen to coincide today
+* per-record encode and decode definitions structurally mirror each other but
+  are not redundant: encoding and decoding are different operations and
+  cannot share one implementation
+* no dead or purely-forwarding helper exists in this file; investigated and
+  confirmed as part of PR-097
+
 Allowed dependencies:
 
 * `compiler/schema_ir`
