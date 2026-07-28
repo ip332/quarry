@@ -71,6 +71,15 @@ maintained.
 These documents define records, schemas, generated artifacts, and the
 compile-time model used by production systems.
 
+## Backend Design
+
+1. [`design/c-backend.md`](design/c-backend.md)
+
+This document proposes the architecture and public API for the next
+production-quality language backend, building on
+[`architecture/language-generators.md`](architecture/language-generators.md)
+and [`backend-api.md`](backend-api.md).
+
 ---
 
 # Current Architecture Documents
@@ -95,6 +104,7 @@ compile-time model used by production systems.
 
 * [`design/schema-identity.md`](design/schema-identity.md)
 * [`design/schema-evolution.md`](design/schema-evolution.md)
+* [`design/c-backend.md`](design/c-backend.md)
 
 ## Current Specifications
 
@@ -165,6 +175,7 @@ docs/
     design/
         schema-identity.md
         schema-evolution.md
+        c-backend.md
 
     specifications/
         README.md
