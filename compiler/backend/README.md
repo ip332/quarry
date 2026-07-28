@@ -125,7 +125,9 @@ Current C++ generation behavior:
     `byte_offset`, translated across nested-record and array-element
     forwarding the same way `path` accumulates; encode results never carry
     one — see `runtime/README.md`'s "Byte-Offset Context" section
-  * generated error results do not yet include diagnostic strings
+  * generated error results do not include diagnostic strings, and will
+    not — a closed decision (PR-101), not a deferred one; see
+    `runtime/README.md`'s "Diagnostic String Boundary" section
 * generates `decode_RecordName(std::span<const std::byte>)` compatibility
   wrappers that return `std::optional<RecordName>`
   * wrappers delegate to `decode_RecordName_result` and intentionally discard
@@ -178,9 +180,10 @@ Current C++ generation behavior:
     schema-language compatibility, or BRF wire compatibility
 * returns `success = false`, a non-empty `error_message`, and no generated
   files for backend failures
-* keeps enum formatting, parsing, reflection, accessors beyond the minimal
-  const inspection API, and field-path or byte-offset codec diagnostics out of
-  scope for this PR
+* keeps enum formatting, parsing, and reflection or accessors beyond the
+  minimal const inspection API out of scope, as a closed decision (PR-101)
+  rather than a deferred one; field-path and byte-offset codec diagnostics
+  are implemented (see above; PR-091 through PR-094)
 * backend code-generation tests consume validated Schema IR directly and do
   not exercise either source frontend
 
