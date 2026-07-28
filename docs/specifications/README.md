@@ -162,7 +162,6 @@ Before approving a specification, reviewers SHOULD verify:
 
 Planned specifications include:
 
-* record envelope layout
 * generated runtime bindings
 * runtime library APIs
 * transport protocol
@@ -171,3 +170,6 @@ Planned specifications include:
 * certificate lifecycle
 * telemetry ingestion
 * OTA metadata records
+
+Record envelope layout is already covered by `binary-record-format.md` (see
+"Current Specifications" above), not planned future work.

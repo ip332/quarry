@@ -7,7 +7,6 @@ Responsibilities:
 * produce the Layout Model from the Semantic Model
 * assign compiler-managed `recordId` values
 * assign compiler-managed `fieldIndex` values
-* compute sparse record layout metadata
 * validate layout constraints
 
 Allowed dependencies:

@@ -109,8 +109,6 @@ compile-time model used by production systems.
 
 Future specification documents should define implementation details for:
 
-* schema language syntax
-* record envelope layout
 * generated runtime bindings
 * runtime library APIs
 * transport protocol
@@ -119,6 +117,10 @@ Future specification documents should define implementation details for:
 * certificate lifecycle
 * telemetry ingestion
 * OTA metadata records
+
+Schema language syntax and record envelope layout are already covered by
+`specifications/schema-language.md` and `specifications/binary-record-format.md`
+(see "Current Specifications" above), not planned future work.
 
 These specifications should preserve the architecture decisions documented in
 `principles.md` and `architecture/`.

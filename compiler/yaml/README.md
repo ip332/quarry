@@ -1,8 +1,10 @@
 # YAML Syntax Layer
 
-This module owns the generic YAML syntax layer for Quarry source files.
-It is a migration step toward the normative YAML `.brd` format defined in
-`docs/specifications/schema-language.md`.
+This module owns the generic YAML syntax layer for Quarry source files. It
+decodes the normative YAML `.brd` format defined in
+`docs/specifications/schema-language.md`, which this module's production
+frontend (`compiler/frontend`) already uses as the sole production compiler
+path — see "Migration Status" below.
 
 ## Responsibility
 

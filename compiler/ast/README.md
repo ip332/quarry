@@ -1,6 +1,7 @@
 # AST
 
-Owns the syntax tree representation produced by the future parser.
+Owns the syntax tree representation produced by the legacy declaration-syntax
+parser (`compiler/parser`).
 
 ## Ownership
 

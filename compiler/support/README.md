@@ -65,7 +65,8 @@ empty optional results or false validation helpers.
 ## FileSystem
 
 `FileSystem` is the minimal filesystem abstraction used by compiler context and
-future file-loading boundaries. It can:
+by file-loading boundaries such as `tools/schema_compiler`'s CLI entry point.
+It can:
 
 * read a source file
 * test whether a path exists

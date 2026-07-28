@@ -93,7 +93,7 @@ treats architecture docs as authoritative "what" and expects code to match them.
 | --- | --- |
 | `support/` | Source manager, file system abstraction, source locations |
 | `diagnostics/` | Diagnostic engine |
-| `context/` | `CompilerContext` — shared infra (source manager, diagnostics, options, `recordId` allocation state) passed through every pass |
+| `context/` | `CompilerContext` — shared infra (source manager, file system, diagnostics) passed through every pass; `recordId`/`fieldIndex` allocation state lives in `layout/`, not here |
 | `ast/`, `parser/` | Legacy declaration-syntax lexer/parser/AST (compatibility only) |
 | `yaml/` | `YamlParser`, `YamlDocument`, schema decoder |
 | `source_schema/` | Normalized, neutral source-schema model |
