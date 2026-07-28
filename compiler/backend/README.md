@@ -184,6 +184,52 @@ Current C++ generation behavior:
 * backend code-generation tests consume validated Schema IR directly and do
   not exercise either source frontend
 
+Implementation architecture (investigated in PR-100; not split — see
+`jira/backlog.md` for the full analysis and a documented, deferred future
+split proposal):
+
+`backend.cpp` is a single translation unit implementing a strict,
+one-directional pipeline of five phases, each communicating with the next
+only through a well-defined data structure — no phase holds mutable state
+that survives past its own call, and no cyclic dependency exists between
+phases:
+
+1. **Type Catalog** (`collect_named_types`, `lookup_named_type`) — one
+   recursive pass over the whole Schema IR namespace tree, producing a flat
+   `TypeCatalog` (id → C++ name, file path, include path) used to resolve
+   any named type reference anywhere in the schema, not just the current
+   namespace.
+2. **Namespace/Declaration Analysis** (`analyze_namespace`,
+   `lower_field_type`, `lower_runtime_field_encoding`,
+   `order_declarations_topologically`) — consumes the Type Catalog and
+   produces the `NamespacePlan` tree: per-field C++ type names, per-field
+   runtime codec strategy (`RuntimeFieldEncoding`), required includes, and a
+   topologically-sorted declaration order (cycle detection included).
+3. **File Planning** (`collect_planned_files`, `validate_generation_plan`,
+   `detect_file_cycles`, `to_public_generation_plan`,
+   `build_render_generation_plan`) — consumes only the `NamespacePlan`
+   tree's file/include metadata (never its declaration/field content) and
+   produces the flat `RenderGenerationPlan` (internal) and public
+   `GenerationPlan`. `Backend::plan()` stops here.
+4. **Rendering** (`render_enum_definition`, `render_record_builder_definition`,
+   `render_field_validation_function`/`_statements`, `render_record_definition`,
+   `render_namespace_file`, and the encode/decode codec renderers documented
+   below) — consumes one fully-resolved `NamespacePlan` node at a time and
+   produces C++ text; has no dependency on the Type Catalog or the file
+   plan.
+5. **Output Assembly** (`render_generation_plan`, `output_path_for_planned_file`,
+   `Backend::generate()`) — the thin loop gluing the file plan to the
+   renderer and computing final on-disk paths. `backend.cpp` never touches
+   the filesystem itself; writing `GeneratedFile::content` to disk is the
+   caller's responsibility (`tools/schema_compiler`).
+
+A cross-cutting family of small, pure text/name-formatting helpers
+(`indent`, `namespace_parts`, `join_path`, `file_stem_for_namespace`,
+`file_path_for_namespace`, `include_path_for_namespace`, `cpp_qualified_name`,
+`cpp_namespace_prefix`, `namespace_comment`, `field_member_name`,
+`append_namespace_open`/`_close`, `emits_records`) is shared across phases
+1, 2, and 4 — these are not phase-exclusive.
+
 Internal rendering helper architecture:
 
 * one dispatcher per direction (`render_field_encoding`, `render_field_decoding`)
