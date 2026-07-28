@@ -64,7 +64,7 @@ fails configuration on mismatch.
 | Artifact | Current target or location | External role | Classification |
 | --- | --- | --- | --- |
 | Runtime library | `quarry_runtime`, exported as `Quarry::runtime` | Link through CMake and include public runtime headers | Supported public SDK |
-| Runtime headers | `runtime/binary_record.hpp`, `include/quarry/runtime/binary_record.hpp` | Compile generated or handwritten C++ that uses BRF runtime mechanics | Supported public SDK |
+| Runtime headers | `include/quarry/runtime/binary_record.hpp`, `include/quarry/runtime/version.hpp` | Compile generated or handwritten C++ that uses BRF runtime mechanics | Supported public SDK |
 | CMake package files | `QuarryConfig.cmake`, `QuarryConfigVersion.cmake`, `QuarryTargets.cmake`, `QuarryGenerate.cmake` | Package discovery for the runtime, schema compiler target, generated-code API package metadata, and installed-package generation helper | Supported public SDK |
 | Schema compiler executable | `quarry_schema_compiler`, exported as `Quarry::schema_compiler`, installed as `quarry-schema-compiler` | Direct CLI invocation or CMake command use through `$<TARGET_FILE:...>` | Installed tool target |
 | Generated C++ code | Backend output under caller-selected paths | Owned by the downstream project that generated it | Downstream-owned build artifact |

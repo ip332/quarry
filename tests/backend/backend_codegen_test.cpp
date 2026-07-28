@@ -220,7 +220,8 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
     std::ostringstream command;
     command << std::quoted(compiler) << " -std=c++20 -I" << std::quoted(generated_root.string())
             << " -I" << std::quoted(generated_include_root.string())
-            << " -I" << std::quoted(repo_root.string()) << " "
+            << " -I" << std::quoted(repo_root.string())
+            << " -I" << std::quoted((repo_root / "include").string()) << " "
             << std::quoted(source_path.string()) << " -o "
             << std::quoted(executable_path.string());
 
@@ -247,7 +248,9 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
     std::ostringstream command;
     command << std::quoted(compiler) << " -std=c++20 -I"
             << std::quoted(generated_include_root.string()) << " -I"
-            << std::quoted(repo_root.string()) << " " << std::quoted(source_path.string()) << " -o "
+            << std::quoted(repo_root.string()) << " -I"
+            << std::quoted((repo_root / "include").string()) << " "
+            << std::quoted(source_path.string()) << " -o "
             << std::quoted(executable_path.string()) << " > "
             << std::quoted(output_path.string()) << " 2>&1";
 
@@ -445,7 +448,7 @@ TEST(BackendCodegenTest, GeneratedRecordsAssertRuntimeGeneratedCodeApiVersion) {
 
 TEST(BackendCodegenTest, RuntimeGeneratedCodeApiVersionMismatchFailsCompilation) {
     const std::string output = compile_source_expect_failure(
-        "#include \"runtime/binary_record.hpp\"\n"
+        "#include \"quarry/runtime/binary_record.hpp\"\n"
         "static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 999U,\n"
         "              \"Generated Quarry code is incompatible with the installed "
         "Quarry runtime. Regenerate the code using a compatible "

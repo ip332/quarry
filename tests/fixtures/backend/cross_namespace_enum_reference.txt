@@ -25,7 +25,7 @@ namespace one {
 #include <vector>
 
 #include "alpha/one.generated.hpp"
-#include "runtime/binary_record.hpp"
+#include "quarry/runtime/binary_record.hpp"
 
 static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 3U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");

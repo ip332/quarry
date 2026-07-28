@@ -25,8 +25,8 @@ endif()
 
 set(QUARRY_GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
 configure_file(
-    runtime/version.hpp.in
-    ${QUARRY_GENERATED_INCLUDE_DIR}/runtime/version.hpp
+    include/quarry/runtime/version.hpp.in
+    ${QUARRY_GENERATED_INCLUDE_DIR}/quarry/runtime/version.hpp
     @ONLY
 )
 configure_file(
@@ -72,12 +72,12 @@ install(TARGETS quarry_runtime
     EXPORT QuarryTargets
 )
 install(FILES
-    runtime/binary_record.hpp
-    ${QUARRY_GENERATED_INCLUDE_DIR}/runtime/version.hpp
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/runtime
+    ${QUARRY_GENERATED_INCLUDE_DIR}/quarry/runtime/version.hpp
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/quarry/runtime
 )
 install(DIRECTORY include/quarry
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    PATTERN "*.in" EXCLUDE
 )
 install(EXPORT QuarryTargets
     FILE QuarryTargets.cmake

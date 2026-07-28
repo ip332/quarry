@@ -841,7 +841,7 @@ void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
         for (int index = 0; index < ns.records_size(); ++index) {
             const ::quarry::schema_ir::RecordIR& record = ns.records(index);
             add_record_requirements(plan.standard_includes);
-            plan.includes.insert("runtime/binary_record.hpp");
+            plan.includes.insert("quarry/runtime/binary_record.hpp");
             plan.declarations.push_back(DeclarationPlan{
                 .kind = DeclarationPlan::Kind::Record,
                 .enum_ir = nullptr,

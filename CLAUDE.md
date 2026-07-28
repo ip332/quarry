@@ -121,9 +121,10 @@ these primitives.
 **Critical invariant**: runtime code must never depend on compiler libraries, YAML, Schema IR
 protobufs, source-schema models, symbols, semantic validation, layout, or backend code — this
 is enforced by convention, not currently by a CI check, so watch it when editing
-`runtime/binary_record.hpp`.
+`include/quarry/runtime/binary_record.hpp` (the runtime's single canonical public header;
+see PR-104).
 
-`kGeneratedCodeApiVersion` (in generated `runtime/version.hpp`, sourced from the single CMake
+`kGeneratedCodeApiVersion` (in generated `quarry/runtime/version.hpp`, sourced from the single CMake
 scalar `QUARRY_GENERATED_CODE_API_VERSION` in the top-level `CMakeLists.txt`) is a
 narrow compile-time compatibility guard between generated code and the runtime header —
 it is *not* the package release version and does not imply BRF wire compatibility. Bump it

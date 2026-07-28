@@ -167,7 +167,9 @@ Current C++ generation behavior:
   * `<utility>` for generated encoder moves
   * `<string>` for `std::string`
   * `<vector>` for arrays, `bytes`, and generated encoder results
-* includes `runtime/binary_record.hpp` when a generated file contains records
+* includes `quarry/runtime/binary_record.hpp` when a generated file contains
+  records — the same canonical public include path documented for
+  hand-written consumers (see `runtime/README.md`)
 * emits a compile-time generated-code API compatibility assertion for generated
   record headers
   * the assertion checks

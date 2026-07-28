@@ -1,5 +1,5 @@
-#include "runtime/binary_record.hpp"
-#include "runtime/version.hpp"
+#include "quarry/runtime/binary_record.hpp"
+#include "quarry/runtime/version.hpp"
 
 #include <cstddef>
 #include <cstdint>

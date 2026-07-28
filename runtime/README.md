@@ -293,6 +293,15 @@ schema compiler tools, generated protobufs, fuzzers, tests, and examples are not
 installed or exported by the runtime package; see
 `docs/distribution-model.md`.
 
+`<quarry/runtime/binary_record.hpp>`/`<quarry/runtime/version.hpp>` are the
+single canonical public include path (PR-104) — generated code, hand-written
+consumers, and the source tree's own tests and fuzz targets all use it. No
+other install path or include convention is provided; there is no
+unprefixed `runtime/binary_record.hpp` compatibility path, since no external
+consumer ever depended on one (verified during PR-104's investigation) and
+this project has not yet tagged a release that could have created such a
+dependency.
+
 ## Fuzzing
 
 BRF parser fuzz targets are available behind the opt-in

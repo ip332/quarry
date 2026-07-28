@@ -86,6 +86,17 @@ TEST(RuntimePackageConsumerTest, InstalledRuntimePackageBuildsExternalConsumer) 
                                         shell_quote(install_prefix.string());
     expect_success(run_command(install_command, root, "install"), "install runtime package");
 
+    // Regression guard (PR-104): the installed tree must expose exactly one
+    // canonical public include path for the runtime headers. Before PR-104,
+    // an undocumented, unprefixed `include/runtime/` directory was also
+    // installed alongside the documented `include/quarry/runtime/` path.
+    EXPECT_TRUE(std::filesystem::exists(install_prefix / "include" / "quarry" / "runtime" /
+                                        "binary_record.hpp"));
+    EXPECT_TRUE(
+        std::filesystem::exists(install_prefix / "include" / "quarry" / "runtime" / "version.hpp"));
+    EXPECT_FALSE(std::filesystem::exists(install_prefix / "include" / "runtime"))
+        << "installed package must not expose an unprefixed include/runtime/ directory";
+
     const std::string configure_command =
         std::string(shell_quote(QUARRY_TEST_CMAKE_COMMAND)) + " -S " +
         shell_quote(QUARRY_RUNTIME_PACKAGE_CONSUMER_SOURCE_DIR) + " -B " +

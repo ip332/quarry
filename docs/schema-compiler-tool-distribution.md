@@ -550,7 +550,7 @@ Current version and compatibility surfaces:
 The generated-code API version is single-sourced by the top-level
 `QUARRY_GENERATED_CODE_API_VERSION` CMake scalar. CMake validates the value
 as a non-negative `std::uint32_t`, configures the public runtime
-`runtime/version.hpp`, configures the backend's private generated-code API
+`quarry/runtime/version.hpp`, configures the backend's private generated-code API
 header, and writes the same value into installed package metadata as
 `Quarry_GENERATED_CODE_API_VERSION`. The backend renderer no longer owns a
 separate compatibility literal.
@@ -620,8 +620,8 @@ Implemented single-source design:
 
 * one canonical generated-code API version definition is owned by the
   top-level `QUARRY_GENERATED_CODE_API_VERSION` CMake scalar
-* `runtime/version.hpp` is configured from that scalar and installed at the
-  existing public include path
+* `quarry/runtime/version.hpp` is configured from that scalar and installed at
+  the existing public include path
 * the backend uses a private configured header derived from the same scalar
   when rendering generated `static_assert` expectations
 * `QuarryConfig.cmake` exposes the same value as

@@ -1,6 +1,6 @@
 #include "fuzz/representative_generated_schema.hpp"
 
-#include "runtime/binary_record.hpp"
+#include "quarry/runtime/binary_record.hpp"
 
 #include <cstddef>
 #include <cstdint>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "runtime/binary_record.hpp"
+#include "quarry/runtime/binary_record.hpp"
 
 #include <cstddef>
 #include <cstdint>
