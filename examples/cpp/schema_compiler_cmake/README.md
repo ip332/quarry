@@ -74,3 +74,12 @@ Quarry release as the schema compiler that generated it. Generated headers
 also check `quarry::runtime::kGeneratedCodeApiVersion` at compile time;
 that guard covers generated-code/runtime API compatibility, not exact package
 release equality or BRF wire compatibility.
+
+`main.cpp` also demonstrates structured decode-failure handling: after the
+happy-path round trip, it decodes a truncated copy and a corrupted copy of
+the encoded bytes through `decode_Sample_result` (the `DecodeResult`-returning
+function, as opposed to the `std::optional`-returning `decode_Sample`) and
+inspects `.error`, `.path`, and `.byte_offset` on each — including why `.path`
+is empty for the truncated case. See `runtime/README.md`'s "Codec Diagnostic
+Context", "Byte-Offset Context", and "Diagnostic String Boundary" sections for
+the full contract this example exercises.

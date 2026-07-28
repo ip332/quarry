@@ -68,6 +68,12 @@ absolute byte offset as the failure unwinds outward. Error results do not
 carry diagnostic strings, and will not — see "Diagnostic String Boundary"
 below.
 
+`examples/cpp/schema_compiler_cmake` demonstrates realistic decode failure
+handling against the `_result` functions described below: inspecting
+`.error`/`.path`/`.byte_offset` on a truncated payload and on a payload with a
+corrupted Field Directory entry, including why `.path` is intentionally empty
+for the former.
+
 ### Codec Diagnostic Context
 
 `CodecResult<T, E>` (aliased as `EncodeResult<T>`/`DecodeResult<T>`) carries a
@@ -181,11 +187,16 @@ closed design decision (PR-101), not a placeholder for a future increment.
   runtime's own public read primitives let them re-inspect that position
   directly if they need more than the enum, path, and offset already give
   them.
-* **No demonstrated demand exists.** Every current consumer — runtime
-  tests, backend codegen tests, fuzz harnesses — compares `.error`, `.path`,
-  and `.byte_offset` as pure structured data (`==`, `.has_value()`) and
-  never formats them into text. No tool, example, or test in this
-  repository constructs a diagnostic string from a `CodecResult` today.
+* **No demonstrated demand for a runtime-owned formatter exists.** Every
+  test in this repository — runtime tests, backend codegen tests, fuzz
+  harnesses — compares `.error`, `.path`, and `.byte_offset` as pure
+  structured data (`==`, `.has_value()`) and never formats them into text.
+  `examples/cpp/schema_compiler_cmake` (PR-105) demonstrates realistic decode
+  failure handling and does print a short diagnostic, but its enum-to-name
+  mapping is a few lines of ordinary downstream application code, written
+  once against the fixed, documented enum set — exactly the shape of
+  "trivially write their own small mapping" below, and further evidence that
+  no runtime-owned formatter is needed to make `CodecResult` usable.
 * **A schema-neutral formatter (enum name, or enum+path+offset formatting)
   was considered and rejected for lack of justification**, not for cost —
   an allocation-free enum-to-name mapping would be cheap to add, but

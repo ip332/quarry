@@ -117,6 +117,10 @@ by the backend's internal generation plan, but it is not a CMake helper,
 manifest, depfile, or stale-output cleanup mechanism.
 
 Minimal installed-package examples are available in `examples/cpp/`.
+`examples/cpp/schema_compiler_cmake` also demonstrates structured
+decode-failure handling (`CodecResult`'s `.error`/`.path`/`.byte_offset`)
+against a truncated and a corrupted payload; see `runtime/README.md` for the
+full diagnostic contract.
 
 The supported downstream distribution model is defined in
 `docs/distribution-model.md`. The installed SDK currently consists of the
