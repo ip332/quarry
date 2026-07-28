@@ -1,5 +1,6 @@
 #include "compiler/backend/backend.hpp"
 #include "compiler/backend/generated_code_api_version.hpp"
+#include "compiler/backend_c/backend_c.hpp"
 #include "compiler/context/compiler_context.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/frontend/yaml_compiler.hpp"
@@ -21,6 +22,7 @@
 namespace {
 
 namespace backend = quarry::compiler::backend;
+namespace backend_c = quarry::compiler::backend_c;
 namespace context = quarry::compiler::context;
 namespace diagnostics = quarry::compiler::diagnostics;
 namespace frontend = quarry::compiler::frontend;
@@ -33,11 +35,17 @@ constexpr int exit_success = 0;
 constexpr int exit_failure = 1;
 constexpr int exit_usage = 2;
 
+enum class Language {
+    Cpp,
+    C,
+};
+
 struct CommandLine {
     bool show_help = false;
     bool show_version = false;
     bool show_generated_code_api_version = false;
     bool list_outputs = false;
+    Language language = Language::Cpp;
     std::string input_path;
     backend::CodegenOptions codegen_options;
 };
@@ -48,7 +56,9 @@ struct CommandLine {
            "Options:\n"
            "  -o, --output-directory PATH  Directory for generated files (default: generated)\n"
            "      --root-file-stem NAME     Root namespace file stem (default: schema)\n"
-           "      --file-extension EXT      Generated file extension (default: .generated.hpp)\n"
+           "      --file-extension EXT      Generated file extension for --language cpp\n"
+           "                                (default: .generated.hpp)\n"
+           "      --language {cpp,c}        Target backend language (default: cpp)\n"
            "      --list-outputs            Print generated output paths without writing files\n"
            "      --print-generated-code-api-version\n"
            "                                Print the generated-code API compatibility version and "
@@ -69,7 +79,7 @@ void print_generated_code_api_version(std::ostream& output) {
 
 [[nodiscard]] bool option_requires_value(std::string_view option) {
     return option == "-o" || option == "--output-directory" || option == "--root-file-stem" ||
-           option == "--file-extension";
+           option == "--file-extension" || option == "--language";
 }
 
 [[nodiscard]] std::optional<CommandLine> parse_command_line(int argc, char** argv,
@@ -78,6 +88,7 @@ void print_generated_code_api_version(std::ostream& output) {
     bool saw_output_directory = false;
     bool saw_root_file_stem = false;
     bool saw_file_extension = false;
+    bool saw_language = false;
 
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument{argv[index]};
@@ -128,13 +139,28 @@ void print_generated_code_api_version(std::ostream& output) {
                 }
                 saw_root_file_stem = true;
                 command_line.codegen_options.root_file_stem = value;
-            } else {
+            } else if (argument == "--file-extension") {
                 if (saw_file_extension) {
                     errors << "error: duplicate file-extension option\n";
                     return std::nullopt;
                 }
                 saw_file_extension = true;
                 command_line.codegen_options.file_extension = value;
+            } else {
+                if (saw_language) {
+                    errors << "error: duplicate language option\n";
+                    return std::nullopt;
+                }
+                saw_language = true;
+                if (value == "cpp") {
+                    command_line.language = Language::Cpp;
+                } else if (value == "c") {
+                    command_line.language = Language::C;
+                } else {
+                    errors << "error: invalid value for --language: " << value
+                           << " (expected 'cpp' or 'c')\n";
+                    return std::nullopt;
+                }
             }
             continue;
         }
@@ -156,12 +182,18 @@ void print_generated_code_api_version(std::ostream& output) {
             command_line.list_outputs || !command_line.input_path.empty() ||
             command_line.codegen_options.output_directory != "generated" ||
             command_line.codegen_options.root_file_stem != "schema" ||
-            command_line.codegen_options.file_extension != ".generated.hpp";
+            command_line.codegen_options.file_extension != ".generated.hpp" ||
+            command_line.language != Language::Cpp;
         if (has_generation_arguments) {
             errors << "error: --print-generated-code-api-version does not accept generation "
                       "options or an input file\n";
             return std::nullopt;
         }
+    }
+
+    if (command_line.language == Language::C && saw_file_extension) {
+        errors << "error: --file-extension is not supported with --language c\n";
+        return std::nullopt;
     }
 
     if (!command_line.show_help && !command_line.show_version &&
@@ -200,7 +232,11 @@ void print_generated_code_api_version(std::ostream& output) {
            (output_path.filename().string() + ".tmp-quarry-schema-compiler");
 }
 
-[[nodiscard]] bool write_generated_file(const backend::GeneratedFile& file,
+// Templated on the generated-file type so this file-writing/safety logic is
+// shared by every backend's output (a CLI-level, backend-agnostic concern)
+// without either backend depending on the other's types.
+template <typename GeneratedFileT>
+[[nodiscard]] bool write_generated_file(const GeneratedFileT& file,
                                         const std::filesystem::path& output_root,
                                         std::ostream& errors) {
     const std::filesystem::path output_path{file.path};
@@ -245,10 +281,11 @@ void print_generated_code_api_version(std::ostream& output) {
     return true;
 }
 
-[[nodiscard]] bool write_generated_files(const backend::CodegenResult& result,
-                                         const backend::CodegenOptions& options,
+template <typename CodegenResultT>
+[[nodiscard]] bool write_generated_files(const CodegenResultT& result,
+                                         const std::string& output_directory,
                                          std::ostream& errors) {
-    const std::filesystem::path output_root{options.output_directory};
+    const std::filesystem::path output_root{output_directory};
     std::set<std::filesystem::path> seen_paths;
     for (const auto& file : result.files) {
         const std::filesystem::path normalized_path =
@@ -316,6 +353,45 @@ void print_generated_code_api_version(std::ostream& output) {
         return exit_failure;
     }
 
+    if (command_line.language == Language::C) {
+        backend_c::CodegenOptions c_options;
+        c_options.output_directory = command_line.codegen_options.output_directory;
+        c_options.root_file_stem = command_line.codegen_options.root_file_stem;
+
+        backend_c::Backend backend;
+        if (command_line.list_outputs) {
+            const backend_c::PlanResult plan_result =
+                backend.plan(*compilation_result.schema_ir, c_options);
+            if (!plan_result.success) {
+                errors << "backend error: " << plan_result.error_message << '\n';
+                return exit_failure;
+            }
+
+            for (const backend_c::PlannedGeneratedFile& file : plan_result.plan.files) {
+                output << backend_c::output_path_for_planned_file(c_options,
+                                                                   file.relative_header_path)
+                       << '\n';
+                output << backend_c::output_path_for_planned_file(c_options,
+                                                                   file.relative_source_path)
+                       << '\n';
+            }
+            return exit_success;
+        }
+
+        const backend_c::CodegenResult codegen_result =
+            backend.generate(*compilation_result.schema_ir, c_options);
+        if (!codegen_result.success) {
+            errors << "backend error: " << codegen_result.error_message << '\n';
+            return exit_failure;
+        }
+
+        if (!write_generated_files(codegen_result, c_options.output_directory, errors)) {
+            return exit_failure;
+        }
+
+        return exit_success;
+    }
+
     backend::Backend backend;
     if (command_line.list_outputs) {
         const backend::PlanResult plan_result =
@@ -340,7 +416,8 @@ void print_generated_code_api_version(std::ostream& output) {
         return exit_failure;
     }
 
-    if (!write_generated_files(codegen_result, command_line.codegen_options, errors)) {
+    if (!write_generated_files(codegen_result, command_line.codegen_options.output_directory,
+                               errors)) {
         return exit_failure;
     }
 

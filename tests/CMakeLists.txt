@@ -61,6 +61,10 @@ target_compile_definitions(backend_codegen_test PRIVATE
     QUARRY_TEST_GENERATED_CODE_API_VERSION=${QUARRY_GENERATED_CODE_API_VERSION})
 target_link_libraries(backend_codegen_test PRIVATE quarry_compiler_schema_ir)
 target_link_libraries(backend_codegen_test PRIVATE quarry_schema_ir_warning_tweaks)
+add_quarry_gtest(backend_c_test backend_c/backend_c_test.cpp
+                      quarry_compiler_backend_c)
+target_link_libraries(backend_c_test PRIVATE quarry_compiler_schema_ir)
+target_link_libraries(backend_c_test PRIVATE quarry_schema_ir_warning_tweaks)
 add_quarry_gtest(runtime_binary_record_test runtime/binary_record_test.cpp
                       quarry_runtime)
 target_compile_definitions(runtime_binary_record_test PRIVATE
@@ -92,6 +96,7 @@ add_quarry_gtest(schema_compiler_tool_test tools/schema_compiler_tool_test.cpp
 add_dependencies(schema_compiler_tool_test quarry_schema_compiler)
 target_compile_definitions(schema_compiler_tool_test PRIVATE
     QUARRY_SCHEMA_COMPILER_TOOL="$<TARGET_FILE:quarry_schema_compiler>"
-    QUARRY_TEST_GENERATED_CODE_API_VERSION=${QUARRY_GENERATED_CODE_API_VERSION})
+    QUARRY_TEST_GENERATED_CODE_API_VERSION=${QUARRY_GENERATED_CODE_API_VERSION}
+    QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}")
 add_quarry_gtest(diagnostics_smoke_test diagnostics/diagnostics_smoke_test.cpp quarry_compiler_context)
 add_quarry_gtest(support_test support/support_test.cpp quarry_compiler_support)

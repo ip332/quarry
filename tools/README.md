@@ -20,13 +20,36 @@ quarry-schema-compiler [options] INPUT
 Options:
   -o, --output-directory PATH  Directory for generated files (default: generated)
       --root-file-stem NAME     Root namespace file stem (default: schema)
-      --file-extension EXT      Generated file extension (default: .generated.hpp)
+      --file-extension EXT      Generated file extension for --language cpp
+                                (default: .generated.hpp)
+      --language {cpp,c}        Target backend language (default: cpp)
       --list-outputs            Print generated output paths without writing files
       --print-generated-code-api-version
                                 Print the generated-code API compatibility version and exit
       --version                 Show version information
   -h, --help                    Show help
 ```
+
+`--language` selects which backend generates output: `cpp` (the default,
+unchanged behavior) or `c`. Omitting `--language` and passing `--language
+cpp` explicitly behave identically. An unrecognized value is a usage error
+(exit code `2`) naming the invalid value and the two accepted ones.
+`--file-extension` configures only the C++ backend's single generated file
+extension; combining it with `--language c` is a usage error, since the C
+backend always emits a `.h`/`.c` pair with fixed extensions
+(`.generated.h`/`.generated.c`) that are not yet independently configurable
+from the command line.
+
+**`--language c` is an architectural skeleton (PR-107), not a serialization
+backend.** It emits one `.h`/`.c` pair per namespace that owns records or
+enums, with generated C enums, empty-shell C structs for zero-field
+records, and an `_init()` function per record -- see
+`compiler/backend_c/README.md` and `docs/design/c-backend.md` for the full
+scope and roadmap. A record that declares one or more fields fails
+generation with a diagnostic identifying the record and its field count,
+rather than silently emitting a struct that drops those fields. There is no
+C runtime, no encode/decode API, and no generated-code API compatibility
+epoch for C yet.
 
 The command prints compiler diagnostics and tool errors to stderr. Successful
 compilation is quiet and returns exit code `0`.
@@ -53,10 +76,13 @@ The command-line parser treats `--help` first, `--version` second, and
 
 `--list-outputs` is a terminal generation mode. It still requires a valid input
 schema and accepts generation options that affect output names:
-`--output-directory`, `--root-file-stem`, and `--file-extension`. It compiles
-and validates the schema through backend output planning, prints one planned
-generated path per line to stdout, writes diagnostics to stderr on failure, and
-does not render generated content or write files.
+`--output-directory`, `--root-file-stem`, and (for `--language cpp`)
+`--file-extension`. It compiles and validates the schema through backend
+output planning, prints one planned generated path per line to stdout, writes
+diagnostics to stderr on failure, and does not render generated content or
+write files. For `--language c`, each planned namespace file contributes two
+lines -- the header path, then the source path -- since the C backend's
+planner always knows both paths together (see `compiler/backend_c/README.md`).
 
 Listed paths use the same path-base semantics as normal generation: the backend
 planned relative output path is joined to the selected output directory. If the

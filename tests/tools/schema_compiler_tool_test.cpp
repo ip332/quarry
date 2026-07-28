@@ -1,7 +1,9 @@
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iterator>
 #include <sstream>
 #include <stdexcept>
@@ -13,6 +15,10 @@
 
 #ifndef QUARRY_TEST_GENERATED_CODE_API_VERSION
 #error "QUARRY_TEST_GENERATED_CODE_API_VERSION must be defined"
+#endif
+
+#ifndef QUARRY_TEST_CXX_COMPILER
+#error "QUARRY_TEST_CXX_COMPILER must be defined"
 #endif
 
 #ifndef _WIN32
@@ -596,4 +602,221 @@ TEST(SchemaCompilerToolTest, PathsWithSpacesWorkWithDirectArguments) {
     const std::string generated = read_text_file(generated_file);
     EXPECT_NE(generated.find("struct Sample"), std::string::npos);
     EXPECT_NE(generated.find("std::uint32_t"), std::string::npos);
+}
+
+// --- --language (PR-107) ---------------------------------------------------
+
+TEST(SchemaCompilerToolTest, DefaultBackendIsCpp) {
+    const std::filesystem::path root = make_temp_directory("language-default");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: quarry.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields: {}\n");
+
+    const CommandResult result =
+        run_tool({"--list-outputs", "--output-directory", output.string(), input.string()}, root);
+
+    EXPECT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_EQ(result.stdout_text,
+              (output / "quarry" / "telemetry.generated.hpp").string() + "\n");
+}
+
+TEST(SchemaCompilerToolTest, ExplicitCppBackendMatchesDefault) {
+    const std::filesystem::path root = make_temp_directory("language-explicit-cpp");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: quarry.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields: {}\n");
+
+    const CommandResult default_result =
+        run_tool({"--list-outputs", "--output-directory", output.string(), input.string()}, root);
+    const CommandResult explicit_result =
+        run_tool({"--list-outputs", "--language", "cpp", "--output-directory", output.string(),
+                  input.string()},
+                 root);
+
+    EXPECT_EQ(default_result.status, explicit_result.status);
+    EXPECT_EQ(default_result.stdout_text, explicit_result.stdout_text);
+    EXPECT_TRUE(explicit_result.stderr_text.empty());
+}
+
+TEST(SchemaCompilerToolTest, ExplicitCBackendListsHeaderAndSourcePaths) {
+    const std::filesystem::path root = make_temp_directory("language-c-list-outputs");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: quarry.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields: {}\n");
+
+    const CommandResult result = run_tool(
+        {"--list-outputs", "--language", "c", "--output-directory", output.string(),
+         input.string()},
+        root);
+
+    EXPECT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_EQ(result.stdout_text,
+              (output / "quarry" / "telemetry.generated.h").string() + "\n" +
+                  (output / "quarry" / "telemetry.generated.c").string() + "\n");
+    EXPECT_TRUE(result.stderr_text.empty());
+    EXPECT_FALSE(std::filesystem::exists(output));
+}
+
+TEST(SchemaCompilerToolTest, ListOutputsForCBackendIsDeterministic) {
+    const std::filesystem::path root = make_temp_directory("language-c-deterministic");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: quarry.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields: {}\n");
+
+    const CommandResult first =
+        run_tool({"--list-outputs", "--language", "c", "--output-directory", output.string(),
+                  input.string()},
+                 root);
+    const CommandResult second =
+        run_tool({"--list-outputs", "--language", "c", "--output-directory", output.string(),
+                  input.string()},
+                 root);
+
+    EXPECT_EQ(first.status, 0) << first.stderr_text;
+    EXPECT_EQ(second.status, 0) << second.stderr_text;
+    EXPECT_EQ(first.stdout_text, second.stdout_text);
+}
+
+TEST(SchemaCompilerToolTest, InvalidLanguageReturnsUsageErrorNamingAcceptedValues) {
+    const std::filesystem::path root = make_temp_directory("language-invalid");
+    const std::filesystem::path input = root / "schema.brd";
+    write_text_file(input,
+                    "namespace: quarry.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields: {}\n");
+
+    const CommandResult result = run_tool({"--language", "rust", input.string()}, root);
+
+    EXPECT_EQ(result.status, 2);
+    EXPECT_NE(result.stderr_text.find("invalid value for --language: rust"), std::string::npos);
+    EXPECT_NE(result.stderr_text.find("'cpp' or 'c'"), std::string::npos);
+}
+
+TEST(SchemaCompilerToolTest, FileExtensionIsRejectedWithLanguageC) {
+    const std::filesystem::path root = make_temp_directory("language-c-file-extension");
+    const std::filesystem::path input = root / "schema.brd";
+    write_text_file(input,
+                    "namespace: quarry.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields: {}\n");
+
+    const CommandResult result =
+        run_tool({"--language", "c", "--file-extension", ".h", input.string()}, root);
+
+    EXPECT_EQ(result.status, 2);
+    EXPECT_NE(result.stderr_text.find("--file-extension is not supported with --language c"),
+              std::string::npos);
+}
+
+TEST(SchemaCompilerToolTest, CBackendWritesHeaderAndSourceWithExpectedContent) {
+    const std::filesystem::path root = make_temp_directory("language-c-generate");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: quarry.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields: {}\n");
+
+    const CommandResult result =
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
+                 root);
+
+    EXPECT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_TRUE(result.stderr_text.empty());
+
+    const std::filesystem::path header = output / "quarry" / "telemetry.generated.h";
+    const std::filesystem::path source = output / "quarry" / "telemetry.generated.c";
+    ASSERT_TRUE(std::filesystem::exists(header));
+    ASSERT_TRUE(std::filesystem::exists(source));
+
+    const std::string header_text = read_text_file(header);
+    EXPECT_NE(header_text.find("quarry_telemetry_Sample_t"), std::string::npos);
+    EXPECT_NE(header_text.find("extern \"C\""), std::string::npos);
+
+    const std::string source_text = read_text_file(source);
+    EXPECT_NE(source_text.find("#include \"quarry/telemetry.generated.h\""), std::string::npos);
+    EXPECT_NE(source_text.find("quarry_telemetry_Sample_init"), std::string::npos);
+}
+
+TEST(SchemaCompilerToolTest, CBackendRejectsRecordWithFields) {
+    const std::filesystem::path root = make_temp_directory("language-c-unsupported-field");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: quarry.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n");
+
+    const CommandResult result =
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
+                 root);
+
+    EXPECT_NE(result.status, 0);
+    EXPECT_NE(result.stderr_text.find("quarry.telemetry.Sample"), std::string::npos);
+    EXPECT_NE(result.stderr_text.find("1 field(s)"), std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(output));
+}
+
+TEST(SchemaCompilerToolTest, CBackendGeneratedSourceCompilesAsC) {
+    const std::filesystem::path root = make_temp_directory("language-c-compiles");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: quarry.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields: {}\n");
+
+    const CommandResult generate_result =
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
+                 root);
+    ASSERT_EQ(generate_result.status, 0) << generate_result.stderr_text;
+
+    const std::filesystem::path source = output / "quarry" / "telemetry.generated.c";
+    const std::filesystem::path object_file = root / "telemetry.generated.o";
+    ASSERT_TRUE(std::filesystem::exists(source));
+
+    // Compiled as genuine C (via -x c on the configured C++ compiler, not
+    // C++) with the same strict warning flags this repository builds with,
+    // to prove the C backend skeleton's output is actually valid, clean ISO
+    // C -- not merely C-like text compiled by a C++ frontend.
+    std::ostringstream command;
+    command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER)) << " -x c -std=c99"
+            << " -Wall -Wextra -Wpedantic -Werror"
+            << " -I" << std::quoted(output.string()) << " -c "
+            << std::quoted(source.string()) << " -o " << std::quoted(object_file.string());
+    const int status = std::system(command.str().c_str());
+    EXPECT_EQ(status, 0) << "command: " << command.str();
+    EXPECT_TRUE(std::filesystem::exists(object_file));
 }

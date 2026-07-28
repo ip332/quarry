@@ -1,5 +1,18 @@
 # C Backend
 
+## Implementation Status
+
+PR-107 implemented the first roadmap milestone below (Section 9,
+"Skeleton"): an independent `compiler/backend_c` library, `--language cpp|c`
+dispatch in `quarry-schema-compiler`, and generated `.h`/`.c` pairs
+containing namespace-prefixed enums and empty-shell structs for
+zero-field records. See `compiler/backend_c/README.md` for exactly what is
+and is not implemented today, and `jira/backlog.md`'s PR-107 entry for the
+implementation write-up. Everything else in this document remains a design
+proposal for later PRs; the rest of this document is unchanged from PR-106
+and should be read as forward-looking design, not a description of current
+behavior.
+
 ## Purpose
 
 This document proposes an architecture and public API for a C language

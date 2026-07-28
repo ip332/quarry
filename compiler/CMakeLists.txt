@@ -250,3 +250,19 @@ target_link_libraries(quarry_compiler_backend
     PRIVATE
         quarry_schema_ir_warning_tweaks
 )
+
+# Independent sibling of quarry_compiler_backend (the C++ backend): the C
+# backend depends only on Schema IR and support, never on the C++ backend
+# implementation. See compiler/backend_c/README.md and
+# docs/design/c-backend.md.
+add_library(quarry_compiler_backend_c
+    backend_c/backend_c.cpp
+)
+target_include_directories(quarry_compiler_backend_c PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(quarry_compiler_backend_c
+    PUBLIC
+        quarry_compiler_schema_ir
+        quarry_project_options
+    PRIVATE
+        quarry_schema_ir_warning_tweaks
+)
