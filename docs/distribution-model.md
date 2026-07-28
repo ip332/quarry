@@ -65,9 +65,12 @@ fails configuration on mismatch.
 | --- | --- | --- | --- |
 | Runtime library | `quarry_runtime`, exported as `Quarry::runtime` | Link through CMake and include public runtime headers | Supported public SDK |
 | Runtime headers | `include/quarry/runtime/binary_record.hpp`, `include/quarry/runtime/version.hpp` | Compile generated or handwritten C++ that uses BRF runtime mechanics | Supported public SDK |
-| CMake package files | `QuarryConfig.cmake`, `QuarryConfigVersion.cmake`, `QuarryTargets.cmake`, `QuarryGenerate.cmake` | Package discovery for the runtime, schema compiler target, generated-code API package metadata, and installed-package generation helper | Supported public SDK |
-| Schema compiler executable | `quarry_schema_compiler`, exported as `Quarry::schema_compiler`, installed as `quarry-schema-compiler` | Direct CLI invocation or CMake command use through `$<TARGET_FILE:...>` | Installed tool target |
+| C runtime library | `quarry_runtime_c`, exported as `Quarry::runtime_c` (PR-108) | Link through CMake and include public C runtime headers | Supported public SDK |
+| C runtime headers | `include/quarry/runtime_c/binary_record.h`, `include/quarry/runtime_c/version.h` (PR-108) | Compile generated or handwritten C that uses BRF runtime mechanics for the scalar-only field subset `--language c` currently supports | Supported public SDK |
+| CMake package files | `QuarryConfig.cmake`, `QuarryConfigVersion.cmake`, `QuarryTargets.cmake`, `QuarryGenerate.cmake` | Package discovery for the runtime(s), schema compiler target, generated-code API package metadata (C++ and, since PR-108, C), and installed-package generation helper (C++ only; no C equivalent yet, see "Evaluated Packaging Models") | Supported public SDK |
+| Schema compiler executable | `quarry_schema_compiler`, exported as `Quarry::schema_compiler`, installed as `quarry-schema-compiler` | Direct CLI invocation or CMake command use through `$<TARGET_FILE:...>`; supports `--language cpp` (default) and `--language c` | Installed tool target |
 | Generated C++ code | Backend output under caller-selected paths | Owned by the downstream project that generated it | Downstream-owned build artifact |
+| Generated C code | C backend output under caller-selected paths (PR-107/PR-108) | Owned by the downstream project that generated it | Downstream-owned build artifact |
 | Compiler libraries | `quarry_compiler_*`, `quarry_schema_ir_proto` | Internal source-tree composition and tests | Implementation detail |
 | Generated protobuf C++ | Build-tree `schema_ir.pb.*` | Compiler implementation dependency | Implementation detail |
 | Fuzz targets and corpus | `fuzz/` | Parser hardening during development | Development-only |
@@ -96,6 +99,23 @@ The package exposes the target runtime's generated-code API value as
 compatibility for explicit `SCHEMA_COMPILER` overrides is enforced during CMake
 configuration by comparing that package value against the compiler's
 generated-code API query before any output discovery occurs.
+
+Since PR-108, this model includes a second, independent runtime: the
+header-only C runtime (`Quarry::runtime_c`), with its own generated-code API
+compatibility constant (`QUARRY_C_GENERATED_CODE_API_VERSION`) and package
+metadata (`Quarry_GENERATED_CODE_API_VERSION_C`), kept deliberately separate
+from the C++ epoch so the two languages' generator/runtime contracts can
+change independently. Unlike `quarry_generate_cpp()`, there is no
+`quarry_generate_c()` CMake helper yet, and therefore no configure-time
+host compiler/C-runtime compatibility check for C the way `SCHEMA_COMPILER`
+overrides get for C++ -- deliberately deferred, not an oversight: with only
+scalar-field support and no C example or other real downstream C consumer
+yet demonstrating a need for the full helper contract (multi-schema
+handling, output-inventory verification, cross-compiling override), writing
+one now would be speculative. Downstream C consumers use the manual
+`add_custom_command()` pattern (`tools/README.md`), exactly as
+`tests/consumer/schema_compiler_package_test.cpp`'s
+`CConsumerBuildsAndRunsAgainstInstalledPackage` test does.
 
 ### Runtime + Compiler SDK
 

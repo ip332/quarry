@@ -69,6 +69,10 @@ add_quarry_gtest(runtime_binary_record_test runtime/binary_record_test.cpp
                       quarry_runtime)
 target_compile_definitions(runtime_binary_record_test PRIVATE
     QUARRY_TEST_GENERATED_CODE_API_VERSION=${QUARRY_GENERATED_CODE_API_VERSION})
+add_quarry_gtest(runtime_c_binary_record_test runtime_c/binary_record_test.cpp
+                      quarry_runtime_c)
+target_compile_definitions(runtime_c_binary_record_test PRIVATE
+    QUARRY_TEST_GENERATED_CODE_API_VERSION_C=${QUARRY_GENERATED_CODE_API_VERSION_C})
 add_quarry_gtest(runtime_package_consumer_test consumer/runtime_package_test.cpp
                       quarry_compiler_support)
 target_compile_definitions(runtime_package_consumer_test PRIVATE
@@ -89,6 +93,7 @@ target_compile_definitions(schema_compiler_package_test PRIVATE
     QUARRY_TEST_CMAKE_COMMAND="${CMAKE_COMMAND}"
     QUARRY_TEST_BUILD_DIR="${CMAKE_BINARY_DIR}"
     QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
+    QUARRY_TEST_C_COMPILER="${CMAKE_C_COMPILER}"
     QUARRY_SCHEMA_COMPILER_PACKAGE_CONSUMER_SOURCE_DIR="${CMAKE_SOURCE_DIR}/examples/cpp/schema_compiler_cmake"
     QUARRY_TEST_GENERATED_CODE_API_VERSION=${QUARRY_GENERATED_CODE_API_VERSION})
 add_quarry_gtest(schema_compiler_tool_test tools/schema_compiler_tool_test.cpp
@@ -97,6 +102,16 @@ add_dependencies(schema_compiler_tool_test quarry_schema_compiler)
 target_compile_definitions(schema_compiler_tool_test PRIVATE
     QUARRY_SCHEMA_COMPILER_TOOL="$<TARGET_FILE:quarry_schema_compiler>"
     QUARRY_TEST_GENERATED_CODE_API_VERSION=${QUARRY_GENERATED_CODE_API_VERSION}
-    QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}")
+    QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
+    QUARRY_TEST_REPO_INCLUDE_DIR="${CMAKE_SOURCE_DIR}/include"
+    QUARRY_TEST_GENERATED_INCLUDE_DIR="${QUARRY_GENERATED_INCLUDE_DIR}")
+add_quarry_gtest(c_cpp_codec_interop_test interop/c_cpp_codec_interop_test.cpp
+                      quarry_compiler_support)
+add_dependencies(c_cpp_codec_interop_test quarry_schema_compiler)
+target_compile_definitions(c_cpp_codec_interop_test PRIVATE
+    QUARRY_SCHEMA_COMPILER_TOOL="$<TARGET_FILE:quarry_schema_compiler>"
+    QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
+    QUARRY_TEST_REPO_INCLUDE_DIR="${CMAKE_SOURCE_DIR}/include"
+    QUARRY_TEST_GENERATED_INCLUDE_DIR="${QUARRY_GENERATED_INCLUDE_DIR}")
 add_quarry_gtest(diagnostics_smoke_test diagnostics/diagnostics_smoke_test.cpp quarry_compiler_context)
 add_quarry_gtest(support_test support/support_test.cpp quarry_compiler_support)

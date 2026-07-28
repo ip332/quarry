@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(quarry VERSION 0.1.0 LANGUAGES CXX)
+project(quarry VERSION 0.1.0 LANGUAGES CXX C)
 
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
@@ -8,6 +8,10 @@ include(GNUInstallDirs)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
 
 option(QUARRY_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
 option(QUARRY_ENABLE_CLANG_TIDY "Run clang-tidy during CMake builds" OFF)
@@ -23,6 +27,18 @@ if(QUARRY_GENERATED_CODE_API_VERSION GREATER 4294967295)
     message(FATAL_ERROR "QUARRY_GENERATED_CODE_API_VERSION must fit in std::uint32_t")
 endif()
 
+# Compatibility epoch for generated C source and the Quarry C runtime header.
+# Independent from QUARRY_GENERATED_CODE_API_VERSION (C++): the C and C++
+# generator/runtime contracts may change on independent schedules (PR-108;
+# see docs/design/c-backend.md).
+set(QUARRY_GENERATED_CODE_API_VERSION_C 1)
+if(NOT QUARRY_GENERATED_CODE_API_VERSION_C MATCHES "^[0-9]+$")
+    message(FATAL_ERROR "QUARRY_GENERATED_CODE_API_VERSION_C must be a non-negative integer")
+endif()
+if(QUARRY_GENERATED_CODE_API_VERSION_C GREATER 4294967295)
+    message(FATAL_ERROR "QUARRY_GENERATED_CODE_API_VERSION_C must fit in uint32_t")
+endif()
+
 set(QUARRY_GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
 configure_file(
     include/quarry/runtime/version.hpp.in
@@ -30,8 +46,18 @@ configure_file(
     @ONLY
 )
 configure_file(
+    include/quarry/runtime_c/version.h.in
+    ${QUARRY_GENERATED_INCLUDE_DIR}/quarry/runtime_c/version.h
+    @ONLY
+)
+configure_file(
     compiler/backend/generated_code_api_version.hpp.in
     ${QUARRY_GENERATED_INCLUDE_DIR}/compiler/backend/generated_code_api_version.hpp
+    @ONLY
+)
+configure_file(
+    compiler/backend_c/generated_code_api_version_c.hpp.in
+    ${QUARRY_GENERATED_INCLUDE_DIR}/compiler/backend_c/generated_code_api_version_c.hpp
     @ONLY
 )
 
@@ -61,6 +87,7 @@ endif()
 enable_testing()
 
 add_subdirectory(runtime)
+add_subdirectory(runtime_c)
 if(QUARRY_BUILD_FUZZERS)
     add_subdirectory(fuzz)
 endif()
@@ -71,9 +98,16 @@ add_subdirectory(tests)
 install(TARGETS quarry_runtime
     EXPORT QuarryTargets
 )
+install(TARGETS quarry_runtime_c
+    EXPORT QuarryTargets
+)
 install(FILES
     ${QUARRY_GENERATED_INCLUDE_DIR}/quarry/runtime/version.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/quarry/runtime
+)
+install(FILES
+    ${QUARRY_GENERATED_INCLUDE_DIR}/quarry/runtime_c/version.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/quarry/runtime_c
 )
 install(DIRECTORY include/quarry
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}

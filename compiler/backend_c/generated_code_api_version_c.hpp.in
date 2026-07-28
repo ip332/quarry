@@ -1,0 +1,10 @@
+#pragma once
+
+#include <cstdint>
+
+namespace quarry::compiler::backend_c {
+
+inline constexpr std::uint32_t kGeneratedCodeApiVersionC =
+    @QUARRY_GENERATED_CODE_API_VERSION_C@U;
+
+} // namespace quarry::compiler::backend_c

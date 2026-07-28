@@ -1,0 +1,11 @@
+#ifndef QUARRY_RUNTIME_C_VERSION_H_
+#define QUARRY_RUNTIME_C_VERSION_H_
+
+/* Narrow source-compatibility guard between generated C code and this C
+ * runtime header, independent of QUARRY_GENERATED_CODE_API_VERSION (the
+ * C++ epoch) so the two languages' generator/runtime contracts can change
+ * on independent schedules. Not the Quarry package release version, not a
+ * BRF wire-format version. See docs/design/c-backend.md. */
+#define QUARRY_C_GENERATED_CODE_API_VERSION @QUARRY_GENERATED_CODE_API_VERSION_C@U
+
+#endif /* QUARRY_RUNTIME_C_VERSION_H_ */

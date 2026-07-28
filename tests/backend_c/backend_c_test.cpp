@@ -139,7 +139,7 @@ TEST(BackendCTest, NestedNamespaceProducesSymbolPrefixedFileAndSymbols) {
     EXPECT_NE(header->content.find("#ifndef QUARRY_GENERATED_C_QUARRY_TELEMETRY_GENERATED_H_"),
              std::string::npos);
     EXPECT_NE(header->content.find("extern \"C\""), std::string::npos);
-    EXPECT_NE(header->content.find("uint8_t _reserved;"), std::string::npos);
+    EXPECT_NE(header->content.find("uint8_t reserved;"), std::string::npos);
 
     EXPECT_NE(source->content.find("#include \"quarry/telemetry.generated.h\""),
              std::string::npos);
@@ -185,7 +185,10 @@ TEST(BackendCTest, EnumValueOutsideInt32RangeFailsGenerationWithClearDiagnostic)
     EXPECT_TRUE(result.files.empty());
 }
 
-TEST(BackendCTest, RecordWithFieldsFailsGenerationWithClearDiagnosticNamingRecordAndCount) {
+TEST(BackendCTest, UnsupportedFieldTypeFailsGenerationWithClearDiagnosticNamingFieldAndRecord) {
+    // PR-108 supports scalar fields; string/bytes/array/enum/record-reference
+    // fields remain unsupported. Uses `string` as a representative
+    // unsupported type.
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
@@ -194,16 +197,15 @@ TEST(BackendCTest, RecordWithFieldsFailsGenerationWithClearDiagnosticNamingRecor
     RecordIR* record =
         add_zero_field_record(*telemetry_ns, 3, 1U, "Sample", "telemetry.Sample");
     FieldIR* field = record->add_fields();
-    field->set_name("count");
+    field->set_name("label");
     field->set_field_index(0);
-    field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    field->mutable_type()->mutable_string()->set_max_bytes(32);
     assert_valid(schema_ir);
 
     Backend backend;
     const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
     ASSERT_FALSE(result.success);
-    EXPECT_NE(result.error_message.find("telemetry.Sample"), std::string::npos);
-    EXPECT_NE(result.error_message.find("1 field(s)"), std::string::npos);
+    EXPECT_NE(result.error_message.find("telemetry.Sample.label"), std::string::npos);
     EXPECT_TRUE(result.files.empty());
 
     // plan() must fail the same way generate() does -- the two must never
@@ -211,6 +213,72 @@ TEST(BackendCTest, RecordWithFieldsFailsGenerationWithClearDiagnosticNamingRecor
     const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
     ASSERT_FALSE(plan_result.success);
     EXPECT_EQ(plan_result.error_message, result.error_message);
+}
+
+TEST(BackendCTest, MixedSupportedAndUnsupportedFieldsFailsRecordAsAWhole) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
+    RecordIR* record =
+        add_zero_field_record(*telemetry_ns, 3, 1U, "Sample", "telemetry.Sample");
+    FieldIR* count_field = record->add_fields();
+    count_field->set_name("count");
+    count_field->set_field_index(0);
+    count_field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    FieldIR* label_field = record->add_fields();
+    label_field->set_name("label");
+    label_field->set_field_index(1);
+    label_field->mutable_type()->mutable_string()->set_max_bytes(32);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_FALSE(result.success);
+    EXPECT_NE(result.error_message.find("telemetry.Sample.label"), std::string::npos);
+    EXPECT_TRUE(result.files.empty());
+}
+
+TEST(BackendCTest, GeneratesScalarStructFieldsAndCodecDeclarations) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
+    RecordIR* record =
+        add_zero_field_record(*telemetry_ns, 3, 1U, "Sample", "telemetry.Sample");
+    FieldIR* count_field = record->add_fields();
+    count_field->set_name("count");
+    count_field->set_field_index(0);
+    count_field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    FieldIR* ratio_field = record->add_fields();
+    ratio_field->set_name("ratio");
+    ratio_field->set_field_index(1);
+    ratio_field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_F32);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 2U);
+
+    const std::string& header = result.files[0].content;
+    EXPECT_NE(header.find("bool has_count;"), std::string::npos);
+    EXPECT_NE(header.find("uint32_t count;"), std::string::npos);
+    EXPECT_NE(header.find("bool has_ratio;"), std::string::npos);
+    EXPECT_NE(header.find("float ratio;"), std::string::npos);
+    EXPECT_NE(header.find("telemetry_Sample_encode_result_t"), std::string::npos);
+    EXPECT_NE(header.find("telemetry_Sample_decode_result_t"), std::string::npos);
+    EXPECT_NE(header.find("size_t telemetry_Sample_encoded_size("), std::string::npos);
+    EXPECT_NE(header.find("#include <quarry/runtime_c/binary_record.h>"), std::string::npos);
+    EXPECT_NE(header.find("QUARRY_C_GENERATED_CODE_API_VERSION"), std::string::npos);
+
+    const std::string& source = result.files[1].content;
+    EXPECT_NE(source.find("quarry_c_write_u32(&writer, record->count)"), std::string::npos);
+    EXPECT_NE(source.find("quarry_c_write_f32(&writer, record->ratio)"), std::string::npos);
+    EXPECT_NE(source.find("quarry_c_encode_record(1U, fields, field_count"), std::string::npos);
+    EXPECT_NE(source.find("quarry_c_parse_record(input, input_length"), std::string::npos);
 }
 
 TEST(BackendCTest, DuplicateNamespaceFqnFailsWithClearDiagnostic) {

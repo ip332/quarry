@@ -6,12 +6,26 @@ PR-107 implemented the first roadmap milestone below (Section 9,
 "Skeleton"): an independent `compiler/backend_c` library, `--language cpp|c`
 dispatch in `quarry-schema-compiler`, and generated `.h`/`.c` pairs
 containing namespace-prefixed enums and empty-shell structs for
-zero-field records. See `compiler/backend_c/README.md` for exactly what is
-and is not implemented today, and `jira/backlog.md`'s PR-107 entry for the
-implementation write-up. Everything else in this document remains a design
-proposal for later PRs; the rest of this document is unchanged from PR-106
-and should be read as forward-looking design, not a description of current
-behavior.
+zero-field records.
+
+PR-108 implemented the "Scalars" milestone: real generated C structs with
+`bool`/fixed-width-integer/`f32`/`f64` fields (Section 1's struct-based
+recommendation, confirmed as selected -- see `compiler/backend_c/README.md`
+for the "generated codec API" alternatives actually evaluated and chosen),
+a minimal C runtime under `include/quarry/runtime_c/` (Section 3), and a
+real BRF encode/decode codec API (Section 4), verified byte-for-byte
+compatible with the C++ backend's output. **Enum-typed fields remain
+unsupported** -- PR-108 deliberately scoped enums out even though enum
+*declarations* already render (from PR-107); Section 4's enum-storage
+recommendation (a plain C `enum` typedef as the field's C type, decoupled
+from the wire width, which is chosen independently by max declared value)
+remains a proposal for whichever PR implements enum fields, not yet
+implemented. See `compiler/backend_c/README.md` and `runtime_c/README.md`
+for exactly what is and is not implemented today, and `jira/backlog.md`'s
+PR-107/PR-108 entries for the implementation write-ups. Everything else in
+this document remains a design proposal for later PRs; the rest of this
+document is unchanged from PR-106 and should be read as forward-looking
+design, not a description of current behavior.
 
 ## Purpose
 

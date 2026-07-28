@@ -258,7 +258,12 @@ target_link_libraries(quarry_compiler_backend
 add_library(quarry_compiler_backend_c
     backend_c/backend_c.cpp
 )
-target_include_directories(quarry_compiler_backend_c PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_include_directories(quarry_compiler_backend_c
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
+    PRIVATE
+        ${QUARRY_GENERATED_INCLUDE_DIR}
+)
 target_link_libraries(quarry_compiler_backend_c
     PUBLIC
         quarry_compiler_schema_ir

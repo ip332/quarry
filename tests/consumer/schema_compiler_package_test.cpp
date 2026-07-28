@@ -21,6 +21,10 @@
 #error "QUARRY_TEST_GENERATED_CODE_API_VERSION must be defined"
 #endif
 
+#ifndef QUARRY_TEST_C_COMPILER
+#error "QUARRY_TEST_C_COMPILER must be defined"
+#endif
+
 namespace {
 
 [[nodiscard]] std::filesystem::path make_temp_directory(std::string_view stem) {
@@ -1273,4 +1277,93 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
     EXPECT_NE(cross_result.status, 0);
     EXPECT_NE(cross_result.stderr_text.find("cross-compiling requires SCHEMA_COMPILER"),
               std::string::npos);
+}
+
+TEST(SchemaCompilerPackageTest, CConsumerBuildsAndRunsAgainstInstalledPackage) {
+#ifdef _WIN32
+    GTEST_SKIP() << "schema compiler package subprocess test is not implemented on Windows";
+#endif
+
+    // No quarry_generate_c() helper exists yet (PR-108; see
+    // docs/design/c-backend.md and docs/distribution-model.md) -- this
+    // mirrors ManualCustomCommandStillGeneratesDownstreamCode's manual
+    // add_custom_command() pattern, the documented supported path for
+    // callers who want explicit control, applied to --language c.
+    const std::filesystem::path root = make_temp_directory("c consumer");
+    const std::filesystem::path install_prefix = root / "install prefix with spaces";
+    const std::filesystem::path consumer_source = root / "c consumer source with spaces";
+    const std::filesystem::path consumer_build = root / "c consumer build with spaces";
+
+    write_text_file(consumer_source / "schema.brd",
+                    "namespace: quarry.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n");
+    write_text_file(consumer_source / "main.c",
+                    "#include <quarry/telemetry.generated.h>\n"
+                    "int main(void) {\n"
+                    "  quarry_telemetry_Sample_t sample;\n"
+                    "  quarry_telemetry_Sample_init(&sample);\n"
+                    "  sample.has_count = true;\n"
+                    "  sample.count = 42U;\n"
+                    "  unsigned char buf[64];\n"
+                    "  quarry_telemetry_Sample_encode_result_t encoded =\n"
+                    "      quarry_telemetry_Sample_encode(&sample, buf, sizeof(buf));\n"
+                    "  if (encoded.status != QUARRY_C_STATUS_OK) { return 1; }\n"
+                    "  quarry_telemetry_Sample_decode_result_t decoded =\n"
+                    "      quarry_telemetry_Sample_decode(buf, encoded.bytes_written);\n"
+                    "  if (decoded.status != QUARRY_C_STATUS_OK) { return 2; }\n"
+                    "  if (!decoded.value.has_count || decoded.value.count != 42U) { return 3; }\n"
+                    "  return 0;\n"
+                    "}\n");
+    write_text_file(consumer_source / "CMakeLists.txt",
+                    "cmake_minimum_required(VERSION 3.20)\n"
+                    "project(c_consumer C)\n"
+                    "find_package(Quarry CONFIG REQUIRED)\n"
+                    "set(generated_dir \"${CMAKE_CURRENT_BINARY_DIR}/generated\")\n"
+                    "set(generated_header \"${generated_dir}/quarry/telemetry.generated.h\")\n"
+                    "set(generated_source \"${generated_dir}/quarry/telemetry.generated.c\")\n"
+                    "add_custom_command(\n"
+                    "  OUTPUT \"${generated_header}\" \"${generated_source}\"\n"
+                    "  COMMAND \"$<TARGET_FILE:Quarry::schema_compiler>\"\n"
+                    "          --language c\n"
+                    "          --output-directory \"${generated_dir}\"\n"
+                    "          \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\"\n"
+                    "  DEPENDS \"${CMAKE_CURRENT_SOURCE_DIR}/schema.brd\"\n"
+                    "          Quarry::schema_compiler\n"
+                    "  VERBATIM)\n"
+                    "add_executable(c_consumer main.c \"${generated_header}\" \"${generated_source}\")\n"
+                    "target_include_directories(c_consumer PRIVATE \"${generated_dir}\")\n"
+                    "target_link_libraries(c_consumer PRIVATE Quarry::runtime_c)\n"
+                    "set_target_properties(c_consumer PROPERTIES C_STANDARD 99 "
+                    "C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)\n");
+
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"--install", QUARRY_TEST_BUILD_DIR, "--prefix",
+                                   install_prefix.string()},
+                                  root, "install"),
+                   "install Quarry package");
+
+    // Regression guard: the installed tree must expose the C runtime under
+    // its own canonical path, with no duplicate or generic unprefixed
+    // headers (mirroring runtime_package_test.cpp's C++ equivalent guard).
+    EXPECT_TRUE(std::filesystem::exists(install_prefix / "include" / "quarry" / "runtime_c" /
+                                        "binary_record.h"));
+    EXPECT_TRUE(std::filesystem::exists(install_prefix / "include" / "quarry" / "runtime_c" /
+                                        "version.h"));
+
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"-S", consumer_source.string(), "-B", consumer_build.string(),
+                                   "-DCMAKE_PREFIX_PATH=" + install_prefix.string(),
+                                   "-DCMAKE_C_COMPILER=" + std::string(QUARRY_TEST_C_COMPILER)},
+                                  root, "configure-c-consumer"),
+                   "configure C consumer");
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"--build", consumer_build.string()}, root, "build-c-consumer"),
+                   "build C consumer");
+    expect_success(run_executable(consumer_build / "c_consumer", {}, root, "run-c-consumer"),
+                   "run C consumer");
 }

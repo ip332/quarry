@@ -21,6 +21,14 @@
 #error "QUARRY_TEST_CXX_COMPILER must be defined"
 #endif
 
+#ifndef QUARRY_TEST_REPO_INCLUDE_DIR
+#error "QUARRY_TEST_REPO_INCLUDE_DIR must be defined"
+#endif
+
+#ifndef QUARRY_TEST_GENERATED_INCLUDE_DIR
+#error "QUARRY_TEST_GENERATED_INCLUDE_DIR must be defined"
+#endif
+
 #ifndef _WIN32
 #include <fcntl.h>
 #include <sys/wait.h>
@@ -764,7 +772,7 @@ TEST(SchemaCompilerToolTest, CBackendWritesHeaderAndSourceWithExpectedContent) {
     EXPECT_NE(source_text.find("quarry_telemetry_Sample_init"), std::string::npos);
 }
 
-TEST(SchemaCompilerToolTest, CBackendRejectsRecordWithFields) {
+TEST(SchemaCompilerToolTest, CBackendRejectsUnsupportedFieldType) {
     const std::filesystem::path root = make_temp_directory("language-c-unsupported-field");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
@@ -774,17 +782,49 @@ TEST(SchemaCompilerToolTest, CBackendRejectsRecordWithFields) {
                     "version: 1\n"
                     "type: data\n"
                     "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n");
+                    "  label:\n"
+                    "    type: string\n"
+                    "    max_bytes: 32\n");
 
     const CommandResult result =
         run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
                  root);
 
     EXPECT_NE(result.status, 0);
-    EXPECT_NE(result.stderr_text.find("quarry.telemetry.Sample"), std::string::npos);
-    EXPECT_NE(result.stderr_text.find("1 field(s)"), std::string::npos);
+    EXPECT_NE(result.stderr_text.find("quarry.telemetry.Sample.label"), std::string::npos);
     EXPECT_FALSE(std::filesystem::exists(output));
+}
+
+TEST(SchemaCompilerToolTest, CBackendGeneratesScalarStructAndCodecApi) {
+    const std::filesystem::path root = make_temp_directory("language-c-scalar-generate");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: quarry.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n"
+                    "  ratio:\n"
+                    "    type: float32\n");
+
+    const CommandResult result =
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
+                 root);
+
+    EXPECT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_TRUE(result.stderr_text.empty());
+
+    const std::filesystem::path header = output / "quarry" / "telemetry.generated.h";
+    const std::string header_text = read_text_file(header);
+    EXPECT_NE(header_text.find("bool has_count;"), std::string::npos);
+    EXPECT_NE(header_text.find("uint32_t count;"), std::string::npos);
+    EXPECT_NE(header_text.find("bool has_ratio;"), std::string::npos);
+    EXPECT_NE(header_text.find("float ratio;"), std::string::npos);
+    EXPECT_NE(header_text.find("quarry_telemetry_Sample_encode_result_t"), std::string::npos);
+    EXPECT_NE(header_text.find("quarry_telemetry_Sample_decode_result_t"), std::string::npos);
 }
 
 TEST(SchemaCompilerToolTest, CBackendGeneratedSourceCompilesAsC) {
@@ -796,7 +836,15 @@ TEST(SchemaCompilerToolTest, CBackendGeneratedSourceCompilesAsC) {
                     "record: Sample\n"
                     "version: 1\n"
                     "type: data\n"
-                    "fields: {}\n");
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n"
+                    "  ratio:\n"
+                    "    type: float32\n"
+                    "  active:\n"
+                    "    type: bool\n"
+                    "  level:\n"
+                    "    type: int8\n");
 
     const CommandResult generate_result =
         run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
@@ -809,13 +857,16 @@ TEST(SchemaCompilerToolTest, CBackendGeneratedSourceCompilesAsC) {
 
     // Compiled as genuine C (via -x c on the configured C++ compiler, not
     // C++) with the same strict warning flags this repository builds with,
-    // to prove the C backend skeleton's output is actually valid, clean ISO
-    // C -- not merely C-like text compiled by a C++ frontend.
+    // to prove the C backend's output is actually valid, clean ISO C99 --
+    // not merely C-like text compiled by a C++ frontend.
     std::ostringstream command;
     command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER)) << " -x c -std=c99"
             << " -Wall -Wextra -Wpedantic -Werror"
-            << " -I" << std::quoted(output.string()) << " -c "
-            << std::quoted(source.string()) << " -o " << std::quoted(object_file.string());
+            << " -I" << std::quoted(output.string())
+            << " -I" << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR))
+            << " -I" << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR))
+            << " -c " << std::quoted(source.string()) << " -o "
+            << std::quoted(object_file.string());
     const int status = std::system(command.str().c_str());
     EXPECT_EQ(status, 0) << "command: " << command.str();
     EXPECT_TRUE(std::filesystem::exists(object_file));

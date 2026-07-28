@@ -122,6 +122,15 @@ decode-failure handling (`CodecResult`'s `.error`/`.path`/`.byte_offset`)
 against a truncated and a corrupted payload; see `runtime/README.md` for the
 full diagnostic contract.
 
+C is the second supported backend language (`--language c`), currently
+covering **only** records whose fields are `bool`, fixed-width signed/unsigned
+integers, or `f32`/`f64` (no enum-typed fields, `string`, `bytes`, arrays, or
+nested records yet), with real BRF encode/decode backed by the installed
+`Quarry::runtime_c` C runtime and verified byte-for-byte wire-compatible with
+the C++ backend. See `compiler/backend_c/README.md`, `runtime_c/README.md`,
+and `docs/design/c-backend.md` for the exact supported subset, the generated
+API, and the roadmap for the rest.
+
 The supported downstream distribution model is defined in
 `docs/distribution-model.md`. The installed SDK currently consists of the
 header-only runtime package plus the `Quarry::schema_compiler` executable
