@@ -186,10 +186,10 @@ TEST(BackendCTest, EnumValueOutsideInt32RangeFailsGenerationWithClearDiagnostic)
 }
 
 TEST(BackendCTest, UnsupportedFieldTypeFailsGenerationWithClearDiagnosticNamingFieldAndRecord) {
-    // Bytes/array/record-reference fields, and enum fields that don't meet
-    // the same-namespace/non-negative-values constraints, remain
-    // unsupported after PR-108/109/110 (scalars, same-namespace enums, and
-    // bounded strings are now supported). Uses `bytes` as a representative
+    // Array/record-reference fields, and enum fields that don't meet the
+    // same-namespace/non-negative-values constraints, remain unsupported
+    // after PR-108/109/110/111 (scalars, same-namespace enums, and bounded
+    // strings/bytes are now supported). Uses `array` as a representative
     // still-unsupported type.
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
@@ -201,7 +201,9 @@ TEST(BackendCTest, UnsupportedFieldTypeFailsGenerationWithClearDiagnosticNamingF
     FieldIR* field = record->add_fields();
     field->set_name("label");
     field->set_field_index(0);
-    field->mutable_type()->mutable_bytes()->set_max_bytes(32);
+    field->mutable_type()->mutable_array()->set_max_elements(4);
+    field->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
+        ::quarry::schema_ir::PRIMITIVE_TYPE_U32);
     assert_valid(schema_ir);
 
     Backend backend;
@@ -232,7 +234,9 @@ TEST(BackendCTest, MixedSupportedAndUnsupportedFieldsFailsRecordAsAWhole) {
     FieldIR* label_field = record->add_fields();
     label_field->set_name("label");
     label_field->set_field_index(1);
-    label_field->mutable_type()->mutable_bytes()->set_max_bytes(32);
+    label_field->mutable_type()->mutable_array()->set_max_elements(4);
+    label_field->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
+        ::quarry::schema_ir::PRIMITIVE_TYPE_U32);
     assert_valid(schema_ir);
 
     Backend backend;
@@ -533,6 +537,128 @@ TEST(BackendCTest, MixedScalarEnumStringRecordGeneratesAllFieldKinds) {
     EXPECT_NE(header.find("telemetry_Status_t status;"), std::string::npos);
     EXPECT_NE(header.find("char label[9];"), std::string::npos);
     EXPECT_NE(header.find("uint32_t label_length;"), std::string::npos);
+}
+
+TEST(BackendCTest, BytesFieldGeneratesFixedCapacityStructFieldAndCodec) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
+    RecordIR* record =
+        add_zero_field_record(*telemetry_ns, 3, 1U, "Sample", "telemetry.Sample");
+    FieldIR* blob_field = record->add_fields();
+    blob_field->set_name("blob");
+    blob_field->set_field_index(0);
+    blob_field->mutable_type()->mutable_bytes()->set_max_bytes(16);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 2U);
+
+    // Capacity is exactly max_bytes -- unlike string, no "+1" for a NUL
+    // terminator (arbitrary binary data has no such convenience).
+    const std::string& header = result.files[0].content;
+    EXPECT_NE(header.find("bool has_blob;"), std::string::npos);
+    EXPECT_NE(header.find("uint8_t blob[16];"), std::string::npos);
+    EXPECT_NE(header.find("uint32_t blob_length;"), std::string::npos);
+
+    const std::string& source = result.files[1].content;
+    // Encode side: bounds check against schema max_bytes only -- no UTF-8
+    // validation (the BRF spec's "bytes" section: "No UTF-8 validation
+    // applies") -- before the field is added to fields[]/field_count. No
+    // scratch buffer, points directly at record->blob.
+    EXPECT_NE(source.find("if (record->blob_length > 16U) {"), std::string::npos);
+    EXPECT_NE(source.find("QUARRY_C_STATUS_BOUNDS_EXCEEDED"), std::string::npos);
+    EXPECT_EQ(source.find("quarry_c_is_valid_utf8"), std::string::npos)
+        << "bytes fields must never be UTF-8 validated";
+    EXPECT_NE(source.find("fields[field_count].bytes = record->blob;"), std::string::npos);
+    EXPECT_NE(source.find("fields[field_count].length = record->blob_length;"),
+             std::string::npos);
+    EXPECT_EQ(source.find("blob_bytes["), std::string::npos)
+        << "bytes fields must not get a fixed-width scratch buffer";
+
+    // Decode side: one checked bounded copy, no UTF-8 validation, no NUL
+    // terminator write (unlike string decode).
+    EXPECT_NE(source.find("quarry_c_copy_bounded(\n"
+                         "                result.value.blob, 16U, field_view.bytes, "
+                         "field_view.length);"),
+             std::string::npos);
+    EXPECT_NE(source.find("result.value.blob_length = (uint32_t)field_view.length;"),
+             std::string::npos);
+    EXPECT_NE(source.find("result.value.has_blob = true;"), std::string::npos);
+    EXPECT_EQ(source.find("blob[field_view.length] = '\\0'"), std::string::npos)
+        << "bytes fields must never write a NUL terminator";
+}
+
+TEST(BackendCTest, BytesFieldEncodedSizeDoesNotValidateBounds) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
+    RecordIR* record =
+        add_zero_field_record(*telemetry_ns, 3, 1U, "Sample", "telemetry.Sample");
+    FieldIR* blob_field = record->add_fields();
+    blob_field->set_name("blob");
+    blob_field->set_field_index(0);
+    blob_field->mutable_type()->mutable_bytes()->set_max_bytes(16);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    const std::string& source = result.files[1].content;
+
+    const std::size_t encoded_size_start = source.find("telemetry_Sample_encoded_size(");
+    const std::size_t encode_start = source.find("telemetry_Sample_encode(");
+    ASSERT_NE(encoded_size_start, std::string::npos);
+    ASSERT_NE(encode_start, std::string::npos);
+    ASSERT_LT(encoded_size_start, encode_start);
+    const std::string encoded_size_body =
+        source.substr(encoded_size_start, encode_start - encoded_size_start);
+    EXPECT_EQ(encoded_size_body.find("BOUNDS_EXCEEDED"), std::string::npos);
+}
+
+TEST(BackendCTest, MixedScalarEnumStringBytesRecordGeneratesAllFieldKinds) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
+    EnumIR* status_enum = add_enum(*telemetry_ns, 3, "Status", "telemetry.Status");
+    add_enum_value(*status_enum, "OK", 0);
+    RecordIR* record =
+        add_zero_field_record(*telemetry_ns, 4, 1U, "Sample", "telemetry.Sample");
+    FieldIR* count_field = record->add_fields();
+    count_field->set_name("count");
+    count_field->set_field_index(0);
+    count_field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    FieldIR* status_field = record->add_fields();
+    status_field->set_name("status");
+    status_field->set_field_index(1);
+    status_field->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(3);
+    FieldIR* label_field = record->add_fields();
+    label_field->set_name("label");
+    label_field->set_field_index(2);
+    label_field->mutable_type()->mutable_string()->set_max_bytes(8);
+    FieldIR* blob_field = record->add_fields();
+    blob_field->set_name("blob");
+    blob_field->set_field_index(3);
+    blob_field->mutable_type()->mutable_bytes()->set_max_bytes(8);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    const std::string& header = result.files[0].content;
+    EXPECT_NE(header.find("uint32_t count;"), std::string::npos);
+    EXPECT_NE(header.find("telemetry_Status_t status;"), std::string::npos);
+    EXPECT_NE(header.find("char label[9];"), std::string::npos);
+    EXPECT_NE(header.find("uint8_t blob[8];"), std::string::npos);
+    EXPECT_NE(header.find("uint32_t blob_length;"), std::string::npos);
 }
 
 TEST(BackendCTest, DuplicateNamespaceFqnFailsWithClearDiagnostic) {

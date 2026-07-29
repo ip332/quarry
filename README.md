@@ -124,16 +124,20 @@ full diagnostic contract.
 
 C is the second supported backend language (`--language c`), currently
 covering **only** records whose fields are `bool`, fixed-width signed/unsigned
-integers, `f32`/`f64`, bounded `string` fields, or enum references declared
-in the *same namespace* as the referencing record (no `bytes`, arrays,
+integers, `f32`/`f64`, bounded `string`/`bytes` fields, or enum references
+declared in the *same namespace* as the referencing record (no arrays,
 nested records, or cross-namespace enum fields yet), with real BRF
 encode/decode backed by the installed `Quarry::runtime_c` C runtime and
 verified byte-for-byte wire-compatible with the C++ backend, including
-identical unknown-enum-value rejection and identical string-field UTF-8/
-bounds-violation rejection. String fields use fixed-capacity, NUL-terminated
-buffer storage sized from the schema's `max_bytes` bound -- no heap
-allocation anywhere. See `compiler/backend_c/README.md`,
-`runtime_c/README.md`, and `docs/design/c-backend.md` for the exact
+identical unknown-enum-value rejection and identical string/bytes-field
+bounds-violation rejection (and, for string, identical UTF-8-validation
+rejection -- bytes fields never validate UTF-8, matching the BRF spec).
+String fields use fixed-capacity, NUL-terminated buffer storage sized from
+the schema's `max_bytes` bound; bytes fields use the same fixed-capacity
+strategy without the NUL terminator (arbitrary binary data has no such
+convenience) -- no heap allocation anywhere. See
+`compiler/backend_c/README.md`, `runtime_c/README.md`, and
+`docs/design/c-backend.md` for the exact
 supported subset, the generated API, and the roadmap for the rest.
 
 The supported downstream distribution model is defined in

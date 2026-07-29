@@ -11,8 +11,8 @@
  * Schema-specific knowledge (record IDs, field indexes, field types, enum
  * value sets) belongs to generated code, not here.
  *
- * Scope (through PR-110): scalar fields, same-namespace enum fields, and
- * bounded (fixed-capacity) string fields. No bytes/array/nested record
+ * Scope (through PR-111): scalar fields, same-namespace enum fields, and
+ * bounded (fixed-capacity) string and bytes fields. No array/nested record
  * support exists yet -- see docs/design/c-backend.md and
  * compiler/backend_c/README.md for the current implemented subset and the
  * roadmap for later increments. This header is not a speculative framework
@@ -371,7 +371,7 @@ static inline quarry_c_status_t quarry_c_read_varuint(quarry_c_reader_t* reader,
     return QUARRY_C_STATUS_MALFORMED_VARUINT;
 }
 
-/* ---- Bounded string support (PR-110) ---------------------------------- */
+/* ---- Bounded string/bytes support (PR-110/PR-111) ---------------------- */
 
 /* Validates that `bytes` (`length` of them) is well-formed UTF-8, per
  * docs/specifications/binary-record-format.md's "string" section ("String
@@ -435,10 +435,13 @@ static inline bool quarry_c_is_valid_utf8(const uint8_t* bytes, size_t length) {
 
 /* Copies `length` bytes from `source` into `destination` (whose capacity is
  * `destination_capacity`), used by generated decoders to materialize a
- * bounded string field's wire bytes into its fixed-capacity struct storage.
- * Returns QUARRY_C_STATUS_BOUNDS_EXCEEDED (performing no copy at all) if
- * `length` exceeds `destination_capacity`, so callers get one checked
- * operation instead of a separate length compare plus an unchecked memcpy.
+ * bounded string or bytes field's wire bytes into its fixed-capacity struct
+ * storage (PR-110 string fields, PR-111 bytes fields -- bytes fields reuse
+ * this primitive completely unchanged, since a bounds-checked copy has no
+ * UTF-8-specific behavior to begin with). Returns
+ * QUARRY_C_STATUS_BOUNDS_EXCEEDED (performing no copy at all) if `length`
+ * exceeds `destination_capacity`, so callers get one checked operation
+ * instead of a separate length compare plus an unchecked memcpy.
  * `source`/`destination` may be NULL only when `length` is 0. */
 static inline quarry_c_status_t quarry_c_copy_bounded(uint8_t* destination,
                                                        size_t destination_capacity,

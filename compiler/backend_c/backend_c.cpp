@@ -109,10 +109,13 @@ using ::quarry::schema_ir::RecordIR;
 // exactly (compiler/backend/backend.cpp's runtime_enum_encoding rejects any
 // enum with a negative value as a field type; the BRF spec's "Enum
 // Encoding" section states the same constraint). PR-110 added bounded
-// (fixed-capacity) string fields (see "String fields" below). Cross-
-// namespace enum field references, bytes, arrays, and nested/record-
-// reference fields remain unsupported; no new schema types are invented
-// here.
+// (fixed-capacity) string fields (see "String fields" below). PR-111 added
+// bounded (fixed-capacity) bytes fields (see "Bytes fields" below), reusing
+// the string layout strategy with the two differences the BRF spec's
+// "bytes" section itself calls out ("Bytes data may contain any byte
+// sequence... No UTF-8 validation applies"). Cross-namespace enum field
+// references, arrays, and nested/record-reference fields remain
+// unsupported; no new schema types are invented here.
 //
 // --- String fields ---
 //
@@ -139,6 +142,24 @@ using ::quarry::schema_ir::RecordIR;
 // "String fields" section for the full rationale (representation
 // alternatives considered and rejected, NUL-termination policy, empty-vs-
 // absent semantics, decode commit-on-success ordering).
+//
+// --- Bytes fields ---
+//
+// A bytes field's Schema IR type carries the same kind of schema-declared,
+// semantic-validator-enforced positive max_bytes bound as string
+// (BytesType.max_bytes in schema_ir.proto, validated by the same
+// validate_positive_u32 call in compiler/semantic/semantic.cpp). Reuses the
+// string layout *strategy* (fixed-capacity buffer + explicit length +
+// has_<field>) with two deliberate differences, both directly justified by
+// the BRF spec's "bytes" section ("Bytes data may contain any byte
+// sequence... No UTF-8 validation applies"): capacity is exactly
+// `max_bytes` (no "+1" -- there is no NUL-termination convenience to offer
+// for arbitrary binary data, matching docs/design/c-backend.md Section 2's
+// "Bytes" investigated area: "No NUL terminator concern"), and the content
+// element type is `uint8_t <field>[max_bytes]`, not `char`. No UTF-8
+// validation is performed anywhere for bytes fields. See
+// compiler/backend_c/README.md's "Bytes fields" section for the full
+// rationale.
 
 struct FieldEncoding {
     std::string c_type;       // e.g. "int32_t", "float", "bool", or an enum's own typedef name
@@ -151,6 +172,10 @@ struct FieldEncoding {
                                          // std::uint64_t so max_bytes + 1 cannot overflow
                                          // while computing the generated buffer's capacity,
                                          // even for a (pathological) max_bytes == UINT32_MAX
+    bool is_bytes = false;
+    std::uint32_t bytes_max_bytes = 0U; // only meaningful when is_bytes; capacity is exactly
+                                        // this value (no "+1" -- see "Bytes fields" above), so
+                                        // unlike string_max_bytes this never needs widening
 };
 
 // Builds a non-enum FieldEncoding. A plain function (not a designated
@@ -374,6 +399,13 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         encoding.is_string = true;
         encoding.string_max_bytes = type.string().max_bytes();
         return encoding;
+    } else if (type.kind_case() == FieldType::kBytes) {
+        // Same schema-validation guarantee as string (validate_positive_u32
+        // is called identically for both StringType and BytesType).
+        FieldEncoding encoding;
+        encoding.is_bytes = true;
+        encoding.bytes_max_bytes = type.bytes().max_bytes();
+        return encoding;
     } else if (type.kind_case() == FieldType::kEnumType) {
         const auto catalog_it = catalog.find(type.enum_type().target_enum_ir_id());
         if (catalog_it != catalog.end()) {
@@ -414,9 +446,9 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     stream << "backend_c: field '" << record_ir.fqn() << "." << field_ir.name()
            << "' has a type the C backend does not support yet -- only bool, fixed-width "
               "signed/unsigned integer, f32/f64 scalar fields, same-namespace enum fields "
-              "with only non-negative declared values, and bounded string fields are "
-              "supported (see docs/design/c-backend.md); bytes, array, and record-reference "
-              "fields remain unsupported";
+              "with only non-negative declared values, and bounded string/bytes fields are "
+              "supported (see docs/design/c-backend.md); array and record-reference fields "
+              "remain unsupported";
     error_message = stream.str();
     return std::nullopt;
 }
@@ -586,6 +618,14 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                     stream << "    char " << field.name << "["
                            << (field.encoding.string_max_bytes + 1U) << "];\n";
                     stream << "    uint32_t " << field.name << "_length;\n";
+                } else if (field.encoding.is_bytes) {
+                    // Capacity is exactly max_bytes: unlike string, there is
+                    // no NUL-termination convenience to offer for arbitrary
+                    // binary data (compiler/backend_c/README.md's "Bytes
+                    // fields" section).
+                    stream << "    uint8_t " << field.name << "["
+                           << field.encoding.bytes_max_bytes << "];\n";
+                    stream << "    uint32_t " << field.name << "_length;\n";
                 } else {
                     stream << "    " << field.encoding.c_type << " " << field.name << ";\n";
                 }
@@ -637,9 +677,10 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 // Declares one `uint8_t <field.name>_bytes[width];` scratch buffer per
 // fixed-width (scalar/enum) field, used to hold one field's encoded bytes
 // before it is added to the quarry_c_field_t array passed to the runtime.
-// String fields need no scratch buffer: their wire bytes are exactly the
-// record's own `<field>` storage (already raw UTF-8, no big-endian
-// transformation needed), so the field-building loop below points the
+// String and bytes fields need no scratch buffer: their wire bytes are
+// exactly the record's own `<field>` storage already (raw UTF-8 for
+// string, raw opaque bytes for bytes -- neither needs a big-endian
+// transformation), so the field-building loop below points the
 // quarry_c_field_t entry directly at `record-><field>` instead. Shared by
 // _encoded_size and _encode, which otherwise independently render their own
 // field-building loop (a small, deliberate duplication -- see
@@ -647,7 +688,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 void render_field_scratch_declarations(std::ostringstream& stream,
                                        const std::vector<PlannedField>& fields) {
     for (const PlannedField& field : fields) {
-        if (field.encoding.is_string) {
+        if (field.encoding.is_string || field.encoding.is_bytes) {
             continue;
         }
         stream << "    uint8_t " << field.name << "_bytes["
@@ -705,6 +746,33 @@ void render_string_field_build(std::ostringstream& stream, const PlannedField& f
     stream << "        field_count += 1U;\n";
 }
 
+// Renders one bytes field's contribution to the fields[]/field_count
+// array-building loop. Identical to render_string_field_build's structure,
+// minus the UTF-8 validation step -- the BRF spec's "bytes" section states
+// "No UTF-8 validation applies", and the only check is the same bounds
+// check (declared length vs. schema max_bytes), performed before anything
+// reads record-><field> content, for the same out-of-bounds-read safety
+// reason. No scratch buffer: record-><field> already holds exactly the
+// wire bytes.
+void render_bytes_field_build(std::ostringstream& stream, const PlannedField& field,
+                              bool check_write_status) {
+    if (check_write_status) {
+        // _encoded_size() does not validate bounds, matching the
+        // string/enum precedent: encoded size is read directly from the
+        // field's current length regardless of validity; the real
+        // _encode() call below is where an invalid value is rejected.
+        stream << "        if (record->" << field.name << "_length > "
+               << field.encoding.bytes_max_bytes << "U) {\n";
+        stream << "            result.status = QUARRY_C_STATUS_BOUNDS_EXCEEDED;\n";
+        stream << "            return result;\n";
+        stream << "        }\n";
+    }
+    stream << "        fields[field_count].field_index = " << field.field_index << "U;\n";
+    stream << "        fields[field_count].bytes = record->" << field.name << ";\n";
+    stream << "        fields[field_count].length = record->" << field.name << "_length;\n";
+    stream << "        field_count += 1U;\n";
+}
+
 void render_scalar_or_enum_field_build(std::ostringstream& stream, const PlannedField& field,
                                        bool check_write_status) {
     if (field.encoding.is_enum && check_write_status) {
@@ -751,6 +819,8 @@ void render_build_fields_loop(std::ostringstream& stream, const std::vector<Plan
         stream << "    if (record->has_" << field.name << ") {\n";
         if (field.encoding.is_string) {
             render_string_field_build(stream, field, check_write_status);
+        } else if (field.encoding.is_bytes) {
+            render_bytes_field_build(stream, field, check_write_status);
         } else {
             render_scalar_or_enum_field_build(stream, field, check_write_status);
         }
@@ -839,6 +909,25 @@ void render_string_field_decode(std::ostringstream& stream, const PlannedField& 
     stream << "                return result;\n";
     stream << "            }\n";
     stream << "            result.value." << field.name << "[field_view.length] = '\\0';\n";
+    stream << "            result.value." << field.name
+           << "_length = (uint32_t)field_view.length;\n";
+}
+
+// Renders one bytes field's decode block. Identical to
+// render_string_field_decode, minus the UTF-8 validation step and the NUL
+// terminator write (bytes storage has no reserved terminator byte -- see
+// "Bytes fields" above). quarry_c_copy_bounded is reused completely
+// unchanged from the string decode path.
+void render_bytes_field_decode(std::ostringstream& stream, const PlannedField& field) {
+    stream << "            const quarry_c_status_t field_status = quarry_c_copy_bounded(\n";
+    stream << "                result.value." << field.name << ", "
+           << field.encoding.bytes_max_bytes << "U, field_view.bytes, field_view.length);\n";
+    stream << "            if (field_status != QUARRY_C_STATUS_OK) {\n";
+    stream << "                result.status = field_status;\n";
+    stream << "                result.has_byte_offset = true;\n";
+    stream << "                result.byte_offset = field_view.byte_offset;\n";
+    stream << "                return result;\n";
+    stream << "            }\n";
     stream << "            result.value." << field.name
            << "_length = (uint32_t)field_view.length;\n";
 }
@@ -941,6 +1030,8 @@ void render_string_field_decode(std::ostringstream& stream, const PlannedField& 
             stream << "        if (field_found) {\n";
             if (field.encoding.is_string) {
                 render_string_field_decode(stream, field);
+            } else if (field.encoding.is_bytes) {
+                render_bytes_field_decode(stream, field);
             } else {
                 render_scalar_or_enum_field_decode(stream, field);
             }

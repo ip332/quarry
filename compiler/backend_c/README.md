@@ -1,11 +1,11 @@
 # Backend (C)
 
-**Status: scalar, enum, and bounded string field codec (PR-108/PR-109/
-PR-110). No bytes, arrays, or nested records yet. Enum fields are supported
-only when declared in the same namespace as the referencing record.** See
-`docs/design/c-backend.md` for the full proposed design this is an increment
-of, and `jira/backlog.md`'s PR-107/PR-108/PR-109/PR-110 entries for what was
-built when and why.
+**Status: scalar, enum, bounded string, and bounded bytes field codec
+(PR-108/PR-109/PR-110/PR-111). No arrays or nested records yet. Enum fields
+are supported only when declared in the same namespace as the referencing
+record.** See `docs/design/c-backend.md` for the full proposed design this
+is an increment of, and `jira/backlog.md`'s PR-107/PR-108/PR-109/PR-110/
+PR-111 entries for what was built when and why.
 
 Owns the C language generator: Schema IR -> generated `.h`/`.c`, plus real
 BRF encode/decode for the currently-supported field subset.
@@ -45,8 +45,10 @@ Current C generation behavior:
   negative-valued enum fields still fail generation with a diagnostic.
 * **bounded string fields are supported** -- see "Supported field types" and
   "String fields" below.
+* **bounded bytes fields are supported** -- see "Supported field types" and
+  "Bytes fields" below.
 
-## Supported field types (PR-108/PR-109/PR-110)
+## Supported field types (PR-108/PR-109/PR-110/PR-111)
 
 Record fields are supported when their Schema IR type is one of:
 
@@ -61,18 +63,19 @@ Record fields are supported when their Schema IR type is one of:
   backend_c sees it (`compiler/semantic/semantic.cpp`'s
   `validate_positive_u32`), so there is nothing for the C backend itself to
   re-validate about the bound's presence or positivity
+* `bytes` (see "Bytes fields" below) -- the same schema-validator-enforced
+  positive `max_bytes` guarantee applies identically
 
 No new schema types were invented to support any of these.
 
-**Any other field -- including `bytes`, arrays, nested records, or a
+**Any other field -- including arrays, nested records, or a
 cross-namespace/negative-valued enum reference -- fails generation with a
 diagnostic naming the record and field** (e.g. `backend_c: field
-'quarry.telemetry.Sample.blob' has a type the C backend does not support
+'quarry.telemetry.Sample.items' has a type the C backend does not support
 yet`). **A record with a mix of supported and unsupported fields fails as a
 whole** -- there is no partial generation that silently drops the
-unsupported field. Deferred to later increments: `bytes`, arrays,
-nested-record fields, arrays of records, and cross-namespace/negative-valued
-enum fields.
+unsupported field. Deferred to later increments: arrays, nested-record
+fields, arrays of records, and cross-namespace/negative-valued enum fields.
 
 ## Generated public data model
 
@@ -356,6 +359,61 @@ both take an explicit length, never a NUL-terminated-string assumption).
 its own bounds check against `destination_capacity`, so it is a *checked*
 copy, never a bare/unchecked one.
 
+### Bytes fields
+
+For a record with a bytes field, e.g. `quarry.telemetry.Sample { blob:
+bytes, max_bytes: 16 }`:
+
+```c
+typedef struct {
+    bool has_blob;
+    uint8_t blob[16];
+    uint32_t blob_length;
+} quarry_telemetry_Sample_t;
+```
+
+**Representation decision: reuse the string layout *strategy*, with two
+differences, both directly required by the BRF spec's "bytes" section**
+("Bytes data may contain any byte sequence... No UTF-8 validation
+applies"):
+
+* **Capacity is exactly `max_bytes`, not `max_bytes + 1`.** There is no
+  NUL-termination convenience to offer for arbitrary binary data -- a
+  trailing NUL byte would be meaningless (and potentially misleading) for
+  content that isn't text, matching `docs/design/c-backend.md` Section 2's
+  original "Bytes" investigated area ("No NUL terminator concern").
+* **The content element type is `uint8_t`, not `char`.** Bytes fields have
+  no "hand to a C string API" use case to motivate `char`, and `uint8_t`
+  reads as unambiguously "opaque binary data" rather than "text."
+
+Everything else is identical to string's chosen shape: an explicit
+`uint32_t <field>_length` byte-length member (never a compile-time
+constant, since presence and content vary per record instance), and
+`has_<field>` as the sole empty-vs-absent signal (both leave the buffer
+all-zero and length 0; only the flag differs).
+
+**No UTF-8 validation is performed anywhere for bytes fields** -- this is
+the one behavioral difference from string's encode/decode path, not an
+oversight: the BRF spec is explicit that "No UTF-8 validation applies" to
+`bytes`. Encoding checks `record-><field>_length` against `max_bytes`
+(`QUARRY_C_STATUS_BOUNDS_EXCEEDED` on violation) and, if that passes, adds
+the field directly (`fields[field_count].bytes = record-><field>;` -- no
+cast needed, since `record-><field>` is already `uint8_t*`, unlike
+string's `char*` requiring `(const uint8_t*)`). Decoding calls
+`quarry_c_copy_bounded` exactly as string decode does (bounds-check-and-
+copy in one runtime call), but skips the UTF-8 validation step and the
+NUL-terminator write entirely -- `<field>_length` is set immediately after
+the copy succeeds. `_encoded_size()` performs no bounds check, matching the
+string/enum precedent exactly (encoded size reflects the field's current
+length regardless of validity; only the real `_encode()` call rejects an
+invalid one).
+
+**No runtime changes were needed for bytes.** `quarry_c_copy_bounded`
+(added in PR-110 for string decode) is reused completely unchanged --
+a bounds-checked byte copy has no UTF-8-specific behavior to begin with, so
+there was nothing to add or generalize. See "Generated-code API version
+(C)" below for why this means no epoch bump was needed either.
+
 ### Generated codec API design
 
 Considered three shapes for the generated encode/decode signatures:
@@ -483,6 +541,16 @@ regardless of which field kinds it actually uses -- consistent with how the
 epoch has always been an all-or-nothing per-file compatibility gate, never
 a finer-grained one.
 
+**PR-111 (bytes fields) did not bump this epoch, staying at 2 -- back to
+the "no bump needed" case, like PR-109.** Bytes field encode/decode calls
+only `quarry_c_copy_bounded`, an existing epoch-2 runtime function already
+present for string decode; no new runtime function was added and no new
+`quarry_c_status_t` value was needed (bytes reuses
+`QUARRY_C_STATUS_BOUNDS_EXCEEDED`, already part of the epoch-2 contract
+since PR-110). Generated code compiled against the epoch-2 runtime before
+PR-111 continues to compile and behave identically; PR-111's generated
+code depends on nothing the epoch-2 runtime header didn't already provide.
+
 ## Runtime
 
 `include/quarry/runtime_c/binary_record.h` (installed as part of
@@ -492,9 +560,10 @@ read/write (`quarry_c_write_u32`, etc., matching
 `docs/specifications/binary-record-format.md`'s mandatory big-endian byte
 order exactly), unsigned LEB128 varuint I/O, whole-record
 assembly/parsing (`quarry_c_encode_record`/`quarry_c_parse_record`/
-`quarry_c_find_field`), and (PR-110) bounded-string support
-(`quarry_c_is_valid_utf8`, `quarry_c_copy_bounded`) -- the same "generic
-byte mechanics in the runtime, schema-specific decisions in generated code"
+`quarry_c_find_field`), and (PR-110) bounded-string/bytes support
+(`quarry_c_is_valid_utf8`, `quarry_c_copy_bounded` -- the latter reused
+unchanged by PR-111's bytes fields) -- the same "generic byte mechanics in
+the runtime, schema-specific decisions in generated code"
 split `docs/principles.md`'s "Compile-Time Knowledge" principle already
 states in language-neutral terms. See `runtime_c/CMakeLists.txt` and
 `include/quarry/runtime_c/binary_record.h`'s own header comment for the

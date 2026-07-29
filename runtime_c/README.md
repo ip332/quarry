@@ -6,10 +6,10 @@ sibling implementations: neither depends on the other, and each is
 installed under its own canonical path (`include/quarry/runtime/` for C++,
 `include/quarry/runtime_c/` for C -- see "CMake Package" below).
 
-**Status: scalar, enum, and bounded string field codec (PR-108/PR-109/
-PR-110); enum fields same-namespace only.** No bytes/array/nested-record
-support exists yet -- see `compiler/backend_c/README.md` and
-`docs/design/c-backend.md` for the current implemented subset and the
+**Status: scalar, enum, bounded string, and bounded bytes field codec
+(PR-108/PR-109/PR-110/PR-111); enum fields same-namespace only.** No
+array/nested-record support exists yet -- see `compiler/backend_c/README.md`
+and `docs/design/c-backend.md` for the current implemented subset and the
 roadmap for later increments. `include/quarry/runtime_c/binary_record.h` is
 not a speculative framework for those future features: it exposes exactly
 the primitives these slices need. PR-109 (enum fields) added **no new
@@ -24,7 +24,11 @@ and-copy primitive for materializing a decoded string's wire bytes into its
 generated fixed-capacity buffer). This is also the first bump of
 `QUARRY_GENERATED_CODE_API_VERSION_C` (1 -> 2) since the epoch was
 introduced -- see `compiler/backend_c/README.md`'s "Generated-code API
-version (C)" section for the full reasoning.
+version (C)" section for the full reasoning. PR-111 (bytes fields) added
+**no new runtime code at all**, back to the PR-109 pattern:
+`quarry_c_copy_bounded` is reused completely unchanged for bytes decode (a
+bounds-checked byte copy has no UTF-8-specific behavior to begin with), so
+the epoch stayed at 2.
 
 Generated C code calls the header-only `quarry_runtime_c` target for
 byte-level mechanics while generated code keeps schema-specific knowledge
@@ -48,14 +52,15 @@ Current support:
   record's encoder/decoder calls into
 * (PR-110) UTF-8 validation (`quarry_c_is_valid_utf8`) and a checked
   bounds-check-and-copy primitive (`quarry_c_copy_bounded`) for bounded
-  string fields
+  string fields -- (PR-111) `quarry_c_copy_bounded` reused unchanged for
+  bounded bytes fields
 * a generated-code API compatibility constant
   (`QUARRY_C_GENERATED_CODE_API_VERSION`) used by generated C headers to
   verify they are compiled against a compatible runtime header
 
 Out of scope for this slice (all deferred, not rejected):
 
-* `bytes`, arrays, nested records, arrays of records
+* arrays, nested records, arrays of records
 * diagnostic path support (`path`-equivalent locating a failure inside a
   nested record or array element) -- there is no nesting yet for a path to
   describe

@@ -1304,6 +1304,9 @@ TEST(SchemaCompilerPackageTest, CConsumerBuildsAndRunsAgainstInstalledPackage) {
                     "    type: uint32\n"
                     "  label:\n"
                     "    type: string\n"
+                    "    max_bytes: 16\n"
+                    "  blob:\n"
+                    "    type: bytes\n"
                     "    max_bytes: 16\n");
     write_text_file(consumer_source / "main.c",
                     "#include <quarry/telemetry.generated.h>\n"
@@ -1316,6 +1319,10 @@ TEST(SchemaCompilerPackageTest, CConsumerBuildsAndRunsAgainstInstalledPackage) {
                     "  sample.has_label = true;\n"
                     "  memcpy(sample.label, \"hello\", 5);\n"
                     "  sample.label_length = 5;\n"
+                    "  sample.has_blob = true;\n"
+                    "  { unsigned char content[] = {0x00U, 0xFFU, 0x10U};\n"
+                    "    memcpy(sample.blob, content, 3); }\n"
+                    "  sample.blob_length = 3;\n"
                     "  unsigned char buf[64];\n"
                     "  quarry_telemetry_Sample_encode_result_t encoded =\n"
                     "      quarry_telemetry_Sample_encode(&sample, buf, sizeof(buf));\n"
@@ -1326,6 +1333,9 @@ TEST(SchemaCompilerPackageTest, CConsumerBuildsAndRunsAgainstInstalledPackage) {
                     "  if (!decoded.value.has_count || decoded.value.count != 42U) { return 3; }\n"
                     "  if (!decoded.value.has_label || decoded.value.label_length != 5) { return 4; }\n"
                     "  if (strcmp(decoded.value.label, \"hello\") != 0) { return 5; }\n"
+                    "  if (!decoded.value.has_blob || decoded.value.blob_length != 3) { return 6; }\n"
+                    "  { unsigned char expected[] = {0x00U, 0xFFU, 0x10U};\n"
+                    "    if (memcmp(decoded.value.blob, expected, 3) != 0) { return 7; } }\n"
                     "  return 0;\n"
                     "}\n");
     write_text_file(consumer_source / "CMakeLists.txt",

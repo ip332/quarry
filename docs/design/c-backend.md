@@ -47,15 +47,29 @@ PR-110 -- unlike PR-109 -- did bump `QUARRY_GENERATED_CODE_API_VERSION_C`
 the full representation-alternatives analysis, NUL-termination/embedded-NUL
 rationale, and empty-vs-absent semantics.
 
+PR-111 implemented bounded (fixed-capacity) `bytes` field support,
+reusing string's layout *strategy* with the two differences the BRF spec's
+"bytes" section itself requires ("Bytes data may contain any byte
+sequence... No UTF-8 validation applies"): capacity is exactly `max_bytes`
+(no "+1" -- no NUL-termination convenience applies to arbitrary binary
+data, matching Section 2's original "Bytes" investigated area: "No NUL
+terminator concern"), and the content element type is `uint8_t`, not
+`char`. No UTF-8 validation is performed anywhere for bytes. This needed no
+new C runtime code and no generated-code API epoch bump --
+`quarry_c_copy_bounded` (added in PR-110) is reused completely unchanged
+for bytes decode, back to the "no bump needed" pattern PR-109 established.
+See `compiler/backend_c/README.md`'s "Bytes fields" section for the full
+rationale.
+
 See `compiler/backend_c/README.md` and `runtime_c/README.md` for exactly
 what is and is not implemented today, and `jira/backlog.md`'s
-PR-107/PR-108/PR-109/PR-110 entries for the implementation write-ups.
-Everything else in this document remains a design proposal for later PRs;
-the rest of this document is unchanged from PR-106 and should be read as
-forward-looking design, not a description of current behavior -- in
-particular, cross-namespace enum field support (via an include-dependency
-mechanism this backend does not have yet), bytes fields, arrays, and nested
-records all remain proposed, not implemented.
+PR-107/PR-108/PR-109/PR-110/PR-111 entries for the implementation
+write-ups. Everything else in this document remains a design proposal for
+later PRs; the rest of this document is unchanged from PR-106 and should be
+read as forward-looking design, not a description of current behavior --
+in particular, cross-namespace enum field support (via an
+include-dependency mechanism this backend does not have yet), arrays, and
+nested records all remain proposed, not implemented.
 
 ## Purpose
 
