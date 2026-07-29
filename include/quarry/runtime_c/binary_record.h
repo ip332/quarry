@@ -11,12 +11,14 @@
  * Schema-specific knowledge (record IDs, field indexes, field types, enum
  * value sets) belongs to generated code, not here.
  *
- * Scope (PR-108): scalar fields only. No enum/string/bytes/array/nested
- * record support exists yet -- see docs/design/c-backend.md and
+ * Scope (through PR-110): scalar fields, same-namespace enum fields, and
+ * bounded (fixed-capacity) string fields. No bytes/array/nested record
+ * support exists yet -- see docs/design/c-backend.md and
  * compiler/backend_c/README.md for the current implemented subset and the
  * roadmap for later increments. This header is not a speculative framework
- * for those future features: it exposes exactly the primitives this slice
- * needs, and is expected to grow when they are implemented, not now.
+ * for those future features: it exposes exactly the primitives the
+ * implemented slices need, and is expected to grow when more are
+ * implemented, not now.
  *
  * C99. No heap allocation. Caller-owned buffers only. No global state.
  * Wire format matches docs/specifications/binary-record-format.md exactly:
@@ -72,7 +74,17 @@ typedef enum {
      * itself (it has no schema knowledge), but generated code reuses this
      * one status type rather than inventing a second, parallel enum. */
     QUARRY_C_STATUS_UNEXPECTED_RECORD_ID,
-    QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE
+    QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE,
+    /* PR-110: a string/bytes-shaped field's logical length exceeds its
+     * schema-declared max_bytes bound (encode) or its generated fixed
+     * capacity (decode) -- mirrors the C++ runtime's
+     * DecodeError::bounds_exceeded / EncodeError::bounds_exceeded. */
+    QUARRY_C_STATUS_BOUNDS_EXCEEDED,
+    /* PR-110: string field content is not well-formed UTF-8, per
+     * docs/specifications/binary-record-format.md's "string" section --
+     * mirrors the C++ runtime's DecodeError::invalid_utf8 /
+     * EncodeError::invalid_utf8. */
+    QUARRY_C_STATUS_INVALID_UTF8
 } quarry_c_status_t;
 
 /* ---- Bounded writer -------------------------------------------------- */
@@ -357,6 +369,90 @@ static inline quarry_c_status_t quarry_c_read_varuint(quarry_c_reader_t* reader,
         shift = (uint8_t)(shift + 7U);
     }
     return QUARRY_C_STATUS_MALFORMED_VARUINT;
+}
+
+/* ---- Bounded string support (PR-110) ---------------------------------- */
+
+/* Validates that `bytes` (`length` of them) is well-formed UTF-8, per
+ * docs/specifications/binary-record-format.md's "string" section ("String
+ * data bytes SHALL be valid UTF-8"; embedded U+0000 is explicitly valid
+ * string data, and is accepted here like any other single-byte code point).
+ * Ported from the C++ runtime's is_valid_utf8
+ * (include/quarry/runtime/binary_record.hpp) so the C and C++ backends
+ * accept and reject exactly the same byte sequences. `length == 0` is
+ * trivially valid (the empty string). `bytes` may be NULL only when
+ * `length` is 0. */
+static inline bool quarry_c_is_valid_utf8(const uint8_t* bytes, size_t length) {
+    size_t index = 0U;
+    while (index < length) {
+        const uint8_t first = bytes[index];
+        if (first <= 0x7FU) {
+            index += 1U;
+            continue;
+        }
+
+        uint32_t code_point = 0U;
+        size_t continuation_count = 0U;
+        if (first >= 0xC2U && first <= 0xDFU) {
+            code_point = (uint32_t)(first & 0x1FU);
+            continuation_count = 1U;
+        } else if (first >= 0xE0U && first <= 0xEFU) {
+            code_point = (uint32_t)(first & 0x0FU);
+            continuation_count = 2U;
+        } else if (first >= 0xF0U && first <= 0xF4U) {
+            code_point = (uint32_t)(first & 0x07U);
+            continuation_count = 3U;
+        } else {
+            return false;
+        }
+
+        if (length - index - 1U < continuation_count) {
+            return false;
+        }
+        for (size_t continuation = 0U; continuation < continuation_count; ++continuation) {
+            const uint8_t byte = bytes[index + continuation + 1U];
+            if ((byte & 0xC0U) != 0x80U) {
+                return false;
+            }
+            code_point = (code_point << 6U) | (uint32_t)(byte & 0x3FU);
+        }
+
+        if (continuation_count == 2U) {
+            if (code_point < 0x800U || (code_point >= 0xD800U && code_point <= 0xDFFFU)) {
+                return false;
+            }
+        }
+        if (continuation_count == 3U) {
+            if (code_point < 0x10000U || code_point > 0x10FFFFU) {
+                return false;
+            }
+        }
+
+        index += continuation_count + 1U;
+    }
+    return true;
+}
+
+/* Copies `length` bytes from `source` into `destination` (whose capacity is
+ * `destination_capacity`), used by generated decoders to materialize a
+ * bounded string field's wire bytes into its fixed-capacity struct storage.
+ * Returns QUARRY_C_STATUS_BOUNDS_EXCEEDED (performing no copy at all) if
+ * `length` exceeds `destination_capacity`, so callers get one checked
+ * operation instead of a separate length compare plus an unchecked memcpy.
+ * `source`/`destination` may be NULL only when `length` is 0. */
+static inline quarry_c_status_t quarry_c_copy_bounded(uint8_t* destination,
+                                                       size_t destination_capacity,
+                                                       const uint8_t* source, size_t length) {
+    if (length > destination_capacity) {
+        return QUARRY_C_STATUS_BOUNDS_EXCEEDED;
+    }
+    if (length > 0U) {
+        if (destination == NULL || source == NULL) {
+            return QUARRY_C_STATUS_NULL_ARGUMENT;
+        }
+        memcpy(destination, source, length);
+    }
+    return QUARRY_C_STATUS_OK;
 }
 
 /* ---- Record-level assembly (header + Field Directory + payload) ------ */

@@ -30,8 +30,14 @@ endif()
 # Compatibility epoch for generated C source and the Quarry C runtime header.
 # Independent from QUARRY_GENERATED_CODE_API_VERSION (C++): the C and C++
 # generator/runtime contracts may change on independent schedules (PR-108;
-# see docs/design/c-backend.md).
-set(QUARRY_GENERATED_CODE_API_VERSION_C 1)
+# see docs/design/c-backend.md). Bumped 1 -> 2 in PR-110: bounded string
+# field support added new public runtime symbols (quarry_c_is_valid_utf8,
+# quarry_c_copy_bounded, QUARRY_C_STATUS_BOUNDS_EXCEEDED,
+# QUARRY_C_STATUS_INVALID_UTF8) that generated string-field code now calls;
+# pairing new generated code with a pre-PR-110 runtime header would fail to
+# compile with a confusing "undefined identifier" error instead of this
+# epoch guard's clear, actionable #error.
+set(QUARRY_GENERATED_CODE_API_VERSION_C 2)
 if(NOT QUARRY_GENERATED_CODE_API_VERSION_C MATCHES "^[0-9]+$")
     message(FATAL_ERROR "QUARRY_GENERATED_CODE_API_VERSION_C must be a non-negative integer")
 endif()

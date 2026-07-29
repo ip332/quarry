@@ -243,6 +243,92 @@ TEST(BinaryRecordRuntimeCTest, FindFieldReportsAbsenceWithoutError) {
     EXPECT_FALSE(found);
 }
 
+TEST(BinaryRecordRuntimeCTest, ValidatesUtf8AcceptingEveryClassOfWellFormedInput) {
+    // Empty input (the empty string) is trivially valid, even with a NULL
+    // pointer -- length 0 means the pointer is never dereferenced.
+    EXPECT_TRUE(quarry_c_is_valid_utf8(nullptr, 0U));
+
+    // ASCII.
+    const uint8_t ascii[] = {'h', 'e', 'l', 'l', 'o'};
+    EXPECT_TRUE(quarry_c_is_valid_utf8(ascii, sizeof(ascii)));
+
+    // Embedded U+0000 is explicitly valid string data per
+    // docs/specifications/binary-record-format.md's "string" section.
+    const uint8_t embedded_nul[] = {'a', 'b', 0x00U, 'c', 'd'};
+    EXPECT_TRUE(quarry_c_is_valid_utf8(embedded_nul, sizeof(embedded_nul)));
+
+    // 2-byte, 3-byte, and 4-byte sequences: U+00E9 (e), U+4E2D (chinese
+    // "middle"), U+1F600 (grinning face emoji).
+    const uint8_t two_byte[] = {0xC3U, 0xA9U};
+    EXPECT_TRUE(quarry_c_is_valid_utf8(two_byte, sizeof(two_byte)));
+    const uint8_t three_byte[] = {0xE4U, 0xB8U, 0xADU};
+    EXPECT_TRUE(quarry_c_is_valid_utf8(three_byte, sizeof(three_byte)));
+    const uint8_t four_byte[] = {0xF0U, 0x9FU, 0x98U, 0x80U};
+    EXPECT_TRUE(quarry_c_is_valid_utf8(four_byte, sizeof(four_byte)));
+}
+
+TEST(BinaryRecordRuntimeCTest, RejectsMalformedUtf8) {
+    // Lone continuation byte.
+    const uint8_t lone_continuation[] = {0x80U};
+    EXPECT_FALSE(quarry_c_is_valid_utf8(lone_continuation, sizeof(lone_continuation)));
+
+    // Truncated 2-byte sequence (missing continuation byte).
+    const uint8_t truncated[] = {0xC3U};
+    EXPECT_FALSE(quarry_c_is_valid_utf8(truncated, sizeof(truncated)));
+
+    // Overlong encoding of U+0041 ('A') using 2 bytes instead of 1.
+    const uint8_t overlong[] = {0xC1U, 0x81U};
+    EXPECT_FALSE(quarry_c_is_valid_utf8(overlong, sizeof(overlong)));
+
+    // Surrogate half U+D800 encoded directly (not valid UTF-8).
+    const uint8_t surrogate[] = {0xEDU, 0xA0U, 0x80U};
+    EXPECT_FALSE(quarry_c_is_valid_utf8(surrogate, sizeof(surrogate)));
+
+    // Invalid leading byte 0xFF.
+    const uint8_t invalid_leader[] = {0xFFU};
+    EXPECT_FALSE(quarry_c_is_valid_utf8(invalid_leader, sizeof(invalid_leader)));
+}
+
+TEST(BinaryRecordRuntimeCTest, CopyBoundedCopiesWithinCapacityAndRejectsOverflow) {
+    uint8_t destination[8] = {0};
+    const uint8_t source[] = {1U, 2U, 3U, 4U};
+
+    ASSERT_EQ(quarry_c_copy_bounded(destination, sizeof(destination), source, sizeof(source)),
+             QUARRY_C_STATUS_OK);
+    EXPECT_EQ(0, std::memcmp(destination, source, sizeof(source)));
+
+    // Exactly at capacity succeeds.
+    uint8_t exact[4] = {0};
+    ASSERT_EQ(quarry_c_copy_bounded(exact, sizeof(exact), source, sizeof(source)),
+             QUARRY_C_STATUS_OK);
+    EXPECT_EQ(0, std::memcmp(exact, source, sizeof(source)));
+
+    // One byte over capacity is rejected, with no partial copy performed.
+    uint8_t tiny[3] = {0xAAU, 0xAAU, 0xAAU};
+    EXPECT_EQ(quarry_c_copy_bounded(tiny, sizeof(tiny), source, sizeof(source)),
+             QUARRY_C_STATUS_BOUNDS_EXCEEDED);
+    EXPECT_EQ(tiny[0], 0xAAU) << "destination must be left untouched when length exceeds capacity";
+
+    // Zero-length copy with NULL source/destination is valid (never
+    // dereferences either pointer).
+    EXPECT_EQ(quarry_c_copy_bounded(nullptr, 0U, nullptr, 0U), QUARRY_C_STATUS_OK);
+
+    // Zero-length copy with a real (non-NULL) capacity but NULL source: the
+    // length itself is 0, so this is also valid -- length, not the
+    // pointers, controls whether NULL is acceptable.
+    EXPECT_EQ(quarry_c_copy_bounded(destination, sizeof(destination), nullptr, 0U),
+             QUARRY_C_STATUS_OK);
+}
+
+TEST(BinaryRecordRuntimeCTest, CopyBoundedRejectsNullPointersWhenLengthIsNonZero) {
+    uint8_t destination[4] = {0};
+    const uint8_t source[] = {1U, 2U};
+    EXPECT_EQ(quarry_c_copy_bounded(nullptr, sizeof(destination), source, sizeof(source)),
+             QUARRY_C_STATUS_NULL_ARGUMENT);
+    EXPECT_EQ(quarry_c_copy_bounded(destination, sizeof(destination), nullptr, sizeof(source)),
+             QUARRY_C_STATUS_NULL_ARGUMENT);
+}
+
 TEST(BinaryRecordRuntimeCTest, RejectsOverlappingFieldRanges) {
     // Hand-built directory with two entries whose payload ranges overlap:
     // field 0 at [0,4), field 1 at [2,6) -- both within a 6-byte payload.

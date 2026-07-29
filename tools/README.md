@@ -40,22 +40,27 @@ backend always emits a `.h`/`.c` pair with fixed extensions
 (`.generated.h`/`.generated.c`) that are not yet independently configurable
 from the command line.
 
-**`--language c` supports scalar-only records (PR-108).** It emits one
-`.h`/`.c` pair per namespace that owns records or enums: generated C enum
-declarations, real C structs for records whose fields are all `bool`,
-fixed-width signed/unsigned integers, or `f32`/`f64`, and a real BRF
-encode/decode codec API (`_init`, `_encoded_size`, `_encode`, `_decode`) for
-every record, backed by the installed `Quarry::runtime_c` C runtime -- see
+**`--language c` supports scalar, same-namespace-enum, and bounded-string
+records (PR-108/PR-109/PR-110).** It emits one `.h`/`.c` pair per namespace
+that owns records or enums: generated C enum declarations, real C structs
+for records whose fields are `bool`, fixed-width signed/unsigned integers,
+`f32`/`f64`, enum references declared in the *same namespace* as the
+referencing record (with only non-negative declared values), or bounded
+`string` fields (fixed-capacity, NUL-terminated buffer storage sized from
+the schema's `max_bytes` bound), and a real BRF encode/decode codec API
+(`_init`, `_encoded_size`, `_encode`, `_decode`) for every record, backed by
+the installed `Quarry::runtime_c` C runtime -- see
 `compiler/backend_c/README.md`, `runtime_c/README.md`, and
 `docs/design/c-backend.md` for the full scope, the generated codec API
-design, and the roadmap. **Enum-typed fields, `string`, `bytes`, arrays, and
-nested/record-reference fields remain unsupported.** A record containing
-any such field -- even mixed with otherwise-supported fields -- fails
-generation with a diagnostic identifying the record and field, rather than
-silently emitting a struct that drops that field. Generated C code that
-contains records checks a C generated-code API compatibility epoch
-(`QUARRY_C_GENERATED_CODE_API_VERSION`), independent from the C++ epoch
-described below.
+design, and the roadmap. **`bytes`, arrays, nested/record-reference fields,
+and cross-namespace or negative-valued enum references remain
+unsupported.** A record containing any such field -- even mixed with
+otherwise-supported fields -- fails generation with a diagnostic
+identifying the record and field, rather than silently emitting a struct
+that drops that field. Generated C code that contains records checks a C
+generated-code API compatibility epoch
+(`QUARRY_C_GENERATED_CODE_API_VERSION`, currently epoch `2`), independent
+from the C++ epoch described below.
 
 The command prints compiler diagnostics and tool errors to stderr. Successful
 compilation is quiet and returns exit code `0`.

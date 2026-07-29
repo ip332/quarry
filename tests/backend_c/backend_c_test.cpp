@@ -186,9 +186,11 @@ TEST(BackendCTest, EnumValueOutsideInt32RangeFailsGenerationWithClearDiagnostic)
 }
 
 TEST(BackendCTest, UnsupportedFieldTypeFailsGenerationWithClearDiagnosticNamingFieldAndRecord) {
-    // PR-108 supports scalar fields; string/bytes/array/enum/record-reference
-    // fields remain unsupported. Uses `string` as a representative
-    // unsupported type.
+    // Bytes/array/record-reference fields, and enum fields that don't meet
+    // the same-namespace/non-negative-values constraints, remain
+    // unsupported after PR-108/109/110 (scalars, same-namespace enums, and
+    // bounded strings are now supported). Uses `bytes` as a representative
+    // still-unsupported type.
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
@@ -199,7 +201,7 @@ TEST(BackendCTest, UnsupportedFieldTypeFailsGenerationWithClearDiagnosticNamingF
     FieldIR* field = record->add_fields();
     field->set_name("label");
     field->set_field_index(0);
-    field->mutable_type()->mutable_string()->set_max_bytes(32);
+    field->mutable_type()->mutable_bytes()->set_max_bytes(32);
     assert_valid(schema_ir);
 
     Backend backend;
@@ -230,7 +232,7 @@ TEST(BackendCTest, MixedSupportedAndUnsupportedFieldsFailsRecordAsAWhole) {
     FieldIR* label_field = record->add_fields();
     label_field->set_name("label");
     label_field->set_field_index(1);
-    label_field->mutable_type()->mutable_string()->set_max_bytes(32);
+    label_field->mutable_type()->mutable_bytes()->set_max_bytes(32);
     assert_valid(schema_ir);
 
     Backend backend;
@@ -404,6 +406,133 @@ TEST(BackendCTest, NegativeValueEnumFieldFailsWithClearDiagnostic) {
     EXPECT_NE(result.error_message.find("telemetry.Sample.signed_field"), std::string::npos);
     EXPECT_NE(result.error_message.find("non-negative"), std::string::npos);
     EXPECT_TRUE(result.files.empty());
+}
+
+TEST(BackendCTest, StringFieldGeneratesFixedCapacityStructFieldAndCodec) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
+    RecordIR* record =
+        add_zero_field_record(*telemetry_ns, 3, 1U, "Sample", "telemetry.Sample");
+    FieldIR* label_field = record->add_fields();
+    label_field->set_name("label");
+    label_field->set_field_index(0);
+    label_field->mutable_type()->mutable_string()->set_max_bytes(16);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 2U);
+
+    // Capacity is max_bytes + 1 (room for the trailing NUL the decoder
+    // always writes); label_length is the authoritative wire byte length.
+    const std::string& header = result.files[0].content;
+    EXPECT_NE(header.find("bool has_label;"), std::string::npos);
+    EXPECT_NE(header.find("char label[17];"), std::string::npos);
+    EXPECT_NE(header.find("uint32_t label_length;"), std::string::npos);
+
+    const std::string& source = result.files[1].content;
+    // Encode side: bounds check against schema max_bytes, then UTF-8
+    // validation, both before the field is added to fields[]/field_count --
+    // no scratch buffer, points directly at record->label.
+    EXPECT_NE(source.find("if (record->label_length > 16U) {"), std::string::npos);
+    EXPECT_NE(source.find("QUARRY_C_STATUS_BOUNDS_EXCEEDED"), std::string::npos);
+    EXPECT_NE(source.find("quarry_c_is_valid_utf8((const uint8_t*)record->label, "
+                         "record->label_length)"),
+             std::string::npos);
+    EXPECT_NE(source.find("QUARRY_C_STATUS_INVALID_UTF8"), std::string::npos);
+    EXPECT_NE(source.find("fields[field_count].bytes = (const uint8_t*)record->label;"),
+             std::string::npos);
+    EXPECT_NE(source.find("fields[field_count].length = record->label_length;"),
+             std::string::npos);
+    EXPECT_EQ(source.find("label_bytes["), std::string::npos)
+        << "string fields must not get a fixed-width scratch buffer";
+
+    // Decode side: one checked bounded copy (bounds + copy in a single
+    // runtime call), then UTF-8 validation, then commit (NUL-terminate,
+    // set the authoritative length).
+    EXPECT_NE(source.find("quarry_c_copy_bounded(\n"
+                         "                (uint8_t*)result.value.label, 16U, field_view.bytes, "
+                         "field_view.length);"),
+             std::string::npos);
+    EXPECT_NE(source.find("quarry_c_is_valid_utf8(field_view.bytes, field_view.length)"),
+             std::string::npos);
+    EXPECT_NE(source.find("result.value.label[field_view.length] = '\\0';"), std::string::npos);
+    EXPECT_NE(source.find("result.value.label_length = (uint32_t)field_view.length;"),
+             std::string::npos);
+    EXPECT_NE(source.find("result.value.has_label = true;"), std::string::npos);
+}
+
+TEST(BackendCTest, StringFieldEncodedSizeDoesNotValidateBoundsOrUtf8) {
+    // Matches the enum-membership precedent exactly: _encoded_size() reads
+    // the field's current (possibly invalid) length/content directly,
+    // without validating -- only the real _encode() call rejects an
+    // invalid value. Verified by asserting the _encoded_size() function
+    // body contains no bounds/UTF-8 check at all.
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
+    RecordIR* record =
+        add_zero_field_record(*telemetry_ns, 3, 1U, "Sample", "telemetry.Sample");
+    FieldIR* label_field = record->add_fields();
+    label_field->set_name("label");
+    label_field->set_field_index(0);
+    label_field->mutable_type()->mutable_string()->set_max_bytes(16);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    const std::string& source = result.files[1].content;
+
+    const std::size_t encoded_size_start = source.find("telemetry_Sample_encoded_size(");
+    const std::size_t encode_start = source.find("telemetry_Sample_encode(");
+    ASSERT_NE(encoded_size_start, std::string::npos);
+    ASSERT_NE(encode_start, std::string::npos);
+    ASSERT_LT(encoded_size_start, encode_start);
+    const std::string encoded_size_body =
+        source.substr(encoded_size_start, encode_start - encoded_size_start);
+    EXPECT_EQ(encoded_size_body.find("BOUNDS_EXCEEDED"), std::string::npos);
+    EXPECT_EQ(encoded_size_body.find("INVALID_UTF8"), std::string::npos);
+}
+
+TEST(BackendCTest, MixedScalarEnumStringRecordGeneratesAllFieldKinds) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
+    EnumIR* status_enum = add_enum(*telemetry_ns, 3, "Status", "telemetry.Status");
+    add_enum_value(*status_enum, "OK", 0);
+    RecordIR* record =
+        add_zero_field_record(*telemetry_ns, 4, 1U, "Sample", "telemetry.Sample");
+    FieldIR* count_field = record->add_fields();
+    count_field->set_name("count");
+    count_field->set_field_index(0);
+    count_field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    FieldIR* status_field = record->add_fields();
+    status_field->set_name("status");
+    status_field->set_field_index(1);
+    status_field->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(3);
+    FieldIR* label_field = record->add_fields();
+    label_field->set_name("label");
+    label_field->set_field_index(2);
+    label_field->mutable_type()->mutable_string()->set_max_bytes(8);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    const std::string& header = result.files[0].content;
+    EXPECT_NE(header.find("uint32_t count;"), std::string::npos);
+    EXPECT_NE(header.find("telemetry_Status_t status;"), std::string::npos);
+    EXPECT_NE(header.find("char label[9];"), std::string::npos);
+    EXPECT_NE(header.find("uint32_t label_length;"), std::string::npos);
 }
 
 TEST(BackendCTest, DuplicateNamespaceFqnFailsWithClearDiagnostic) {

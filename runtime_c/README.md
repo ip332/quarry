@@ -6,16 +6,25 @@ sibling implementations: neither depends on the other, and each is
 installed under its own canonical path (`include/quarry/runtime/` for C++,
 `include/quarry/runtime_c/` for C -- see "CMake Package" below).
 
-**Status: scalar and enum field codec (PR-108/PR-109), same-namespace enum
-fields only.** No string/bytes/array/nested-record support exists yet -- see
-`compiler/backend_c/README.md` and `docs/design/c-backend.md` for the
-current implemented subset and the roadmap for later increments.
-`include/quarry/runtime_c/binary_record.h` is not a speculative framework
-for those future features: it exposes exactly the primitives these slices
-need. Notably, PR-109 (enum fields) added **no new runtime code at all** --
-enum field support only required generated-code changes (see
-`compiler/backend_c/README.md`'s "Enum fields" section); every primitive
-this runtime exposed after PR-108 was already sufficient.
+**Status: scalar, enum, and bounded string field codec (PR-108/PR-109/
+PR-110); enum fields same-namespace only.** No bytes/array/nested-record
+support exists yet -- see `compiler/backend_c/README.md` and
+`docs/design/c-backend.md` for the current implemented subset and the
+roadmap for later increments. `include/quarry/runtime_c/binary_record.h` is
+not a speculative framework for those future features: it exposes exactly
+the primitives these slices need. PR-109 (enum fields) added **no new
+runtime code at all** -- enum field support only required generated-code
+changes (see `compiler/backend_c/README.md`'s "Enum fields" section); every
+primitive this runtime exposed after PR-108 was already sufficient. PR-110
+(string fields) is the first increment since PR-108 to add genuinely new
+runtime code: `quarry_c_is_valid_utf8` (a UTF-8 validator ported from the
+C++ runtime's `is_valid_utf8`, so both languages accept/reject exactly the
+same byte sequences) and `quarry_c_copy_bounded` (a checked bounds-check-
+and-copy primitive for materializing a decoded string's wire bytes into its
+generated fixed-capacity buffer). This is also the first bump of
+`QUARRY_GENERATED_CODE_API_VERSION_C` (1 -> 2) since the epoch was
+introduced -- see `compiler/backend_c/README.md`'s "Generated-code API
+version (C)" section for the full reasoning.
 
 Generated C code calls the header-only `quarry_runtime_c` target for
 byte-level mechanics while generated code keeps schema-specific knowledge
@@ -37,14 +46,16 @@ Current support:
   (`quarry_c_parse_record`/`quarry_c_find_field`), the generic "assemble/
   validate header + Field Directory + payload" mechanics every generated
   record's encoder/decoder calls into
+* (PR-110) UTF-8 validation (`quarry_c_is_valid_utf8`) and a checked
+  bounds-check-and-copy primitive (`quarry_c_copy_bounded`) for bounded
+  string fields
 * a generated-code API compatibility constant
   (`QUARRY_C_GENERATED_CODE_API_VERSION`) used by generated C headers to
   verify they are compiled against a compatible runtime header
 
 Out of scope for this slice (all deferred, not rejected):
 
-* enum-typed fields, `string`, `bytes`, arrays, nested records, arrays of
-  records
+* `bytes`, arrays, nested records, arrays of records
 * diagnostic path support (`path`-equivalent locating a failure inside a
   nested record or array element) -- there is no nesting yet for a path to
   describe
@@ -91,6 +102,12 @@ of enum field support and actually produced by generated code since PR-109,
 which needed no runtime change to start using it: reserving schema-level
 statuses in this one shared enum ahead of their first generated-code
 producer means generated code never needs a second, parallel status type).
+PR-110 added two more values to this same shared enum:
+`QUARRY_C_STATUS_BOUNDS_EXCEEDED` (a string field's logical/wire length
+exceeds its schema-declared `max_bytes` bound) and
+`QUARRY_C_STATUS_INVALID_UTF8` (string content fails UTF-8 validation),
+mirroring the C++ runtime's `DecodeError`/`EncodeError` variants of the
+same names exactly.
 Decode results additionally carry `byte_offset`
 (`has_byte_offset`/`byte_offset`), populated for every decode failure except
 `QUARRY_C_STATUS_UNSUPPORTED_FIELD_COUNT` (see above). Encode results never

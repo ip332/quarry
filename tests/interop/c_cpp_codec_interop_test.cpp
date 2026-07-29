@@ -1,13 +1,18 @@
 // Proves byte-for-byte BRF wire compatibility between the C and C++
-// backends for the scalar-and-enum-field subset both support (PR-108/
-// PR-109). Generates the same schema through both `quarry-schema-compiler`
-// backends, compiles small C and C++ harness programs against each
-// generated output, and verifies: (1) the C encoder's bytes are
-// byte-for-byte identical to the C++ encoder's bytes for the same field
-// values (including a representative enum value), (2) the C++ decoder
-// accepts the C-encoded bytes, (3) the C decoder accepts the C++-encoded
-// bytes, and (4) both languages identically reject an out-of-range enum
-// byte as an unknown-enum-value decode failure, with a byte offset.
+// backends for the scalar/enum/bounded-string field subset both support
+// (PR-108/PR-109/PR-110). Generates the same schema through both
+// `quarry-schema-compiler` backends, compiles small C and C++ harness
+// programs against each generated output, and verifies: (1) the C
+// encoder's bytes are byte-for-byte identical to the C++ encoder's bytes
+// for the same field values (including a representative enum value and
+// string value), (2) the C++ decoder accepts the C-encoded bytes, (3) the
+// C decoder accepts the C++-encoded bytes, (4) both languages identically
+// reject an out-of-range enum byte as an unknown-enum-value decode
+// failure, with a byte offset, (5) empty-present/absent/maximum-length/
+// embedded-NUL string values round-trip identically and byte-for-byte in
+// both directions, (6) both languages reject a string value whose logical
+// length exceeds max_bytes before producing any encoded bytes, and (7)
+// both languages reject a truncated encoded record.
 
 #include <chrono>
 #include <cstdlib>
@@ -97,6 +102,13 @@ void write_text_file(const std::filesystem::path& path, std::string_view text) {
 #endif
 }
 
+// `status` stays the last-declared field (highest field_index) so the
+// existing "truncate/corrupt the last byte" trick below still lands inside
+// its one-byte payload; `label` is declared just before it. The string
+// truncation coverage further below instead relies on the Field Directory's
+// declared payload length no longer matching the (shortened) input buffer
+// length -- true for a chopped trailing byte regardless of which field it
+// belonged to, so it does not need to be last itself.
 constexpr std::string_view kSchema = "namespace: quarry.telemetry\n"
                                      "record: Sample\n"
                                      "version: 1\n"
@@ -110,6 +122,9 @@ constexpr std::string_view kSchema = "namespace: quarry.telemetry\n"
                                      "    type: bool\n"
                                      "  level:\n"
                                      "    type: int8\n"
+                                     "  label:\n"
+                                     "    type: string\n"
+                                     "    max_bytes: 16\n"
                                      "  status:\n"
                                      "    type: Status\n"
                                      "enums:\n"
@@ -123,16 +138,67 @@ constexpr std::string_view kCHarness =
     "#include \"quarry/telemetry.generated.h\"\n"
     "#include <stdio.h>\n"
     "#include <string.h>\n"
+    "static void set_non_label_fields(quarry_telemetry_Sample_t* sample) {\n"
+    "  sample->has_count = true; sample->count = 42U;\n"
+    "  sample->has_ratio = true; sample->ratio = 1.5f;\n"
+    "  sample->has_active = true; sample->active = true;\n"
+    "  sample->has_level = true; sample->level = -5;\n"
+    "  sample->has_status = true; sample->status = QUARRY_TELEMETRY_STATUS_WARNING;\n"
+    "}\n"
+    "static int check_non_label_fields(const quarry_telemetry_Sample_t* v) {\n"
+    "  if (!v->has_count || v->count != 42U) return 5;\n"
+    "  if (!v->has_ratio || v->ratio != 1.5f) return 6;\n"
+    "  if (!v->has_active || v->active != true) return 7;\n"
+    "  if (!v->has_level || v->level != -5) return 8;\n"
+    "  if (!v->has_status || v->status != QUARRY_TELEMETRY_STATUS_WARNING) return 9;\n"
+    "  return 0;\n"
+    "}\n"
+    "/* Sets the label field on `sample` per `variant`: \"empty\" (present,\n"
+    " * zero-length), \"absent\" (has_label left false), \"max\" (exactly\n"
+    " * max_bytes=16 bytes), \"embedded_nul\" (5 bytes including a literal\n"
+    " * 0x00), or the default (\"hi\", 2 bytes, used by plain encode/decode).\n"
+    " */\n"
+    "static void set_label_variant(quarry_telemetry_Sample_t* sample, const char* variant) {\n"
+    "  if (strcmp(variant, \"absent\") == 0) return;\n"
+    "  sample->has_label = true;\n"
+    "  if (strcmp(variant, \"empty\") == 0) {\n"
+    "    sample->label_length = 0;\n"
+    "  } else if (strcmp(variant, \"max\") == 0) {\n"
+    "    memset(sample->label, 'x', 16);\n"
+    "    sample->label_length = 16;\n"
+    "  } else if (strcmp(variant, \"embedded_nul\") == 0) {\n"
+    "    memcpy(sample->label, \"ab\\0cd\", 5);\n"
+    "    sample->label_length = 5;\n"
+    "  } else {\n"
+    "    memcpy(sample->label, \"hi\", 2);\n"
+    "    sample->label_length = 2;\n"
+    "  }\n"
+    "}\n"
+    "static int check_label_variant(const quarry_telemetry_Sample_t* v, const char* variant) {\n"
+    "  if (strcmp(variant, \"absent\") == 0) {\n"
+    "    return v->has_label ? 10 : 0;\n"
+    "  }\n"
+    "  if (!v->has_label) return 11;\n"
+    "  if (strcmp(variant, \"empty\") == 0) {\n"
+    "    return v->label_length == 0 ? 0 : 12;\n"
+    "  }\n"
+    "  if (strcmp(variant, \"max\") == 0) {\n"
+    "    if (v->label_length != 16) return 13;\n"
+    "    for (int i = 0; i < 16; ++i) { if (v->label[i] != 'x') return 14; }\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (strcmp(variant, \"embedded_nul\") == 0) {\n"
+    "    return (v->label_length == 5 && memcmp(v->label, \"ab\\0cd\", 5) == 0) ? 0 : 15;\n"
+    "  }\n"
+    "  return (v->label_length == 2 && memcmp(v->label, \"hi\", 2) == 0) ? 0 : 16;\n"
+    "}\n"
     "int main(int argc, char** argv) {\n"
     "  if (argc < 3) return 20;\n"
     "  if (strcmp(argv[1], \"encode\") == 0) {\n"
     "    quarry_telemetry_Sample_t sample;\n"
     "    quarry_telemetry_Sample_init(&sample);\n"
-    "    sample.has_count = true; sample.count = 42U;\n"
-    "    sample.has_ratio = true; sample.ratio = 1.5f;\n"
-    "    sample.has_active = true; sample.active = true;\n"
-    "    sample.has_level = true; sample.level = -5;\n"
-    "    sample.has_status = true; sample.status = QUARRY_TELEMETRY_STATUS_WARNING;\n"
+    "    set_non_label_fields(&sample);\n"
+    "    set_label_variant(&sample, \"default\");\n"
     "    uint8_t buf[128];\n"
     "    quarry_telemetry_Sample_encode_result_t r =\n"
     "        quarry_telemetry_Sample_encode(&sample, buf, sizeof(buf));\n"
@@ -151,12 +217,9 @@ constexpr std::string_view kCHarness =
     "    fclose(f);\n"
     "    quarry_telemetry_Sample_decode_result_t r = quarry_telemetry_Sample_decode(buf, n);\n"
     "    if (r.status != QUARRY_C_STATUS_OK) return 4;\n"
-    "    if (!r.value.has_count || r.value.count != 42U) return 5;\n"
-    "    if (!r.value.has_ratio || r.value.ratio != 1.5f) return 6;\n"
-    "    if (!r.value.has_active || r.value.active != true) return 7;\n"
-    "    if (!r.value.has_level || r.value.level != -5) return 8;\n"
-    "    if (!r.value.has_status || r.value.status != QUARRY_TELEMETRY_STATUS_WARNING) return 9;\n"
-    "    return 0;\n"
+    "    int non_label_status = check_non_label_fields(&r.value);\n"
+    "    if (non_label_status != 0) return non_label_status;\n"
+    "    return check_label_variant(&r.value, \"default\");\n"
     "  }\n"
     "  if (strcmp(argv[1], \"decode_expect_unknown_enum\") == 0) {\n"
     "    FILE* f = fopen(argv[2], \"rb\");\n"
@@ -169,6 +232,53 @@ constexpr std::string_view kCHarness =
     "    if (!r.has_byte_offset) return 2;\n"
     "    return 0;\n"
     "  }\n"
+    "  if (strcmp(argv[1], \"encode_label_variant\") == 0) {\n"
+    "    if (argc < 4) return 20;\n"
+    "    quarry_telemetry_Sample_t sample;\n"
+    "    quarry_telemetry_Sample_init(&sample);\n"
+    "    set_non_label_fields(&sample);\n"
+    "    set_label_variant(&sample, argv[3]);\n"
+    "    uint8_t buf[128];\n"
+    "    quarry_telemetry_Sample_encode_result_t r =\n"
+    "        quarry_telemetry_Sample_encode(&sample, buf, sizeof(buf));\n"
+    "    if (r.status != QUARRY_C_STATUS_OK) return 1;\n"
+    "    FILE* f = fopen(argv[2], \"wb\");\n"
+    "    if (!f) return 2;\n"
+    "    fwrite(buf, 1, r.bytes_written, f);\n"
+    "    fclose(f);\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (strcmp(argv[1], \"decode_label_variant\") == 0) {\n"
+    "    if (argc < 4) return 20;\n"
+    "    FILE* f = fopen(argv[2], \"rb\");\n"
+    "    if (!f) return 3;\n"
+    "    uint8_t buf[256];\n"
+    "    size_t n = fread(buf, 1, sizeof(buf), f);\n"
+    "    fclose(f);\n"
+    "    quarry_telemetry_Sample_decode_result_t r = quarry_telemetry_Sample_decode(buf, n);\n"
+    "    if (r.status != QUARRY_C_STATUS_OK) return 4;\n"
+    "    return check_label_variant(&r.value, argv[3]);\n"
+    "  }\n"
+    "  if (strcmp(argv[1], \"encode_over_capacity_label_expect_rejected\") == 0) {\n"
+    "    quarry_telemetry_Sample_t sample;\n"
+    "    quarry_telemetry_Sample_init(&sample);\n"
+    "    set_non_label_fields(&sample);\n"
+    "    sample.has_label = true;\n"
+    "    sample.label_length = 20; /* > max_bytes=16; content is never read */\n"
+    "    uint8_t buf[128];\n"
+    "    quarry_telemetry_Sample_encode_result_t r =\n"
+    "        quarry_telemetry_Sample_encode(&sample, buf, sizeof(buf));\n"
+    "    return (r.status == QUARRY_C_STATUS_BOUNDS_EXCEEDED) ? 0 : 1;\n"
+    "  }\n"
+    "  if (strcmp(argv[1], \"decode_expect_failure\") == 0) {\n"
+    "    FILE* f = fopen(argv[2], \"rb\");\n"
+    "    if (!f) return 3;\n"
+    "    uint8_t buf[256];\n"
+    "    size_t n = fread(buf, 1, sizeof(buf), f);\n"
+    "    fclose(f);\n"
+    "    quarry_telemetry_Sample_decode_result_t r = quarry_telemetry_Sample_decode(buf, n);\n"
+    "    return (r.status != QUARRY_C_STATUS_OK) ? 0 : 1;\n"
+    "  }\n"
     "  return 9;\n"
     "}\n";
 
@@ -177,16 +287,58 @@ constexpr std::string_view kCppHarness =
     "#include <cstdio>\n"
     "#include <cstring>\n"
     "#include <fstream>\n"
+    "#include <string>\n"
     "#include <vector>\n"
+    "static bool set_non_label_fields(quarry::telemetry::SampleBuilder& builder) {\n"
+    "  if (!builder.set_count(42U)) return false;\n"
+    "  if (!builder.set_ratio(1.5f)) return false;\n"
+    "  if (!builder.set_active(true)) return false;\n"
+    "  if (!builder.set_level(-5)) return false;\n"
+    "  if (!builder.set_status(quarry::telemetry::Status::WARNING)) return false;\n"
+    "  return true;\n"
+    "}\n"
+    "static int check_non_label_fields(const quarry::telemetry::Sample& v) {\n"
+    "  if (!v.has_count() || *v.count() != 42U) return 6;\n"
+    "  if (!v.has_ratio() || *v.ratio() != 1.5f) return 7;\n"
+    "  if (!v.has_active() || *v.active() != true) return 8;\n"
+    "  if (!v.has_level() || *v.level() != -5) return 9;\n"
+    "  if (!v.has_status() || *v.status() != quarry::telemetry::Status::WARNING) return 10;\n"
+    "  return 0;\n"
+    "}\n"
+    "/* Mirrors the C harness's set_label_variant exactly (same variant names,\n"
+    " * same byte content) so cross-language byte comparisons are meaningful. */\n"
+    "static bool set_label_variant(quarry::telemetry::SampleBuilder& builder,\n"
+    "                              const std::string& variant) {\n"
+    "  if (variant == \"absent\") return true;\n"
+    "  if (variant == \"empty\") return builder.set_label(std::string());\n"
+    "  if (variant == \"max\") return builder.set_label(std::string(16, 'x'));\n"
+    "  if (variant == \"embedded_nul\") return builder.set_label(std::string(\"ab\\0cd\", 5));\n"
+    "  return builder.set_label(std::string(\"hi\"));\n"
+    "}\n"
+    "static int check_label_variant(const quarry::telemetry::Sample& v,\n"
+    "                               const std::string& variant) {\n"
+    "  if (variant == \"absent\") return v.has_label() ? 10 : 0;\n"
+    "  if (!v.has_label()) return 11;\n"
+    "  const std::string& label = *v.label();\n"
+    "  if (variant == \"empty\") return label.empty() ? 0 : 12;\n"
+    "  if (variant == \"max\") return label == std::string(16, 'x') ? 0 : 13;\n"
+    "  if (variant == \"embedded_nul\") return label == std::string(\"ab\\0cd\", 5) ? 0 : 14;\n"
+    "  return label == \"hi\" ? 0 : 15;\n"
+    "}\n"
+    "static std::vector<std::byte> read_bytes(const char* path) {\n"
+    "  std::ifstream in(path, std::ios::binary);\n"
+    "  std::vector<char> raw((std::istreambuf_iterator<char>(in)),\n"
+    "                        std::istreambuf_iterator<char>());\n"
+    "  std::vector<std::byte> bytes(raw.size());\n"
+    "  for (size_t i = 0; i < raw.size(); ++i) { bytes[i] = static_cast<std::byte>(raw[i]); }\n"
+    "  return bytes;\n"
+    "}\n"
     "int main(int argc, char** argv) {\n"
     "  if (argc < 3) return 20;\n"
     "  if (std::strcmp(argv[1], \"encode\") == 0) {\n"
     "    quarry::telemetry::SampleBuilder builder;\n"
-    "    if (!builder.set_count(42U)) return 1;\n"
-    "    if (!builder.set_ratio(1.5f)) return 1;\n"
-    "    if (!builder.set_active(true)) return 1;\n"
-    "    if (!builder.set_level(-5)) return 1;\n"
-    "    if (!builder.set_status(quarry::telemetry::Status::WARNING)) return 1;\n"
+    "    if (!set_non_label_fields(builder)) return 1;\n"
+    "    if (!set_label_variant(builder, \"default\")) return 1;\n"
     "    const auto sample = builder.build();\n"
     "    auto encoded = quarry::telemetry::encode(sample);\n"
     "    if (!encoded.has_value()) return 2;\n"
@@ -197,40 +349,61 @@ constexpr std::string_view kCppHarness =
     "    return 0;\n"
     "  }\n"
     "  if (std::strcmp(argv[1], \"decode\") == 0) {\n"
-    "    std::ifstream in(argv[2], std::ios::binary);\n"
-    "    if (!in) return 4;\n"
-    "    std::vector<char> raw((std::istreambuf_iterator<char>(in)),\n"
-    "                          std::istreambuf_iterator<char>());\n"
-    "    std::vector<std::byte> bytes(raw.size());\n"
-    "    for (size_t i = 0; i < raw.size(); ++i) {\n"
-    "      bytes[i] = static_cast<std::byte>(raw[i]);\n"
-    "    }\n"
+    "    auto bytes = read_bytes(argv[2]);\n"
     "    auto decoded =\n"
     "        quarry::telemetry::decode_Sample(std::span<const std::byte>(bytes));\n"
     "    if (!decoded.has_value()) return 5;\n"
-    "    if (!decoded->has_count() || *decoded->count() != 42U) return 6;\n"
-    "    if (!decoded->has_ratio() || *decoded->ratio() != 1.5f) return 7;\n"
-    "    if (!decoded->has_active() || *decoded->active() != true) return 8;\n"
-    "    if (!decoded->has_level() || *decoded->level() != -5) return 9;\n"
-    "    if (!decoded->has_status() || *decoded->status() != quarry::telemetry::Status::WARNING)\n"
-    "      return 10;\n"
-    "    return 0;\n"
+    "    int non_label_status = check_non_label_fields(*decoded);\n"
+    "    if (non_label_status != 0) return non_label_status;\n"
+    "    return check_label_variant(*decoded, \"default\");\n"
     "  }\n"
     "  if (std::strcmp(argv[1], \"decode_expect_unknown_enum\") == 0) {\n"
-    "    std::ifstream in(argv[2], std::ios::binary);\n"
-    "    if (!in) return 4;\n"
-    "    std::vector<char> raw((std::istreambuf_iterator<char>(in)),\n"
-    "                          std::istreambuf_iterator<char>());\n"
-    "    std::vector<std::byte> bytes(raw.size());\n"
-    "    for (size_t i = 0; i < raw.size(); ++i) {\n"
-    "      bytes[i] = static_cast<std::byte>(raw[i]);\n"
-    "    }\n"
+    "    auto bytes = read_bytes(argv[2]);\n"
     "    auto decoded =\n"
     "        quarry::telemetry::decode_Sample_result(std::span<const std::byte>(bytes));\n"
     "    if (decoded.value.has_value()) return 1;\n"
     "    if (decoded.error != quarry::runtime::DecodeError::unknown_enum_value) return 2;\n"
     "    if (!decoded.byte_offset.has_value()) return 3;\n"
     "    return 0;\n"
+    "  }\n"
+    "  if (std::strcmp(argv[1], \"encode_label_variant\") == 0) {\n"
+    "    if (argc < 4) return 20;\n"
+    "    quarry::telemetry::SampleBuilder builder;\n"
+    "    if (!set_non_label_fields(builder)) return 1;\n"
+    "    if (!set_label_variant(builder, argv[3])) return 1;\n"
+    "    const auto sample = builder.build();\n"
+    "    auto encoded = quarry::telemetry::encode(sample);\n"
+    "    if (!encoded.has_value()) return 2;\n"
+    "    std::ofstream out(argv[2], std::ios::binary);\n"
+    "    if (!out) return 3;\n"
+    "    out.write(reinterpret_cast<const char*>(encoded->data()),\n"
+    "              static_cast<std::streamsize>(encoded->size()));\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (std::strcmp(argv[1], \"decode_label_variant\") == 0) {\n"
+    "    if (argc < 4) return 20;\n"
+    "    auto bytes = read_bytes(argv[2]);\n"
+    "    auto decoded =\n"
+    "        quarry::telemetry::decode_Sample(std::span<const std::byte>(bytes));\n"
+    "    if (!decoded.has_value()) return 5;\n"
+    "    return check_label_variant(*decoded, argv[3]);\n"
+    "  }\n"
+    "  if (std::strcmp(argv[1], \"encode_over_capacity_label_expect_rejected\") == 0) {\n"
+    "    quarry::telemetry::SampleBuilder builder;\n"
+    "    if (!set_non_label_fields(builder)) return 1;\n"
+    "    // set_label() itself rejects a > max_bytes value (length-only\n"
+    "    // check at set-time, matching validate_label) -- C++'s builder API\n"
+    "    // structurally prevents ever reaching encode() with an invalid\n"
+    "    // value, unlike C's plain-struct model, which only catches this at\n"
+    "    // encode() time. Both reject the same invalid input; only the\n"
+    "    // layer differs.\n"
+    "    return builder.set_label(std::string(20, 'x')) ? 1 : 0;\n"
+    "  }\n"
+    "  if (std::strcmp(argv[1], \"decode_expect_failure\") == 0) {\n"
+    "    auto bytes = read_bytes(argv[2]);\n"
+    "    auto decoded =\n"
+    "        quarry::telemetry::decode_Sample_result(std::span<const std::byte>(bytes));\n"
+    "    return decoded.value.has_value() ? 1 : 0;\n"
     "  }\n"
     "  return 11;\n"
     "}\n";
@@ -359,4 +532,89 @@ TEST(CCppCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
                                     shell_quote(corrupted_encoded.string())),
              0)
         << "C++ did not report DecodeError::unknown_enum_value for an out-of-range enum byte";
+
+    // String field coverage: empty-present, absent, maximum-length
+    // (max_bytes=16 exactly), and an embedded-NUL value. For each variant,
+    // both languages encode independently and are compared byte-for-byte
+    // (an independent expected-byte check, not just cross-decoding), and
+    // each language's own encoding is cross-decoded by the other.
+    for (const std::string_view variant : {"empty", "absent", "max", "embedded_nul"}) {
+        const std::filesystem::path c_variant_encoded =
+            root / (std::string("c_") + std::string(variant) + ".bin");
+        const std::filesystem::path cpp_variant_encoded =
+            root / (std::string("cpp_") + std::string(variant) + ".bin");
+
+        ASSERT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                        " encode_label_variant " +
+                                        shell_quote(c_variant_encoded.string()) + " " +
+                                        std::string(variant)),
+                 0)
+            << "C failed to encode label variant '" << variant << "'";
+        ASSERT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                        " encode_label_variant " +
+                                        shell_quote(cpp_variant_encoded.string()) + " " +
+                                        std::string(variant)),
+                 0)
+            << "C++ failed to encode label variant '" << variant << "'";
+
+        const std::string c_variant_bytes = read_binary_file(c_variant_encoded);
+        const std::string cpp_variant_bytes = read_binary_file(cpp_variant_encoded);
+        ASSERT_FALSE(c_variant_bytes.empty());
+        EXPECT_EQ(c_variant_bytes, cpp_variant_bytes)
+            << "C and C++ produced different bytes for label variant '" << variant << "'";
+
+        EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                        " decode_label_variant " +
+                                        shell_quote(c_variant_encoded.string()) + " " +
+                                        std::string(variant)),
+                 0)
+            << "C++ failed to decode C-encoded label variant '" << variant << "'";
+        EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                        " decode_label_variant " +
+                                        shell_quote(cpp_variant_encoded.string()) + " " +
+                                        std::string(variant)),
+                 0)
+            << "C failed to decode C++-encoded label variant '" << variant << "'";
+    }
+
+    // Over-capacity input (logical length > max_bytes=16) is rejected by
+    // both languages before any bytes are produced -- C via _encode()'s own
+    // bounds check, C++ via the builder's set_label() rejecting the value
+    // outright (an earlier point in the C++ pipeline; see the harness
+    // comment). Neither language ever encodes an out-of-bounds string.
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                    " encode_over_capacity_label_expect_rejected unused"),
+             0)
+        << "C did not reject a string field logical length exceeding max_bytes";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " encode_over_capacity_label_expect_rejected unused"),
+             0)
+        << "C++ did not reject a string field logical length exceeding max_bytes";
+
+    // Truncated encoded input: drop the last byte of a valid encoding
+    // without adjusting the header's declared payload length, so the
+    // Field Directory's bookkeeping no longer matches the actual input
+    // length -- both languages must reject this (whichever specific
+    // structural status each reports), never silently accept or partially
+    // decode a truncated record.
+    std::string truncated_bytes = c_bytes;
+    ASSERT_FALSE(truncated_bytes.empty());
+    truncated_bytes.pop_back();
+    const std::filesystem::path truncated_encoded = root / "truncated_encoded.bin";
+    {
+        std::ofstream out(truncated_encoded, std::ios::binary);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out.write(truncated_bytes.data(), static_cast<std::streamsize>(truncated_bytes.size()));
+    }
+
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                    " decode_expect_failure " +
+                                    shell_quote(truncated_encoded.string())),
+             0)
+        << "C did not reject a truncated encoded record";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " decode_expect_failure " +
+                                    shell_quote(truncated_encoded.string())),
+             0)
+        << "C++ did not reject a truncated encoded record";
 }

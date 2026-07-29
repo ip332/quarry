@@ -31,15 +31,31 @@ rather than a proposal). This needed no C runtime change and no
 generated-code API epoch bump -- enum field encode/decode reuses the exact
 runtime functions scalar fields already called in PR-108.
 
+PR-110 implemented bounded (fixed-capacity) string field support. Section
+2's "Strings" investigated area is implemented essentially as proposed,
+with the exact representation now settled: a generated struct field is
+`char <field>[max_bytes + 1]` (capacity reserves room for a trailing NUL
+the generated decoder always writes) plus an explicit `uint32_t
+<field>_length` byte-length member, which is authoritative -- not
+necessarily equal to `strlen()`, since an embedded `U+0000` is valid string
+data per the BRF spec. String content is validated as UTF-8 on both encode
+and decode, matching the C++ backend exactly; this required the first
+genuinely new C runtime additions since PR-108 (`quarry_c_is_valid_utf8`,
+`quarry_c_copy_bounded`, two new `quarry_c_status_t` values), which is why
+PR-110 -- unlike PR-109 -- did bump `QUARRY_GENERATED_CODE_API_VERSION_C`
+(1 -> 2). See `compiler/backend_c/README.md`'s "String fields" section for
+the full representation-alternatives analysis, NUL-termination/embedded-NUL
+rationale, and empty-vs-absent semantics.
+
 See `compiler/backend_c/README.md` and `runtime_c/README.md` for exactly
 what is and is not implemented today, and `jira/backlog.md`'s
-PR-107/PR-108/PR-109 entries for the implementation write-ups. Everything
-else in this document remains a design proposal for later PRs; the rest of
-this document is unchanged from PR-106 and should be read as
+PR-107/PR-108/PR-109/PR-110 entries for the implementation write-ups.
+Everything else in this document remains a design proposal for later PRs;
+the rest of this document is unchanged from PR-106 and should be read as
 forward-looking design, not a description of current behavior -- in
 particular, cross-namespace enum field support (via an include-dependency
-mechanism this backend does not have yet) remains proposed, not
-implemented.
+mechanism this backend does not have yet), bytes fields, arrays, and nested
+records all remain proposed, not implemented.
 
 ## Purpose
 

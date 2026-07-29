@@ -1301,14 +1301,21 @@ TEST(SchemaCompilerPackageTest, CConsumerBuildsAndRunsAgainstInstalledPackage) {
                     "type: data\n"
                     "fields:\n"
                     "  count:\n"
-                    "    type: uint32\n");
+                    "    type: uint32\n"
+                    "  label:\n"
+                    "    type: string\n"
+                    "    max_bytes: 16\n");
     write_text_file(consumer_source / "main.c",
                     "#include <quarry/telemetry.generated.h>\n"
+                    "#include <string.h>\n"
                     "int main(void) {\n"
                     "  quarry_telemetry_Sample_t sample;\n"
                     "  quarry_telemetry_Sample_init(&sample);\n"
                     "  sample.has_count = true;\n"
                     "  sample.count = 42U;\n"
+                    "  sample.has_label = true;\n"
+                    "  memcpy(sample.label, \"hello\", 5);\n"
+                    "  sample.label_length = 5;\n"
                     "  unsigned char buf[64];\n"
                     "  quarry_telemetry_Sample_encode_result_t encoded =\n"
                     "      quarry_telemetry_Sample_encode(&sample, buf, sizeof(buf));\n"
@@ -1317,6 +1324,8 @@ TEST(SchemaCompilerPackageTest, CConsumerBuildsAndRunsAgainstInstalledPackage) {
                     "      quarry_telemetry_Sample_decode(buf, encoded.bytes_written);\n"
                     "  if (decoded.status != QUARRY_C_STATUS_OK) { return 2; }\n"
                     "  if (!decoded.value.has_count || decoded.value.count != 42U) { return 3; }\n"
+                    "  if (!decoded.value.has_label || decoded.value.label_length != 5) { return 4; }\n"
+                    "  if (strcmp(decoded.value.label, \"hello\") != 0) { return 5; }\n"
                     "  return 0;\n"
                     "}\n");
     write_text_file(consumer_source / "CMakeLists.txt",

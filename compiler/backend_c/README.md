@@ -1,11 +1,11 @@
 # Backend (C)
 
-**Status: scalar and enum field codec (PR-108/PR-109). No strings, bytes,
-arrays, or nested records yet. Enum fields are supported only when declared
-in the same namespace as the referencing record.** See
+**Status: scalar, enum, and bounded string field codec (PR-108/PR-109/
+PR-110). No bytes, arrays, or nested records yet. Enum fields are supported
+only when declared in the same namespace as the referencing record.** See
 `docs/design/c-backend.md` for the full proposed design this is an increment
-of, and `jira/backlog.md`'s PR-107/PR-108/PR-109 entries for what was built
-when and why.
+of, and `jira/backlog.md`'s PR-107/PR-108/PR-109/PR-110 entries for what was
+built when and why.
 
 Owns the C language generator: Schema IR -> generated `.h`/`.c`, plus real
 BRF encode/decode for the currently-supported field subset.
@@ -43,8 +43,10 @@ Current C generation behavior:
   declared values is non-negative** -- see "Supported field types" and
   "Enum fields" below. Cross-namespace enum field references and
   negative-valued enum fields still fail generation with a diagnostic.
+* **bounded string fields are supported** -- see "Supported field types" and
+  "String fields" below.
 
-## Supported field types (PR-108/PR-109)
+## Supported field types (PR-108/PR-109/PR-110)
 
 Record fields are supported when their Schema IR type is one of:
 
@@ -54,17 +56,23 @@ Record fields are supported when their Schema IR type is one of:
 * an enum reference, **if and only if** the target enum is declared in the
   same namespace as the referencing record, and every one of its declared
   values is non-negative (see "Enum fields" below)
+* a `string` (see "String fields" below) -- every string field has a
+  schema-validator-enforced positive `max_bytes` bound by the time
+  backend_c sees it (`compiler/semantic/semantic.cpp`'s
+  `validate_positive_u32`), so there is nothing for the C backend itself to
+  re-validate about the bound's presence or positivity
 
-No new schema types were invented to support either.
+No new schema types were invented to support any of these.
 
-**Any other field -- including a cross-namespace or negative-valued enum
-reference -- fails generation with a diagnostic naming the record and
-field** (e.g. `backend_c: field 'quarry.telemetry.Sample.label' has a type
-the C backend does not support yet`). **A record with a mix of supported
-and unsupported fields fails as a whole** -- there is no partial generation
-that silently drops the unsupported field. Deferred to later increments:
-`string`, `bytes`, arrays, nested-record fields, arrays of records, and
-cross-namespace/negative-valued enum fields.
+**Any other field -- including `bytes`, arrays, nested records, or a
+cross-namespace/negative-valued enum reference -- fails generation with a
+diagnostic naming the record and field** (e.g. `backend_c: field
+'quarry.telemetry.Sample.blob' has a type the C backend does not support
+yet`). **A record with a mix of supported and unsupported fields fails as a
+whole** -- there is no partial generation that silently drops the
+unsupported field. Deferred to later increments: `bytes`, arrays,
+nested-record fields, arrays of records, and cross-namespace/negative-valued
+enum fields.
 
 ## Generated public data model
 
@@ -215,6 +223,139 @@ does support this (via its `TypeCatalog`'s cross-namespace `#include`
 tracking) -- this is a real, deliberate narrowing relative to C++, not an
 oversight.
 
+### String fields
+
+For a record with a string field, e.g. `quarry.telemetry.Sample { label:
+string, max_bytes: 16 }`:
+
+```c
+typedef struct {
+    bool has_label;
+    char label[17];
+    uint32_t label_length;
+} quarry_telemetry_Sample_t;
+```
+
+**Representation decision.** `docs/design/c-backend.md` Section 2's
+"Strings" investigated area proposed three shapes (labeled A/B/C in the
+PR-110 task spec): (A) `char field[MAX_BYTES]` + `size_t field_length` +
+`bool has_field`; (B) the same but `uint8_t` content; (C) a generated or
+shared bounded-string struct type. **Selected a variant of (A)**, with two
+deliberate refinements over the literal task-spec sketch:
+
+* **Capacity is `max_bytes + 1`, not `max_bytes`.** The extra byte is
+  reserved for a trailing NUL the generated decoder always writes
+  (`result.value.<field>[field_view.length] = '\0';`), so decoded content
+  with no embedded NUL can be handed directly to ordinary C string APIs
+  (`strcmp`, `printf("%s", ...)`, etc.) without the caller having to
+  special-case Quarry's own storage shape. This was `docs/design/
+  c-backend.md`'s original recommendation for this field kind, now
+  implemented rather than proposed.
+* **The length member is `uint32_t`, not `size_t`.** `size_t`'s width is
+  implementation-defined and can be as narrow as 16 bits on some embedded
+  targets; `max_bytes` is already a `uint32_t` in Schema IR
+  (`StringType.max_bytes`), so using the same type for the length member
+  keeps the generated public struct layout portable and exactly matches the
+  bound it is checked against, instead of introducing a second,
+  platform-dependent width for what is conceptually the same quantity.
+
+`char` (not `uint8_t`) is the content element type: this is (A), not (B) --
+consistent with the C string-API interop goal above, and unlike enum
+storage (Section 4 of the design doc), there is no wire/in-memory
+independence concern here to motivate a different type, since string
+content bytes are used as-is on the wire (no per-type transformation).
+Option (C) -- a generated or shared bounded-string struct -- was rejected as
+unnecessary indirection for this slice: two fields on the record struct
+(the buffer and the length) accomplish everything a wrapper type would,
+without a new public type per field or per schema.
+
+**String semantics, matching the BRF spec and the C++ backend exactly:**
+
+* Quarry strings are UTF-8 text, not opaque bytes: `docs/specifications/
+  binary-record-format.md`'s "string" section states "String data bytes
+  SHALL be valid UTF-8," and both backends enforce this at runtime (not
+  merely documented and left unchecked) -- see "Encoding"/"Decoding" below.
+* `max_bytes` is measured in encoded UTF-8 bytes and does **not** include
+  any terminator; the wire payload itself never contains a NUL terminator
+  (`docs/specifications/binary-record-format.md`: "No NUL terminator is
+  encoded"). The generated buffer's `+1` capacity byte is a decode-side,
+  in-memory-only convenience -- it is never part of `max_bytes`, the wire
+  length, or `_encoded_size()`'s calculation.
+* **Embedded `U+0000` is valid string data** (explicitly stated in the BRF
+  spec), so `<field>_length` -- not `strlen(<field>)` -- is the
+  authoritative content length. A string containing an embedded NUL still
+  decodes correctly and still gets a trailing terminator written one byte
+  past its *last* content byte; callers that need embedded-NUL-safe access
+  must use `<field>_length`, not a `char*`-based C string function, exactly
+  as they already must for any length-prefixed byte buffer.
+* **Present-empty vs. absent are distinguished by `has_<field>`, never by
+  content.** Both states leave `<field>` as an all-zero buffer and
+  `<field>_length == 0` after `_init()` or a successful decode; the *only*
+  distinguishing signal is `has_<field>`, matching every other optional
+  field kind this backend generates (scalars, enums).
+* **Constructing a value:** write up to `sizeof(record.<field>) - 1` (i.e.
+  `max_bytes`) content bytes directly into `record.<field>`, set
+  `record.<field>_length` to the exact byte count, and set
+  `record.has_<field> = true`. No generated setter/helper function exists
+  for this in PR-110 -- see "Generated codec API design" below for why
+  direct struct manipulation was judged sufficient here, matching the
+  scalar/enum precedent.
+* **Inspecting a decoded value:** read `record.<field>_length` bytes
+  starting at `record.<field>`; `record.<field>` is also guaranteed
+  NUL-terminated at index `<field>_length` after a successful decode, so
+  ordinary C string functions are safe to use directly whenever the caller
+  already knows (from its own schema/application knowledge) that the field
+  never carries an embedded NUL.
+* **Input longer than capacity:** rejected, never truncated -- see
+  "Encoding"/"Decoding" below. This backend never silently drops bytes to
+  make an oversized value fit.
+
+**Encoding.** `record.<field>_length` is checked against `max_bytes` first
+(`QUARRY_C_STATUS_BOUNDS_EXCEEDED` if it exceeds the bound), then the
+content bytes are validated as UTF-8 (`quarry_c_is_valid_utf8`,
+`QUARRY_C_STATUS_INVALID_UTF8` if invalid) -- the same two-check order the
+C++ backend's `render_string_field_encoding` uses (`value.size() >
+max_bytes` then `append_string_utf8`), so both backends reject the same
+invalid values for the same reason. No scratch buffer is used (unlike
+scalar/enum fields): `record.<field>` already holds exactly the wire bytes
+verbatim (raw UTF-8, no big-endian or other transformation needed), so the
+generated `quarry_c_field_t` entry points `.bytes` directly at
+`record.<field>` with `.length = record.<field>_length`. `_encoded_size()`
+does not perform either check, matching the enum-membership precedent
+exactly: encoded size is read from the field's current (possibly invalid)
+length directly, and only the real `_encode()` call rejects an invalid
+value.
+
+**Decoding.** Chose **"decode into a temporary and commit only on
+success"** (option B from the PR-110 task spec's "Investigate whether
+decode should... (A) mutate the destination incrementally; (B) decode into
+a temporary and commit only on success"), applied *per field*, matching the
+existing enum decode precedent (PR-109: read into a raw local, validate,
+only then write the struct field) rather than introducing a whole-record
+temporary. Concretely: `quarry_c_copy_bounded` performs a bounds check
+(wire length vs. `max_bytes`) and the copy in one runtime call
+(`QUARRY_C_STATUS_BOUNDS_EXCEEDED` on failure, with no partial copy
+performed), then the copied-from source bytes are validated as UTF-8
+(`QUARRY_C_STATUS_INVALID_UTF8` on failure), and only after *both* checks
+pass is the field committed: NUL-terminated, `<field>_length` set, and
+(back in the shared per-field loop) `has_<field>` set to `true`. On any
+failure the overall decode returns immediately with a non-OK `status` and a
+`byte_offset` pointing at the field's payload, matching every other field
+kind's failure contract; per `quarry_telemetry_Sample_decode_result_t`'s
+existing documented contract, `result.value` is "only meaningful when
+`status == QUARRY_C_STATUS_OK`," so content copied into the struct ahead of
+a subsequent UTF-8-validation failure is never exposed as if it were a
+successful decode. No wire byte is ever written into generated storage that
+skips the bounds check that precedes it.
+
+**No unsafe C string functions anywhere in the generated code or the
+runtime addition:** no `strcpy`/`strcat`/`sprintf`, and no reliance on
+`strlen` for wire data (`quarry_c_is_valid_utf8` and `quarry_c_copy_bounded`
+both take an explicit length, never a NUL-terminated-string assumption).
+`quarry_c_copy_bounded`'s single `memcpy` is always immediately preceded by
+its own bounds check against `destination_capacity`, so it is a *checked*
+copy, never a bare/unchecked one.
+
 ### Generated codec API design
 
 Considered three shapes for the generated encode/decode signatures:
@@ -258,6 +399,16 @@ no `path` member at all rather than an always-empty placeholder one. Path
 support is expected to arrive together with nested-record/array field
 support, not before it is needed.
 
+**PR-110 (string fields) preserved this API exactly -- no new helper/setter
+function was added for strings.** `record.<field>`/`record.<field>_length`/
+`record.has_<field>` are documented for direct manipulation (see "String
+fields" above); a `quarry_..._set_label()`-style helper was considered and
+rejected for this PR, since direct struct assignment is already safe and
+self-explanatory for a fixed-capacity buffer plus an explicit length, and no
+concrete usability gap was demonstrated to justify one. No builder-style API
+was introduced either, matching the C++ backend's own plain-struct-in-C
+translation (Section 1 of `docs/design/c-backend.md`).
+
 `byte_offset` (`has_byte_offset`/`byte_offset` on the decode result) is
 populated for every decode failure **except**
 `QUARRY_C_STATUS_UNSUPPORTED_FIELD_COUNT`, which is this runtime's own
@@ -288,7 +439,7 @@ two-sided pattern the C++ backend already uses for its own epoch. Generated
 C headers that contain records emit a compile-time check:
 
 ```c
-#if QUARRY_C_GENERATED_CODE_API_VERSION != 1U
+#if QUARRY_C_GENERATED_CODE_API_VERSION != 2U
 #error "Generated Quarry C code is incompatible with the installed Quarry C runtime. ..."
 #endif
 ```
@@ -312,6 +463,26 @@ identically; PR-109's generated code depends on nothing the epoch-1 runtime
 header didn't already provide. This is the "only bump the epoch if
 compatibility would actually be broken" case working as intended.
 
+**PR-110 (string fields) bumped this epoch, 1 -> 2, deliberately -- the
+first bump since the epoch was introduced.** Unlike PR-109, this PR added
+genuinely new public runtime surface: two new functions
+(`quarry_c_is_valid_utf8`, `quarry_c_copy_bounded`) and two new
+`quarry_c_status_t` values (`QUARRY_C_STATUS_BOUNDS_EXCEEDED`,
+`QUARRY_C_STATUS_INVALID_UTF8`), all of which generated string-field code
+now calls/references directly. Pairing new (post-PR-110) generated code
+containing a string field with an old (pre-PR-110, epoch-1) runtime header
+would fail to compile with a confusing "undefined identifier
+`quarry_c_is_valid_utf8`" error rather than this epoch guard's clear,
+actionable `#error` -- exactly the failure mode the epoch mechanism exists
+to convert into an early, understandable diagnostic. Generated code for
+schemas with **no** string field (scalars/enums only) still compiles
+against either runtime version in principle, but the epoch is a single
+per-schema-file compile-time constant, not a per-field one, so every
+generated file compiled against the new compiler now requires epoch 2
+regardless of which field kinds it actually uses -- consistent with how the
+epoch has always been an all-or-nothing per-file compatibility gate, never
+a finer-grained one.
+
 ## Runtime
 
 `include/quarry/runtime_c/binary_record.h` (installed as part of
@@ -319,12 +490,13 @@ compatibility would actually be broken" case working as intended.
 generates calls into: bounded writer/reader state, big-endian scalar
 read/write (`quarry_c_write_u32`, etc., matching
 `docs/specifications/binary-record-format.md`'s mandatory big-endian byte
-order exactly), unsigned LEB128 varuint I/O, and whole-record
+order exactly), unsigned LEB128 varuint I/O, whole-record
 assembly/parsing (`quarry_c_encode_record`/`quarry_c_parse_record`/
-`quarry_c_find_field`) -- the same "generic byte mechanics in the runtime,
-schema-specific decisions in generated code" split
-`docs/principles.md`'s "Compile-Time Knowledge" principle already states in
-language-neutral terms. See `runtime_c/CMakeLists.txt` and
+`quarry_c_find_field`), and (PR-110) bounded-string support
+(`quarry_c_is_valid_utf8`, `quarry_c_copy_bounded`) -- the same "generic
+byte mechanics in the runtime, schema-specific decisions in generated code"
+split `docs/principles.md`'s "Compile-Time Knowledge" principle already
+states in language-neutral terms. See `runtime_c/CMakeLists.txt` and
 `include/quarry/runtime_c/binary_record.h`'s own header comment for the
 runtime's scope and constraints (C99, no heap, caller-owned buffers, no
 global state, no platform-endian assumptions).
