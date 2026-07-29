@@ -40,22 +40,27 @@ backend always emits a `.h`/`.c` pair with fixed extensions
 (`.generated.h`/`.generated.c`) that are not yet independently configurable
 from the command line.
 
-**`--language c` supports scalar, same-namespace-enum, and bounded
-string/bytes records (PR-108/PR-109/PR-110/PR-111).** It emits one
+**`--language c` supports scalar, same-namespace-enum, bounded
+string/bytes, and bounded array (of scalar or same-namespace-enum
+elements) records (PR-108/PR-109/PR-110/PR-111/PR-112).** It emits one
 `.h`/`.c` pair per namespace that owns records or enums: generated C enum
 declarations, real C structs for records whose fields are `bool`,
 fixed-width signed/unsigned integers, `f32`/`f64`, enum references
 declared in the *same namespace* as the referencing record (with only
 non-negative declared values), bounded `string` fields (fixed-capacity,
 NUL-terminated buffer storage sized from the schema's `max_bytes` bound),
-or bounded `bytes` fields (the same fixed-capacity strategy without the
-NUL terminator, since arbitrary binary data has no such convenience), and
-a real BRF encode/decode codec API (`_init`, `_encoded_size`, `_encode`,
-`_decode`) for every record, backed by the installed `Quarry::runtime_c` C
-runtime -- see `compiler/backend_c/README.md`, `runtime_c/README.md`, and
+bounded `bytes` fields (the same fixed-capacity strategy without the
+NUL terminator, since arbitrary binary data has no such convenience), or
+bounded arrays of those scalar/same-namespace-enum element kinds
+(fixed-capacity array of the element's own C type, sized from
+`max_elements`, plus an explicit element count), and a real BRF
+encode/decode codec API (`_init`, `_encoded_size`, `_encode`, `_decode`)
+for every record, backed by the installed `Quarry::runtime_c` C runtime --
+see `compiler/backend_c/README.md`, `runtime_c/README.md`, and
 `docs/design/c-backend.md` for the full scope, the generated codec API
-design, and the roadmap. **Arrays, nested/record-reference fields, and
-cross-namespace or negative-valued enum references remain unsupported.**
+design, and the roadmap. **Nested/record-reference fields, arrays of
+records/string/bytes elements, and cross-namespace or negative-valued enum
+references (plain or array-element) remain unsupported.**
 A record containing any such field -- even mixed with otherwise-supported
 fields -- fails generation with a diagnostic
 identifying the record and field, rather than silently emitting a struct

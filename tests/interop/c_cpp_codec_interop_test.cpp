@@ -1,19 +1,23 @@
 // Proves byte-for-byte BRF wire compatibility between the C and C++
-// backends for the scalar/enum/bounded-string/bounded-bytes field subset
-// both support (PR-108/PR-109/PR-110/PR-111). Generates the same schema
-// through both `quarry-schema-compiler` backends, compiles small C and C++
-// harness programs against each generated output, and verifies: (1) the C
+// backends for the scalar/enum/bounded-string/bounded-bytes/bounded-array
+// (of scalar or same-namespace-enum elements) field subset both support
+// (PR-108/PR-109/PR-110/PR-111/PR-112). Generates the same schema through
+// both `quarry-schema-compiler` backends, compiles small C and C++ harness
+// programs against each generated output, and verifies: (1) the C
 // encoder's bytes are byte-for-byte identical to the C++ encoder's bytes
-// for the same field values (including a representative enum value and
-// string/bytes value), (2) the C++ decoder accepts the C-encoded bytes,
-// (3) the C decoder accepts the C++-encoded bytes, (4) both languages
-// identically reject an out-of-range enum byte as an unknown-enum-value
+// for the same field values (including a representative enum value,
+// string/bytes value, and array value), (2) the C++ decoder accepts the
+// C-encoded bytes, (3) the C decoder accepts the C++-encoded bytes, (4)
+// both languages identically reject an out-of-range enum byte (both a
+// plain enum field and an array-of-enum element) as an unknown-enum-value
 // decode failure, with a byte offset, (5) empty-present/absent/maximum-
-// length/embedded-NUL string values and empty-present/absent/maximum-
-// length/non-UTF-8-binary bytes values round-trip identically and
-// byte-for-byte in both directions, (6) both languages reject a string or
-// bytes value whose logical length exceeds max_bytes before producing any
-// encoded bytes, and (7) both languages reject a truncated encoded record.
+// length/embedded-NUL string values, empty-present/absent/maximum-length/
+// non-UTF-8-binary bytes values, and empty-present/absent/maximum-length/
+// partially-filled array values all round-trip identically and
+// byte-for-byte in both directions, (6) both languages reject a string,
+// bytes, or array value whose logical length/count exceeds its
+// max_bytes/max_elements bound before producing any encoded bytes, and (7)
+// both languages reject a truncated encoded record.
 
 #include <chrono>
 #include <cstdlib>
@@ -130,6 +134,9 @@ constexpr std::string_view kSchema = "namespace: quarry.telemetry\n"
                                      "  blob:\n"
                                      "    type: bytes\n"
                                      "    max_bytes: 16\n"
+                                     "  readings:\n"
+                                     "    type: float32[]\n"
+                                     "    max_elements: 4\n"
                                      "  status:\n"
                                      "    type: Status\n"
                                      "enums:\n"
@@ -242,6 +249,40 @@ constexpr std::string_view kCHarness =
     "    return (v->blob_length == 3 && memcmp(v->blob, expected, 3) == 0) ? 0 : 26;\n"
     "  }\n"
     "}\n"
+    "/* Sets the readings array field on `sample` per `variant`: \"empty\"\n"
+    " * (present, zero elements), \"absent\" (has_readings left false), \"max\"\n"
+    " * (exactly max_elements=4 elements), or the default (2 of 4 elements,\n"
+    " * a partially filled array, used by plain encode/decode). */\n"
+    "static void set_readings_variant(quarry_telemetry_Sample_t* sample, const char* variant) {\n"
+    "  if (strcmp(variant, \"absent\") == 0) return;\n"
+    "  sample->has_readings = true;\n"
+    "  if (strcmp(variant, \"empty\") == 0) {\n"
+    "    sample->readings_count = 0;\n"
+    "  } else if (strcmp(variant, \"max\") == 0) {\n"
+    "    sample->readings_count = 4;\n"
+    "    sample->readings[0] = 1.0f; sample->readings[1] = 2.0f;\n"
+    "    sample->readings[2] = 3.0f; sample->readings[3] = 4.0f;\n"
+    "  } else {\n"
+    "    sample->readings_count = 2;\n"
+    "    sample->readings[0] = 1.5f; sample->readings[1] = -2.5f;\n"
+    "  }\n"
+    "}\n"
+    "static int check_readings_variant(const quarry_telemetry_Sample_t* v, const char* variant) {\n"
+    "  if (strcmp(variant, \"absent\") == 0) {\n"
+    "    return v->has_readings ? 30 : 0;\n"
+    "  }\n"
+    "  if (!v->has_readings) return 31;\n"
+    "  if (strcmp(variant, \"empty\") == 0) {\n"
+    "    return v->readings_count == 0 ? 0 : 32;\n"
+    "  }\n"
+    "  if (strcmp(variant, \"max\") == 0) {\n"
+    "    if (v->readings_count != 4) return 33;\n"
+    "    return (v->readings[0] == 1.0f && v->readings[1] == 2.0f && v->readings[2] == 3.0f &&\n"
+    "            v->readings[3] == 4.0f) ? 0 : 34;\n"
+    "  }\n"
+    "  return (v->readings_count == 2 && v->readings[0] == 1.5f && v->readings[1] == -2.5f) ? 0\n"
+    "                                                                                       : 35;\n"
+    "}\n"
     "int main(int argc, char** argv) {\n"
     "  if (argc < 3) return 20;\n"
     "  if (strcmp(argv[1], \"encode\") == 0) {\n"
@@ -250,6 +291,7 @@ constexpr std::string_view kCHarness =
     "    set_non_label_fields(&sample);\n"
     "    set_label_variant(&sample, \"default\");\n"
     "    set_blob_variant(&sample, \"default\");\n"
+    "    set_readings_variant(&sample, \"default\");\n"
     "    uint8_t buf[128];\n"
     "    quarry_telemetry_Sample_encode_result_t r =\n"
     "        quarry_telemetry_Sample_encode(&sample, buf, sizeof(buf));\n"
@@ -272,7 +314,9 @@ constexpr std::string_view kCHarness =
     "    if (non_label_status != 0) return non_label_status;\n"
     "    int label_status = check_label_variant(&r.value, \"default\");\n"
     "    if (label_status != 0) return label_status;\n"
-    "    return check_blob_variant(&r.value, \"default\");\n"
+    "    int blob_status = check_blob_variant(&r.value, \"default\");\n"
+    "    if (blob_status != 0) return blob_status;\n"
+    "    return check_readings_variant(&r.value, \"default\");\n"
     "  }\n"
     "  if (strcmp(argv[1], \"decode_expect_unknown_enum\") == 0) {\n"
     "    FILE* f = fopen(argv[2], \"rb\");\n"
@@ -357,6 +401,46 @@ constexpr std::string_view kCHarness =
     "    set_non_label_fields(&sample);\n"
     "    sample.has_blob = true;\n"
     "    sample.blob_length = 20; /* > max_bytes=16; content is never read */\n"
+    "    uint8_t buf[128];\n"
+    "    quarry_telemetry_Sample_encode_result_t r =\n"
+    "        quarry_telemetry_Sample_encode(&sample, buf, sizeof(buf));\n"
+    "    return (r.status == QUARRY_C_STATUS_BOUNDS_EXCEEDED) ? 0 : 1;\n"
+    "  }\n"
+    "  if (strcmp(argv[1], \"encode_readings_variant\") == 0) {\n"
+    "    if (argc < 4) return 20;\n"
+    "    quarry_telemetry_Sample_t sample;\n"
+    "    quarry_telemetry_Sample_init(&sample);\n"
+    "    set_non_label_fields(&sample);\n"
+    "    set_label_variant(&sample, \"default\");\n"
+    "    set_blob_variant(&sample, \"default\");\n"
+    "    set_readings_variant(&sample, argv[3]);\n"
+    "    uint8_t buf[128];\n"
+    "    quarry_telemetry_Sample_encode_result_t r =\n"
+    "        quarry_telemetry_Sample_encode(&sample, buf, sizeof(buf));\n"
+    "    if (r.status != QUARRY_C_STATUS_OK) return 1;\n"
+    "    FILE* f = fopen(argv[2], \"wb\");\n"
+    "    if (!f) return 2;\n"
+    "    fwrite(buf, 1, r.bytes_written, f);\n"
+    "    fclose(f);\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (strcmp(argv[1], \"decode_readings_variant\") == 0) {\n"
+    "    if (argc < 4) return 20;\n"
+    "    FILE* f = fopen(argv[2], \"rb\");\n"
+    "    if (!f) return 3;\n"
+    "    uint8_t buf[256];\n"
+    "    size_t n = fread(buf, 1, sizeof(buf), f);\n"
+    "    fclose(f);\n"
+    "    quarry_telemetry_Sample_decode_result_t r = quarry_telemetry_Sample_decode(buf, n);\n"
+    "    if (r.status != QUARRY_C_STATUS_OK) return 4;\n"
+    "    return check_readings_variant(&r.value, argv[3]);\n"
+    "  }\n"
+    "  if (strcmp(argv[1], \"encode_over_capacity_readings_expect_rejected\") == 0) {\n"
+    "    quarry_telemetry_Sample_t sample;\n"
+    "    quarry_telemetry_Sample_init(&sample);\n"
+    "    set_non_label_fields(&sample);\n"
+    "    sample.has_readings = true;\n"
+    "    sample.readings_count = 5; /* > max_elements=4; content is never read */\n"
     "    uint8_t buf[128];\n"
     "    quarry_telemetry_Sample_encode_result_t r =\n"
     "        quarry_telemetry_Sample_encode(&sample, buf, sizeof(buf));\n"
@@ -452,6 +536,28 @@ constexpr std::string_view kCppHarness =
     "  const std::vector<std::byte> expected{std::byte{0x10U}, std::byte{0x20U}, std::byte{0x30U}};\n"
     "  return blob == expected ? 0 : 26;\n"
     "}\n"
+    "/* Mirrors the C harness's set_readings_variant exactly (same variant\n"
+    " * names, same element values). */\n"
+    "static bool set_readings_variant(quarry::telemetry::SampleBuilder& builder,\n"
+    "                                 const std::string& variant) {\n"
+    "  if (variant == \"absent\") return true;\n"
+    "  if (variant == \"empty\") return builder.set_readings(std::vector<float>());\n"
+    "  if (variant == \"max\") {\n"
+    "    return builder.set_readings(std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f});\n"
+    "  }\n"
+    "  return builder.set_readings(std::vector<float>{1.5f, -2.5f});\n"
+    "}\n"
+    "static int check_readings_variant(const quarry::telemetry::Sample& v,\n"
+    "                                  const std::string& variant) {\n"
+    "  if (variant == \"absent\") return v.has_readings() ? 30 : 0;\n"
+    "  if (!v.has_readings()) return 31;\n"
+    "  const std::vector<float>& readings = *v.readings();\n"
+    "  if (variant == \"empty\") return readings.empty() ? 0 : 32;\n"
+    "  if (variant == \"max\") {\n"
+    "    return readings == std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f} ? 0 : 33;\n"
+    "  }\n"
+    "  return readings == std::vector<float>{1.5f, -2.5f} ? 0 : 35;\n"
+    "}\n"
     "static std::vector<std::byte> read_bytes(const char* path) {\n"
     "  std::ifstream in(path, std::ios::binary);\n"
     "  std::vector<char> raw((std::istreambuf_iterator<char>(in)),\n"
@@ -467,6 +573,7 @@ constexpr std::string_view kCppHarness =
     "    if (!set_non_label_fields(builder)) return 1;\n"
     "    if (!set_label_variant(builder, \"default\")) return 1;\n"
     "    if (!set_blob_variant(builder, \"default\")) return 1;\n"
+    "    if (!set_readings_variant(builder, \"default\")) return 1;\n"
     "    const auto sample = builder.build();\n"
     "    auto encoded = quarry::telemetry::encode(sample);\n"
     "    if (!encoded.has_value()) return 2;\n"
@@ -485,7 +592,9 @@ constexpr std::string_view kCppHarness =
     "    if (non_label_status != 0) return non_label_status;\n"
     "    int label_status = check_label_variant(*decoded, \"default\");\n"
     "    if (label_status != 0) return label_status;\n"
-    "    return check_blob_variant(*decoded, \"default\");\n"
+    "    int blob_status = check_blob_variant(*decoded, \"default\");\n"
+    "    if (blob_status != 0) return blob_status;\n"
+    "    return check_readings_variant(*decoded, \"default\");\n"
     "  }\n"
     "  if (std::strcmp(argv[1], \"decode_expect_unknown_enum\") == 0) {\n"
     "    auto bytes = read_bytes(argv[2]);\n"
@@ -559,6 +668,38 @@ constexpr std::string_view kCppHarness =
     "    // rejects a > max_bytes value at set-time in C++, while C only\n"
     "    // catches it at encode() time.\n"
     "    return builder.set_blob(std::vector<std::byte>(20, std::byte{0x01U})) ? 1 : 0;\n"
+    "  }\n"
+    "  if (std::strcmp(argv[1], \"encode_readings_variant\") == 0) {\n"
+    "    if (argc < 4) return 20;\n"
+    "    quarry::telemetry::SampleBuilder builder;\n"
+    "    if (!set_non_label_fields(builder)) return 1;\n"
+    "    if (!set_label_variant(builder, \"default\")) return 1;\n"
+    "    if (!set_blob_variant(builder, \"default\")) return 1;\n"
+    "    if (!set_readings_variant(builder, argv[3])) return 1;\n"
+    "    const auto sample = builder.build();\n"
+    "    auto encoded = quarry::telemetry::encode(sample);\n"
+    "    if (!encoded.has_value()) return 2;\n"
+    "    std::ofstream out(argv[2], std::ios::binary);\n"
+    "    if (!out) return 3;\n"
+    "    out.write(reinterpret_cast<const char*>(encoded->data()),\n"
+    "              static_cast<std::streamsize>(encoded->size()));\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (std::strcmp(argv[1], \"decode_readings_variant\") == 0) {\n"
+    "    if (argc < 4) return 20;\n"
+    "    auto bytes = read_bytes(argv[2]);\n"
+    "    auto decoded =\n"
+    "        quarry::telemetry::decode_Sample(std::span<const std::byte>(bytes));\n"
+    "    if (!decoded.has_value()) return 5;\n"
+    "    return check_readings_variant(*decoded, argv[3]);\n"
+    "  }\n"
+    "  if (std::strcmp(argv[1], \"encode_over_capacity_readings_expect_rejected\") == 0) {\n"
+    "    quarry::telemetry::SampleBuilder builder;\n"
+    "    if (!set_non_label_fields(builder)) return 1;\n"
+    "    // Same layer difference documented above for label/blob:\n"
+    "    // set_readings() rejects a > max_elements value at set-time in\n"
+    "    // C++, while C only catches it at encode() time.\n"
+    "    return builder.set_readings(std::vector<float>{1.0f, 2.0f, 3.0f, 4.0f, 5.0f}) ? 1 : 0;\n"
     "  }\n"
     "  if (std::strcmp(argv[1], \"decode_expect_failure\") == 0) {\n"
     "    auto bytes = read_bytes(argv[2]);\n"
@@ -807,6 +948,61 @@ TEST(CCppCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
                                     " encode_over_capacity_blob_expect_rejected unused"),
              0)
         << "C++ did not reject a bytes field logical length exceeding max_bytes";
+
+    // Array field coverage: empty-present, absent, maximum-length (exactly
+    // max_elements=4), and a partially filled default (2 of 4 elements).
+    // Same independent-byte-comparison-plus-cross-decode structure as the
+    // string/bytes coverage above.
+    for (const std::string_view variant : {"empty", "absent", "max", "partial"}) {
+        const std::filesystem::path c_variant_encoded =
+            root / (std::string("c_readings_") + std::string(variant) + ".bin");
+        const std::filesystem::path cpp_variant_encoded =
+            root / (std::string("cpp_readings_") + std::string(variant) + ".bin");
+
+        ASSERT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                        " encode_readings_variant " +
+                                        shell_quote(c_variant_encoded.string()) + " " +
+                                        std::string(variant)),
+                 0)
+            << "C failed to encode readings variant '" << variant << "'";
+        ASSERT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                        " encode_readings_variant " +
+                                        shell_quote(cpp_variant_encoded.string()) + " " +
+                                        std::string(variant)),
+                 0)
+            << "C++ failed to encode readings variant '" << variant << "'";
+
+        const std::string c_variant_bytes = read_binary_file(c_variant_encoded);
+        const std::string cpp_variant_bytes = read_binary_file(cpp_variant_encoded);
+        ASSERT_FALSE(c_variant_bytes.empty());
+        EXPECT_EQ(c_variant_bytes, cpp_variant_bytes)
+            << "C and C++ produced different bytes for readings variant '" << variant << "'";
+
+        EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                        " decode_readings_variant " +
+                                        shell_quote(c_variant_encoded.string()) + " " +
+                                        std::string(variant)),
+                 0)
+            << "C++ failed to decode C-encoded readings variant '" << variant << "'";
+        EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                        " decode_readings_variant " +
+                                        shell_quote(cpp_variant_encoded.string()) + " " +
+                                        std::string(variant)),
+                 0)
+            << "C failed to decode C++-encoded readings variant '" << variant << "'";
+    }
+
+    // Over-capacity array input (element count > max_elements=4) is
+    // rejected by both languages before any bytes are produced, mirroring
+    // the string/bytes fields' over-capacity coverage above.
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                    " encode_over_capacity_readings_expect_rejected unused"),
+             0)
+        << "C did not reject an array field element count exceeding max_elements";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " encode_over_capacity_readings_expect_rejected unused"),
+             0)
+        << "C++ did not reject an array field element count exceeding max_elements";
 
     // Truncated encoded input: drop the last byte of a valid encoding
     // without adjusting the header's declared payload length, so the

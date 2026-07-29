@@ -1307,7 +1307,10 @@ TEST(SchemaCompilerPackageTest, CConsumerBuildsAndRunsAgainstInstalledPackage) {
                     "    max_bytes: 16\n"
                     "  blob:\n"
                     "    type: bytes\n"
-                    "    max_bytes: 16\n");
+                    "    max_bytes: 16\n"
+                    "  readings:\n"
+                    "    type: float32[]\n"
+                    "    max_elements: 4\n");
     write_text_file(consumer_source / "main.c",
                     "#include <quarry/telemetry.generated.h>\n"
                     "#include <string.h>\n"
@@ -1323,6 +1326,10 @@ TEST(SchemaCompilerPackageTest, CConsumerBuildsAndRunsAgainstInstalledPackage) {
                     "  { unsigned char content[] = {0x00U, 0xFFU, 0x10U};\n"
                     "    memcpy(sample.blob, content, 3); }\n"
                     "  sample.blob_length = 3;\n"
+                    "  sample.has_readings = true;\n"
+                    "  sample.readings_count = 2;\n"
+                    "  sample.readings[0] = 1.5f;\n"
+                    "  sample.readings[1] = -2.5f;\n"
                     "  unsigned char buf[64];\n"
                     "  quarry_telemetry_Sample_encode_result_t encoded =\n"
                     "      quarry_telemetry_Sample_encode(&sample, buf, sizeof(buf));\n"
@@ -1336,6 +1343,10 @@ TEST(SchemaCompilerPackageTest, CConsumerBuildsAndRunsAgainstInstalledPackage) {
                     "  if (!decoded.value.has_blob || decoded.value.blob_length != 3) { return 6; }\n"
                     "  { unsigned char expected[] = {0x00U, 0xFFU, 0x10U};\n"
                     "    if (memcmp(decoded.value.blob, expected, 3) != 0) { return 7; } }\n"
+                    "  if (!decoded.value.has_readings || decoded.value.readings_count != 2) { return 8; }\n"
+                    "  if (decoded.value.readings[0] != 1.5f || decoded.value.readings[1] != -2.5f) {\n"
+                    "    return 9;\n"
+                    "  }\n"
                     "  return 0;\n"
                     "}\n");
     write_text_file(consumer_source / "CMakeLists.txt",

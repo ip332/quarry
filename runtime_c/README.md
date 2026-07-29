@@ -6,15 +6,17 @@ sibling implementations: neither depends on the other, and each is
 installed under its own canonical path (`include/quarry/runtime/` for C++,
 `include/quarry/runtime_c/` for C -- see "CMake Package" below).
 
-**Status: scalar, enum, bounded string, and bounded bytes field codec
-(PR-108/PR-109/PR-110/PR-111); enum fields same-namespace only.** No
-array/nested-record support exists yet -- see `compiler/backend_c/README.md`
-and `docs/design/c-backend.md` for the current implemented subset and the
-roadmap for later increments. `include/quarry/runtime_c/binary_record.h` is
-not a speculative framework for those future features: it exposes exactly
-the primitives these slices need. PR-109 (enum fields) added **no new
-runtime code at all** -- enum field support only required generated-code
-changes (see `compiler/backend_c/README.md`'s "Enum fields" section); every
+**Status: scalar, enum, bounded string, bounded bytes, and bounded array
+(of scalar or same-namespace-enum elements) field codec (PR-108/PR-109/
+PR-110/PR-111/PR-112); enum fields (plain or array elements) same-namespace
+only.** No nested-record support, and no arrays of records/string/bytes,
+exist yet -- see `compiler/backend_c/README.md` and `docs/design/
+c-backend.md` for the current implemented subset and the roadmap for later
+increments. `include/quarry/runtime_c/binary_record.h` is not a
+speculative framework for those future features: it exposes exactly the
+primitives these slices need. PR-109 (enum fields) added **no new runtime
+code at all** -- enum field support only required generated-code changes
+(see `compiler/backend_c/README.md`'s "Enum fields" section); every
 primitive this runtime exposed after PR-108 was already sufficient. PR-110
 (string fields) is the first increment since PR-108 to add genuinely new
 runtime code: `quarry_c_is_valid_utf8` (a UTF-8 validator ported from the
@@ -28,7 +30,12 @@ version (C)" section for the full reasoning. PR-111 (bytes fields) added
 **no new runtime code at all**, back to the PR-109 pattern:
 `quarry_c_copy_bounded` is reused completely unchanged for bytes decode (a
 bounds-checked byte copy has no UTF-8-specific behavior to begin with), so
-the epoch stayed at 2.
+the epoch stayed at 2. PR-112 (array fields) likewise added **no new
+runtime code at all**: array encode/decode reuses
+`quarry_c_write_varuint`/`quarry_c_read_varuint` (present since PR-108 for
+the Field Directory itself) for the element count prefix, and the existing
+per-width `quarry_c_write_uN`/`quarry_c_read_uN` functions for each
+element -- the epoch stayed at 2.
 
 Generated C code calls the header-only `quarry_runtime_c` target for
 byte-level mechanics while generated code keeps schema-specific knowledge
@@ -41,7 +48,8 @@ Current support:
 * Field Directory emission and parsing (sorted by `field_index`; duplicate
   and unsorted entries are rejected on decode)
 * unsigned LEB128 `varuint` emission and parsing for directory
-  offsets/lengths
+  offsets/lengths -- reused as-is (PR-112) for a bounded array field's
+  element count prefix
 * big-endian scalar emission and parsing for `bool`, fixed-width signed and
   unsigned integers, and IEEE 754 `float`/`double` -- matching
   `docs/specifications/binary-record-format.md`'s mandatory big-endian byte
@@ -60,7 +68,7 @@ Current support:
 
 Out of scope for this slice (all deferred, not rejected):
 
-* arrays, nested records, arrays of records
+* nested records, arrays of records, arrays of string/bytes elements
 * diagnostic path support (`path`-equivalent locating a failure inside a
   nested record or array element) -- there is no nesting yet for a path to
   describe

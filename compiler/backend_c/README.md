@@ -1,11 +1,13 @@
 # Backend (C)
 
-**Status: scalar, enum, bounded string, and bounded bytes field codec
-(PR-108/PR-109/PR-110/PR-111). No arrays or nested records yet. Enum fields
-are supported only when declared in the same namespace as the referencing
-record.** See `docs/design/c-backend.md` for the full proposed design this
-is an increment of, and `jira/backlog.md`'s PR-107/PR-108/PR-109/PR-110/
-PR-111 entries for what was built when and why.
+**Status: scalar, enum, bounded string, bounded bytes, and bounded array
+(of scalar or same-namespace-enum elements) field codec (PR-108/PR-109/
+PR-110/PR-111/PR-112). No nested records or arrays of records/string/bytes
+yet. Enum fields (plain or array elements) are supported only when declared
+in the same namespace as the referencing record.** See
+`docs/design/c-backend.md` for the full proposed design this is an
+increment of, and `jira/backlog.md`'s PR-107/PR-108/PR-109/PR-110/PR-111/
+PR-112 entries for what was built when and why.
 
 Owns the C language generator: Schema IR -> generated `.h`/`.c`, plus real
 BRF encode/decode for the currently-supported field subset.
@@ -47,8 +49,10 @@ Current C generation behavior:
   "String fields" below.
 * **bounded bytes fields are supported** -- see "Supported field types" and
   "Bytes fields" below.
+* **bounded arrays of scalar or same-namespace-enum elements are
+  supported** -- see "Supported field types" and "Array fields" below.
 
-## Supported field types (PR-108/PR-109/PR-110/PR-111)
+## Supported field types (PR-108/PR-109/PR-110/PR-111/PR-112)
 
 Record fields are supported when their Schema IR type is one of:
 
@@ -65,17 +69,25 @@ Record fields are supported when their Schema IR type is one of:
   re-validate about the bound's presence or positivity
 * `bytes` (see "Bytes fields" below) -- the same schema-validator-enforced
   positive `max_bytes` guarantee applies identically
+* an array (see "Array fields" below) whose element type is a scalar
+  primitive or a same-namespace, non-negative-valued enum reference --
+  exactly the plain-field element kinds this backend already supports,
+  applied element-wise; every array field has a schema-validator-enforced
+  positive `max_elements` bound by the time backend_c sees it (the same
+  `validate_positive_u32` call used for `max_bytes`)
 
 No new schema types were invented to support any of these.
 
-**Any other field -- including arrays, nested records, or a
-cross-namespace/negative-valued enum reference -- fails generation with a
+**Any other field -- including arrays of string/bytes/record elements,
+nested records, or a cross-namespace/negative-valued enum reference (either
+as a plain field or as an array element type) -- fails generation with a
 diagnostic naming the record and field** (e.g. `backend_c: field
 'quarry.telemetry.Sample.items' has a type the C backend does not support
 yet`). **A record with a mix of supported and unsupported fields fails as a
 whole** -- there is no partial generation that silently drops the
-unsupported field. Deferred to later increments: arrays, nested-record
-fields, arrays of records, and cross-namespace/negative-valued enum fields.
+unsupported field. Deferred to later increments: nested-record fields,
+arrays of records, arrays of string/bytes elements, and
+cross-namespace/negative-valued enum fields (plain or array-element).
 
 ## Generated public data model
 
@@ -414,6 +426,131 @@ a bounds-checked byte copy has no UTF-8-specific behavior to begin with, so
 there was nothing to add or generalize. See "Generated-code API version
 (C)" below for why this means no epoch bump was needed either.
 
+### Array fields
+
+For a record with an array of a scalar element, e.g. `quarry.telemetry.
+Sample { readings: float32[], max_elements: 4 }`:
+
+```c
+typedef struct {
+    bool has_readings;
+    float readings[4];
+    uint32_t readings_count;
+} quarry_telemetry_Sample_t;
+```
+
+And for an array of a same-namespace enum element, e.g. `statuses:
+Status[], max_elements: 3`:
+
+```c
+typedef struct {
+    bool has_statuses;
+    quarry_telemetry_Status_t statuses[3];
+    uint32_t statuses_count;
+} quarry_telemetry_Sample_t;
+```
+
+**Representation decision (task spec's Option A, selected as-is):** a
+fixed-capacity array of the element's own C type, sized directly from
+`max_elements`, plus an explicit `uint32_t <field>_count` and the same
+`has_<field>` presence flag every other field kind uses. The element type
+is exactly what a *plain* field of that same scalar or enum type would use
+(the generated struct's own scalar C type, or the enum's own typedef) --
+there is no separate "array element" type distinct from the plain-field
+type, and no generated per-element wrapper. `<field>_count` is never a
+compile-time constant (presence and length vary per record instance), the
+same reasoning already applied to string/bytes `<field>_length`.
+
+**Supported element types are exactly this backend's existing plain-field
+element kinds, applied element-wise:** `bool`, fixed-width signed/unsigned
+integers, `f32`/`f64`, and same-namespace non-negative-valued enums. This
+is not a coincidence -- `lower_field_encoding`'s array branch reuses
+`lower_scalar_field_type` and (via a small refactor extracting the
+enum-lookup logic into `lower_enum_reference`, shared between plain enum
+fields and array-of-enum element resolution) the exact same
+`collect_enum_catalog`-backed same-namespace/non-negative-values check a
+plain enum field already enforces. Arrays of string, bytes, or
+record-reference elements, and nested arrays, remain unsupported and fail
+generation with a diagnostic naming the field -- the diagnostic
+specifically says "array whose element type..." rather than reusing the
+generic plain-field "has a type the C backend does not support yet"
+message, since an unsupported array element is a materially different
+situation (the array construct itself is fine; only its element type
+isn't) worth naming precisely. Nested arrays (`uint32[][]`) and arrays of
+record-reference elements can never actually reach this backend's field
+lowering at all: the normative YAML frontend already rejects nested arrays
+outright (schema-language.md: "Nested arrays... SHALL be rejected"), and a
+record-reference field type requires cross-file imports this compiler does
+not resolve yet (see `docs/backend-api.md`), so there is no way to
+construct a schema exercising those two specific combinations through the
+production pipeline today; the array branch still handles them
+defensively (falling through to the same "element type... does not
+support yet" diagnostic) since Schema IR itself does not forbid
+constructing them directly (as this backend's own tests do, bypassing
+YAML, to exercise the diagnostic).
+
+**Encoding.** Order matches BRF's "Array Encoding" section exactly: a
+bounds check (`record-><field>_count` vs. schema `max_elements`,
+`QUARRY_C_STATUS_BOUNDS_EXCEEDED` on violation) first, then the count
+itself is written as an unsigned LEB128 varuint
+(`quarry_c_write_varuint`), then every element is written in index order
+using the *exact* per-element codec (and, for enum elements, the *exact*
+membership check with an explicit cast) a plain scalar/enum field already
+uses. Unlike string/bytes, an array field cannot skip the scratch buffer
+and point directly at the record's own array memory: each element still
+needs the same big-endian transformation a plain scalar/enum field's
+value does, and the wire payload additionally needs the varuint count
+prefix the struct doesn't store at all. The element loop carries an
+unconditional `&& element_index < <max_elements>` safety bound,
+independent of whether the call is validating (`_encode()`) or not
+(`_encoded_size()`): harmless in the validated path (count is already
+checked against `max_elements` before the loop starts), but load-bearing
+in `_encoded_size()`'s unvalidated path, where it prevents an unbounded
+loop over an arbitrary caller-supplied count that a corrupted/misused
+struct might hold -- a real availability concern specific to arrays, since
+(unlike a plain scalar/enum field's O(1) write) an array's write cost
+scales with its declared count. `_encoded_size()` itself performs no
+bounds/membership validation, matching the string/bytes/enum precedent
+exactly.
+
+**Decoding.** Also matches BRF's "Array Encoding" section exactly: the
+varuint element count is read first (a malformed varuint, or a count
+exceeding `max_elements`, is rejected before any element byte is read),
+then the *exact* remaining-byte-count is checked against `count *
+element_width` (rejecting truncated or over-long payloads before any
+element is read), then each element is read in index order using the
+exact same per-element codec (and, for enum elements, the same
+raw-temporary-then-validate-then-cast pattern) a plain scalar/enum field's
+decode already uses. All reads (the count varuint and every element)
+share one `quarry_c_reader_t`, so each element read's own bounds check
+(already present in every `quarry_c_read_uN` function) is sufficient on
+its own -- no manual offset bookkeeping is needed, a small simplification
+relative to the C++ backend's subspan-based approach (which manually
+tracks and advances an offset). Never writes beyond
+`result.value.<field>[max_elements - 1]`, since count is bounds-checked
+against `max_elements` before the element loop ever runs.
+
+**Scratch buffer sizing.** An array field's scratch buffer capacity is
+`kMaxVaruintBytesForUint32` (a fixed constant, `5` -- the worst-case
+LEB128-encoded byte length for any `uint32_t` value, `ceil(32/7)`) plus
+`max_elements * element_width`. Using the worst-case constant here
+(instead of computing the exact value-dependent encoded size of the
+specific `max_elements` value at codegen time) was a deliberate choice to
+avoid a second, host-side reimplementation of
+`quarry_c_varuint_encoded_size`'s algorithm that would need to be kept in
+sync with the runtime forever; the handful of bytes this can
+over-allocate is negligible next to the array's own data.
+
+**No runtime changes were needed for arrays.** BRF's "Array Encoding"
+section requires only an unsigned LEB128 varuint element count followed
+by tightly-packed, big-endian elements in index order for the element
+types this PR supports -- `quarry_c_write_varuint`/`quarry_c_read_varuint`
+and the existing per-width `quarry_c_write_uN`/`quarry_c_read_uN`
+functions (all already present since PR-108, used internally for the
+Field Directory itself but always public) are exactly sufficient. See
+"Generated-code API version (C)" below for why this means no epoch bump
+was needed either.
+
 ### Generated codec API design
 
 Considered three shapes for the generated encode/decode signatures:
@@ -551,6 +688,20 @@ since PR-110). Generated code compiled against the epoch-2 runtime before
 PR-111 continues to compile and behave identically; PR-111's generated
 code depends on nothing the epoch-2 runtime header didn't already provide.
 
+**PR-112 (array fields) also did not bump this epoch, staying at 2.** Array
+field encode/decode calls only `quarry_c_write_varuint`/
+`quarry_c_read_varuint` and the existing per-width `quarry_c_write_uN`/
+`quarry_c_read_uN` functions -- all already present in the epoch-2 runtime
+contract since PR-108 (used internally for the Field Directory itself, but
+always public, never gated behind an internal-linkage convention). No new
+runtime function was added and no new `quarry_c_status_t` value was
+needed (arrays reuse `QUARRY_C_STATUS_BOUNDS_EXCEEDED` and
+`QUARRY_C_STATUS_INVALID_FIELD_LENGTH`/`QUARRY_C_STATUS_MALFORMED_VARUINT`,
+all already part of the epoch-1/epoch-2 contract). Generated code compiled
+against the epoch-2 runtime before PR-112 continues to compile and behave
+identically; PR-112's generated code depends on nothing the epoch-2
+runtime header didn't already provide.
+
 ## Runtime
 
 `include/quarry/runtime_c/binary_record.h` (installed as part of
@@ -558,7 +709,9 @@ code depends on nothing the epoch-2 runtime header didn't already provide.
 generates calls into: bounded writer/reader state, big-endian scalar
 read/write (`quarry_c_write_u32`, etc., matching
 `docs/specifications/binary-record-format.md`'s mandatory big-endian byte
-order exactly), unsigned LEB128 varuint I/O, whole-record
+order exactly), unsigned LEB128 varuint I/O (`quarry_c_write_varuint`/
+`quarry_c_read_varuint` -- reused as-is by PR-112's array element count
+prefix, on top of their original Field Directory role), whole-record
 assembly/parsing (`quarry_c_encode_record`/`quarry_c_parse_record`/
 `quarry_c_find_field`), and (PR-110) bounded-string/bytes support
 (`quarry_c_is_valid_utf8`, `quarry_c_copy_bounded` -- the latter reused

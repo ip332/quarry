@@ -773,9 +773,15 @@ TEST(SchemaCompilerToolTest, CBackendWritesHeaderAndSourceWithExpectedContent) {
 }
 
 TEST(SchemaCompilerToolTest, CBackendRejectsUnsupportedFieldType) {
-    // `array` remains unsupported after PR-110/PR-111 added `string`/`bytes`
-    // support -- used here as the representative still-unsupported type
-    // (mirrors tests/backend_c/backend_c_test.cpp's identical swap).
+    // An array whose element type is an enum with a negative declared
+    // value remains unsupported after PR-112 added bounded arrays of
+    // scalar/enum elements -- used here as the representative
+    // still-unsupported type, reachable through the normative YAML
+    // frontend within a single file/namespace (unlike array<string>/
+    // array<bytes>/record-reference, none of which the current YAML
+    // grammar can express standalone: arrays reject a field-level
+    // `max_bytes` outright, and record references would need cross-file
+    // imports, which this compiler does not resolve yet).
     const std::filesystem::path root = make_temp_directory("language-c-unsupported-field");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
@@ -786,8 +792,13 @@ TEST(SchemaCompilerToolTest, CBackendRejectsUnsupportedFieldType) {
                     "type: data\n"
                     "fields:\n"
                     "  label:\n"
-                    "    type: uint32[]\n"
-                    "    max_elements: 4\n");
+                    "    type: Status[]\n"
+                    "    max_elements: 4\n"
+                    "enums:\n"
+                    "  Status:\n"
+                    "    values:\n"
+                    "      OK: 0\n"
+                    "      NEGATIVE: -1\n");
 
     const CommandResult result =
         run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
@@ -971,6 +982,65 @@ TEST(SchemaCompilerToolTest, CBackendGeneratesBytesFieldAndCompilesAsC) {
 
     // Compile-only (no link stage) with strict warnings -- same safe
     // pattern as the scalar/enum/string field compile tests above.
+    std::ostringstream command;
+    command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER)) << " -x c -std=c99"
+            << " -Wall -Wextra -Wpedantic -Werror"
+            << " -I" << std::quoted(output.string())
+            << " -I" << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR))
+            << " -I" << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR))
+            << " -c " << std::quoted(source.string()) << " -o "
+            << std::quoted(object_file.string());
+    const int status = std::system(command.str().c_str());
+    EXPECT_EQ(status, 0) << "command: " << command.str();
+    EXPECT_TRUE(std::filesystem::exists(object_file));
+}
+
+TEST(SchemaCompilerToolTest, CBackendGeneratesArrayFieldAndCompilesAsC) {
+    const std::filesystem::path root = make_temp_directory("language-c-array-field");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: quarry.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n"
+                    "  readings:\n"
+                    "    type: float32[]\n"
+                    "    max_elements: 4\n"
+                    "  statuses:\n"
+                    "    type: Status[]\n"
+                    "    max_elements: 3\n"
+                    "enums:\n"
+                    "  Status:\n"
+                    "    values:\n"
+                    "      OK: 0\n"
+                    "      WARNING: 1\n"
+                    "      ERROR: 2\n");
+
+    const CommandResult result =
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
+                 root);
+
+    EXPECT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_TRUE(result.stderr_text.empty());
+
+    const std::filesystem::path header = output / "quarry" / "telemetry.generated.h";
+    const std::string header_text = read_text_file(header);
+    EXPECT_NE(header_text.find("bool has_readings;"), std::string::npos);
+    EXPECT_NE(header_text.find("float readings[4];"), std::string::npos);
+    EXPECT_NE(header_text.find("uint32_t readings_count;"), std::string::npos);
+    EXPECT_NE(header_text.find("quarry_telemetry_Status_t statuses[3];"), std::string::npos);
+    EXPECT_NE(header_text.find("uint32_t statuses_count;"), std::string::npos);
+
+    const std::filesystem::path source = output / "quarry" / "telemetry.generated.c";
+    const std::filesystem::path object_file = root / "telemetry.generated.o";
+    ASSERT_TRUE(std::filesystem::exists(source));
+
+    // Compile-only (no link stage) with strict warnings -- same safe
+    // pattern as the scalar/enum/string/bytes field compile tests above.
     std::ostringstream command;
     command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER)) << " -x c -std=c99"
             << " -Wall -Wextra -Wpedantic -Werror"

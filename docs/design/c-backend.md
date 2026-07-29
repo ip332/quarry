@@ -61,15 +61,37 @@ for bytes decode, back to the "no bump needed" pattern PR-109 established.
 See `compiler/backend_c/README.md`'s "Bytes fields" section for the full
 rationale.
 
+PR-112 implemented bounded (fixed-capacity) array field support, restricted
+to arrays whose element type is a scalar primitive or a same-namespace,
+non-negative-valued enum (arrays of string, bytes, or record-reference
+elements, and nested arrays, remain unsupported). Section 1's struct-based
+recommendation extends directly: a generated array field is a
+fixed-capacity array of the element's own C type (exactly what a plain
+field of that element type would use), sized from `max_elements`, plus an
+explicit `uint32_t <field>_count` and the same `has_<field>` flag every
+field kind uses. This needed no new C runtime code and no generated-code
+API epoch bump: BRF's "Array Encoding" section requires only an unsigned
+LEB128 varuint element count followed by tightly-packed, big-endian
+elements in index order for these element types, and
+`quarry_c_write_varuint`/`quarry_c_read_varuint` (present since PR-108 for
+the Field Directory itself) plus the existing per-width scalar
+`quarry_c_write_uN`/`quarry_c_read_uN` functions were exactly sufficient --
+back to the "no bump needed" pattern PR-109 and PR-111 established. See
+`compiler/backend_c/README.md`'s "Array fields" section for the full
+rationale (representation decision, encode/decode ordering, scratch-buffer
+sizing, and why arrays of string/bytes/record elements and nested arrays
+remain out of scope).
+
 See `compiler/backend_c/README.md` and `runtime_c/README.md` for exactly
 what is and is not implemented today, and `jira/backlog.md`'s
-PR-107/PR-108/PR-109/PR-110/PR-111 entries for the implementation
+PR-107/PR-108/PR-109/PR-110/PR-111/PR-112 entries for the implementation
 write-ups. Everything else in this document remains a design proposal for
 later PRs; the rest of this document is unchanged from PR-106 and should be
 read as forward-looking design, not a description of current behavior --
 in particular, cross-namespace enum field support (via an
-include-dependency mechanism this backend does not have yet), arrays, and
-nested records all remain proposed, not implemented.
+include-dependency mechanism this backend does not have yet), nested
+records, and arrays of records/string/bytes elements all remain proposed,
+not implemented.
 
 ## Purpose
 
