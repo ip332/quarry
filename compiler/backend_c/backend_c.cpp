@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -99,58 +100,189 @@ using ::quarry::schema_ir::RecordIR;
     return "QUARRY_GENERATED_C_" + uppercase_alnum_or_underscore(relative_header_path) + "_";
 }
 
-// --- Scalar field type lowering ------------------------------------------
+// --- Field type lowering --------------------------------------------------
 //
-// PR-108 scope: scalar primitive fields only (bool, fixed-width signed and
-// unsigned integers, f32, f64) -- the exact scalar set Schema IR's
-// PrimitiveType enumerates and the C++ backend already supports. Enum
-// fields, strings, bytes, arrays, and nested/record-reference fields remain
-// unsupported and fail generation with a diagnostic; no new schema types
-// are invented here. See compiler/backend_c/README.md and
-// docs/design/c-backend.md.
+// PR-108 scope was scalar primitive fields only. PR-109 adds enum fields,
+// restricted to enums declared in the *same* namespace as the referencing
+// record (see collect_enum_catalog below) and whose declared values are all
+// non-negative -- matching the C++ backend's own field-support boundary
+// exactly (compiler/backend/backend.cpp's runtime_enum_encoding rejects any
+// enum with a negative value as a field type; the BRF spec's "Enum
+// Encoding" section states the same constraint). Cross-namespace enum
+// field references are deliberately not supported yet -- backend_c has no
+// cross-file include-dependency mechanism, and building one prematurely
+// for this narrow slice would be exactly the "framework code for future
+// features" this backend has consistently avoided (see
+// compiler/backend_c/README.md). Strings, bytes, arrays, and
+// nested/record-reference fields remain unsupported; no new schema types
+// are invented here.
 
-struct ScalarFieldEncoding {
-    std::string c_type;       // e.g. "int32_t", "float", "bool"
+struct FieldEncoding {
+    std::string c_type;       // e.g. "int32_t", "float", "bool", or an enum's own typedef name
     std::string runtime_verb; // e.g. "i32" -> quarry_c_write_i32 / quarry_c_read_i32
-    std::uint8_t width_bytes;
+    std::uint8_t width_bytes = 0U;
+    bool is_enum = false;
+    std::vector<std::int64_t> enum_valid_values; // only meaningful when is_enum
 };
 
-// Returns std::nullopt for any field type this backend does not support yet
-// (enum, string, bytes, array, record reference), matching the exact
-// scalar/enum-vs-other boundary docs/specifications/binary-record-format.md
-// and the C++ backend already draw at the PrimitiveType level.
-[[nodiscard]] std::optional<ScalarFieldEncoding> lower_scalar_field_type(const FieldType& type) {
+// Builds a non-enum FieldEncoding. A plain function (not a designated
+// aggregate initializer at each call site) so every field of the struct is
+// always explicitly assigned exactly once, regardless of how many members
+// FieldEncoding has -- GCC's -Wmissing-field-initializers (part of
+// -Wextra) flags a designated initializer that omits any member, even one
+// with a default member initializer, unlike Clang; this was caught by the
+// Docker/CI-equivalent validation's GCC toolchain, not reproduced locally
+// under Clang.
+[[nodiscard]] FieldEncoding make_scalar_encoding(std::string c_type, std::string runtime_verb,
+                                                 std::uint8_t width_bytes) {
+    FieldEncoding encoding;
+    encoding.c_type = std::move(c_type);
+    encoding.runtime_verb = std::move(runtime_verb);
+    encoding.width_bytes = width_bytes;
+    encoding.is_enum = false;
+    return encoding;
+}
+
+// Returns std::nullopt for any field type this backend does not support yet.
+[[nodiscard]] std::optional<FieldEncoding> lower_scalar_field_type(const FieldType& type) {
     if (type.kind_case() != FieldType::kPrimitive) {
         return std::nullopt;
     }
     using ::quarry::schema_ir::PrimitiveType;
     switch (type.primitive()) {
     case PrimitiveType::PRIMITIVE_TYPE_BOOL:
-        return ScalarFieldEncoding{.c_type = "bool", .runtime_verb = "bool", .width_bytes = 1U};
+        return make_scalar_encoding("bool", "bool", 1U);
     case PrimitiveType::PRIMITIVE_TYPE_I8:
-        return ScalarFieldEncoding{.c_type = "int8_t", .runtime_verb = "i8", .width_bytes = 1U};
+        return make_scalar_encoding("int8_t", "i8", 1U);
     case PrimitiveType::PRIMITIVE_TYPE_U8:
-        return ScalarFieldEncoding{.c_type = "uint8_t", .runtime_verb = "u8", .width_bytes = 1U};
+        return make_scalar_encoding("uint8_t", "u8", 1U);
     case PrimitiveType::PRIMITIVE_TYPE_I16:
-        return ScalarFieldEncoding{.c_type = "int16_t", .runtime_verb = "i16", .width_bytes = 2U};
+        return make_scalar_encoding("int16_t", "i16", 2U);
     case PrimitiveType::PRIMITIVE_TYPE_U16:
-        return ScalarFieldEncoding{.c_type = "uint16_t", .runtime_verb = "u16", .width_bytes = 2U};
+        return make_scalar_encoding("uint16_t", "u16", 2U);
     case PrimitiveType::PRIMITIVE_TYPE_I32:
-        return ScalarFieldEncoding{.c_type = "int32_t", .runtime_verb = "i32", .width_bytes = 4U};
+        return make_scalar_encoding("int32_t", "i32", 4U);
     case PrimitiveType::PRIMITIVE_TYPE_U32:
-        return ScalarFieldEncoding{.c_type = "uint32_t", .runtime_verb = "u32", .width_bytes = 4U};
+        return make_scalar_encoding("uint32_t", "u32", 4U);
     case PrimitiveType::PRIMITIVE_TYPE_I64:
-        return ScalarFieldEncoding{.c_type = "int64_t", .runtime_verb = "i64", .width_bytes = 8U};
+        return make_scalar_encoding("int64_t", "i64", 8U);
     case PrimitiveType::PRIMITIVE_TYPE_U64:
-        return ScalarFieldEncoding{.c_type = "uint64_t", .runtime_verb = "u64", .width_bytes = 8U};
+        return make_scalar_encoding("uint64_t", "u64", 8U);
     case PrimitiveType::PRIMITIVE_TYPE_F32:
-        return ScalarFieldEncoding{.c_type = "float", .runtime_verb = "f32", .width_bytes = 4U};
+        return make_scalar_encoding("float", "f32", 4U);
     case PrimitiveType::PRIMITIVE_TYPE_F64:
-        return ScalarFieldEncoding{.c_type = "double", .runtime_verb = "f64", .width_bytes = 8U};
+        return make_scalar_encoding("double", "f64", 8U);
     case PrimitiveType::PRIMITIVE_TYPE_UNSPECIFIED:
     default:
         return std::nullopt;
     }
+}
+
+[[nodiscard]] std::string unsigned_c_type_for_width(std::uint8_t width_bytes) {
+    switch (width_bytes) {
+    case 1U:
+        return "uint8_t";
+    case 2U:
+        return "uint16_t";
+    case 4U:
+        return "uint32_t";
+    default:
+        return "uint64_t";
+    }
+}
+
+[[nodiscard]] std::string unsigned_runtime_verb_for_width(std::uint8_t width_bytes) {
+    switch (width_bytes) {
+    case 1U:
+        return "u8";
+    case 2U:
+        return "u16";
+    case 4U:
+        return "u32";
+    default:
+        return "u64";
+    }
+}
+
+// Smallest unsigned width capable of representing max_value, matching
+// compiler/backend/backend.cpp's enum_width_for_max_value exactly -- this
+// is the property that keeps enum field wire encoding byte-for-byte
+// identical between the C and C++ backends.
+[[nodiscard]] std::uint8_t enum_width_for_max_value(std::uint64_t max_value) {
+    if (max_value <= std::numeric_limits<std::uint8_t>::max()) {
+        return 1U;
+    }
+    if (max_value <= std::numeric_limits<std::uint16_t>::max()) {
+        return 2U;
+    }
+    if (max_value <= std::numeric_limits<std::uint32_t>::max()) {
+        return 4U;
+    }
+    return 8U;
+}
+
+// --- Enum catalog -----------------------------------------------------
+//
+// A flat, whole-schema map from enum ir_id to the information a field
+// reference needs, built once before any namespace file is planned. This
+// is the smallest addition that lets a record field resolve an EnumRef by
+// id (Schema IR's own addressing scheme) without recomputing each
+// referenced enum's declaration data at every field site, and without
+// needing a broader Type-Catalog-style refactor -- namespace/file planning
+// itself is unchanged.
+
+struct EnumCatalogEntry {
+    std::string type_name;    // e.g. "quarry_telemetry_Status_t"
+    std::string value_prefix; // e.g. "QUARRY_TELEMETRY_STATUS"
+    std::string owning_namespace_fqn;
+    bool all_non_negative = false;
+    std::uint8_t width_bytes = 0U; // meaningful only when all_non_negative
+    std::vector<std::int64_t> values;
+};
+
+using EnumCatalog = std::unordered_map<std::uint64_t, EnumCatalogEntry>;
+
+[[nodiscard]] bool collect_enum_catalog(const NamespaceIR& ns, EnumCatalog& catalog,
+                                        std::string& error_message) {
+    const std::string symbol_prefix = symbol_prefix_for_namespace(ns.fqn());
+    for (const EnumIR& enum_ir : ns.enums()) {
+        EnumCatalogEntry entry;
+        entry.type_name = symbol_prefix + enum_ir.name() + "_t";
+        entry.value_prefix = uppercase_alnum_or_underscore(symbol_prefix + enum_ir.name());
+        entry.owning_namespace_fqn = ns.fqn();
+        entry.all_non_negative = true;
+
+        std::uint64_t max_value = 0U;
+        for (const EnumValueIR& value_ir : enum_ir.values()) {
+            if (value_ir.value() > std::numeric_limits<std::int32_t>::max() ||
+                value_ir.value() < std::numeric_limits<std::int32_t>::min()) {
+                std::ostringstream stream;
+                stream << "backend_c: enum value out of supported range for '" << enum_ir.fqn()
+                       << "." << value_ir.name() << "' (" << value_ir.value()
+                       << "): the C backend does not yet support enum values outside the "
+                          "32-bit signed integer range";
+                error_message = stream.str();
+                return false;
+            }
+            entry.values.push_back(value_ir.value());
+            if (value_ir.value() < 0) {
+                entry.all_non_negative = false;
+            } else {
+                max_value = std::max(max_value, static_cast<std::uint64_t>(value_ir.value()));
+            }
+        }
+        if (entry.all_non_negative) {
+            entry.width_bytes = enum_width_for_max_value(max_value);
+        }
+        catalog.emplace(enum_ir.ir_id(), std::move(entry));
+    }
+
+    for (const NamespaceIR& child : ns.namespaces()) {
+        if (!collect_enum_catalog(child, catalog, error_message)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // --- Planning -----------------------------------------------------------
@@ -161,6 +293,7 @@ struct PlannedEnumValue {
 };
 
 struct PlannedEnum {
+    std::string type_name;
     std::string symbol_name;
     std::vector<PlannedEnumValue> values;
 };
@@ -168,7 +301,7 @@ struct PlannedEnum {
 struct PlannedField {
     std::string name;
     std::uint32_t field_index = 0U;
-    ScalarFieldEncoding encoding;
+    FieldEncoding encoding;
 };
 
 struct PlannedRecord {
@@ -189,47 +322,99 @@ struct PlannedNamespaceFile {
     return ns.records_size() > 0 || ns.enums_size() > 0;
 }
 
+// Resolves one field's type, given the whole-schema enum catalog and the
+// FQN of the namespace the referencing record belongs to. Returns
+// std::nullopt (with error_message set) for every unsupported case: a
+// non-scalar, non-enum type; an enum declared in a different namespace; or
+// an enum with a negative declared value.
+[[nodiscard]] std::optional<FieldEncoding>
+lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
+                     std::string_view current_namespace_fqn, const EnumCatalog& catalog,
+                     std::string& error_message) {
+    const FieldType& type = field_ir.type();
+
+    if (type.kind_case() == FieldType::kPrimitive) {
+        std::optional<FieldEncoding> encoding = lower_scalar_field_type(type);
+        if (encoding.has_value()) {
+            return encoding;
+        }
+    } else if (type.kind_case() == FieldType::kEnumType) {
+        const auto catalog_it = catalog.find(type.enum_type().target_enum_ir_id());
+        if (catalog_it != catalog.end()) {
+            const EnumCatalogEntry& entry = catalog_it->second;
+            if (entry.owning_namespace_fqn != current_namespace_fqn) {
+                std::ostringstream stream;
+                stream << "backend_c: field '" << record_ir.fqn() << "." << field_ir.name()
+                       << "' references enum '" << entry.type_name
+                       << "' declared in a different namespace ('" << entry.owning_namespace_fqn
+                       << "'); cross-namespace enum field references are not yet supported "
+                          "(see docs/design/c-backend.md)";
+                error_message = stream.str();
+                return std::nullopt;
+            }
+            if (!entry.all_non_negative) {
+                std::ostringstream stream;
+                stream << "backend_c: field '" << record_ir.fqn() << "." << field_ir.name()
+                       << "' references an enum with a negative declared value; enum fields "
+                          "are only supported when every declared value is non-negative, "
+                          "matching the C++ backend and the BRF spec's Enum Encoding rule";
+                error_message = stream.str();
+                return std::nullopt;
+            }
+            FieldEncoding encoding;
+            encoding.c_type = entry.type_name;
+            encoding.width_bytes = entry.width_bytes;
+            encoding.runtime_verb = unsigned_runtime_verb_for_width(entry.width_bytes);
+            encoding.is_enum = true;
+            encoding.enum_valid_values = entry.values;
+            return encoding;
+        }
+    }
+
+    // Mixed supported/unsupported records fail as a whole: a struct that
+    // silently dropped this field would be partial, misleading output, not
+    // a smaller feature set.
+    std::ostringstream stream;
+    stream << "backend_c: field '" << record_ir.fqn() << "." << field_ir.name()
+           << "' has a type the C backend does not support yet -- only bool, fixed-width "
+              "signed/unsigned integer, f32/f64 scalar fields, and same-namespace enum "
+              "fields with only non-negative declared values are supported (see "
+              "docs/design/c-backend.md); string, bytes, array, and record-reference "
+              "fields remain unsupported";
+    error_message = stream.str();
+    return std::nullopt;
+}
+
 // Collects one PlannedNamespaceFile per namespace that directly owns records
 // or enums, in Schema IR declaration order (pre-order namespace traversal),
 // the same "emit files only for namespaces that directly own records or
 // enums" rule compiler/backend/backend.cpp already follows for C++ -- an
 // independently reached, not shared, implementation of the same policy.
-//
-// Deliberately does not attempt to lower any field: PR-107 is an
-// architectural skeleton (see compiler/backend_c/README.md and
-// docs/design/c-backend.md). A record with one or more fields fails
-// generation with a clear diagnostic rather than emitting a struct that
-// silently drops schema-declared fields.
 [[nodiscard]] bool collect_namespace_files(const NamespaceIR& ns, const CodegenOptions& options,
+                                           const EnumCatalog& catalog,
                                            std::vector<PlannedNamespaceFile>& files,
                                            std::string& error_message) {
     if (namespace_emits_file(ns)) {
         PlannedNamespaceFile file;
-        const std::string symbol_prefix = symbol_prefix_for_namespace(ns.fqn());
         const std::string stem = file_stem_for_namespace(options, ns.fqn());
         file.relative_header_path = stem + options.header_extension;
         file.relative_source_path = stem + options.source_extension;
         file.generated_include_path = file.relative_header_path;
 
         for (const EnumIR& enum_ir : ns.enums()) {
+            // Already validated and computed once by collect_enum_catalog;
+            // reused here rather than recomputed, so there is exactly one
+            // place that decides an enum's rendering data.
+            const EnumCatalogEntry& entry = catalog.at(enum_ir.ir_id());
             PlannedEnum planned_enum;
+            planned_enum.type_name = entry.type_name;
             // Enum value constants use the fully uppercase
             // QUARRY_<NAMESPACE>_<ENUMNAME>_<VALUE> form (docs/design/c-backend.md
             // Section 5): C enumerators are not scoped, so the whole identifier is
             // conventionally upper-cased like a macro constant, unlike the
-            // mixed-case quarry_<namespace>_<Record>_t struct/function naming.
-            planned_enum.symbol_name = uppercase_alnum_or_underscore(symbol_prefix + enum_ir.name());
+            // mixed-case quarry_<namespace>_<Record>_t struct/function/type naming.
+            planned_enum.symbol_name = entry.value_prefix;
             for (const EnumValueIR& value_ir : enum_ir.values()) {
-                if (value_ir.value() > std::numeric_limits<std::int32_t>::max() ||
-                    value_ir.value() < std::numeric_limits<std::int32_t>::min()) {
-                    std::ostringstream stream;
-                    stream << "backend_c: enum value out of supported range for '"
-                           << enum_ir.fqn() << "." << value_ir.name() << "' (" << value_ir.value()
-                           << "): the C backend skeleton does not yet support enum values "
-                              "outside the 32-bit signed integer range";
-                    error_message = stream.str();
-                    return false;
-                }
                 planned_enum.values.push_back(PlannedEnumValue{
                     .name = uppercase_alnum_or_underscore(value_ir.name()),
                     .value = value_ir.value()});
@@ -237,29 +422,20 @@ struct PlannedNamespaceFile {
             file.enums.push_back(std::move(planned_enum));
         }
 
+        const std::string symbol_prefix = symbol_prefix_for_namespace(ns.fqn());
         for (const RecordIR& record_ir : ns.records()) {
             std::vector<PlannedField> planned_fields;
             planned_fields.reserve(static_cast<std::size_t>(record_ir.fields_size()));
             for (const FieldIR& field_ir : record_ir.fields()) {
-                const std::optional<ScalarFieldEncoding> encoding =
-                    lower_scalar_field_type(field_ir.type());
+                std::optional<FieldEncoding> encoding =
+                    lower_field_encoding(record_ir, field_ir, ns.fqn(), catalog, error_message);
                 if (!encoding.has_value()) {
-                    // Mixed supported/unsupported records fail as a whole: a
-                    // struct that silently dropped this field would be
-                    // partial, misleading output, not a smaller feature set.
-                    std::ostringstream stream;
-                    stream << "backend_c: field '" << record_ir.fqn() << "." << field_ir.name()
-                           << "' has a type the C backend does not support yet -- only bool, "
-                              "fixed-width signed/unsigned integer, and f32/f64 scalar fields "
-                              "are supported (see docs/design/c-backend.md); enum, string, "
-                              "bytes, array, and record-reference fields remain unsupported";
-                    error_message = stream.str();
                     return false;
                 }
                 planned_fields.push_back(PlannedField{
                     .name = field_ir.name(),
                     .field_index = field_ir.field_index(),
-                    .encoding = *encoding,
+                    .encoding = std::move(*encoding),
                 });
             }
             file.records.push_back(PlannedRecord{
@@ -273,7 +449,7 @@ struct PlannedNamespaceFile {
     }
 
     for (const NamespaceIR& child : ns.namespaces()) {
-        if (!collect_namespace_files(child, options, files, error_message)) {
+        if (!collect_namespace_files(child, options, catalog, files, error_message)) {
             return false;
         }
     }
@@ -287,7 +463,12 @@ struct PlannedNamespaceFile {
                                          const CodegenOptions& options,
                                          std::vector<PlannedNamespaceFile>& files,
                                          std::string& error_message) {
-    if (!collect_namespace_files(schema_ir.root_namespace(), options, files, error_message)) {
+    EnumCatalog catalog;
+    if (!collect_enum_catalog(schema_ir.root_namespace(), catalog, error_message)) {
+        return false;
+    }
+    if (!collect_namespace_files(schema_ir.root_namespace(), options, catalog, files,
+                                 error_message)) {
         return false;
     }
 
@@ -338,12 +519,12 @@ struct PlannedNamespaceFile {
 
     for (const PlannedEnum& enum_ir : file.enums) {
         stream << "\n";
-        stream << "enum {\n";
+        stream << "typedef enum {\n";
         for (const PlannedEnumValue& value : enum_ir.values) {
             stream << "    " << enum_ir.symbol_name << "_" << value.name << " = " << value.value
                    << ",\n";
         }
-        stream << "};\n";
+        stream << "} " << enum_ir.type_name << ";\n";
     }
 
     for (const PlannedRecord& record : file.records) {
@@ -416,24 +597,58 @@ void render_field_scratch_declarations(std::ostringstream& stream,
     }
 }
 
+// Renders `expr == V0 || expr == V1 || ...` over an enum's declared values,
+// matching the C++ backend's generated membership check exactly (see e.g.
+// tests/fixtures/backend/enum_reference.txt's `enum_numeric == 1 ||
+// enum_numeric == 2`) -- raw numeric literals, not the enumerator names, so
+// this needs only the value list, not a name lookup.
+[[nodiscard]] std::string render_enum_membership_condition(const std::string& expression,
+                                                            const std::vector<std::int64_t>& values) {
+    std::string condition;
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        if (index > 0) {
+            condition += " || ";
+        }
+        condition += expression + " == " + std::to_string(values[index]);
+    }
+    return condition;
+}
+
 void render_build_fields_loop(std::ostringstream& stream, const std::vector<PlannedField>& fields,
                               bool check_write_status) {
     for (const PlannedField& field : fields) {
         stream << "    if (record->has_" << field.name << ") {\n";
+        if (field.encoding.is_enum && check_write_status) {
+            // _encoded_size() does not validate membership: the encoded
+            // size depends only on the field's fixed wire width, not on
+            // whether the current value happens to be one of the enum's
+            // declared values -- the actual _encode() call below is where
+            // an invalid value is rejected.
+            stream << "        if (!(" << render_enum_membership_condition(
+                                              "record->" + field.name, field.encoding.enum_valid_values)
+                   << ")) {\n";
+            stream << "            result.status = QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE;\n";
+            stream << "            return result;\n";
+            stream << "        }\n";
+        }
         stream << "        quarry_c_writer_t writer;\n";
         stream << "        quarry_c_writer_init(&writer, " << field.name << "_bytes, sizeof("
                << field.name << "_bytes));\n";
+        const std::string write_value =
+            field.encoding.is_enum
+                ? ("(" + unsigned_c_type_for_width(field.encoding.width_bytes) + ")record->" +
+                  field.name)
+                : ("record->" + field.name);
         if (check_write_status) {
             stream << "        const quarry_c_status_t field_status = quarry_c_write_"
-                   << field.encoding.runtime_verb << "(&writer, record->" << field.name
-                   << ");\n";
+                   << field.encoding.runtime_verb << "(&writer, " << write_value << ");\n";
             stream << "        if (field_status != QUARRY_C_STATUS_OK) {\n";
             stream << "            result.status = field_status;\n";
             stream << "            return result;\n";
             stream << "        }\n";
         } else {
-            stream << "        (void)quarry_c_write_" << field.encoding.runtime_verb
-                   << "(&writer, record->" << field.name << ");\n";
+            stream << "        (void)quarry_c_write_" << field.encoding.runtime_verb << "(&writer, "
+                   << write_value << ");\n";
         }
         stream << "        fields[field_count].field_index = " << field.field_index << "U;\n";
         stream << "        fields[field_count].bytes = " << field.name << "_bytes;\n";
@@ -549,15 +764,40 @@ void render_build_fields_loop(std::ostringstream& stream, const std::vector<Plan
             stream << "            quarry_c_reader_t field_reader;\n";
             stream << "            quarry_c_reader_init(&field_reader, field_view.bytes, "
                       "field_view.length);\n";
-            stream << "            const quarry_c_status_t field_status = quarry_c_read_"
-                   << field.encoding.runtime_verb << "(&field_reader, &result.value."
-                   << field.name << ");\n";
-            stream << "            if (field_status != QUARRY_C_STATUS_OK) {\n";
-            stream << "                result.status = field_status;\n";
-            stream << "                result.has_byte_offset = true;\n";
-            stream << "                result.byte_offset = field_view.byte_offset;\n";
-            stream << "                return result;\n";
-            stream << "            }\n";
+            if (field.encoding.is_enum) {
+                const std::string raw_name = field.name + "_raw";
+                stream << "            "
+                       << unsigned_c_type_for_width(field.encoding.width_bytes) << " " << raw_name
+                       << " = 0;\n";
+                stream << "            const quarry_c_status_t field_status = quarry_c_read_"
+                       << field.encoding.runtime_verb << "(&field_reader, &" << raw_name << ");\n";
+                stream << "            if (field_status != QUARRY_C_STATUS_OK) {\n";
+                stream << "                result.status = field_status;\n";
+                stream << "                result.has_byte_offset = true;\n";
+                stream << "                result.byte_offset = field_view.byte_offset;\n";
+                stream << "                return result;\n";
+                stream << "            }\n";
+                stream << "            if (!("
+                       << render_enum_membership_condition(raw_name, field.encoding.enum_valid_values)
+                       << ")) {\n";
+                stream << "                result.status = QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE;\n";
+                stream << "                result.has_byte_offset = true;\n";
+                stream << "                result.byte_offset = field_view.byte_offset;\n";
+                stream << "                return result;\n";
+                stream << "            }\n";
+                stream << "            result.value." << field.name << " = ("
+                       << field.encoding.c_type << ")" << raw_name << ";\n";
+            } else {
+                stream << "            const quarry_c_status_t field_status = quarry_c_read_"
+                       << field.encoding.runtime_verb << "(&field_reader, &result.value."
+                       << field.name << ");\n";
+                stream << "            if (field_status != QUARRY_C_STATUS_OK) {\n";
+                stream << "                result.status = field_status;\n";
+                stream << "                result.has_byte_offset = true;\n";
+                stream << "                result.byte_offset = field_view.byte_offset;\n";
+                stream << "                return result;\n";
+                stream << "            }\n";
+            }
             stream << "            result.value.has_" << field.name << " = true;\n";
             stream << "        }\n";
             stream << "    }\n";

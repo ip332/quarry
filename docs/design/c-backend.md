@@ -14,18 +14,32 @@ recommendation, confirmed as selected -- see `compiler/backend_c/README.md`
 for the "generated codec API" alternatives actually evaluated and chosen),
 a minimal C runtime under `include/quarry/runtime_c/` (Section 3), and a
 real BRF encode/decode codec API (Section 4), verified byte-for-byte
-compatible with the C++ backend's output. **Enum-typed fields remain
-unsupported** -- PR-108 deliberately scoped enums out even though enum
-*declarations* already render (from PR-107); Section 4's enum-storage
-recommendation (a plain C `enum` typedef as the field's C type, decoupled
-from the wire width, which is chosen independently by max declared value)
-remains a proposal for whichever PR implements enum fields, not yet
-implemented. See `compiler/backend_c/README.md` and `runtime_c/README.md`
-for exactly what is and is not implemented today, and `jira/backlog.md`'s
-PR-107/PR-108 entries for the implementation write-ups. Everything else in
-this document remains a design proposal for later PRs; the rest of this
-document is unchanged from PR-106 and should be read as forward-looking
-design, not a description of current behavior.
+compatible with the C++ backend's output. Enum-typed fields remained
+unsupported in PR-108 even though enum *declarations* already rendered
+(from PR-107).
+
+PR-109 implemented enum-typed field support, with one deliberate narrowing
+relative to this document's original proposal: **only enums declared in
+the same namespace as the referencing record are supported** (a
+cross-namespace enum field fails generation with a diagnostic). Section
+4's enum-storage recommendation -- a plain C `enum` typedef as the field's
+C type, decoupled from the wire width, which is chosen independently by
+max declared value -- was implemented exactly as proposed and confirmed as
+the selected option (see `compiler/backend_c/README.md`'s "Enum fields"
+section for the full rationale, now grounded in the actual implementation
+rather than a proposal). This needed no C runtime change and no
+generated-code API epoch bump -- enum field encode/decode reuses the exact
+runtime functions scalar fields already called in PR-108.
+
+See `compiler/backend_c/README.md` and `runtime_c/README.md` for exactly
+what is and is not implemented today, and `jira/backlog.md`'s
+PR-107/PR-108/PR-109 entries for the implementation write-ups. Everything
+else in this document remains a design proposal for later PRs; the rest of
+this document is unchanged from PR-106 and should be read as
+forward-looking design, not a description of current behavior -- in
+particular, cross-namespace enum field support (via an include-dependency
+mechanism this backend does not have yet) remains proposed, not
+implemented.
 
 ## Purpose
 

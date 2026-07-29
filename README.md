@@ -124,12 +124,14 @@ full diagnostic contract.
 
 C is the second supported backend language (`--language c`), currently
 covering **only** records whose fields are `bool`, fixed-width signed/unsigned
-integers, or `f32`/`f64` (no enum-typed fields, `string`, `bytes`, arrays, or
-nested records yet), with real BRF encode/decode backed by the installed
-`Quarry::runtime_c` C runtime and verified byte-for-byte wire-compatible with
-the C++ backend. See `compiler/backend_c/README.md`, `runtime_c/README.md`,
-and `docs/design/c-backend.md` for the exact supported subset, the generated
-API, and the roadmap for the rest.
+integers, `f32`/`f64`, or enum references declared in the *same namespace* as
+the referencing record (no `string`, `bytes`, arrays, nested records, or
+cross-namespace enum fields yet), with real BRF encode/decode backed by the
+installed `Quarry::runtime_c` C runtime and verified byte-for-byte
+wire-compatible with the C++ backend, including identical unknown-enum-value
+rejection. See `compiler/backend_c/README.md`, `runtime_c/README.md`, and
+`docs/design/c-backend.md` for the exact supported subset, the generated API,
+and the roadmap for the rest.
 
 The supported downstream distribution model is defined in
 `docs/distribution-model.md`. The installed SDK currently consists of the

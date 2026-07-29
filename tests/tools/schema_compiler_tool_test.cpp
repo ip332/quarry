@@ -827,6 +827,64 @@ TEST(SchemaCompilerToolTest, CBackendGeneratesScalarStructAndCodecApi) {
     EXPECT_NE(header_text.find("quarry_telemetry_Sample_decode_result_t"), std::string::npos);
 }
 
+TEST(SchemaCompilerToolTest, CBackendGeneratesEnumFieldAndCompilesAsC) {
+    const std::filesystem::path root = make_temp_directory("language-c-enum-field");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: quarry.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n"
+                    "  status:\n"
+                    "    type: Status\n"
+                    "enums:\n"
+                    "  Status:\n"
+                    "    values:\n"
+                    "      OK: 0\n"
+                    "      WARNING: 1\n"
+                    "      ERROR: 2\n");
+
+    const CommandResult result =
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
+                 root);
+
+    EXPECT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_TRUE(result.stderr_text.empty());
+
+    const std::filesystem::path header = output / "quarry" / "telemetry.generated.h";
+    const std::string header_text = read_text_file(header);
+    EXPECT_NE(header_text.find("typedef enum {"), std::string::npos);
+    EXPECT_NE(header_text.find("QUARRY_TELEMETRY_STATUS_OK = 0"), std::string::npos);
+    EXPECT_NE(header_text.find("QUARRY_TELEMETRY_STATUS_WARNING = 1"), std::string::npos);
+    EXPECT_NE(header_text.find("QUARRY_TELEMETRY_STATUS_ERROR = 2"), std::string::npos);
+    EXPECT_NE(header_text.find("} quarry_telemetry_Status_t;"), std::string::npos);
+    EXPECT_NE(header_text.find("quarry_telemetry_Status_t status;"), std::string::npos);
+
+    const std::filesystem::path source = output / "quarry" / "telemetry.generated.c";
+    const std::filesystem::path object_file = root / "telemetry.generated.o";
+    ASSERT_TRUE(std::filesystem::exists(source));
+
+    // Compile-only (no link stage) with strict warnings, matching the
+    // already-safe pattern CBackendGeneratedSourceCompilesAsC uses; the
+    // interop test's own history shows a combined compile+link invocation
+    // has a GCC-specific -std=c99 rejection this pattern avoids entirely.
+    std::ostringstream command;
+    command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER)) << " -x c -std=c99"
+            << " -Wall -Wextra -Wpedantic -Werror"
+            << " -I" << std::quoted(output.string())
+            << " -I" << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR))
+            << " -I" << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR))
+            << " -c " << std::quoted(source.string()) << " -o "
+            << std::quoted(object_file.string());
+    const int status = std::system(command.str().c_str());
+    EXPECT_EQ(status, 0) << "command: " << command.str();
+    EXPECT_TRUE(std::filesystem::exists(object_file));
+}
+
 TEST(SchemaCompilerToolTest, CBackendGeneratedSourceCompilesAsC) {
     const std::filesystem::path root = make_temp_directory("language-c-compiles");
     const std::filesystem::path input = root / "schema.brd";

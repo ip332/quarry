@@ -6,18 +6,21 @@ sibling implementations: neither depends on the other, and each is
 installed under its own canonical path (`include/quarry/runtime/` for C++,
 `include/quarry/runtime_c/` for C -- see "CMake Package" below).
 
-**Status: scalar codec vertical slice (PR-108).** This runtime supports
-generated code for scalar-only records. No string/bytes/array/nested-record
-support exists yet -- see `compiler/backend_c/README.md` and
-`docs/design/c-backend.md` for the current implemented subset and the
-roadmap for later increments. `include/quarry/runtime_c/binary_record.h` is
-not a speculative framework for those future features: it exposes exactly
-the primitives this slice needs.
+**Status: scalar and enum field codec (PR-108/PR-109), same-namespace enum
+fields only.** No string/bytes/array/nested-record support exists yet -- see
+`compiler/backend_c/README.md` and `docs/design/c-backend.md` for the
+current implemented subset and the roadmap for later increments.
+`include/quarry/runtime_c/binary_record.h` is not a speculative framework
+for those future features: it exposes exactly the primitives these slices
+need. Notably, PR-109 (enum fields) added **no new runtime code at all** --
+enum field support only required generated-code changes (see
+`compiler/backend_c/README.md`'s "Enum fields" section); every primitive
+this runtime exposed after PR-108 was already sufficient.
 
 Generated C code calls the header-only `quarry_runtime_c` target for
 byte-level mechanics while generated code keeps schema-specific knowledge
-such as `record_id`, `field_index`, field type, and (once implemented) enum
-value sets -- the same split `runtime/README.md` documents for C++.
+such as `record_id`, `field_index`, field type, and enum value sets -- the
+same split `runtime/README.md` documents for C++.
 
 Current support:
 
@@ -83,10 +86,12 @@ real schema needs more present fields in one record than it allows.
 structural/wire failures (e.g. `QUARRY_C_STATUS_TRUNCATED_HEADER`,
 `QUARRY_C_STATUS_MALFORMED_VARUINT`) and schema-level failures generated
 code itself detects (`QUARRY_C_STATUS_UNEXPECTED_RECORD_ID`,
-`QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE` -- the latter not yet produced by
-anything, since enum fields aren't implemented yet, but reserved in the
-shared enum so generated code will not need a second, parallel status type
-once they are). Decode results additionally carry `byte_offset`
+`QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE` -- declared in PR-108 in anticipation
+of enum field support and actually produced by generated code since PR-109,
+which needed no runtime change to start using it: reserving schema-level
+statuses in this one shared enum ahead of their first generated-code
+producer means generated code never needs a second, parallel status type).
+Decode results additionally carry `byte_offset`
 (`has_byte_offset`/`byte_offset`), populated for every decode failure except
 `QUARRY_C_STATUS_UNSUPPORTED_FIELD_COUNT` (see above). Encode results never
 carry a byte offset, for the same reason the C++ runtime's `EncodeResult`

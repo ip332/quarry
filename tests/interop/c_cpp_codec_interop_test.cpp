@@ -1,11 +1,13 @@
 // Proves byte-for-byte BRF wire compatibility between the C and C++
-// backends for the scalar/enum-free subset both support (PR-108). Generates
-// the same schema through both `quarry-schema-compiler` backends, compiles
-// small C and C++ harness programs against each generated output, and
-// verifies: (1) the C encoder's bytes are byte-for-byte identical to the
-// C++ encoder's bytes for the same field values, (2) the C++ decoder
-// accepts the C-encoded bytes, and (3) the C decoder accepts the
-// C++-encoded bytes.
+// backends for the scalar-and-enum-field subset both support (PR-108/
+// PR-109). Generates the same schema through both `quarry-schema-compiler`
+// backends, compiles small C and C++ harness programs against each
+// generated output, and verifies: (1) the C encoder's bytes are
+// byte-for-byte identical to the C++ encoder's bytes for the same field
+// values (including a representative enum value), (2) the C++ decoder
+// accepts the C-encoded bytes, (3) the C decoder accepts the C++-encoded
+// bytes, and (4) both languages identically reject an out-of-range enum
+// byte as an unknown-enum-value decode failure, with a byte offset.
 
 #include <chrono>
 #include <cstdlib>
@@ -107,7 +109,15 @@ constexpr std::string_view kSchema = "namespace: quarry.telemetry\n"
                                      "  active:\n"
                                      "    type: bool\n"
                                      "  level:\n"
-                                     "    type: int8\n";
+                                     "    type: int8\n"
+                                     "  status:\n"
+                                     "    type: Status\n"
+                                     "enums:\n"
+                                     "  Status:\n"
+                                     "    values:\n"
+                                     "      OK: 0\n"
+                                     "      WARNING: 1\n"
+                                     "      ERROR: 2\n";
 
 constexpr std::string_view kCHarness =
     "#include \"quarry/telemetry.generated.h\"\n"
@@ -122,6 +132,7 @@ constexpr std::string_view kCHarness =
     "    sample.has_ratio = true; sample.ratio = 1.5f;\n"
     "    sample.has_active = true; sample.active = true;\n"
     "    sample.has_level = true; sample.level = -5;\n"
+    "    sample.has_status = true; sample.status = QUARRY_TELEMETRY_STATUS_WARNING;\n"
     "    uint8_t buf[128];\n"
     "    quarry_telemetry_Sample_encode_result_t r =\n"
     "        quarry_telemetry_Sample_encode(&sample, buf, sizeof(buf));\n"
@@ -144,6 +155,18 @@ constexpr std::string_view kCHarness =
     "    if (!r.value.has_ratio || r.value.ratio != 1.5f) return 6;\n"
     "    if (!r.value.has_active || r.value.active != true) return 7;\n"
     "    if (!r.value.has_level || r.value.level != -5) return 8;\n"
+    "    if (!r.value.has_status || r.value.status != QUARRY_TELEMETRY_STATUS_WARNING) return 9;\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (strcmp(argv[1], \"decode_expect_unknown_enum\") == 0) {\n"
+    "    FILE* f = fopen(argv[2], \"rb\");\n"
+    "    if (!f) return 3;\n"
+    "    uint8_t buf[256];\n"
+    "    size_t n = fread(buf, 1, sizeof(buf), f);\n"
+    "    fclose(f);\n"
+    "    quarry_telemetry_Sample_decode_result_t r = quarry_telemetry_Sample_decode(buf, n);\n"
+    "    if (r.status != QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE) return 1;\n"
+    "    if (!r.has_byte_offset) return 2;\n"
     "    return 0;\n"
     "  }\n"
     "  return 9;\n"
@@ -163,6 +186,7 @@ constexpr std::string_view kCppHarness =
     "    if (!builder.set_ratio(1.5f)) return 1;\n"
     "    if (!builder.set_active(true)) return 1;\n"
     "    if (!builder.set_level(-5)) return 1;\n"
+    "    if (!builder.set_status(quarry::telemetry::Status::WARNING)) return 1;\n"
     "    const auto sample = builder.build();\n"
     "    auto encoded = quarry::telemetry::encode(sample);\n"
     "    if (!encoded.has_value()) return 2;\n"
@@ -188,9 +212,27 @@ constexpr std::string_view kCppHarness =
     "    if (!decoded->has_ratio() || *decoded->ratio() != 1.5f) return 7;\n"
     "    if (!decoded->has_active() || *decoded->active() != true) return 8;\n"
     "    if (!decoded->has_level() || *decoded->level() != -5) return 9;\n"
+    "    if (!decoded->has_status() || *decoded->status() != quarry::telemetry::Status::WARNING)\n"
+    "      return 10;\n"
     "    return 0;\n"
     "  }\n"
-    "  return 10;\n"
+    "  if (std::strcmp(argv[1], \"decode_expect_unknown_enum\") == 0) {\n"
+    "    std::ifstream in(argv[2], std::ios::binary);\n"
+    "    if (!in) return 4;\n"
+    "    std::vector<char> raw((std::istreambuf_iterator<char>(in)),\n"
+    "                          std::istreambuf_iterator<char>());\n"
+    "    std::vector<std::byte> bytes(raw.size());\n"
+    "    for (size_t i = 0; i < raw.size(); ++i) {\n"
+    "      bytes[i] = static_cast<std::byte>(raw[i]);\n"
+    "    }\n"
+    "    auto decoded =\n"
+    "        quarry::telemetry::decode_Sample_result(std::span<const std::byte>(bytes));\n"
+    "    if (decoded.value.has_value()) return 1;\n"
+    "    if (decoded.error != quarry::runtime::DecodeError::unknown_enum_value) return 2;\n"
+    "    if (!decoded.byte_offset.has_value()) return 3;\n"
+    "    return 0;\n"
+    "  }\n"
+    "  return 11;\n"
     "}\n";
 
 } // namespace
@@ -291,4 +333,30 @@ TEST(CCppCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
                                     shell_quote(cpp_encoded.string())),
              0)
         << "C failed to decode C++-encoded bytes";
+
+    // Corrupt the last byte (the `status` enum field's one-byte payload,
+    // since it is the last-declared/highest field_index field) to a value
+    // outside {0, 1, 2} and confirm both languages reject it identically:
+    // QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE / DecodeError::unknown_enum_value,
+    // both with a byte offset.
+    std::string corrupted_bytes = c_bytes;
+    ASSERT_FALSE(corrupted_bytes.empty());
+    corrupted_bytes.back() = static_cast<char>(99);
+    const std::filesystem::path corrupted_encoded = root / "corrupted_encoded.bin";
+    {
+        std::ofstream out(corrupted_encoded, std::ios::binary);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out.write(corrupted_bytes.data(), static_cast<std::streamsize>(corrupted_bytes.size()));
+    }
+
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                    " decode_expect_unknown_enum " +
+                                    shell_quote(corrupted_encoded.string())),
+             0)
+        << "C did not report QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE for an out-of-range enum byte";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " decode_expect_unknown_enum " +
+                                    shell_quote(corrupted_encoded.string())),
+             0)
+        << "C++ did not report DecodeError::unknown_enum_value for an out-of-range enum byte";
 }

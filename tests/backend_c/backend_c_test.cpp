@@ -281,6 +281,131 @@ TEST(BackendCTest, GeneratesScalarStructFieldsAndCodecDeclarations) {
     EXPECT_NE(source.find("quarry_c_parse_record(input, input_length"), std::string::npos);
 }
 
+TEST(BackendCTest, EnumFieldGeneratesTypedefTypeStructFieldAndCodec) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
+    EnumIR* status_enum = add_enum(*telemetry_ns, 3, "Status", "telemetry.Status");
+    add_enum_value(*status_enum, "OK", 0);
+    add_enum_value(*status_enum, "ERROR", 1);
+    RecordIR* record =
+        add_zero_field_record(*telemetry_ns, 4, 1U, "Sample", "telemetry.Sample");
+    FieldIR* status_field = record->add_fields();
+    status_field->set_name("status");
+    status_field->set_field_index(0);
+    status_field->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(3);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 2U);
+
+    const std::string& header = result.files[0].content;
+    EXPECT_NE(header.find("typedef enum {"), std::string::npos);
+    EXPECT_NE(header.find("TELEMETRY_STATUS_OK = 0"), std::string::npos);
+    EXPECT_NE(header.find("TELEMETRY_STATUS_ERROR = 1"), std::string::npos);
+    EXPECT_NE(header.find("} telemetry_Status_t;"), std::string::npos);
+    EXPECT_NE(header.find("bool has_status;"), std::string::npos);
+    EXPECT_NE(header.find("telemetry_Status_t status;"), std::string::npos);
+
+    const std::string& source = result.files[1].content;
+    // Encode-side membership validation, matching the C++ backend's
+    // generated `enum_numeric == 1 || enum_numeric == 2` pattern.
+    EXPECT_NE(source.find("record->status == 0 || record->status == 1"), std::string::npos);
+    EXPECT_NE(source.find("quarry_c_write_u8(&writer, (uint8_t)record->status)"),
+             std::string::npos);
+    // Decode-side: read into a raw unsigned temp, validate membership,
+    // then cast into the enum-typed struct field.
+    EXPECT_NE(source.find("uint8_t status_raw = 0;"), std::string::npos);
+    EXPECT_NE(source.find("quarry_c_read_u8(&field_reader, &status_raw)"), std::string::npos);
+    EXPECT_NE(source.find("status_raw == 0 || status_raw == 1"), std::string::npos);
+    EXPECT_NE(source.find("QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE"), std::string::npos);
+    EXPECT_NE(source.find("result.value.status = (telemetry_Status_t)status_raw;"),
+             std::string::npos);
+}
+
+TEST(BackendCTest, EnumFieldWidthMatchesMaxDeclaredValue) {
+    // 300 requires 2 bytes (exceeds uint8_t's range), matching
+    // enum_width_for_max_value / the C++ backend's identical rule.
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
+    EnumIR* wide_enum = add_enum(*telemetry_ns, 3, "Wide", "telemetry.Wide");
+    add_enum_value(*wide_enum, "SMALL", 0);
+    add_enum_value(*wide_enum, "LARGE", 300);
+    RecordIR* record =
+        add_zero_field_record(*telemetry_ns, 4, 1U, "Sample", "telemetry.Sample");
+    FieldIR* field = record->add_fields();
+    field->set_name("wide");
+    field->set_field_index(0);
+    field->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(3);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    const std::string& source = result.files[1].content;
+    EXPECT_NE(source.find("uint8_t wide_bytes[2];"), std::string::npos);
+    EXPECT_NE(source.find("quarry_c_write_u16(&writer, (uint16_t)record->wide)"),
+             std::string::npos);
+}
+
+TEST(BackendCTest, CrossNamespaceEnumFieldFailsWithClearDiagnostic) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* alpha_ns = add_child_namespace(*root, 2, "alpha", "alpha");
+    EnumIR* alpha_enum = add_enum(*alpha_ns, 3, "Status", "alpha.Status");
+    add_enum_value(*alpha_enum, "OK", 0);
+    NamespaceIR* beta_ns = add_child_namespace(*root, 4, "beta", "beta");
+    RecordIR* record = add_zero_field_record(*beta_ns, 5, 1U, "Sample", "beta.Sample");
+    FieldIR* field = record->add_fields();
+    field->set_name("status");
+    field->set_field_index(0);
+    field->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(3);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_FALSE(result.success);
+    EXPECT_NE(result.error_message.find("beta.Sample.status"), std::string::npos);
+    EXPECT_NE(result.error_message.find("different namespace"), std::string::npos);
+    EXPECT_TRUE(result.files.empty());
+}
+
+TEST(BackendCTest, NegativeValueEnumFieldFailsWithClearDiagnostic) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
+    // The enum declaration itself is valid (fits int32 range) even though
+    // it has a negative value; only *using it as a field type* is rejected.
+    EnumIR* signed_enum = add_enum(*telemetry_ns, 3, "Signed", "telemetry.Signed");
+    add_enum_value(*signed_enum, "NEGATIVE", -1);
+    add_enum_value(*signed_enum, "POSITIVE", 1);
+    RecordIR* record =
+        add_zero_field_record(*telemetry_ns, 4, 1U, "Sample", "telemetry.Sample");
+    FieldIR* field = record->add_fields();
+    field->set_name("signed_field");
+    field->set_field_index(0);
+    field->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(3);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_FALSE(result.success);
+    EXPECT_NE(result.error_message.find("telemetry.Sample.signed_field"), std::string::npos);
+    EXPECT_NE(result.error_message.find("non-negative"), std::string::npos);
+    EXPECT_TRUE(result.files.empty());
+}
+
 TEST(BackendCTest, DuplicateNamespaceFqnFailsWithClearDiagnostic) {
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);

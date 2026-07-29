@@ -1,10 +1,11 @@
 # Backend (C)
 
-**Status: scalar codec vertical slice (PR-108). Scalar primitive fields only —
-no enum fields, strings, bytes, arrays, or nested records yet.** See
+**Status: scalar and enum field codec (PR-108/PR-109). No strings, bytes,
+arrays, or nested records yet. Enum fields are supported only when declared
+in the same namespace as the referencing record.** See
 `docs/design/c-backend.md` for the full proposed design this is an increment
-of, and `jira/backlog.md`'s PR-107/PR-108 entries for what was built when and
-why.
+of, and `jira/backlog.md`'s PR-107/PR-108/PR-109 entries for what was built
+when and why.
 
 Owns the C language generator: Schema IR -> generated `.h`/`.c`, plus real
 BRF encode/decode for the currently-supported field subset.
@@ -29,32 +30,41 @@ Current C generation behavior:
   `quarry_telemetry_`), matching
   `docs/architecture/language-generators.md`'s existing C namespace-mapping
   specification
-* generates one C `enum { ... }` block per `EnumIR`, with every enumerator
-  fully uppercase and namespace-prefixed (`QUARRY_TELEMETRY_STATUS_OK`);
-  rejects (fails generation with a diagnostic) any enum value outside the
-  32-bit signed integer range, since a plain C `enum`'s underlying type is
-  implementation-defined and this backend does not commit to a wider,
-  guaranteed-width representation
-* **enum declarations render; enum-typed record fields do not.** A record
-  field whose type references an enum still fails generation with the same
-  "unsupported field type" diagnostic as string/bytes/array/record-reference
-  fields -- see "Supported field types" below
+* generates one `typedef enum { ... } quarry_<namespace>_<EnumName>_t;`
+  block per `EnumIR` (a real, named type -- an anonymous `enum { ... };`
+  before PR-109, when nothing yet needed a type name to reference), with
+  every enumerator fully uppercase and namespace-prefixed
+  (`QUARRY_TELEMETRY_STATUS_OK`); rejects (fails generation with a
+  diagnostic) any enum value outside the 32-bit signed integer range, since
+  a plain C `enum`'s underlying type is implementation-defined and this
+  backend does not commit to a wider, guaranteed-width representation
+* **enum-typed record fields are supported when the referenced enum is
+  declared in the same namespace as the record and every one of its
+  declared values is non-negative** -- see "Supported field types" and
+  "Enum fields" below. Cross-namespace enum field references and
+  negative-valued enum fields still fail generation with a diagnostic.
 
-## Supported field types (PR-108)
+## Supported field types (PR-108/PR-109)
 
-Record fields are supported if and only if their Schema IR type is one of
-the primitive scalars: `bool`, `i8`/`u8`/`i16`/`u16`/`i32`/`u32`/`i64`/`u64`,
-`f32`, `f64` -- exactly the scalar set Schema IR's `PrimitiveType` enumerates
-and the C++ backend already supports; no new schema types were invented to
-support this.
+Record fields are supported when their Schema IR type is one of:
 
-**Any other field type fails generation with a diagnostic naming the record
-and field** (e.g. `backend_c: field 'quarry.telemetry.Sample.label' has a
-type the C backend does not support yet`). **A record with a mix of
-supported and unsupported fields fails as a whole** -- there is no partial
-generation that silently drops the unsupported field. Deferred to later
-increments: enum-typed fields, `string`, `bytes`, arrays, nested-record
-fields, arrays of records.
+* a primitive scalar: `bool`, `i8`/`u8`/`i16`/`u16`/`i32`/`u32`/`i64`/`u64`,
+  `f32`, `f64` -- exactly the scalar set Schema IR's `PrimitiveType`
+  enumerates and the C++ backend already supports
+* an enum reference, **if and only if** the target enum is declared in the
+  same namespace as the referencing record, and every one of its declared
+  values is non-negative (see "Enum fields" below)
+
+No new schema types were invented to support either.
+
+**Any other field -- including a cross-namespace or negative-valued enum
+reference -- fails generation with a diagnostic naming the record and
+field** (e.g. `backend_c: field 'quarry.telemetry.Sample.label' has a type
+the C backend does not support yet`). **A record with a mix of supported
+and unsupported fields fails as a whole** -- there is no partial generation
+that silently drops the unsupported field. Deferred to later increments:
+`string`, `bytes`, arrays, nested-record fields, arrays of records, and
+cross-namespace/negative-valued enum fields.
 
 ## Generated public data model
 
@@ -116,6 +126,94 @@ typedef struct {
 quarry_telemetry_Sample_decode_result_t quarry_telemetry_Sample_decode(
     const uint8_t* input, size_t input_length);
 ```
+
+### Enum fields
+
+For a record with an enum field, e.g. `quarry.telemetry.Sample { status:
+Status }` where `Status { OK = 0; WARNING = 1; ERROR = 2; }`:
+
+```c
+typedef struct {
+    bool has_status;
+    quarry_telemetry_Status_t status;
+} quarry_telemetry_Sample_t;
+```
+
+**Representation decision.** `docs/design/c-backend.md` Section 4
+investigated three options: (A) the generated enum typedef as the field's C
+storage type; (B) a fixed-width integer storage type; (C) both, with an
+explicit conversion boundary. **Selected (A)**, now implemented exactly as
+proposed: the struct field's C type is the enum's own typedef
+(`quarry_telemetry_Status_t`), matching the C++ backend's own choice
+(`lower_field_type`'s `kEnumType` case sets `cpp_type = target->cpp_name`,
+the enum's own class name) and giving the most idiomatic, readable,
+type-hinted C API. This is safe for wire correctness because the WIRE width
+is chosen independently, by the enum's max declared value (see below), and
+is completely decoupled from whatever underlying representation a C
+compiler happens to choose for a plain `enum` type (implementation-defined
+per C99 6.7.2.2) -- every encode/decode call site explicitly casts to/from
+a fixed-width unsigned type, never relying on the enum's own in-memory
+width. (B) and (C) remain unselected: (B) loses the type-safety/readability
+(A) gives essentially for free once wire correctness is already guaranteed
+independently; (C) adds an explicit conversion-boundary layer with no
+concrete forcing requirement at this scope.
+
+**Wire encoding.** The wire width is the smallest unsigned width (1, 2, 4,
+or 8 bytes) capable of representing the enum's largest declared value,
+matching `compiler/backend/backend.cpp`'s `enum_width_for_max_value`
+exactly -- the property that keeps enum field encoding byte-for-byte
+identical to the C++ backend (verified by
+`tests/interop/c_cpp_codec_interop_test.cpp`). The value is always written
+as the matching unsigned type
+(`quarry_c_write_u8`/`u16`/`u32`/`u64`), via an explicit cast
+(`(uint8_t)record->status`) regardless of the enum's own (implementation-
+defined) in-memory representation -- never `quarry_c_write_i8` et al., even
+though the C `enum` keyword does not itself guarantee unsignedness. This
+matches the C++ backend and the BRF spec's "Enum Encoding" section exactly
+("the smallest fixed-width unsigned integer capable of representing the
+largest enum value").
+
+**Validation and unknown values.** Neither C's type system nor a plain
+`enum` prevents a caller from constructing an out-of-range numeric value
+(via an explicit cast, for instance) -- the same problem C++'s `enum class`
+has, which is why the C++ backend's generated `encode_result` *and*
+`decode_..._result` both explicitly check the numeric value against the
+declared value set (see `tests/fixtures/backend/enum_reference.txt`'s
+`enum_numeric == 1 || enum_numeric == 2` pattern). backend_c replicates
+this exactly, on both sides:
+
+* **Encode**: before writing, checks `record-><field> == V0 ||
+  record-><field> == V1 || ...` over the enum's raw declared values; an
+  out-of-range value returns `QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE` without
+  writing anything. (`_encoded_size()` does not perform this check --
+  encoded size depends only on the field's fixed wire width, never on
+  whether the current value happens to be valid; the real `_encode()` call
+  is where an invalid value is actually rejected.)
+* **Decode**: reads the raw wire value into an unsigned temporary (not
+  directly into the struct field), checks it against the same declared
+  value set, and only then casts it into the enum-typed struct field
+  (`result.value.status = (quarry_telemetry_Status_t)status_raw;`). An
+  unrecognized numeric value returns `QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE`
+  with `byte_offset` pointing at the field's payload -- values are never
+  silently coerced or clamped.
+
+`QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE` is not new in PR-109: it was already
+declared in the shared runtime's `quarry_c_status_t` enum in PR-108,
+explicitly reserved for this moment ("the shared runtime never produces
+these itself... generated code reuses this one status type rather than
+inventing a second, parallel enum") -- see "Generated-code API version (C)"
+below for why this means no epoch bump was needed.
+
+**Cross-namespace enum fields are not supported yet.** A field whose enum
+is declared in a *different* namespace than the record fails generation
+with a diagnostic naming the field and the enum's owning namespace.
+backend_c has no cross-generated-file include-dependency mechanism (each
+generated `.h` is self-contained today); building one to support this
+would be exactly the "framework code for future features" this backend has
+consistently avoided building ahead of a concrete need. The C++ backend
+does support this (via its `TypeCatalog`'s cross-namespace `#include`
+tracking) -- this is a real, deliberate narrowing relative to C++, not an
+oversight.
 
 ### Generated codec API design
 
@@ -200,6 +298,19 @@ needs no compiler extension. Kept independent from the C++ epoch because the
 two languages' generator/runtime contracts can (and likely will) change on
 different schedules -- conflating them would force an artificial version
 bump to one language whenever only the other actually changed.
+
+**PR-109 (enum fields) did not bump this epoch, deliberately.** No runtime
+function signature changed and no new runtime function was added: enum
+field encode/decode calls the exact same `quarry_c_write_uN`/
+`quarry_c_read_uN` functions scalar fields already used in PR-108, just
+with an explicit width-appropriate cast at the call site (a generated-code
+change, not a runtime one). `QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE` was
+already part of the epoch-1 runtime contract (declared, if previously
+unused, in PR-108's `quarry_c_status_t`). Generated code compiled against
+the epoch-1 runtime before PR-109 continues to compile and behave
+identically; PR-109's generated code depends on nothing the epoch-1 runtime
+header didn't already provide. This is the "only bump the epoch if
+compatibility would actually be broken" case working as intended.
 
 ## Runtime
 
