@@ -188,6 +188,41 @@ using ::quarry::schema_ir::RecordIR;
 // compiler/backend_c/README.md's "Array fields" section for the full
 // rationale (representation decision, encode/decode ordering, why no
 // runtime change or epoch bump was needed).
+//
+// --- Nested record fields ---
+//
+// A record field references another record declared in the *same*
+// namespace (cross-namespace nested record fields are not yet supported,
+// for exactly the same reason cross-namespace enum field references
+// aren't -- see collect_record_catalog below and PR-109's identical
+// restriction). Per the BRF spec's "Nested Records" section, a nested
+// record field's wire payload is simply a *complete*, independently
+// decodable embedded BRF record (its own 16-byte Record Header, Field
+// Directory, and Payload) -- exactly what the referenced record's own
+// generated `_encode()` produces and what its own generated `_decode()`
+// consumes. This means nested-record encode/decode is pure *composition*
+// of already-generated per-record codec functions, not a new codec shape:
+// encode calls `<Child>_encode()` into a scratch buffer and uses the
+// result as the field's wire bytes; decode calls `<Child>_decode()` on
+// the field's isolated byte span and copies the resulting struct by
+// value. `quarry_c_parse_record`'s existing structural validation (each
+// record's own header/version/flags/reserved/payload-length checks) is
+// exactly what BRF requires nested records to also enforce ("malformed
+// nested payload lengths... cause parent decoding to fail"), so this
+// needs zero new runtime code. Generated structs embed the referenced
+// record's own generated struct type *by value* (matching
+// docs/design/c-backend.md Section 2's "Nested records" recommendation:
+// "Embedded inline, by value... not a pointer, not heap-allocated"), with
+// the usual `has_<field>` presence flag; because embedding by value
+// requires a *complete* type at the embedding point, same-namespace
+// records are topologically sorted by declaration dependency before
+// rendering (see order_records_topologically below), exactly mirroring
+// the C++ backend's own `order_declarations_topologically` -- including
+// rejecting a dependency cycle (a record embedding itself, directly or
+// transitively, can never have a complete size). See
+// compiler/backend_c/README.md's "Nested record fields" section for the
+// full rationale (representation decision, encode/decode ordering,
+// worst-case scratch-buffer sizing, and the cycle/ordering mechanism).
 
 struct FieldEncoding {
     std::string c_type;       // e.g. "int32_t", "float", "bool", or an enum's own typedef name
@@ -213,6 +248,26 @@ struct FieldEncoding {
                                                // reason as string_max_bytes (max_elements *
                                                // width_bytes, plus the worst-case varuint count
                                                // prefix, could overflow uint32_t)
+    bool is_record = false;
+    std::uint64_t record_target_ir_id = 0U; // only meaningful when is_record; the referenced
+                                            // record's Schema IR id, used to look up its
+                                            // (by-then-already-computed) max_encoded_size once
+                                            // same-namespace records are processed in
+                                            // dependency order (see collect_namespace_files)
+    std::string record_symbol_name; // only meaningful when is_record, e.g.
+                                    // "quarry_telemetry_Child" (no _t/_encode/_decode suffix --
+                                    // c_type is set to "<record_symbol_name>_t" directly, and
+                                    // rendering appends "_encode"/"_encoded_size"/"_decode" as
+                                    // needed, matching how a plain field never stores redundant
+                                    // derived strings either)
+    std::uint64_t record_max_encoded_size = 0U; // only meaningful when is_record; the
+                                                // referenced record's own worst-case total
+                                                // encoded byte count (header + Field Directory
+                                                // + payload, every field assumed present),
+                                                // used to size this field's encode scratch
+                                                // buffer; resolved after topological sorting,
+                                                // not at initial lowering time (see
+                                                // collect_namespace_files)
 };
 
 // Builds a non-enum FieldEncoding. A plain function (not a designated
@@ -395,9 +450,17 @@ struct PlannedField {
 };
 
 struct PlannedRecord {
+    std::uint64_t ir_id = 0U;
     std::string symbol_name;
     std::uint32_t record_id = 0U;
     std::vector<PlannedField> fields;
+    // Transient: same-namespace record ir_ids this record's fields embed by
+    // value, used only by order_records_topologically below (not consulted
+    // by any rendering function). May contain duplicate ir_ids if a record
+    // embeds the same other record more than once -- harmless, standard
+    // Kahn's-algorithm topological sort handles duplicate dependency edges
+    // correctly.
+    std::vector<std::uint64_t> same_namespace_dependencies;
 };
 
 struct PlannedNamespaceFile {
@@ -420,6 +483,20 @@ struct PlannedNamespaceFile {
 // runtime -- the few extra bytes this can over-allocate relative to the
 // exact size are negligible next to the array's own data.
 constexpr std::uint32_t kMaxVaruintBytesForUint32 = 5U;
+
+// Worst-case LEB128-encoded byte length for any uint64_t value: ceil(64/7) =
+// 10. Used (rather than kMaxVaruintBytesForUint32) to estimate a record's
+// own worst-case Field Directory overhead in compute_record_max_encoded_size
+// below: a field's wire *offset*/*length* are size_t/uint64_t quantities in
+// the runtime's own API (quarry_c_record_encoded_size's out_size parameter,
+// quarry_c_write_varuint's value parameter), not uint32_t-capped like an
+// array's element *count* (which is genuinely bounded by a uint32_t
+// max_elements) -- so estimating a nested record's own scratch-buffer
+// capacity with the narrower 32-bit bound would theoretically
+// under-provision for a pathologically large nested record. Using the wider
+// bound here costs only a few extra conservatively-unused bytes per field
+// and removes that theoretical gap entirely.
+constexpr std::uint64_t kMaxVaruintBytesForUint64 = 10U;
 
 // Resolves an enum-typed reference (either a plain enum field, or an array
 // field's enum element type) by ir_id, given the whole-schema enum catalog
@@ -466,16 +543,163 @@ lower_enum_reference(std::uint64_t target_enum_ir_id, std::string_view current_n
     return encoding;
 }
 
+// --- Record catalog -----------------------------------------------------
+//
+// A flat, whole-schema map from record ir_id to the identity information a
+// nested-record field reference needs (symbol_name, owning namespace),
+// built once before any namespace file is planned -- mirroring
+// collect_enum_catalog exactly, and for the same reason: a record field can
+// reference another record by ir_id (Schema IR's own addressing scheme)
+// regardless of declaration order within the schema, so every record's
+// identity must be known up front. Unlike EnumCatalogEntry, `max_encoded_size`
+// is deliberately left at 0 here and filled in *later*, once that record's
+// own fields have been fully resolved in dependency order (see
+// collect_namespace_files) -- a record's total encoded size depends on its
+// fields, which is exactly the information not yet available at the point
+// every record's catalog entry is first created.
+
+struct RecordCatalogEntry {
+    std::string symbol_name;    // e.g. "quarry_telemetry_Child" (no _t/_encode/_decode suffix)
+    std::string owning_namespace_fqn;
+    std::uint64_t max_encoded_size = 0U; // resolved later; see collect_namespace_files
+};
+
+using RecordCatalog = std::unordered_map<std::uint64_t, RecordCatalogEntry>;
+
+void collect_record_catalog(const NamespaceIR& ns, RecordCatalog& catalog) {
+    const std::string symbol_prefix = symbol_prefix_for_namespace(ns.fqn());
+    for (const RecordIR& record_ir : ns.records()) {
+        RecordCatalogEntry entry;
+        entry.symbol_name = symbol_prefix + record_ir.name();
+        entry.owning_namespace_fqn = ns.fqn();
+        catalog.emplace(record_ir.ir_id(), std::move(entry));
+    }
+    for (const NamespaceIR& child : ns.namespaces()) {
+        collect_record_catalog(child, catalog);
+    }
+}
+
+// Computes a record's own worst-case total encoded byte count (16-byte
+// header + Field Directory + payload), assuming every field is present
+// simultaneously (the true worst case -- a real encoding with fewer present
+// fields only produces fewer bytes, never more) and using
+// kMaxVaruintBytesForUint64 for each Field Directory entry's offset/length
+// varuint overhead. Used only to size a *parent* record's encode scratch
+// buffer for a nested-record field; by the time this is called (in
+// dependency order, after order_records_topologically), every field's own
+// worst-case contribution -- including any nested record field's own
+// record_max_encoded_size -- is already fully resolved.
+[[nodiscard]] std::uint64_t
+compute_record_max_encoded_size(const std::vector<PlannedField>& fields) {
+    constexpr std::uint64_t kHeaderSize = 16U;
+    constexpr std::uint64_t kDirectoryEntryOverhead =
+        1U + kMaxVaruintBytesForUint64 + kMaxVaruintBytesForUint64; // field_index + offset + length
+    std::uint64_t total = kHeaderSize;
+    for (const PlannedField& field : fields) {
+        total += kDirectoryEntryOverhead;
+        if (field.encoding.is_string) {
+            total += field.encoding.string_max_bytes;
+        } else if (field.encoding.is_bytes) {
+            total += field.encoding.bytes_max_bytes;
+        } else if (field.encoding.is_array) {
+            total += field.encoding.array_scratch_capacity;
+        } else if (field.encoding.is_record) {
+            total += field.encoding.record_max_encoded_size;
+        } else {
+            total += field.encoding.width_bytes;
+        }
+    }
+    return total;
+}
+
+// Topologically sorts `records` (all declared in the same namespace) by
+// same-namespace nested-record declaration dependency, so that any record a
+// field embeds by value is always fully declared (and, per
+// collect_namespace_files, has its own max_encoded_size already resolved)
+// before the record that embeds it. Deterministic tie-break: original
+// declaration order among records with no (remaining) unresolved
+// dependency, exactly mirroring compiler/backend/backend.cpp's
+// order_declarations_topologically. A schema with zero nested-record
+// dependencies (every PR-107 through PR-112 schema) is unaffected: Kahn's
+// algorithm with this tie-break reduces to a no-op reordering in that case,
+// preserving existing generated output exactly.
+[[nodiscard]] bool order_records_topologically(std::vector<PlannedRecord>& records,
+                                               std::string_view namespace_fqn,
+                                               std::string& error_message) {
+    std::map<std::uint64_t, std::size_t> index_by_ir_id;
+    for (std::size_t index = 0; index < records.size(); ++index) {
+        index_by_ir_id.emplace(records[index].ir_id, index);
+    }
+
+    std::vector<std::size_t> indegree(records.size(), 0U);
+    std::vector<std::vector<std::size_t>> dependents(records.size());
+    for (std::size_t index = 0; index < records.size(); ++index) {
+        for (const std::uint64_t dependency_ir_id : records[index].same_namespace_dependencies) {
+            const auto it = index_by_ir_id.find(dependency_ir_id);
+            if (it == index_by_ir_id.end()) {
+                // Should not happen: lower_field_encoding only records a
+                // same-namespace dependency after confirming the target is
+                // in this same namespace's record list.
+                error_message = "backend_c: could not resolve a same-namespace record "
+                                "declaration dependency in namespace '" +
+                                std::string(namespace_fqn) + "'";
+                return false;
+            }
+            ++indegree[index];
+            dependents[it->second].push_back(index);
+        }
+    }
+
+    std::set<std::pair<std::size_t, std::size_t>> ready;
+    for (std::size_t index = 0; index < records.size(); ++index) {
+        if (indegree[index] == 0U) {
+            ready.emplace(index, index); // (source_order, index): original index is the
+                                        // declaration order here, matching the C++
+                                        // backend's identical tie-break
+        }
+    }
+
+    std::vector<PlannedRecord> ordered;
+    ordered.reserve(records.size());
+    while (!ready.empty()) {
+        const auto [source_order, index] = *ready.begin();
+        (void)source_order;
+        ready.erase(ready.begin());
+        ordered.push_back(std::move(records[index]));
+
+        for (const std::size_t dependent_index : dependents[index]) {
+            if (--indegree[dependent_index] == 0U) {
+                ready.emplace(dependent_index, dependent_index);
+            }
+        }
+    }
+
+    if (ordered.size() != records.size()) {
+        error_message = "backend_c: detected a cycle in same-namespace nested record "
+                        "declaration dependencies in namespace '" +
+                        std::string(namespace_fqn) +
+                        "' -- a record cannot embed itself, directly or transitively, by value";
+        return false;
+    }
+
+    records = std::move(ordered);
+    return true;
+}
+
 // Resolves one field's type, given the whole-schema enum catalog and the
 // FQN of the namespace the referencing record belongs to. Returns
 // std::nullopt (with error_message set) for every unsupported case: a
-// non-scalar, non-enum, non-string, non-bytes, non-supported-array type; an
-// enum declared in a different namespace; or an enum with a negative
-// declared value (either as a plain field or as an array element type).
+// non-scalar, non-enum, non-string, non-bytes, non-supported-array,
+// non-same-namespace-record type; an enum declared in a different namespace
+// (either as a plain field or as an array element type); an enum with a
+// negative declared value (ditto); or a record reference declared in a
+// different namespace. Does *not* resolve a record-typed field's
+// `record_max_encoded_size` (left at 0) -- see collect_namespace_files for
+// why that is necessarily a separate, later step.
 [[nodiscard]] std::optional<FieldEncoding>
 lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                      std::string_view current_namespace_fqn, const EnumCatalog& catalog,
-                     std::string& error_message) {
+                     const RecordCatalog& record_catalog, std::string& error_message) {
     const FieldType& type = field_ir.type();
 
     if (type.kind_case() == FieldType::kPrimitive) {
@@ -549,6 +773,33 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             static_cast<std::uint64_t>(array_type.max_elements()) *
                 static_cast<std::uint64_t>(encoding.width_bytes);
         return encoding;
+    } else if (type.kind_case() == FieldType::kRecord) {
+        const auto catalog_it = record_catalog.find(type.record().target_record_ir_id());
+        if (catalog_it != record_catalog.end()) {
+            const RecordCatalogEntry& entry = catalog_it->second;
+            if (entry.owning_namespace_fqn != current_namespace_fqn) {
+                std::ostringstream stream;
+                stream << "backend_c: field '" << record_ir.fqn() << "." << field_ir.name()
+                       << "' references record '" << entry.symbol_name
+                       << "' declared in a different namespace ('" << entry.owning_namespace_fqn
+                       << "'); cross-namespace nested record fields are not yet supported "
+                          "(see docs/design/c-backend.md)";
+                error_message = stream.str();
+                return std::nullopt;
+            }
+            FieldEncoding encoding;
+            encoding.is_record = true;
+            encoding.record_target_ir_id = type.record().target_record_ir_id();
+            encoding.record_symbol_name = entry.symbol_name;
+            encoding.c_type = entry.symbol_name + "_t";
+            // encoding.record_max_encoded_size is resolved later, once the
+            // referenced record's own fields have been processed in
+            // dependency order -- see collect_namespace_files.
+            return encoding;
+        }
+        // Catalog miss (record id not found at all): fall through to the
+        // generic diagnostic below, matching the enum catalog-miss
+        // precedent exactly.
     }
 
     // Mixed supported/unsupported records fail as a whole: a struct that
@@ -558,9 +809,10 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     stream << "backend_c: field '" << record_ir.fqn() << "." << field_ir.name()
            << "' has a type the C backend does not support yet -- only bool, fixed-width "
               "signed/unsigned integer, f32/f64 scalar fields, same-namespace enum fields "
-              "with only non-negative declared values, bounded string/bytes fields, and "
-              "bounded arrays of those scalar/enum kinds are supported (see "
-              "docs/design/c-backend.md); record-reference fields remain unsupported";
+              "with only non-negative declared values, bounded string/bytes fields, bounded "
+              "arrays of those scalar/enum kinds, and same-namespace nested record fields are "
+              "supported (see docs/design/c-backend.md); arrays of records and "
+              "cross-namespace nested record fields remain unsupported";
     error_message = stream.str();
     return std::nullopt;
 }
@@ -572,6 +824,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 // independently reached, not shared, implementation of the same policy.
 [[nodiscard]] bool collect_namespace_files(const NamespaceIR& ns, const CodegenOptions& options,
                                            const EnumCatalog& catalog,
+                                           RecordCatalog& record_catalog,
                                            std::vector<PlannedNamespaceFile>& files,
                                            std::string& error_message) {
     if (namespace_emits_file(ns)) {
@@ -603,14 +856,27 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         }
 
         const std::string symbol_prefix = symbol_prefix_for_namespace(ns.fqn());
+
+        // Phase 1: lower every field of every record in this namespace, in
+        // original declaration order. A record-typed field's
+        // record_max_encoded_size cannot be resolved yet (its target may be
+        // declared later in this same namespace); lower_field_encoding
+        // leaves it at 0 and records the dependency in
+        // same_namespace_dependencies instead, for Phase 2 to consume.
+        std::vector<PlannedRecord> planned_records;
+        planned_records.reserve(static_cast<std::size_t>(ns.records_size()));
         for (const RecordIR& record_ir : ns.records()) {
             std::vector<PlannedField> planned_fields;
+            std::vector<std::uint64_t> dependencies;
             planned_fields.reserve(static_cast<std::size_t>(record_ir.fields_size()));
             for (const FieldIR& field_ir : record_ir.fields()) {
-                std::optional<FieldEncoding> encoding =
-                    lower_field_encoding(record_ir, field_ir, ns.fqn(), catalog, error_message);
+                std::optional<FieldEncoding> encoding = lower_field_encoding(
+                    record_ir, field_ir, ns.fqn(), catalog, record_catalog, error_message);
                 if (!encoding.has_value()) {
                     return false;
+                }
+                if (encoding->is_record) {
+                    dependencies.push_back(encoding->record_target_ir_id);
                 }
                 planned_fields.push_back(PlannedField{
                     .name = field_ir.name(),
@@ -618,18 +884,48 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                     .encoding = std::move(*encoding),
                 });
             }
-            file.records.push_back(PlannedRecord{
+            planned_records.push_back(PlannedRecord{
+                .ir_id = record_ir.ir_id(),
                 .symbol_name = symbol_prefix + record_ir.name(),
                 .record_id = record_ir.record_id(),
                 .fields = std::move(planned_fields),
+                .same_namespace_dependencies = std::move(dependencies),
             });
         }
 
+        // Phase 2: reorder so every nested-record dependency is fully
+        // declared (and sized) before the record that embeds it -- also
+        // where a same-namespace dependency cycle is detected and
+        // rejected.
+        if (!order_records_topologically(planned_records, ns.fqn(), error_message)) {
+            return false;
+        }
+
+        // Phase 3: in that dependency order, resolve every record-typed
+        // field's record_max_encoded_size (the referenced record, if
+        // same-namespace, was necessarily processed earlier in this same
+        // loop, so its catalog entry's max_encoded_size is already final)
+        // and then compute this record's own max_encoded_size for whatever
+        // depends on *it* later in the loop.
+        for (PlannedRecord& planned_record : planned_records) {
+            for (PlannedField& planned_field : planned_record.fields) {
+                if (planned_field.encoding.is_record) {
+                    planned_field.encoding.record_max_encoded_size =
+                        record_catalog.at(planned_field.encoding.record_target_ir_id)
+                            .max_encoded_size;
+                }
+            }
+            record_catalog.at(planned_record.ir_id).max_encoded_size =
+                compute_record_max_encoded_size(planned_record.fields);
+        }
+
+        file.records = std::move(planned_records);
         files.push_back(std::move(file));
     }
 
     for (const NamespaceIR& child : ns.namespaces()) {
-        if (!collect_namespace_files(child, options, catalog, files, error_message)) {
+        if (!collect_namespace_files(child, options, catalog, record_catalog, files,
+                                     error_message)) {
             return false;
         }
     }
@@ -647,8 +943,10 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     if (!collect_enum_catalog(schema_ir.root_namespace(), catalog, error_message)) {
         return false;
     }
-    if (!collect_namespace_files(schema_ir.root_namespace(), options, catalog, files,
-                                 error_message)) {
+    RecordCatalog record_catalog;
+    collect_record_catalog(schema_ir.root_namespace(), record_catalog);
+    if (!collect_namespace_files(schema_ir.root_namespace(), options, catalog, record_catalog,
+                                 files, error_message)) {
         return false;
     }
 
@@ -822,6 +1120,20 @@ void render_field_scratch_declarations(std::ostringstream& stream,
         if (field.encoding.is_array) {
             stream << "    uint8_t " << field.name << "_bytes["
                    << field.encoding.array_scratch_capacity << "];\n";
+            continue;
+        }
+        if (field.encoding.is_record) {
+            // Sized from the referenced record's own worst-case total
+            // encoded size (header + Field Directory + payload) -- see
+            // compute_record_max_encoded_size. Only actually populated by
+            // _encode() (which calls the child's real _encode()); the
+            // _encoded_size() path calls the child's own _encoded_size()
+            // directly instead and never writes into this buffer, but
+            // still declares it, for the same "one shared scratch-buffer
+            // declaration set for both functions" consistency the array
+            // and scalar/enum paths already rely on.
+            stream << "    uint8_t " << field.name << "_bytes["
+                   << field.encoding.record_max_encoded_size << "];\n";
             continue;
         }
         stream << "    uint8_t " << field.name << "_bytes["
@@ -1020,6 +1332,41 @@ void render_array_field_build(std::ostringstream& stream, const PlannedField& fi
     stream << "        field_count += 1U;\n";
 }
 
+// Renders one nested-record field's contribution to the fields[]/
+// field_count array-building loop. Per BRF's "Nested Records" section, the
+// field's wire payload is simply the referenced record's own complete
+// encoded byte sequence -- so encoding is pure composition: call the
+// child's own generated `_encode()` (real, validating call) or
+// `_encoded_size()` (size-only, no scratch-buffer write, matching the
+// string/bytes precedent of pointing `fields[].bytes` at a
+// possibly-not-actually-written buffer in the unvalidated path) and use
+// the result directly. No new wire-level logic is introduced here at all.
+void render_record_field_build(std::ostringstream& stream, const PlannedField& field,
+                               bool check_write_status) {
+    if (check_write_status) {
+        stream << "        " << field.encoding.record_symbol_name << "_encode_result_t "
+               << field.name << "_encode_result = " << field.encoding.record_symbol_name
+               << "_encode(&record->" << field.name << ", " << field.name << "_bytes, sizeof("
+               << field.name << "_bytes));\n";
+        stream << "        if (" << field.name << "_encode_result.status != QUARRY_C_STATUS_OK) {\n";
+        stream << "            result.status = " << field.name << "_encode_result.status;\n";
+        stream << "            return result;\n";
+        stream << "        }\n";
+        stream << "        fields[field_count].field_index = " << field.field_index << "U;\n";
+        stream << "        fields[field_count].bytes = " << field.name << "_bytes;\n";
+        stream << "        fields[field_count].length = " << field.name
+               << "_encode_result.bytes_written;\n";
+    } else {
+        stream << "        const size_t " << field.name << "_size = "
+               << field.encoding.record_symbol_name << "_encoded_size(&record->" << field.name
+               << ");\n";
+        stream << "        fields[field_count].field_index = " << field.field_index << "U;\n";
+        stream << "        fields[field_count].bytes = " << field.name << "_bytes;\n";
+        stream << "        fields[field_count].length = " << field.name << "_size;\n";
+    }
+    stream << "        field_count += 1U;\n";
+}
+
 void render_build_fields_loop(std::ostringstream& stream, const std::vector<PlannedField>& fields,
                               bool check_write_status) {
     for (const PlannedField& field : fields) {
@@ -1030,6 +1377,8 @@ void render_build_fields_loop(std::ostringstream& stream, const std::vector<Plan
             render_bytes_field_build(stream, field, check_write_status);
         } else if (field.encoding.is_array) {
             render_array_field_build(stream, field, check_write_status);
+        } else if (field.encoding.is_record) {
+            render_record_field_build(stream, field, check_write_status);
         } else {
             render_scalar_or_enum_field_build(stream, field, check_write_status);
         }
@@ -1229,6 +1578,39 @@ void render_array_field_decode(std::ostringstream& stream, const PlannedField& f
     stream << "            result.value." << field.name << "_count = element_count;\n";
 }
 
+// Renders one nested-record field's decode block. Per BRF's "Nested
+// Records" section, the field's payload is a complete, independently
+// structured BRF record -- so decoding is pure composition: call the
+// child's own generated `_decode()` on the isolated field-view byte span
+// and use its result directly. The child's own `_decode()` already
+// enforces every nested-record structural requirement (header
+// version/flags/reserved/payload-length exactness, matching record ID,
+// no trailing bytes) via its own `quarry_c_parse_record` call, so no new
+// validation is written here. A child failure's byte offset is composed
+// as an absolute offset by adding the parent field's own byte_offset,
+// exactly mirroring the array decode path's
+// `field_view.byte_offset + array_reader.offset` composition above.
+void render_record_field_decode(std::ostringstream& stream, const PlannedField& field) {
+    stream << "            " << field.encoding.record_symbol_name << "_decode_result_t "
+           << field.name << "_decode_result = " << field.encoding.record_symbol_name
+           << "_decode(field_view.bytes, field_view.length);\n";
+    stream << "            if (" << field.name
+           << "_decode_result.status != QUARRY_C_STATUS_OK) {\n";
+    stream << "                result.status = " << field.name << "_decode_result.status;\n";
+    stream << "                if (" << field.name << "_decode_result.has_byte_offset) {\n";
+    stream << "                    result.has_byte_offset = true;\n";
+    stream << "                    result.byte_offset = field_view.byte_offset + " << field.name
+           << "_decode_result.byte_offset;\n";
+    stream << "                } else {\n";
+    stream << "                    result.has_byte_offset = false;\n";
+    stream << "                    result.byte_offset = 0U;\n";
+    stream << "                }\n";
+    stream << "                return result;\n";
+    stream << "            }\n";
+    stream << "            result.value." << field.name << " = " << field.name
+           << "_decode_result.value;\n";
+}
+
 [[nodiscard]] std::string render_source(const PlannedNamespaceFile& file) {
     std::ostringstream stream;
     stream << "/* Generated by Quarry (C backend -- scalar codec slice, PR-108). */\n";
@@ -1331,6 +1713,8 @@ void render_array_field_decode(std::ostringstream& stream, const PlannedField& f
                 render_bytes_field_decode(stream, field);
             } else if (field.encoding.is_array) {
                 render_array_field_decode(stream, field);
+            } else if (field.encoding.is_record) {
+                render_record_field_decode(stream, field);
             } else {
                 render_scalar_or_enum_field_decode(stream, field);
             }

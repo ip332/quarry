@@ -125,21 +125,25 @@ full diagnostic contract.
 C is the second supported backend language (`--language c`), currently
 covering **only** records whose fields are `bool`, fixed-width signed/unsigned
 integers, `f32`/`f64`, bounded `string`/`bytes` fields, enum references
-declared in the *same namespace* as the referencing record, or bounded
-arrays of those scalar/same-namespace-enum element kinds (no nested
-records, arrays of records/string/bytes, or cross-namespace enum fields
-yet), with real BRF encode/decode backed by the installed
-`Quarry::runtime_c` C runtime and verified byte-for-byte wire-compatible
-with the C++ backend, including identical unknown-enum-value rejection
-(plain field or array element) and identical string/bytes/array-field
-bounds-violation rejection (and, for string, identical UTF-8-validation
-rejection -- bytes and array fields never validate UTF-8, matching the BRF
-spec). String fields use fixed-capacity, NUL-terminated buffer storage
-sized from the schema's `max_bytes` bound; bytes fields use the same
-fixed-capacity strategy without the NUL terminator (arbitrary binary data
-has no such convenience); array fields use a fixed-capacity array of the
-element's own C type plus an explicit element count -- no heap allocation
-anywhere. See `compiler/backend_c/README.md`, `runtime_c/README.md`, and
+declared in the *same namespace* as the referencing record, bounded
+arrays of those scalar/same-namespace-enum element kinds, or a record
+reference to another record declared in the *same namespace* (embedded by
+value, no pointer or heap allocation -- no arrays of records/string/bytes,
+or cross-namespace enum/nested-record fields yet), with real BRF
+encode/decode backed by the installed `Quarry::runtime_c` C runtime and
+verified byte-for-byte wire-compatible with the C++ backend, including
+identical unknown-enum-value rejection (plain field or array element),
+identical string/bytes/array-field bounds-violation rejection (and, for
+string, identical UTF-8-validation rejection -- bytes and array fields
+never validate UTF-8, matching the BRF spec), and identical rejection of a
+malformed or wrong-record-id nested payload. String fields use
+fixed-capacity, NUL-terminated buffer storage sized from the schema's
+`max_bytes` bound; bytes fields use the same fixed-capacity strategy
+without the NUL terminator (arbitrary binary data has no such
+convenience); array fields use a fixed-capacity array of the element's own
+C type plus an explicit element count; nested record fields embed the
+referenced record's own generated struct directly by value -- no heap
+allocation anywhere. See `compiler/backend_c/README.md`, `runtime_c/README.md`, and
 `docs/design/c-backend.md` for the exact
 supported subset, the generated API, and the roadmap for the rest.
 

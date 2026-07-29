@@ -6,17 +6,18 @@ sibling implementations: neither depends on the other, and each is
 installed under its own canonical path (`include/quarry/runtime/` for C++,
 `include/quarry/runtime_c/` for C -- see "CMake Package" below).
 
-**Status: scalar, enum, bounded string, bounded bytes, and bounded array
-(of scalar or same-namespace-enum elements) field codec (PR-108/PR-109/
-PR-110/PR-111/PR-112); enum fields (plain or array elements) same-namespace
-only.** No nested-record support, and no arrays of records/string/bytes,
-exist yet -- see `compiler/backend_c/README.md` and `docs/design/
-c-backend.md` for the current implemented subset and the roadmap for later
-increments. `include/quarry/runtime_c/binary_record.h` is not a
-speculative framework for those future features: it exposes exactly the
-primitives these slices need. PR-109 (enum fields) added **no new runtime
-code at all** -- enum field support only required generated-code changes
-(see `compiler/backend_c/README.md`'s "Enum fields" section); every
+**Status: scalar, enum, bounded string, bounded bytes, bounded array (of
+scalar or same-namespace-enum elements), and same-namespace nested record
+field codec (PR-108/PR-109/PR-110/PR-111/PR-112/PR-113); enum fields and
+nested record fields (plain, or as array elements for enums) same-namespace
+only.** No arrays of records/string/bytes exist yet, and cross-namespace
+nested record fields are unsupported -- see `compiler/backend_c/README.md`
+and `docs/design/c-backend.md` for the current implemented subset and the
+roadmap for later increments. `include/quarry/runtime_c/binary_record.h` is
+not a speculative framework for those future features: it exposes exactly
+the primitives these slices need. PR-109 (enum fields) added **no new
+runtime code at all** -- enum field support only required generated-code
+changes (see `compiler/backend_c/README.md`'s "Enum fields" section); every
 primitive this runtime exposed after PR-108 was already sufficient. PR-110
 (string fields) is the first increment since PR-108 to add genuinely new
 runtime code: `quarry_c_is_valid_utf8` (a UTF-8 validator ported from the
@@ -35,7 +36,15 @@ runtime code at all**: array encode/decode reuses
 `quarry_c_write_varuint`/`quarry_c_read_varuint` (present since PR-108 for
 the Field Directory itself) for the element count prefix, and the existing
 per-width `quarry_c_write_uN`/`quarry_c_read_uN` functions for each
-element -- the epoch stayed at 2.
+element -- the epoch stayed at 2. PR-113 (same-namespace nested record
+fields) added **no new runtime code at all either, and calls no runtime
+function directly**: a nested record field's encode/decode is pure
+composition of the referenced record's own already-generated `_encode()`/
+`_decode()`/`_encoded_size()` functions (themselves built entirely from
+already-epoch-2 runtime primitives) -- see `compiler/backend_c/README.md`'s
+"Nested record fields" section for why this composition alone is already
+sufficient to satisfy every BRF "Nested Records" structural requirement,
+with no new validation code anywhere. The epoch stayed at 2.
 
 Generated C code calls the header-only `quarry_runtime_c` target for
 byte-level mechanics while generated code keeps schema-specific knowledge
@@ -68,10 +77,13 @@ Current support:
 
 Out of scope for this slice (all deferred, not rejected):
 
-* nested records, arrays of records, arrays of string/bytes elements
+* arrays of records, arrays of string/bytes elements, cross-namespace
+  nested record fields
 * diagnostic path support (`path`-equivalent locating a failure inside a
-  nested record or array element) -- there is no nesting yet for a path to
-  describe
+  nested record or array element) -- a flat byte offset alone is always
+  sufficient to locate a failure deterministically, so this remains
+  deferred until a concrete need for symbolic (as opposed to byte-offset)
+  failure location is demonstrated
 * diagnostic strings of any kind (see "Diagnostic Context" below -- the
   same closed decision as C++'s, not language-specific)
 * zero-copy/view-based decode, caller-provided arenas for variable-length

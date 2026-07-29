@@ -870,6 +870,212 @@ TEST(BackendCTest, ArrayOfNegativeValueEnumFailsWithClearDiagnostic) {
     EXPECT_TRUE(result.files.empty());
 }
 
+TEST(BackendCTest, NestedRecordFieldGeneratesEmbeddedStructFieldAndCodec) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
+    RecordIR* inner = add_zero_field_record(*telemetry_ns, 3, 1U, "Inner", "telemetry.Inner");
+    FieldIR* inner_value = inner->add_fields();
+    inner_value->set_name("value");
+    inner_value->set_field_index(0);
+    inner_value->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    RecordIR* outer = add_zero_field_record(*telemetry_ns, 4, 2U, "Outer", "telemetry.Outer");
+    FieldIR* outer_field = outer->add_fields();
+    outer_field->set_name("inner");
+    outer_field->set_field_index(0);
+    outer_field->mutable_type()->mutable_record()->set_target_record_ir_id(3);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 2U);
+
+    const std::string& header = result.files[0].content;
+    EXPECT_NE(header.find("bool has_inner;"), std::string::npos);
+    // By-value embedding, not a pointer: no heap allocation, and the whole
+    // struct is one flat, fixed-size, memset-zeroable value (see
+    // compiler/backend_c/README.md's "Nested record fields" section).
+    EXPECT_NE(header.find("telemetry_Inner_t inner;"), std::string::npos);
+    EXPECT_EQ(header.find("telemetry_Inner_t* inner;"), std::string::npos);
+
+    const std::string& source = result.files[1].content;
+    // Scratch buffer sized from Inner's own worst-case max_encoded_size:
+    // 16 (header) + (1 + 10 + 10) directory overhead + 4 (u32 payload) = 41.
+    EXPECT_NE(source.find("uint8_t inner_bytes[41];"), std::string::npos);
+    // Encode: pure composition -- call the child's own real _encode() into
+    // the scratch buffer, propagate any failure status directly.
+    EXPECT_NE(source.find("telemetry_Inner_encode_result_t inner_encode_result = "
+                         "telemetry_Inner_encode(&record->inner, inner_bytes, "
+                         "sizeof(inner_bytes));"),
+             std::string::npos);
+    EXPECT_NE(source.find("if (inner_encode_result.status != QUARRY_C_STATUS_OK) {"),
+             std::string::npos);
+    EXPECT_NE(source.find("fields[field_count].length = inner_encode_result.bytes_written;"),
+             std::string::npos);
+    // Decode: pure composition -- call the child's own real _decode() on the
+    // isolated field-view byte span, propagate any failure status and an
+    // absolute (parent-relative) byte offset directly.
+    EXPECT_NE(source.find("telemetry_Inner_decode_result_t inner_decode_result = "
+                         "telemetry_Inner_decode(field_view.bytes, field_view.length);"),
+             std::string::npos);
+    EXPECT_NE(source.find("if (inner_decode_result.status != QUARRY_C_STATUS_OK) {"),
+             std::string::npos);
+    EXPECT_NE(source.find("result.byte_offset = field_view.byte_offset + "
+                         "inner_decode_result.byte_offset;"),
+             std::string::npos);
+    EXPECT_NE(source.find("result.value.inner = inner_decode_result.value;"), std::string::npos);
+}
+
+TEST(BackendCTest, NestedRecordFieldEncodedSizeUsesChildEncodedSizeWithoutEncoding) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
+    RecordIR* inner = add_zero_field_record(*telemetry_ns, 3, 1U, "Inner", "telemetry.Inner");
+    FieldIR* inner_value = inner->add_fields();
+    inner_value->set_name("value");
+    inner_value->set_field_index(0);
+    inner_value->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    RecordIR* outer = add_zero_field_record(*telemetry_ns, 4, 2U, "Outer", "telemetry.Outer");
+    FieldIR* outer_field = outer->add_fields();
+    outer_field->set_name("inner");
+    outer_field->set_field_index(0);
+    outer_field->mutable_type()->mutable_record()->set_target_record_ir_id(3);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    const std::string& source = result.files[1].content;
+
+    const std::size_t encoded_size_start = source.find("telemetry_Outer_encoded_size(");
+    const std::size_t encode_start = source.find("telemetry_Outer_encode(");
+    ASSERT_NE(encoded_size_start, std::string::npos);
+    ASSERT_NE(encode_start, std::string::npos);
+    ASSERT_LT(encoded_size_start, encode_start);
+    const std::string encoded_size_body =
+        source.substr(encoded_size_start, encode_start - encoded_size_start);
+    EXPECT_NE(encoded_size_body.find("telemetry_Inner_encoded_size(&record->inner)"),
+             std::string::npos);
+    // _encoded_size() must never call the child's real, validating _encode()
+    // -- only its own _encoded_size(), matching the string/bytes/array
+    // precedent exactly.
+    EXPECT_EQ(encoded_size_body.find("telemetry_Inner_encode("), std::string::npos);
+}
+
+TEST(BackendCTest, CrossNamespaceNestedRecordFieldFailsWithClearDiagnostic) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* alpha_ns = add_child_namespace(*root, 2, "alpha", "alpha");
+    (void)add_zero_field_record(*alpha_ns, 3, 1U, "Inner", "alpha.Inner");
+    NamespaceIR* beta_ns = add_child_namespace(*root, 4, "beta", "beta");
+    RecordIR* outer = add_zero_field_record(*beta_ns, 5, 2U, "Outer", "beta.Outer");
+    FieldIR* field = outer->add_fields();
+    field->set_name("inner");
+    field->set_field_index(0);
+    field->mutable_type()->mutable_record()->set_target_record_ir_id(3);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_FALSE(result.success);
+    EXPECT_NE(result.error_message.find("beta.Outer.inner"), std::string::npos);
+    EXPECT_NE(result.error_message.find("different namespace"), std::string::npos);
+    EXPECT_TRUE(result.files.empty());
+}
+
+TEST(BackendCTest, SelfReferentialNestedRecordFailsWithCycleDiagnostic) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
+    RecordIR* record = add_zero_field_record(*telemetry_ns, 3, 1U, "Node", "telemetry.Node");
+    FieldIR* field = record->add_fields();
+    field->set_name("child");
+    field->set_field_index(0);
+    field->mutable_type()->mutable_record()->set_target_record_ir_id(3);
+    // A record embedding itself by value is a structurally-infinite type
+    // that Schema IR validation itself does not reject (cycle rejection is
+    // backend_c's own responsibility, mirroring the C++ backend's
+    // order_declarations_topologically in compiler/backend/backend.cpp) --
+    // so intentionally not calling assert_valid() here, matching
+    // backend_codegen_test.cpp's own CyclicNamespaceDependencyFailsClearly
+    // precedent for the C++ backend's equivalent cycle check.
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_FALSE(result.success);
+    EXPECT_NE(result.error_message.find("cycle"), std::string::npos);
+    EXPECT_TRUE(result.files.empty());
+}
+
+TEST(BackendCTest, ForwardDeclaredNestedRecordIsReorderedBeforeDependent) {
+    // Mirrors tests/fixtures/backend/schema_ir/forward_record_reference.pbtxt
+    // (the C++ backend's own forward-reference fixture): A is declared
+    // before B in Schema IR order, but A embeds B by value, so B's struct
+    // must be emitted first regardless of declaration order.
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    RecordIR* a = add_zero_field_record(*root, 2, 1U, "A", "A");
+    FieldIR* a_field = a->add_fields();
+    a_field->set_name("value");
+    a_field->set_field_index(0);
+    a_field->mutable_type()->mutable_record()->set_target_record_ir_id(3);
+    RecordIR* b = add_zero_field_record(*root, 3, 2U, "B", "B");
+    FieldIR* b_field = b->add_fields();
+    b_field->set_name("count");
+    b_field->set_field_index(0);
+    b_field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 2U);
+    const std::string& header = result.files[0].content;
+
+    const std::size_t b_struct_pos = header.find("} B_t;");
+    const std::size_t a_struct_pos = header.find("} A_t;");
+    ASSERT_NE(b_struct_pos, std::string::npos);
+    ASSERT_NE(a_struct_pos, std::string::npos);
+    EXPECT_LT(b_struct_pos, a_struct_pos);
+    EXPECT_NE(header.find("B_t value;"), std::string::npos);
+}
+
+TEST(BackendCTest, ArrayOfRecordElementTypeFailsWithClearDiagnostic) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
+    (void)add_zero_field_record(*telemetry_ns, 3, 1U, "Inner", "telemetry.Inner");
+    RecordIR* outer =
+        add_zero_field_record(*telemetry_ns, 4, 2U, "Outer", "telemetry.Outer");
+    FieldIR* field = outer->add_fields();
+    field->set_name("items");
+    field->set_field_index(0);
+    field->mutable_type()->mutable_array()->set_max_elements(2);
+    field->mutable_type()->mutable_array()->mutable_element_type()->mutable_record()->
+        set_target_record_ir_id(3);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_FALSE(result.success);
+    EXPECT_NE(result.error_message.find("telemetry.Outer.items"), std::string::npos);
+    EXPECT_NE(result.error_message.find("record-reference"), std::string::npos);
+    EXPECT_TRUE(result.files.empty());
+}
+
 TEST(BackendCTest, MixedScalarEnumStringBytesArrayRecordGeneratesAllFieldKinds) {
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
@@ -878,8 +1084,14 @@ TEST(BackendCTest, MixedScalarEnumStringBytesArrayRecordGeneratesAllFieldKinds) 
     NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
     EnumIR* status_enum = add_enum(*telemetry_ns, 3, "Status", "telemetry.Status");
     add_enum_value(*status_enum, "OK", 0);
+    RecordIR* inner_record =
+        add_zero_field_record(*telemetry_ns, 4, 1U, "Location", "telemetry.Location");
+    FieldIR* location_field = inner_record->add_fields();
+    location_field->set_name("code");
+    location_field->set_field_index(0);
+    location_field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
     RecordIR* record =
-        add_zero_field_record(*telemetry_ns, 4, 1U, "Sample", "telemetry.Sample");
+        add_zero_field_record(*telemetry_ns, 5, 2U, "Sample", "telemetry.Sample");
     FieldIR* count_field = record->add_fields();
     count_field->set_name("count");
     count_field->set_field_index(0);
@@ -902,6 +1114,10 @@ TEST(BackendCTest, MixedScalarEnumStringBytesArrayRecordGeneratesAllFieldKinds) 
     readings_field->mutable_type()->mutable_array()->set_max_elements(4);
     readings_field->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
         ::quarry::schema_ir::PRIMITIVE_TYPE_F32);
+    FieldIR* location_ref_field = record->add_fields();
+    location_ref_field->set_name("location");
+    location_ref_field->set_field_index(5);
+    location_ref_field->mutable_type()->mutable_record()->set_target_record_ir_id(4);
     assert_valid(schema_ir);
 
     Backend backend;
@@ -914,6 +1130,7 @@ TEST(BackendCTest, MixedScalarEnumStringBytesArrayRecordGeneratesAllFieldKinds) 
     EXPECT_NE(header.find("uint8_t blob[8];"), std::string::npos);
     EXPECT_NE(header.find("float readings[4];"), std::string::npos);
     EXPECT_NE(header.find("uint32_t readings_count;"), std::string::npos);
+    EXPECT_NE(header.find("telemetry_Location_t location;"), std::string::npos);
 }
 
 TEST(BackendCTest, DuplicateNamespaceFqnFailsWithClearDiagnostic) {

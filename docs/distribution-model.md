@@ -66,7 +66,7 @@ fails configuration on mismatch.
 | Runtime library | `quarry_runtime`, exported as `Quarry::runtime` | Link through CMake and include public runtime headers | Supported public SDK |
 | Runtime headers | `include/quarry/runtime/binary_record.hpp`, `include/quarry/runtime/version.hpp` | Compile generated or handwritten C++ that uses BRF runtime mechanics | Supported public SDK |
 | C runtime library | `quarry_runtime_c`, exported as `Quarry::runtime_c` (PR-108) | Link through CMake and include public C runtime headers | Supported public SDK |
-| C runtime headers | `include/quarry/runtime_c/binary_record.h`, `include/quarry/runtime_c/version.h` (PR-108) | Compile generated or handwritten C that uses BRF runtime mechanics for the scalar/same-namespace-enum/bounded-string/bounded-bytes/bounded-array field subset `--language c` currently supports (PR-108/PR-109/PR-110/PR-111/PR-112) | Supported public SDK |
+| C runtime headers | `include/quarry/runtime_c/binary_record.h`, `include/quarry/runtime_c/version.h` (PR-108) | Compile generated or handwritten C that uses BRF runtime mechanics for the scalar/same-namespace-enum/bounded-string/bounded-bytes/bounded-array/same-namespace-nested-record field subset `--language c` currently supports (PR-108/PR-109/PR-110/PR-111/PR-112/PR-113) | Supported public SDK |
 | CMake package files | `QuarryConfig.cmake`, `QuarryConfigVersion.cmake`, `QuarryTargets.cmake`, `QuarryGenerate.cmake` | Package discovery for the runtime(s), schema compiler target, generated-code API package metadata (C++ and, since PR-108, C), and installed-package generation helper (C++ only; no C equivalent yet, see "Evaluated Packaging Models") | Supported public SDK |
 | Schema compiler executable | `quarry_schema_compiler`, exported as `Quarry::schema_compiler`, installed as `quarry-schema-compiler` | Direct CLI invocation or CMake command use through `$<TARGET_FILE:...>`; supports `--language cpp` (default) and `--language c` | Installed tool target |
 | Generated C++ code | Backend output under caller-selected paths | Owned by the downstream project that generated it | Downstream-owned build artifact |
@@ -109,9 +109,9 @@ change independently. Unlike `quarry_generate_cpp()`, there is no
 `quarry_generate_c()` CMake helper yet, and therefore no configure-time
 host compiler/C-runtime compatibility check for C the way `SCHEMA_COMPILER`
 overrides get for C++ -- deliberately deferred, not an oversight: even with
-PR-112's scalar/enum/bounded-string/bounded-bytes/bounded-array field
-support, there is still no C example or other real downstream C consumer
-yet demonstrating a need for
+PR-113's scalar/enum/bounded-string/bounded-bytes/bounded-array/same-
+namespace-nested-record field support, there is still no C example or
+other real downstream C consumer yet demonstrating a need for
 the full helper contract (multi-schema handling, output-inventory
 verification, cross-compiling override), so writing one now would remain
 speculative. Downstream C consumers use the manual

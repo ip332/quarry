@@ -82,15 +82,43 @@ rationale (representation decision, encode/decode ordering, scratch-buffer
 sizing, and why arrays of string/bytes/record elements and nested arrays
 remain out of scope).
 
+PR-113 implemented same-namespace nested record field support: a record
+embedding another record declared in the same namespace, by value. Section
+1's struct-based recommendation again extends directly: a nested record
+field is a plain member of the referenced record's own generated `_t`
+struct type (no pointer, no heap), with the same `has_<field>` presence
+flag every other field kind uses. This required, for the first time, a
+real topological sort of same-namespace record declarations
+(`order_records_topologically`, mirroring `compiler/backend/backend.cpp`'s
+own equivalent for the C++ backend): embedding a record by value requires
+its struct to already be a complete type, so a record must always be
+declared (and have its own worst-case `max_encoded_size` resolved) before
+any record that embeds it -- regardless of Schema IR declaration order --
+and a record that embeds itself, directly or transitively, is rejected
+with a cycle diagnostic. Encoding and decoding needed **no new C runtime
+code and no generated-code API epoch bump at all**: a nested record
+field's wire payload is simply the referenced record's own complete BRF
+encoding, so encode/decode is pure composition of that record's own
+already-generated `_encode()`/`_decode()`/`_encoded_size()` functions --
+the child's own `_decode()` already enforces every BRF "Nested Records"
+structural requirement (header validation, exact payload length, matching
+record id) via its own existing `quarry_c_parse_record` call, so the
+parent needs no new validation code whatsoever. Cross-namespace nested
+record fields remain unsupported (the same "no cross-generated-file
+include mechanism" limitation as cross-namespace enum fields), and arrays
+of records remain unsupported. See `compiler/backend_c/README.md`'s
+"Nested record fields" section for the full representation rationale,
+topological-sort details, and scratch-buffer sizing.
+
 See `compiler/backend_c/README.md` and `runtime_c/README.md` for exactly
 what is and is not implemented today, and `jira/backlog.md`'s
-PR-107/PR-108/PR-109/PR-110/PR-111/PR-112 entries for the implementation
-write-ups. Everything else in this document remains a design proposal for
-later PRs; the rest of this document is unchanged from PR-106 and should be
-read as forward-looking design, not a description of current behavior --
-in particular, cross-namespace enum field support (via an
-include-dependency mechanism this backend does not have yet), nested
-records, and arrays of records/string/bytes elements all remain proposed,
+PR-107/PR-108/PR-109/PR-110/PR-111/PR-112/PR-113 entries for the
+implementation write-ups. Everything else in this document remains a
+design proposal for later PRs; the rest of this document is unchanged from
+PR-106 and should be read as forward-looking design, not a description of
+current behavior -- in particular, cross-namespace enum/nested-record
+field support (via an include-dependency mechanism this backend does not
+have yet) and arrays of records/string/bytes elements all remain proposed,
 not implemented.
 
 ## Purpose

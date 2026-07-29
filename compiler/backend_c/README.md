@@ -1,13 +1,15 @@
 # Backend (C)
 
-**Status: scalar, enum, bounded string, bounded bytes, and bounded array
-(of scalar or same-namespace-enum elements) field codec (PR-108/PR-109/
-PR-110/PR-111/PR-112). No nested records or arrays of records/string/bytes
-yet. Enum fields (plain or array elements) are supported only when declared
-in the same namespace as the referencing record.** See
-`docs/design/c-backend.md` for the full proposed design this is an
-increment of, and `jira/backlog.md`'s PR-107/PR-108/PR-109/PR-110/PR-111/
-PR-112 entries for what was built when and why.
+**Status: scalar, enum, bounded string, bounded bytes, bounded array (of
+scalar or same-namespace-enum elements), and same-namespace nested record
+field codec (PR-108/PR-109/PR-110/PR-111/PR-112/PR-113). No arrays of
+records/string/bytes yet, and cross-namespace nested record fields are not
+supported. Enum fields and nested record fields (plain, or as array
+elements for enums) are supported only when declared in the same namespace
+as the referencing record.** See `docs/design/c-backend.md` for the full
+proposed design this is an increment of, and `jira/backlog.md`'s PR-107/
+PR-108/PR-109/PR-110/PR-111/PR-112/PR-113 entries for what was built when
+and why.
 
 Owns the C language generator: Schema IR -> generated `.h`/`.c`, plus real
 BRF encode/decode for the currently-supported field subset.
@@ -51,8 +53,11 @@ Current C generation behavior:
   "Bytes fields" below.
 * **bounded arrays of scalar or same-namespace-enum elements are
   supported** -- see "Supported field types" and "Array fields" below.
+* **same-namespace nested record fields are supported** -- see "Supported
+  field types" and "Nested record fields" below. Arrays of records and
+  cross-namespace nested record fields remain unsupported.
 
-## Supported field types (PR-108/PR-109/PR-110/PR-111/PR-112)
+## Supported field types (PR-108/PR-109/PR-110/PR-111/PR-112/PR-113)
 
 Record fields are supported when their Schema IR type is one of:
 
@@ -75,19 +80,23 @@ Record fields are supported when their Schema IR type is one of:
   applied element-wise; every array field has a schema-validator-enforced
   positive `max_elements` bound by the time backend_c sees it (the same
   `validate_positive_u32` call used for `max_bytes`)
+* a record reference (see "Nested record fields" below), **if and only if**
+  the referenced record is declared in the same namespace as the embedding
+  record
 
 No new schema types were invented to support any of these.
 
-**Any other field -- including arrays of string/bytes/record elements,
-nested records, or a cross-namespace/negative-valued enum reference (either
-as a plain field or as an array element type) -- fails generation with a
-diagnostic naming the record and field** (e.g. `backend_c: field
-'quarry.telemetry.Sample.items' has a type the C backend does not support
-yet`). **A record with a mix of supported and unsupported fields fails as a
-whole** -- there is no partial generation that silently drops the
-unsupported field. Deferred to later increments: nested-record fields,
-arrays of records, arrays of string/bytes elements, and
-cross-namespace/negative-valued enum fields (plain or array-element).
+**Any other field -- including arrays of string/bytes/record elements, a
+cross-namespace nested record reference, or a cross-namespace/negative-
+valued enum reference (either as a plain field or as an array element
+type) -- fails generation with a diagnostic naming the record and field**
+(e.g. `backend_c: field 'quarry.telemetry.Sample.items' has a type the C
+backend does not support yet`). **A record with a mix of supported and
+unsupported fields fails as a whole** -- there is no partial generation
+that silently drops the unsupported field. Deferred to later increments:
+arrays of records, arrays of string/bytes elements, cross-namespace nested
+record fields, and cross-namespace/negative-valued enum fields (plain or
+array-element).
 
 ## Generated public data model
 
@@ -551,6 +560,139 @@ Field Directory itself but always public) are exactly sufficient. See
 "Generated-code API version (C)" below for why this means no epoch bump
 was needed either.
 
+### Nested record fields
+
+For a record embedding another same-namespace record by value, e.g.
+`quarry.telemetry.Location { code: uint32 }` and `quarry.telemetry.Sample {
+location: Location }`:
+
+```c
+typedef struct {
+    bool has_location;
+    quarry_telemetry_Location_t location;
+} quarry_telemetry_Sample_t;
+```
+
+**Representation decision: generate nested C structs directly, embedded by
+value -- no pointers, no heap allocation.** The task spec asked for exactly
+this to be investigated and justified: ownership, presence tracking,
+initialization, field layout, and deterministic ordering.
+
+* **Ownership and layout.** The referenced record's struct is embedded
+  directly as a same-sized-and-shaped member, exactly like a plain
+  scalar/enum field's own C type would be -- there is no separate "nested
+  reference" type distinct from the referenced record's own generated
+  `_t`. This keeps the whole record one flat, contiguous, fixed-size value
+  with no indirection anywhere in the public data model, matching this
+  backend's existing "no opaque handle, no heap, no hidden state" rule for
+  every other field kind (see "Generated public data model" above).
+* **Presence tracking.** A `bool has_<field>` member, identical to every
+  other optional field kind -- there is nothing nesting-specific about
+  presence tracking; a nested record field is either there or it isn't,
+  the same as a scalar, string, bytes, or array field.
+* **Initialization.** No special-case code was needed: `_init()`'s existing
+  `memset(record, 0, sizeof(*record))` already zero-initializes an embedded
+  child completely, since the child is just more bytes inside the parent's
+  own flat storage. This is a direct, "free" consequence of choosing
+  by-value embedding over a pointer -- a pointer member would have left the
+  referenced storage's existence and lifetime as a separate, undocumented
+  question this design avoids by construction.
+* **Deterministic field layout and ordering.** Struct members are declared
+  in schema field order, exactly like every other field kind (see
+  "Generated public data model" above) -- nesting introduces no new
+  layout question at the *field* level. It does introduce one at the
+  *record-declaration* level: embedding a record by value requires that
+  record's struct to already be a **complete type** at the point of
+  embedding (C, unlike C++, has no forward-declaration escape hatch for a
+  by-value struct member), so **this is the first time backend_c has
+  needed a real topological sort of same-namespace record declarations**
+  (previously unnecessary: enums are dependency-free leaves, unconditionally
+  rendered before any record in the same file). `order_records_topologically`
+  (Kahn's algorithm, mirroring `compiler/backend/backend.cpp`'s
+  `order_declarations_topologically` for the C++ backend) reorders each
+  namespace's `PlannedRecord` list so every embedded record is fully
+  declared -- and has its own `max_encoded_size` already resolved (see
+  "Scratch buffer sizing" below) -- before the record that embeds it,
+  **regardless of the order records are declared in Schema IR.** A record
+  that (directly or transitively) embeds itself is rejected at generation
+  time with a diagnostic naming the cycle -- Schema IR validation itself
+  does not reject this (verified: no upstream pass does), so backend_c
+  must, and does, detect it independently, exactly like the C++ backend
+  already does for its own equivalent case.
+
+**Same-namespace-only restriction, matching PR-109's enum precedent
+exactly.** A field referencing a record declared in a *different*
+namespace than the embedding record fails generation with a diagnostic
+naming the field and the referenced record's owning namespace, for the
+same reason cross-namespace enum fields are unsupported: backend_c has no
+cross-generated-file include-dependency mechanism (each generated `.h` is
+self-contained today), and building one purely to support this would be
+speculative "framework code for future features" this backend has
+consistently avoided. The C++ backend does support cross-namespace nested
+records (via its `TypeCatalog`'s `#include` tracking) -- this is a real,
+deliberate narrowing relative to C++, not an oversight.
+
+**Encoding and decoding are pure composition of the referenced record's own
+already-generated `_encode()`/`_decode()`/`_encoded_size()` -- no new
+runtime code was needed at all.** Per `docs/specifications/
+binary-record-format.md`'s "Nested Records" section, a nested record
+field's wire payload is simply the complete, independently structured BRF
+encoding of the referenced record (its own header, Field Directory, and
+payload) -- exactly what that record's own generated codec functions
+already produce and consume:
+
+* **Encode** calls the child's real, validating `_encode()` into a
+  scratch buffer sized from the child's own worst-case
+  `max_encoded_size` (see below), and propagates any failure status
+  directly. `_encoded_size()` instead calls the child's own
+  `_encoded_size()` (no validation, matching the string/bytes/array
+  precedent exactly: encoded size never depends on whether the current
+  value happens to be valid).
+* **Decode** calls the child's real `_decode()` directly on the isolated
+  field-view byte span (`quarry_c_find_field`'s existing `field_view`,
+  unchanged from every other field kind), and propagates any failure
+  status directly. Because the child's own `_decode()` already calls
+  `quarry_c_parse_record` on that byte span, **every BRF "Nested Records"
+  structural requirement is already enforced for free**: header
+  version/flags/reserved validation, exact payload-length validation, and
+  -- critically -- the child's own record-id check
+  (`QUARRY_C_STATUS_UNEXPECTED_RECORD_ID` if the embedded bytes claim to be
+  a different record) all come from the exact same code path a top-level
+  decode already uses. A wrong nested record id, a malformed nested
+  payload, and a truncated nested payload are consequently all rejected
+  with **no new validation code in the parent's decode at all** -- this
+  was the checkpoint's key finding, and it is why this is the first
+  backend_c field kind to require zero new runtime functions or
+  `quarry_c_status_t` values (see "Generated-code API version (C)" below).
+  On a child decode failure, the parent composes an absolute byte offset
+  (`field_view.byte_offset + <child>_decode_result.byte_offset`), exactly
+  mirroring the array decode path's identical
+  `field_view.byte_offset + array_reader.offset` composition and the C++
+  backend's `field->field_offset + *decoded.byte_offset`.
+
+**Scratch buffer sizing.** A nested record field's scratch buffer capacity
+is the referenced record's own `max_encoded_size`: `16` (BRF header) plus,
+per field, `21` bytes of worst-case Field Directory entry overhead
+(`1 + 10 + 10`: the field_index byte plus the worst-case LEB128 length of a
+`uint64_t`-ranged offset and length, `kMaxVaruintBytesForUint64`, `10 =
+ceil(64/7)`) plus that field's own worst-case payload contribution
+(`max_bytes` for string, `max_bytes` for bytes, `array_scratch_capacity`
+for arrays, a nested record's own `max_encoded_size` recursively, or
+`width_bytes` for scalars/enums) -- assuming every field is present
+simultaneously, the same safe-worst-case assumption arrays already use for
+their own scratch buffer. This is computed by
+`compute_record_max_encoded_size` once a record's fields are fully lowered,
+and stored in a whole-schema `RecordCatalog` (mirroring the existing
+`EnumCatalog`) so a field embedding that record can look its
+already-resolved size up in constant time -- correct only because
+`order_records_topologically` guarantees a record's own
+`max_encoded_size` is resolved before any record that embeds it is
+processed. (`kMaxVaruintBytesForUint64` is deliberately distinct from the
+existing `kMaxVaruintBytesForUint32 = 5` used for array element *counts*,
+which are genuinely `uint32_t`-bounded by `max_elements`; Field Directory
+offsets and lengths are `size_t`/`uint64_t`-ranged in the runtime API, so
+the wider bound is the correct one here, at negligible extra cost.)
+
 ### Generated codec API design
 
 Considered three shapes for the generated encode/decode signatures:
@@ -588,11 +730,15 @@ below).
 **This is not full parity with C++'s `CodecResult` yet, and that is
 deliberate, not an oversight.** `CodecResult` also carries a `path`
 (`std::vector<PathElement>`) locating a failure inside nested records or
-array elements. This slice has no nesting and no arrays -- there is nothing
-for a path to describe yet, so `quarry_telemetry_Sample_decode_result_t` has
-no `path` member at all rather than an always-empty placeholder one. Path
-support is expected to arrive together with nested-record/array field
-support, not before it is needed.
+array elements. Even with PR-112's arrays and PR-113's nested records now
+implemented, `quarry_telemetry_Sample_decode_result_t` still has no `path`
+member: a failure inside an array element or a nested record is reported
+via the same flat `status`/`has_byte_offset`/`byte_offset` triple every
+other field kind uses (a byte offset alone is always sufficient to locate
+the failure, since BRF encoding is deterministic), not a structured path of
+field/array-index steps. A `path` member remains deferred until a concrete
+need for *symbolic* (as opposed to byte-offset) failure location is
+demonstrated, not before.
 
 **PR-110 (string fields) preserved this API exactly -- no new helper/setter
 function was added for strings.** `record.<field>`/`record.<field>_length`/
@@ -701,6 +847,19 @@ all already part of the epoch-1/epoch-2 contract). Generated code compiled
 against the epoch-2 runtime before PR-112 continues to compile and behave
 identically; PR-112's generated code depends on nothing the epoch-2
 runtime header didn't already provide.
+
+**PR-113 (same-namespace nested record fields) also did not bump this
+epoch, staying at 2 -- the strongest "no bump needed" case yet.** Nested
+record encode/decode calls no runtime function directly at all: it is pure
+composition of the referenced record's own already-generated `_encode()`/
+`_decode()`/`_encoded_size()` functions, which themselves call only
+functions and `quarry_c_status_t` values already part of the epoch-2
+contract (see "Nested record fields" above for why this composition needs
+no new validation code). `git diff --stat include/quarry/runtime_c/
+binary_record.h CMakeLists.txt` confirms zero changes to either file for
+this PR. Generated code compiled against the epoch-2 runtime before PR-113
+continues to compile and behave identically; PR-113's generated code
+depends on nothing the epoch-2 runtime header didn't already provide.
 
 ## Runtime
 

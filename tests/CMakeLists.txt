@@ -113,5 +113,15 @@ target_compile_definitions(c_cpp_codec_interop_test PRIVATE
     QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
     QUARRY_TEST_REPO_INCLUDE_DIR="${CMAKE_SOURCE_DIR}/include"
     QUARRY_TEST_GENERATED_INCLUDE_DIR="${QUARRY_GENERATED_INCLUDE_DIR}")
+add_quarry_gtest(c_cpp_nested_record_interop_test
+                      interop/c_cpp_nested_record_interop_test.cpp
+                      quarry_compiler_backend)
+target_link_libraries(c_cpp_nested_record_interop_test PRIVATE quarry_compiler_backend_c)
+target_link_libraries(c_cpp_nested_record_interop_test PRIVATE quarry_compiler_schema_ir)
+target_link_libraries(c_cpp_nested_record_interop_test PRIVATE quarry_schema_ir_warning_tweaks)
+target_compile_definitions(c_cpp_nested_record_interop_test PRIVATE
+    QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
+    QUARRY_TEST_REPO_INCLUDE_DIR="${CMAKE_SOURCE_DIR}/include"
+    QUARRY_TEST_GENERATED_INCLUDE_DIR="${QUARRY_GENERATED_INCLUDE_DIR}")
 add_quarry_gtest(diagnostics_smoke_test diagnostics/diagnostics_smoke_test.cpp quarry_compiler_context)
 add_quarry_gtest(support_test support/support_test.cpp quarry_compiler_support)
