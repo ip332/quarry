@@ -677,48 +677,80 @@ project has used for every backend change to date (PR-097 through PR-100).
 
 ### Recommended order, and why
 
-1. **Skeleton** (above).
+**Status note (added PR-116, release-readiness pass; see the PR-115 audit
+this responds to): this numbered list is left as the original,
+forward-looking design prose it always was -- it is not rewritten here.
+Each item below is now marked `[DONE]`, `[PARTIAL]`, or `[REMAINING]` so a
+reader can tell at a glance which milestones this backend has actually
+reached, without needing to cross-reference "Implementation Status" above
+line-by-line. "Implementation Status" (top of this document) remains the
+authoritative, detailed source for what shipped in which PR; the markers
+here are a summary pointer to it, not a replacement for it.**
+
+1. **Skeleton** (above). `[DONE — PR-107]`
 2. **Scalars** (`bool`, fixed-width integers, `f32`/`f64`) — the simplest
    possible encode/decode pair (fixed-width, no bounds, no allocation
    question), proves the runtime-codec-dispatch mechanism end to end.
+   `[DONE — PR-108]`
 3. **Enums** — structurally identical to a bounded scalar (fixed underlying
    width, range-checked on decode), and the C representation question (a
    plain C `enum` with fully prefixed value names, since C enums don't
-   scope) is independent of anything in steps 4+.
+   scope) is independent of anything in steps 4+. `[DONE — PR-109]`
 4. **Strings** — first fixed-capacity-with-explicit-length field kind and
    first UTF-8 validation path; proves the "bound comes from schema, storage
-   is inline" pattern this whole design leans on.
+   is inline" pattern this whole design leans on. `[DONE — PR-110]`
 5. **Bytes** — a strict subset of strings' concerns (no UTF-8 validation);
    sequenced right after strings because it reuses the same
    fixed-capacity-plus-length shape with one less concern to prove.
+   `[DONE — PR-111]`
 6. **Arrays** (of the scalar/enum/string/bytes kinds above) — proves the
    `[max_elements]` fixed-capacity-array-plus-count shape once each element
-   kind it can contain already exists.
+   kind it can contain already exists. `[PARTIAL — PR-112 shipped arrays of
+   scalar/enum elements; arrays of string/bytes elements remain
+   unimplemented, tracked as the next feature PR]`
 7. **Nested records** — proves by-value embedding and the recursive
    worst-case-size property (Section 2), and first exercises the codec
    path/offset propagation across a nesting boundary (Section 4).
+   `[DONE — PR-113, same-namespace only]`
 8. **Arrays of records** — composes steps 6 and 7; sequenced last among the
    data-shape milestones because it has no independent concern of its own,
-   only the composition of two already-proven ones.
+   only the composition of two already-proven ones. `[DONE — PR-114,
+   same-namespace only; PR-116 hardened the sibling fixed-width array
+   decode path's bounds check for overflow safety]`
 9. **Diagnostics** — `.error`/`.path`/`.byte_offset` on realistic
    malformed/truncated input, exercised across at least one nested case from
    step 7/8, mirroring `examples/cpp/schema_compiler_cmake`'s PR-105
    demonstration; sequenced after every data shape exists so failure paths
-   across nesting can actually be exercised.
+   across nesting can actually be exercised. `[PARTIAL — flat
+   status/byte-offset diagnostics exist for every field kind; structured
+   `.path` remains deliberately deferred pending a demonstrated concrete
+   need, not forgotten]`
 10. **Package tests** — a consumer test mirroring
     `tests/consumer/schema_compiler_package_test.cpp`/
     `runtime_package_test.cpp`, verifying the installed C runtime and
     `--language c` output actually configure/build/run from a fresh
     install, per `docs/distribution-model.md`'s own sequencing guidance.
+    `[DONE — PR-108, extended each subsequent field-kind PR]`
 11. **Example** — `examples/c/basic_encode_decode` (and, once diagnostics
     exist, an error-handling demonstration mirroring PR-105), landing
     alongside working generator/runtime support rather than ahead of it.
+    `[REMAINING — no examples/c/ directory exists yet; no downstream C
+    consumer has yet demonstrated a concrete need, per
+    docs/distribution-model.md's identical reasoning for deferring a
+    quarry_generate_c() CMake helper]`
 
 This order matches, feature-for-feature, the sequence the C++ backend
 itself was actually built in (per `jira/backlog.md`'s PR history): prove the
 narrowest possible slice (skeleton, scalars) before compounding
 complexity (arrays of records), and land diagnostics and packaging/examples
 only once there is a real, multi-feature generator to diagnose and package.
+**Also remaining, not itself numbered above since it was not anticipated
+by this document's original roadmap: cross-namespace support** (currently
+three separate same-namespace-only restrictions -- enum fields, nested
+record fields, record-array elements -- all sharing the identical "no
+cross-generated-file include-dependency mechanism" root cause). See the
+PR-115 audit's recommendation for how remaining work should be sequenced
+relative to arrays of string/bytes elements.
 
 ---
 

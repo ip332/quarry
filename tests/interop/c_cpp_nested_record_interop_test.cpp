@@ -274,6 +274,18 @@ constexpr std::string_view kCHarness =
     "    A_decode_result_t r = A_decode(buf, n);\n"
     "    return (r.status != QUARRY_C_STATUS_OK) ? 0 : 1;\n"
     "  }\n"
+    "  if (strcmp(argv[1], \"encode_items_absent\") == 0) {\n"
+    "    A_t a;\n"
+    "    A_init(&a);\n"
+    "    uint8_t buf[256];\n"
+    "    A_encode_result_t r = A_encode(&a, buf, sizeof(buf));\n"
+    "    if (r.status != QUARRY_C_STATUS_OK) return 1;\n"
+    "    FILE* f = fopen(argv[2], \"wb\");\n"
+    "    if (!f) return 2;\n"
+    "    fwrite(buf, 1, r.bytes_written, f);\n"
+    "    fclose(f);\n"
+    "    return 0;\n"
+    "  }\n"
     "  if (strcmp(argv[1], \"encode_items_empty\") == 0) {\n"
     "    A_t a;\n"
     "    A_init(&a);\n"
@@ -325,6 +337,17 @@ constexpr std::string_view kCHarness =
     "    if (!f) return 2;\n"
     "    fwrite(buf, 1, r.bytes_written, f);\n"
     "    fclose(f);\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (strcmp(argv[1], \"decode_items_expect_absent\") == 0) {\n"
+    "    FILE* f = fopen(argv[2], \"rb\");\n"
+    "    if (!f) return 3;\n"
+    "    uint8_t buf[256];\n"
+    "    size_t n = fread(buf, 1, sizeof(buf), f);\n"
+    "    fclose(f);\n"
+    "    A_decode_result_t r = A_decode(buf, n);\n"
+    "    if (r.status != QUARRY_C_STATUS_OK) return 4;\n"
+    "    if (r.value.has_items) return 5;\n"
     "    return 0;\n"
     "  }\n"
     "  if (strcmp(argv[1], \"decode_items_expect_empty\") == 0) {\n"
@@ -433,6 +456,16 @@ constexpr std::string_view kCppHarness =
     "    auto decoded = decode_A(bytes);\n"
     "    return decoded.has_value() ? 1 : 0;\n"
     "  }\n"
+    "  if (std::strcmp(argv[1], \"encode_items_absent\") == 0) {\n"
+    "    ABuilder builder;\n"
+    "    auto encoded = encode(builder.build());\n"
+    "    if (!encoded.has_value()) return 2;\n"
+    "    std::ofstream out(argv[2], std::ios::binary);\n"
+    "    if (!out) return 3;\n"
+    "    out.write(reinterpret_cast<const char*>(encoded->data()),\n"
+    "              static_cast<std::streamsize>(encoded->size()));\n"
+    "    return 0;\n"
+    "  }\n"
     "  if (std::strcmp(argv[1], \"encode_items_empty\") == 0) {\n"
     "    ABuilder builder;\n"
     "    if (!builder.set_items(std::vector<B>())) return 1;\n"
@@ -472,6 +505,13 @@ constexpr std::string_view kCppHarness =
     "    if (!out) return 3;\n"
     "    out.write(reinterpret_cast<const char*>(encoded->data()),\n"
     "              static_cast<std::streamsize>(encoded->size()));\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (std::strcmp(argv[1], \"decode_items_expect_absent\") == 0) {\n"
+    "    auto bytes = read_bytes(argv[2]);\n"
+    "    auto decoded = decode_A(bytes);\n"
+    "    if (!decoded.has_value()) return 5;\n"
+    "    if (decoded->has_items()) return 6;\n"
     "    return 0;\n"
     "  }\n"
     "  if (std::strcmp(argv[1], \"decode_items_expect_empty\") == 0) {\n"
@@ -660,9 +700,56 @@ TEST(CCppNestedRecordInteropTest, ByteForByteCompatibleAndCrossDecodable) {
              0)
         << "C++ accepted a nested record with a truncated embedded header";
 
-    // --- Array-of-records (PR-114): empty, partially-filled, and
-    // maximum-length (max_elements) arrays, mixing populated and empty
+    // --- Array-of-records (PR-114/PR-116): absent, empty, partially-filled,
+    // and maximum-length (max_elements) arrays, mixing populated and empty
     // elements within the same array. ---
+    // (PR-116: every other field kind already has an explicit "absent"
+    // interop variant -- this closes the one gap where a record-array
+    // field's absence specifically had none.)
+    const std::filesystem::path c_items_absent = root / "c_items_absent.bin";
+    const std::filesystem::path cpp_items_absent = root / "cpp_items_absent.bin";
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                    " encode_items_absent " +
+                                    shell_quote(c_items_absent.string())),
+             0);
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " encode_items_absent " +
+                                    shell_quote(cpp_items_absent.string())),
+             0);
+    const std::string c_items_absent_bytes = read_binary_file(c_items_absent);
+    const std::string cpp_items_absent_bytes = read_binary_file(cpp_items_absent);
+    ASSERT_FALSE(c_items_absent_bytes.empty());
+    EXPECT_EQ(c_items_absent_bytes, cpp_items_absent_bytes)
+        << "C and C++ encoders produced different bytes for an absent record array";
+    // "encode_items_absent" leaves both of A's fields absent ("value" is
+    // never touched by this mode either, matching every other
+    // encode_items_* mode's convention of leaving "value" absent
+    // throughout to isolate "items" as the only varying field). With zero
+    // present fields, the encoded record must be exactly a 16-byte header
+    // with directoryEntryCount == 0 (the header's third byte, per BRF's
+    // header layout: version, flags, directoryEntryCount, reserved0,
+    // recordId, reserved1, payloadLength) and no Field Directory entries
+    // or payload at all -- directly proving "items" (and "value") do not
+    // appear in the encoded Field Directory when absent, not merely that
+    // decode treats them as absent.
+    EXPECT_EQ(c_items_absent_bytes.size(), 16U)
+        << "a record with every field absent should encode as only a 16-byte header, with no "
+           "Field Directory entries and no payload";
+    ASSERT_GE(c_items_absent_bytes.size(), 3U);
+    EXPECT_EQ(static_cast<unsigned char>(c_items_absent_bytes[2]), 0U)
+        << "directoryEntryCount must be 0 when every field, including the record-array field, "
+           "is absent";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " decode_items_expect_absent " +
+                                    shell_quote(c_items_absent.string())),
+             0)
+        << "C++ failed to decode a C-encoded record with an absent record array";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                    " decode_items_expect_absent " +
+                                    shell_quote(cpp_items_absent.string())),
+             0)
+        << "C failed to decode a C++-encoded record with an absent record array";
+
     const std::filesystem::path c_items_empty = root / "c_items_empty.bin";
     const std::filesystem::path cpp_items_empty = root / "cpp_items_empty.bin";
     ASSERT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +

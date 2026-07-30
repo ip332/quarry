@@ -186,13 +186,14 @@ TEST(BackendCTest, EnumValueOutsideInt32RangeFailsGenerationWithClearDiagnostic)
 }
 
 TEST(BackendCTest, UnsupportedFieldTypeFailsGenerationWithClearDiagnosticNamingFieldAndRecord) {
-    // Record-reference fields, arrays of string/bytes/record elements, and
-    // enum fields that don't meet the same-namespace/non-negative-values
-    // constraints, remain unsupported after PR-108/109/110/111/112
-    // (scalars, same-namespace enums, bounded strings/bytes, and bounded
-    // arrays of scalar/enum elements are now supported). Uses `array<string>`
+    // Arrays of string/bytes elements, and cross-namespace or
+    // negative-valued enum/record references (plain or array-element),
+    // remain unsupported after PR-108 through PR-114 (scalars,
+    // same-namespace enums, bounded strings/bytes, bounded arrays of
+    // scalar/enum/same-namespace-record elements, and same-namespace
+    // nested records are all supported as of PR-114). Uses `array<string>`
     // as a representative still-unsupported type (explicitly out of scope
-    // for PR-112: arrays of string/bytes elements).
+    // for every PR to date: arrays of string/bytes elements).
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
@@ -704,16 +705,77 @@ TEST(BackendCTest, ArrayOfScalarFieldGeneratesFixedCapacityStructFieldAndCodec) 
              std::string::npos);
     EXPECT_NE(source.find("quarry_c_write_f32(&writer, record->readings[element_index])"),
              std::string::npos);
-    // Decode: varuint count read and bounds check, then an exact
-    // remaining-byte-count check, then per-element reads directly into the
+    // Decode: varuint count read and bounds check, then an overflow-safe,
+    // division-guarded exact remaining-byte-count check (PR-116 hardening
+    // -- see ArrayFieldDecodeUsesOverflowSafeLengthCheck below for the
+    // dedicated test), then per-element reads directly into the
     // fixed-capacity array.
     EXPECT_NE(source.find("quarry_c_read_varuint(&array_reader, &element_count_raw)"),
              std::string::npos);
     EXPECT_NE(source.find("if (element_count_raw > 4U) {"), std::string::npos);
-    EXPECT_NE(source.find("remaining_bytes != (size_t)element_count * 4U"), std::string::npos);
+    EXPECT_NE(source.find("const size_t element_width = 4U;"), std::string::npos);
+    EXPECT_NE(source.find("element_width == 0U || element_count > remaining_bytes / "
+                         "element_width || remaining_bytes != (size_t)element_count * "
+                         "element_width"),
+             std::string::npos);
     EXPECT_NE(source.find("quarry_c_read_f32(&array_reader, &result.value.readings[element_index])"),
              std::string::npos);
     EXPECT_NE(source.find("result.value.readings_count = element_count;"), std::string::npos);
+}
+
+TEST(BackendCTest, ArrayFieldDecodeUsesOverflowSafeLengthCheck) {
+    // PR-116 hardening: the fixed-width array decode's total-length check
+    // must be overflow-safe on a 32-bit size_t platform. Uses u64 (width
+    // 8, the widest scalar) as the most overflow-prone representative
+    // element type. Mirrors the C++ backend's identical 3-part guard
+    // (compiler/backend/backend.cpp): a zero-width defensive check, then a
+    // division-based upper bound on element_count *before* any
+    // multiplication, then the exact equality check -- so the
+    // multiplication can never overflow once the division check has
+    // already passed.
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
+    RecordIR* record =
+        add_zero_field_record(*telemetry_ns, 3, 1U, "Sample", "telemetry.Sample");
+    FieldIR* field = record->add_fields();
+    field->set_name("values");
+    field->set_field_index(0);
+    field->mutable_type()->mutable_array()->set_max_elements(4);
+    field->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
+        ::quarry::schema_ir::PRIMITIVE_TYPE_U64);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    const std::string& source = result.files[1].content;
+
+    EXPECT_NE(source.find("const size_t element_width = 8U;"), std::string::npos);
+    EXPECT_NE(source.find("const size_t remaining_bytes = field_view.length - "
+                         "array_reader.offset;"),
+             std::string::npos);
+    // The three guards, in order, on one condition: zero-width defensive
+    // check; division-based bound (established before any multiplication
+    // runs); only then the exact equality check using the multiplication.
+    const std::size_t guard_pos = source.find(
+        "if (element_width == 0U || element_count > remaining_bytes / element_width || "
+        "remaining_bytes != (size_t)element_count * element_width) {");
+    EXPECT_NE(guard_pos, std::string::npos);
+    // The division-based bound must appear before the multiplication in
+    // the emitted condition text, matching the intended short-circuit
+    // evaluation order (the multiplication is only ever reached once the
+    // division check has already confirmed it cannot overflow).
+    if (guard_pos != std::string::npos) {
+        const std::size_t division_pos = source.find("remaining_bytes / element_width", guard_pos);
+        const std::size_t multiply_pos =
+            source.find("(size_t)element_count * element_width", guard_pos);
+        ASSERT_NE(division_pos, std::string::npos);
+        ASSERT_NE(multiply_pos, std::string::npos);
+        EXPECT_LT(division_pos, multiply_pos);
+    }
 }
 
 TEST(BackendCTest, ArrayOfEnumFieldChecksMembershipOnEncodeAndDecode) {
@@ -1153,6 +1215,14 @@ TEST(BackendCTest, ArrayOfRecordFieldGeneratesFixedCapacityStructFieldAndCodec) 
     // elements -- fixed-width arrays check total length up front instead).
     EXPECT_NE(source.find("if (array_reader.offset != array_reader.length) {"),
              std::string::npos);
+    // PR-116 hardened the *fixed-width* array decode's up-front
+    // total-length check for overflow safety; the record-array-element
+    // path never had that multiplication (each element's length comes
+    // from its own length-prefix varuint, not count * a fixed width), so
+    // it needs no equivalent guard and must remain untouched by that
+    // change -- confirmed by asserting no "element_width" variable
+    // appears anywhere in this record-array field's generated decode.
+    EXPECT_EQ(source.find("element_width"), std::string::npos);
 }
 
 TEST(BackendCTest, ArrayOfRecordFieldEncodedSizeUsesChildEncodedSizeWithoutEncoding) {
