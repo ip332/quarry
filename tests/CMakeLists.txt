@@ -65,6 +65,19 @@ add_quarry_gtest(backend_c_test backend_c/backend_c_test.cpp
                       quarry_compiler_backend_c)
 target_link_libraries(backend_c_test PRIVATE quarry_compiler_schema_ir)
 target_link_libraries(backend_c_test PRIVATE quarry_schema_ir_warning_tweaks)
+add_quarry_gtest(backend_python_test backend_python/backend_python_test.cpp
+                      quarry_compiler_backend_python)
+target_link_libraries(backend_python_test PRIVATE quarry_compiler_schema_ir)
+target_link_libraries(backend_python_test PRIVATE quarry_schema_ir_warning_tweaks)
+
+find_program(QUARRY_PYTHON3_EXECUTABLE python3)
+add_quarry_gtest(python_execution_test backend_python/python_execution_test.cpp
+                      quarry_compiler_support)
+add_dependencies(python_execution_test quarry_schema_compiler)
+target_compile_definitions(python_execution_test PRIVATE
+    QUARRY_SCHEMA_COMPILER_TOOL="$<TARGET_FILE:quarry_schema_compiler>"
+    QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR="${CMAKE_SOURCE_DIR}/runtime/python/src"
+    QUARRY_TEST_PYTHON3="${QUARRY_PYTHON3_EXECUTABLE}")
 add_quarry_gtest(runtime_binary_record_test runtime/binary_record_test.cpp
                       quarry_runtime)
 target_compile_definitions(runtime_binary_record_test PRIVATE

@@ -705,6 +705,100 @@ TEST(SchemaCompilerToolTest, ListOutputsForCBackendIsDeterministic) {
     EXPECT_EQ(first.stdout_text, second.stdout_text);
 }
 
+TEST(SchemaCompilerToolTest, ExplicitPythonBackendListsPackageAndModulePaths) {
+    const std::filesystem::path root = make_temp_directory("language-python-list-outputs");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: acme.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields: {}\n");
+
+    const CommandResult result = run_tool(
+        {"--list-outputs", "--language", "python", "--output-directory", output.string(),
+         input.string()},
+        root);
+
+    EXPECT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_EQ(result.stdout_text,
+              (output / "acme" / "__init__.py").string() + "\n" +
+                  (output / "acme" / "telemetry" / "__init__.py").string() + "\n" +
+                  (output / "acme" / "telemetry" / "schema.py").string() + "\n");
+    EXPECT_TRUE(result.stderr_text.empty());
+    EXPECT_FALSE(std::filesystem::exists(output));
+}
+
+TEST(SchemaCompilerToolTest, ListOutputsForPythonBackendIsDeterministic) {
+    const std::filesystem::path root = make_temp_directory("language-python-deterministic");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: acme.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields: {}\n");
+
+    const CommandResult first =
+        run_tool({"--list-outputs", "--language", "python", "--output-directory", output.string(),
+                  input.string()},
+                 root);
+    const CommandResult second =
+        run_tool({"--list-outputs", "--language", "python", "--output-directory", output.string(),
+                  input.string()},
+                 root);
+
+    EXPECT_EQ(first.status, 0) << first.stderr_text;
+    EXPECT_EQ(second.status, 0) << second.stderr_text;
+    EXPECT_EQ(first.stdout_text, second.stdout_text);
+}
+
+TEST(SchemaCompilerToolTest, FileExtensionIsRejectedWithLanguagePython) {
+    const std::filesystem::path root = make_temp_directory("language-python-file-extension");
+    const std::filesystem::path input = root / "schema.brd";
+    write_text_file(input,
+                    "namespace: acme.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields: {}\n");
+
+    const CommandResult result =
+        run_tool({"--language", "python", "--file-extension", ".py", input.string()}, root);
+
+    EXPECT_EQ(result.status, 2);
+    EXPECT_NE(result.stderr_text.find("--file-extension is not supported with --language python"),
+              std::string::npos);
+}
+
+TEST(SchemaCompilerToolTest, PythonBackendWritesPackageWithExpectedContent) {
+    const std::filesystem::path root = make_temp_directory("language-python-generate");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: acme.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields: {}\n");
+
+    const CommandResult result = run_tool(
+        {"--language", "python", "--output-directory", output.string(), input.string()}, root);
+
+    ASSERT_EQ(result.status, 0) << result.stderr_text;
+    ASSERT_TRUE(std::filesystem::exists(output / "acme" / "__init__.py"));
+    ASSERT_TRUE(std::filesystem::exists(output / "acme" / "telemetry" / "__init__.py"));
+    ASSERT_TRUE(std::filesystem::exists(output / "acme" / "telemetry" / "schema.py"));
+
+    const std::string module_content = read_text_file(output / "acme" / "telemetry" / "schema.py");
+    EXPECT_NE(module_content.find("class Sample:"), std::string::npos);
+    EXPECT_NE(module_content.find("def _encode_sample(value):"), std::string::npos);
+    EXPECT_NE(module_content.find("QUARRY_GENERATED_CODE_API_VERSION_PYTHON"),
+             std::string::npos);
+}
+
 TEST(SchemaCompilerToolTest, InvalidLanguageReturnsUsageErrorNamingAcceptedValues) {
     const std::filesystem::path root = make_temp_directory("language-invalid");
     const std::filesystem::path input = root / "schema.brd";
@@ -719,7 +813,7 @@ TEST(SchemaCompilerToolTest, InvalidLanguageReturnsUsageErrorNamingAcceptedValue
 
     EXPECT_EQ(result.status, 2);
     EXPECT_NE(result.stderr_text.find("invalid value for --language: rust"), std::string::npos);
-    EXPECT_NE(result.stderr_text.find("'cpp' or 'c'"), std::string::npos);
+    EXPECT_NE(result.stderr_text.find("'cpp', 'c', or 'python'"), std::string::npos);
 }
 
 TEST(SchemaCompilerToolTest, FileExtensionIsRejectedWithLanguageC) {

@@ -80,3 +80,7 @@ Testing/
 
 # Local agent reports
 REPORT.md
+
+# Python bytecode cache (runtime/python/, generated Python packages)
+__pycache__/
+*.pyc

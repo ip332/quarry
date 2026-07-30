@@ -22,7 +22,7 @@ Options:
       --root-file-stem NAME     Root namespace file stem (default: schema)
       --file-extension EXT      Generated file extension for --language cpp
                                 (default: .generated.hpp)
-      --language {cpp,c}        Target backend language (default: cpp)
+      --language {cpp,c,python} Target backend language (default: cpp)
       --list-outputs            Print generated output paths without writing files
       --print-generated-code-api-version
                                 Print the generated-code API compatibility version and exit
@@ -31,14 +31,15 @@ Options:
 ```
 
 `--language` selects which backend generates output: `cpp` (the default,
-unchanged behavior) or `c`. Omitting `--language` and passing `--language
-cpp` explicitly behave identically. An unrecognized value is a usage error
-(exit code `2`) naming the invalid value and the two accepted ones.
+unchanged behavior), `c`, or `python`. Omitting `--language` and passing
+`--language cpp` explicitly behave identically. An unrecognized value is a
+usage error (exit code `2`) naming the invalid value and the three accepted
+ones.
 `--file-extension` configures only the C++ backend's single generated file
-extension; combining it with `--language c` is a usage error, since the C
-backend always emits a `.h`/`.c` pair with fixed extensions
-(`.generated.h`/`.generated.c`) that are not yet independently configurable
-from the command line.
+extension; combining it with `--language c` or `--language python` is a
+usage error, since neither backend's fixed extension
+(`.generated.h`/`.generated.c` for C; `.py` for Python) is yet independently
+configurable from the command line.
 
 **`--language c` supports scalar, same-namespace-enum, bounded
 string/bytes, bounded array (of scalar, same-namespace-enum, or
@@ -74,6 +75,29 @@ generated-code API compatibility epoch
 (`QUARRY_C_GENERATED_CODE_API_VERSION`, currently epoch `2`), independent
 from the C++ epoch described below.
 
+**`--language python` is an architecture skeleton only (PR-118): it
+supports zero-field records and implements no serialization logic at
+all.** It emits one `.py` module per namespace that directly owns one or
+more records (enums are not yet rendered at all -- an enum-only namespace
+emits nothing in this skeleton), inside a true nested Python package (one
+real directory plus `__init__.py` per namespace segment, unlike C's flat
+symbol-prefix convention -- see `docs/design/python-backend.md`). Each
+record renders as an empty-bodied `@dataclass` whose `encode`/`decode`/
+`encoded_size` methods delegate to three module-level `_encode_<name>`/
+`_decode_<name>`/`_encoded_size_<name>` helper functions, which
+unconditionally `raise NotImplementedError` -- the public/internal split
+PR-118A's investigation recommended, now wired end to end (only the
+helpers raise; the methods never duplicate that behavior themselves). A
+record declaring one or more fields fails
+generation with a diagnostic naming the record and its field count, the
+same rule PR-107 established for the original C skeleton. Every generated
+module imports `QUARRY_GENERATED_CODE_API_VERSION_PYTHON` from the
+`quarry.runtime.python` package (`runtime/python/`, pip-installed
+independently of CMake) and raises `ImportError` at import time on a
+mismatch, mirroring the philosophy of the C/C++ compile-time epoch guards
+in an idiomatic Python (import-time, not compile-time) way. See
+`docs/design/python-backend.md` for the full scope and roadmap.
+
 The command prints compiler diagnostics and tool errors to stderr. Successful
 compilation is quiet and returns exit code `0`.
 
@@ -106,6 +130,9 @@ diagnostics to stderr on failure, and does not render generated content or
 write files. For `--language c`, each planned namespace file contributes two
 lines -- the header path, then the source path -- since the C backend's
 planner always knows both paths together (see `compiler/backend_c/README.md`).
+For `--language python`, output includes one line per ancestor package
+`__init__.py` (deduplicated across sibling namespaces sharing a common
+ancestor) followed by one line per namespace's own generated module.
 
 Listed paths use the same path-base semantics as normal generation: the backend
 planned relative output path is joined to the selected output directory. If the

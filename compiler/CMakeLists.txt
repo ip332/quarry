@@ -271,3 +271,21 @@ target_link_libraries(quarry_compiler_backend_c
     PRIVATE
         quarry_schema_ir_warning_tweaks
 )
+
+# Independent sibling of quarry_compiler_backend and quarry_compiler_backend_c:
+# the Python backend depends only on Schema IR and support, never on the C++
+# or C backend implementations. See docs/design/python-backend.md.
+add_library(quarry_compiler_backend_python
+    backend_python/backend_python.cpp
+)
+target_include_directories(quarry_compiler_backend_python
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(quarry_compiler_backend_python
+    PUBLIC
+        quarry_compiler_schema_ir
+        quarry_project_options
+    PRIVATE
+        quarry_schema_ir_warning_tweaks
+)

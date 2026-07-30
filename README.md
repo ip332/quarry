@@ -149,6 +149,19 @@ own generated struct directly by value -- no heap allocation anywhere. See
 `docs/design/c-backend.md` for the exact
 supported subset, the generated API, and the roadmap for the rest.
 
+Python is the third backend language (`--language python`), currently an
+**architecture skeleton only** (PR-118): it proves generated Python packages
+can round-trip through the same backend/CLI architecture as C/C++, with no
+serialization logic yet. It supports zero-field records only, emitting one
+`@dataclass` per record whose `encode`/`decode`/`encoded_size` methods
+delegate to internal helper functions that raise `NotImplementedError`,
+inside true nested Python packages (a real directory plus `__init__.py` per
+namespace segment). Generated modules check
+a Python generated-code API compatibility epoch
+(`QUARRY_GENERATED_CODE_API_VERSION_PYTHON`) against the small pip-installed
+`runtime/python/` package at import time. See `docs/design/python-backend.md`
+for the full architecture, scope, and roadmap.
+
 The supported downstream distribution model is defined in
 `docs/distribution-model.md`. The installed SDK currently consists of the
 header-only runtime package plus the `Quarry::schema_compiler` executable

@@ -68,9 +68,11 @@ fails configuration on mismatch.
 | C runtime library | `quarry_runtime_c`, exported as `Quarry::runtime_c` (PR-108) | Link through CMake and include public C runtime headers | Supported public SDK |
 | C runtime headers | `include/quarry/runtime_c/binary_record.h`, `include/quarry/runtime_c/version.h` (PR-108) | Compile generated or handwritten C that uses BRF runtime mechanics for the scalar/same-namespace-enum/bounded-string/bounded-bytes/bounded-array (including same-namespace-record elements)/same-namespace-nested-record field subset `--language c` currently supports (PR-108/PR-109/PR-110/PR-111/PR-112/PR-113/PR-114) | Supported public SDK |
 | CMake package files | `QuarryConfig.cmake`, `QuarryConfigVersion.cmake`, `QuarryTargets.cmake`, `QuarryGenerate.cmake` | Package discovery for the runtime(s), schema compiler target, generated-code API package metadata (C++ and, since PR-108, C), and installed-package generation helper (C++ only; no C equivalent yet, see "Evaluated Packaging Models") | Supported public SDK |
-| Schema compiler executable | `quarry_schema_compiler`, exported as `Quarry::schema_compiler`, installed as `quarry-schema-compiler` | Direct CLI invocation or CMake command use through `$<TARGET_FILE:...>`; supports `--language cpp` (default) and `--language c` | Installed tool target |
+| Schema compiler executable | `quarry_schema_compiler`, exported as `Quarry::schema_compiler`, installed as `quarry-schema-compiler` | Direct CLI invocation or CMake command use through `$<TARGET_FILE:...>`; supports `--language cpp` (default), `--language c`, and, since PR-118, `--language python` | Installed tool target |
 | Generated C++ code | Backend output under caller-selected paths | Owned by the downstream project that generated it | Downstream-owned build artifact |
 | Generated C code | C backend output under caller-selected paths (PR-107/PR-108) | Owned by the downstream project that generated it | Downstream-owned build artifact |
+| Generated Python code | Python backend output under caller-selected paths (PR-118, architecture skeleton only -- zero-field records, no serialization) | Owned by the downstream project that generated it | Downstream-owned build artifact |
+| Python runtime package | `runtime/python/` (`quarry-runtime-python` on PyPI, importable as `quarry.runtime.python`; PR-118) | `pip install`-based, not CMake-installed or exported -- deliberately outside this document's CMake-centric distribution boundary, since Python has its own packaging ecosystem (see "Python Runtime Packaging" below) | Supported public SDK (distributed via pip, not CMake) |
 | Compiler libraries | `quarry_compiler_*`, `quarry_schema_ir_proto` | Internal source-tree composition and tests | Implementation detail |
 | Generated protobuf C++ | Build-tree `schema_ir.pb.*` | Compiler implementation dependency | Implementation detail |
 | Fuzz targets and corpus | `fuzz/` | Parser hardening during development | Development-only |
@@ -119,6 +121,25 @@ speculative. Downstream C consumers use the manual
 `add_custom_command()` pattern (`tools/README.md`), exactly as
 `tests/consumer/schema_compiler_package_test.cpp`'s
 `CConsumerBuildsAndRunsAgainstInstalledPackage` test does.
+
+### Python Runtime Packaging
+
+Since PR-118, a third, independent runtime exists: `runtime/python/`, a plain
+pip-installable package (`pyproject.toml` + `src/quarry/runtime/python/`)
+exposing only `QUARRY_GENERATED_CODE_API_VERSION_PYTHON = 1`. Unlike the C++
+and C runtimes, it is deliberately **not** part of the CMake configure/build
+graph: Python has its own packaging ecosystem (pip/PyPI), and forcing it
+through CMake's `install()`/`export()` machinery would buy nothing a
+downstream Python consumer actually wants (nobody `find_package(Quarry)`s to
+get a `.py` file). This also means the compiler-side expected epoch
+(`kGeneratedCodeApiVersionPython` in `compiler/backend_python/backend_python.cpp`)
+and the runtime package's own `QUARRY_GENERATED_CODE_API_VERSION_PYTHON`
+literal are, for now, two independently-maintained copies of the same number
+that must be kept in sync by hand -- unlike the C/C++ epochs, which
+`configure_file()` derives from one shared CMake scalar. See
+`docs/design/python-backend.md`'s "Known limitations" section; a follow-up PR
+could wire a shared source of truth if manual drift ever becomes a real
+problem.
 
 ### Runtime + Compiler SDK
 

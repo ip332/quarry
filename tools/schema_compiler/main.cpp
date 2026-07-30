@@ -1,6 +1,7 @@
 #include "compiler/backend/backend.hpp"
 #include "compiler/backend/generated_code_api_version.hpp"
 #include "compiler/backend_c/backend_c.hpp"
+#include "compiler/backend_python/backend_python.hpp"
 #include "compiler/context/compiler_context.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/frontend/yaml_compiler.hpp"
@@ -23,6 +24,7 @@ namespace {
 
 namespace backend = quarry::compiler::backend;
 namespace backend_c = quarry::compiler::backend_c;
+namespace backend_python = quarry::compiler::backend_python;
 namespace context = quarry::compiler::context;
 namespace diagnostics = quarry::compiler::diagnostics;
 namespace frontend = quarry::compiler::frontend;
@@ -38,6 +40,7 @@ constexpr int exit_usage = 2;
 enum class Language {
     Cpp,
     C,
+    Python,
 };
 
 struct CommandLine {
@@ -58,7 +61,7 @@ struct CommandLine {
            "      --root-file-stem NAME     Root namespace file stem (default: schema)\n"
            "      --file-extension EXT      Generated file extension for --language cpp\n"
            "                                (default: .generated.hpp)\n"
-           "      --language {cpp,c}        Target backend language (default: cpp)\n"
+           "      --language {cpp,c,python} Target backend language (default: cpp)\n"
            "      --list-outputs            Print generated output paths without writing files\n"
            "      --print-generated-code-api-version\n"
            "                                Print the generated-code API compatibility version and "
@@ -156,9 +159,11 @@ void print_generated_code_api_version(std::ostream& output) {
                     command_line.language = Language::Cpp;
                 } else if (value == "c") {
                     command_line.language = Language::C;
+                } else if (value == "python") {
+                    command_line.language = Language::Python;
                 } else {
                     errors << "error: invalid value for --language: " << value
-                           << " (expected 'cpp' or 'c')\n";
+                           << " (expected 'cpp', 'c', or 'python')\n";
                     return std::nullopt;
                 }
             }
@@ -193,6 +198,11 @@ void print_generated_code_api_version(std::ostream& output) {
 
     if (command_line.language == Language::C && saw_file_extension) {
         errors << "error: --file-extension is not supported with --language c\n";
+        return std::nullopt;
+    }
+
+    if (command_line.language == Language::Python && saw_file_extension) {
+        errors << "error: --file-extension is not supported with --language python\n";
         return std::nullopt;
     }
 
@@ -386,6 +396,42 @@ template <typename CodegenResultT>
         }
 
         if (!write_generated_files(codegen_result, c_options.output_directory, errors)) {
+            return exit_failure;
+        }
+
+        return exit_success;
+    }
+
+    if (command_line.language == Language::Python) {
+        backend_python::CodegenOptions python_options;
+        python_options.output_directory = command_line.codegen_options.output_directory;
+        python_options.root_module_stem = command_line.codegen_options.root_file_stem;
+
+        backend_python::Backend backend;
+        if (command_line.list_outputs) {
+            const backend_python::PlanResult plan_result =
+                backend.plan(*compilation_result.schema_ir, python_options);
+            if (!plan_result.success) {
+                errors << "backend error: " << plan_result.error_message << '\n';
+                return exit_failure;
+            }
+
+            for (const backend_python::PlannedGeneratedFile& file : plan_result.plan.files) {
+                output << backend_python::output_path_for_planned_file(
+                              python_options, file.relative_output_path)
+                       << '\n';
+            }
+            return exit_success;
+        }
+
+        const backend_python::CodegenResult codegen_result =
+            backend.generate(*compilation_result.schema_ir, python_options);
+        if (!codegen_result.success) {
+            errors << "backend error: " << codegen_result.error_message << '\n';
+            return exit_failure;
+        }
+
+        if (!write_generated_files(codegen_result, python_options.output_directory, errors)) {
             return exit_failure;
         }
 
