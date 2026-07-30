@@ -778,10 +778,15 @@ TEST(SchemaCompilerToolTest, CBackendRejectsUnsupportedFieldType) {
     // scalar/enum elements -- used here as the representative
     // still-unsupported type, reachable through the normative YAML
     // frontend within a single file/namespace (unlike array<string>/
-    // array<bytes>/record-reference, none of which the current YAML
-    // grammar can express standalone: arrays reject a field-level
-    // `max_bytes` outright, and record references would need cross-file
-    // imports, which this compiler does not resolve yet).
+    // array<bytes>, neither of which the current YAML grammar can express
+    // standalone: arrays reject a field-level `max_bytes` outright.
+    // Record-typed array elements are reachable standalone when
+    // self-referential -- see
+    // CBackendRejectsSelfReferentialArrayOfRecordsWithCycleDiagnostic
+    // below -- but a *different*, distinctly-named record element would
+    // need a second record declaration in this same file, which this
+    // compiler does not support yet ("one primary record per schema
+    // file"; see CLAUDE.md and compiler/backend_c/README.md).
     const std::filesystem::path root = make_temp_directory("language-c-unsupported-field");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
@@ -806,6 +811,39 @@ TEST(SchemaCompilerToolTest, CBackendRejectsUnsupportedFieldType) {
 
     EXPECT_NE(result.status, 0);
     EXPECT_NE(result.stderr_text.find("quarry.telemetry.Sample.label"), std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(output));
+}
+
+TEST(SchemaCompilerToolTest, CBackendRejectsSelfReferentialArrayOfRecordsWithCycleDiagnostic) {
+    // A record containing an array of itself is a hard C-language
+    // impossibility (a fixed-size array member requires a complete
+    // element type, and there is no valid declaration order for a record
+    // embedding an array of itself). Unlike a genuinely two-distinct-
+    // record array-of-records schema (not YAML-expressible -- see the
+    // comment on CBackendRejectsUnsupportedFieldType above), a
+    // self-referential record needs only one record declaration, so this
+    // is reachable through a real `.brd` file and the installed CLI tool,
+    // not just direct Schema IR construction.
+    const std::filesystem::path root =
+        make_temp_directory("language-c-self-referential-array-cycle");
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(input,
+                    "namespace: quarry.tree\n"
+                    "record: Node\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  children:\n"
+                    "    type: Node[]\n"
+                    "    max_elements: 4\n");
+
+    const CommandResult result =
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
+                 root);
+
+    EXPECT_NE(result.status, 0);
+    EXPECT_NE(result.stderr_text.find("cycle"), std::string::npos);
     EXPECT_FALSE(std::filesystem::exists(output));
 }
 

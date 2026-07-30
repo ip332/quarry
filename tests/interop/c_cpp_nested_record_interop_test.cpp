@@ -82,6 +82,20 @@ namespace c_backend = quarry::compiler::backend_c;
 // field "count". A is declared before B in Schema IR order, so this schema
 // also exercises backend_c's topological reordering (see
 // order_records_topologically in compiler/backend_c/backend_c.cpp).
+//
+// A also has a second field, "items": a bounded array of B (max_elements
+// 3), added for PR-114 (C backend support for arrays of records). This
+// reuses B as the element type rather than introducing a third record --
+// sufficient to exercise array-of-record encode/decode composition
+// end-to-end (empty/partial/full arrays, mixed populated/empty elements,
+// malformed-element rejection) without needing a distinct element record.
+// Multi-level composition (an array element record that itself contains a
+// further nested record) is already covered by
+// BackendCTest.ArrayOfRecordComposesWithNestedRecordField
+// (tests/backend_c/backend_c_test.cpp) and, for the C++ side, by
+// BackendCodegenTest.RecordArrayComposesWithNestedRecordFields
+// (tests/backend/backend_codegen_test.cpp) -- not duplicated here as a
+// third real compile+link+run permutation.
 [[nodiscard]] SchemaIrModel make_nested_record_schema_ir() {
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
@@ -95,7 +109,14 @@ namespace c_backend = quarry::compiler::backend_c;
     a->set_fqn("A");
     auto* a_field = a->add_fields();
     a_field->set_name("value");
+    a_field->set_field_index(0);
     a_field->mutable_type()->mutable_record()->set_target_record_ir_id(3);
+    auto* a_items_field = a->add_fields();
+    a_items_field->set_name("items");
+    a_items_field->set_field_index(1);
+    a_items_field->mutable_type()->mutable_array()->set_max_elements(3);
+    a_items_field->mutable_type()->mutable_array()->mutable_element_type()->mutable_record()->
+        set_target_record_ir_id(3);
 
     RecordIR* b = root->add_records();
     b->set_ir_id(3);
@@ -253,6 +274,100 @@ constexpr std::string_view kCHarness =
     "    A_decode_result_t r = A_decode(buf, n);\n"
     "    return (r.status != QUARRY_C_STATUS_OK) ? 0 : 1;\n"
     "  }\n"
+    "  if (strcmp(argv[1], \"encode_items_empty\") == 0) {\n"
+    "    A_t a;\n"
+    "    A_init(&a);\n"
+    "    a.has_items = true;\n"
+    "    a.items_count = 0;\n"
+    "    uint8_t buf[256];\n"
+    "    A_encode_result_t r = A_encode(&a, buf, sizeof(buf));\n"
+    "    if (r.status != QUARRY_C_STATUS_OK) return 1;\n"
+    "    FILE* f = fopen(argv[2], \"wb\");\n"
+    "    if (!f) return 2;\n"
+    "    fwrite(buf, 1, r.bytes_written, f);\n"
+    "    fclose(f);\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (strcmp(argv[1], \"encode_items_partial\") == 0) {\n"
+    "    A_t a;\n"
+    "    A_init(&a);\n"
+    "    a.has_items = true;\n"
+    "    a.items_count = 2;\n"
+    "    B_init(&a.items[0]);\n"
+    "    a.items[0].has_count = true;\n"
+    "    a.items[0].count = 0x11U;\n"
+    "    B_init(&a.items[1]);\n"
+    "    uint8_t buf[256];\n"
+    "    A_encode_result_t r = A_encode(&a, buf, sizeof(buf));\n"
+    "    if (r.status != QUARRY_C_STATUS_OK) return 1;\n"
+    "    FILE* f = fopen(argv[2], \"wb\");\n"
+    "    if (!f) return 2;\n"
+    "    fwrite(buf, 1, r.bytes_written, f);\n"
+    "    fclose(f);\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (strcmp(argv[1], \"encode_items_full\") == 0) {\n"
+    "    A_t a;\n"
+    "    A_init(&a);\n"
+    "    a.has_items = true;\n"
+    "    a.items_count = 3;\n"
+    "    B_init(&a.items[0]);\n"
+    "    a.items[0].has_count = true;\n"
+    "    a.items[0].count = 1U;\n"
+    "    B_init(&a.items[1]);\n"
+    "    B_init(&a.items[2]);\n"
+    "    a.items[2].has_count = true;\n"
+    "    a.items[2].count = 3U;\n"
+    "    uint8_t buf[256];\n"
+    "    A_encode_result_t r = A_encode(&a, buf, sizeof(buf));\n"
+    "    if (r.status != QUARRY_C_STATUS_OK) return 1;\n"
+    "    FILE* f = fopen(argv[2], \"wb\");\n"
+    "    if (!f) return 2;\n"
+    "    fwrite(buf, 1, r.bytes_written, f);\n"
+    "    fclose(f);\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (strcmp(argv[1], \"decode_items_expect_empty\") == 0) {\n"
+    "    FILE* f = fopen(argv[2], \"rb\");\n"
+    "    if (!f) return 3;\n"
+    "    uint8_t buf[256];\n"
+    "    size_t n = fread(buf, 1, sizeof(buf), f);\n"
+    "    fclose(f);\n"
+    "    A_decode_result_t r = A_decode(buf, n);\n"
+    "    if (r.status != QUARRY_C_STATUS_OK) return 4;\n"
+    "    if (!r.value.has_items) return 5;\n"
+    "    if (r.value.items_count != 0) return 6;\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (strcmp(argv[1], \"decode_items_expect_partial\") == 0) {\n"
+    "    FILE* f = fopen(argv[2], \"rb\");\n"
+    "    if (!f) return 3;\n"
+    "    uint8_t buf[256];\n"
+    "    size_t n = fread(buf, 1, sizeof(buf), f);\n"
+    "    fclose(f);\n"
+    "    A_decode_result_t r = A_decode(buf, n);\n"
+    "    if (r.status != QUARRY_C_STATUS_OK) return 4;\n"
+    "    if (!r.value.has_items) return 5;\n"
+    "    if (r.value.items_count != 2) return 6;\n"
+    "    if (!r.value.items[0].has_count || r.value.items[0].count != 0x11U) return 7;\n"
+    "    if (r.value.items[1].has_count) return 8;\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (strcmp(argv[1], \"decode_items_expect_full\") == 0) {\n"
+    "    FILE* f = fopen(argv[2], \"rb\");\n"
+    "    if (!f) return 3;\n"
+    "    uint8_t buf[256];\n"
+    "    size_t n = fread(buf, 1, sizeof(buf), f);\n"
+    "    fclose(f);\n"
+    "    A_decode_result_t r = A_decode(buf, n);\n"
+    "    if (r.status != QUARRY_C_STATUS_OK) return 4;\n"
+    "    if (!r.value.has_items) return 5;\n"
+    "    if (r.value.items_count != 3) return 6;\n"
+    "    if (!r.value.items[0].has_count || r.value.items[0].count != 1U) return 7;\n"
+    "    if (r.value.items[1].has_count) return 8;\n"
+    "    if (!r.value.items[2].has_count || r.value.items[2].count != 3U) return 9;\n"
+    "    return 0;\n"
+    "  }\n"
     "  return 11;\n"
     "}\n";
 
@@ -317,6 +432,75 @@ constexpr std::string_view kCppHarness =
     "    auto bytes = read_bytes(argv[2]);\n"
     "    auto decoded = decode_A(bytes);\n"
     "    return decoded.has_value() ? 1 : 0;\n"
+    "  }\n"
+    "  if (std::strcmp(argv[1], \"encode_items_empty\") == 0) {\n"
+    "    ABuilder builder;\n"
+    "    if (!builder.set_items(std::vector<B>())) return 1;\n"
+    "    auto encoded = encode(builder.build());\n"
+    "    if (!encoded.has_value()) return 2;\n"
+    "    std::ofstream out(argv[2], std::ios::binary);\n"
+    "    if (!out) return 3;\n"
+    "    out.write(reinterpret_cast<const char*>(encoded->data()),\n"
+    "              static_cast<std::streamsize>(encoded->size()));\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (std::strcmp(argv[1], \"encode_items_partial\") == 0) {\n"
+    "    BBuilder item0_builder;\n"
+    "    if (!item0_builder.set_count(0x11U)) return 1;\n"
+    "    std::vector<B> items{item0_builder.build(), B()};\n"
+    "    ABuilder builder;\n"
+    "    if (!builder.set_items(items)) return 1;\n"
+    "    auto encoded = encode(builder.build());\n"
+    "    if (!encoded.has_value()) return 2;\n"
+    "    std::ofstream out(argv[2], std::ios::binary);\n"
+    "    if (!out) return 3;\n"
+    "    out.write(reinterpret_cast<const char*>(encoded->data()),\n"
+    "              static_cast<std::streamsize>(encoded->size()));\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (std::strcmp(argv[1], \"encode_items_full\") == 0) {\n"
+    "    BBuilder item0_builder;\n"
+    "    if (!item0_builder.set_count(1U)) return 1;\n"
+    "    BBuilder item2_builder;\n"
+    "    if (!item2_builder.set_count(3U)) return 1;\n"
+    "    std::vector<B> items{item0_builder.build(), B(), item2_builder.build()};\n"
+    "    ABuilder builder;\n"
+    "    if (!builder.set_items(items)) return 1;\n"
+    "    auto encoded = encode(builder.build());\n"
+    "    if (!encoded.has_value()) return 2;\n"
+    "    std::ofstream out(argv[2], std::ios::binary);\n"
+    "    if (!out) return 3;\n"
+    "    out.write(reinterpret_cast<const char*>(encoded->data()),\n"
+    "              static_cast<std::streamsize>(encoded->size()));\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (std::strcmp(argv[1], \"decode_items_expect_empty\") == 0) {\n"
+    "    auto bytes = read_bytes(argv[2]);\n"
+    "    auto decoded = decode_A(bytes);\n"
+    "    if (!decoded.has_value() || !decoded->has_items()) return 5;\n"
+    "    if (decoded->items()->size() != 0) return 6;\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (std::strcmp(argv[1], \"decode_items_expect_partial\") == 0) {\n"
+    "    auto bytes = read_bytes(argv[2]);\n"
+    "    auto decoded = decode_A(bytes);\n"
+    "    if (!decoded.has_value() || !decoded->has_items()) return 5;\n"
+    "    const auto& items = *decoded->items();\n"
+    "    if (items.size() != 2) return 6;\n"
+    "    if (!items[0].has_count() || *items[0].count() != 0x11U) return 7;\n"
+    "    if (items[1].has_count()) return 8;\n"
+    "    return 0;\n"
+    "  }\n"
+    "  if (std::strcmp(argv[1], \"decode_items_expect_full\") == 0) {\n"
+    "    auto bytes = read_bytes(argv[2]);\n"
+    "    auto decoded = decode_A(bytes);\n"
+    "    if (!decoded.has_value() || !decoded->has_items()) return 5;\n"
+    "    const auto& items = *decoded->items();\n"
+    "    if (items.size() != 3) return 6;\n"
+    "    if (!items[0].has_count() || *items[0].count() != 1U) return 7;\n"
+    "    if (items[1].has_count()) return 8;\n"
+    "    if (!items[2].has_count() || *items[2].count() != 3U) return 9;\n"
+    "    return 0;\n"
     "  }\n"
     "  return 11;\n"
     "}\n";
@@ -475,4 +659,167 @@ TEST(CCppNestedRecordInteropTest, ByteForByteCompatibleAndCrossDecodable) {
                                     shell_quote(truncated_nested_header.string())),
              0)
         << "C++ accepted a nested record with a truncated embedded header";
+
+    // --- Array-of-records (PR-114): empty, partially-filled, and
+    // maximum-length (max_elements) arrays, mixing populated and empty
+    // elements within the same array. ---
+    const std::filesystem::path c_items_empty = root / "c_items_empty.bin";
+    const std::filesystem::path cpp_items_empty = root / "cpp_items_empty.bin";
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                    " encode_items_empty " + shell_quote(c_items_empty.string())),
+             0);
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " encode_items_empty " +
+                                    shell_quote(cpp_items_empty.string())),
+             0);
+    const std::string c_items_empty_bytes = read_binary_file(c_items_empty);
+    const std::string cpp_items_empty_bytes = read_binary_file(cpp_items_empty);
+    ASSERT_FALSE(c_items_empty_bytes.empty());
+    EXPECT_EQ(c_items_empty_bytes, cpp_items_empty_bytes)
+        << "C and C++ encoders produced different bytes for an empty record array";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " decode_items_expect_empty " +
+                                    shell_quote(c_items_empty.string())),
+             0)
+        << "C++ failed to decode a C-encoded empty record array";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                    " decode_items_expect_empty " +
+                                    shell_quote(cpp_items_empty.string())),
+             0)
+        << "C failed to decode a C++-encoded empty record array";
+
+    const std::filesystem::path c_items_partial = root / "c_items_partial.bin";
+    const std::filesystem::path cpp_items_partial = root / "cpp_items_partial.bin";
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                    " encode_items_partial " +
+                                    shell_quote(c_items_partial.string())),
+             0);
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " encode_items_partial " +
+                                    shell_quote(cpp_items_partial.string())),
+             0);
+    const std::string c_items_partial_bytes = read_binary_file(c_items_partial);
+    const std::string cpp_items_partial_bytes = read_binary_file(cpp_items_partial);
+    ASSERT_FALSE(c_items_partial_bytes.empty());
+    EXPECT_EQ(c_items_partial_bytes, cpp_items_partial_bytes)
+        << "C and C++ encoders produced different bytes for a partially-filled record array "
+           "(one populated element, one empty element)";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " decode_items_expect_partial " +
+                                    shell_quote(c_items_partial.string())),
+             0)
+        << "C++ failed to decode a C-encoded partially-filled record array";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                    " decode_items_expect_partial " +
+                                    shell_quote(cpp_items_partial.string())),
+             0)
+        << "C failed to decode a C++-encoded partially-filled record array";
+
+    const std::filesystem::path c_items_full = root / "c_items_full.bin";
+    const std::filesystem::path cpp_items_full = root / "cpp_items_full.bin";
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) + " encode_items_full " +
+                                    shell_quote(c_items_full.string())),
+             0);
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " encode_items_full " + shell_quote(cpp_items_full.string())),
+             0);
+    const std::string c_items_full_bytes = read_binary_file(c_items_full);
+    const std::string cpp_items_full_bytes = read_binary_file(cpp_items_full);
+    ASSERT_FALSE(c_items_full_bytes.empty());
+    EXPECT_EQ(c_items_full_bytes, cpp_items_full_bytes)
+        << "C and C++ encoders produced different bytes for a maximum-length (3-element) "
+           "record array";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " decode_items_expect_full " +
+                                    shell_quote(c_items_full.string())),
+             0)
+        << "C++ failed to decode a C-encoded maximum-length record array";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                    " decode_items_expect_full " +
+                                    shell_quote(cpp_items_full.string())),
+             0)
+        << "C failed to decode a C++-encoded maximum-length record array";
+
+    // --- Array-element failure cases ---
+    // Derived from the real, already-verified-identical "full" array
+    // encoding above (c_items_full_bytes), rather than a hand-typed byte
+    // literal: with field "value" absent, A's Field Directory has exactly
+    // one entry (field_index 1, "items"), so the fixed prefix before the
+    // first array element's bytes begin is always 16 (A's header) + 3
+    // (A's one-entry directory: field_index byte + two single-byte
+    // varuints, guaranteed single-byte since the whole items payload is
+    // well under 128 bytes) + 1 (element count varuint, <=3) + 1 (element
+    // 0's length-prefix varuint, also comfortably under 128) = 21 bytes;
+    // the embedded B record's own recordId low byte sits at relative
+    // offset 7 within its 16-byte header (byte layout: version, flags,
+    // directoryEntryCount, reserved0, then a 4-byte big-endian recordId),
+    // so its absolute index is 21 + 7 = 28.
+    ASSERT_GT(c_items_full_bytes.size(), 28U);
+    std::string wrong_element_id_bytes = c_items_full_bytes;
+    wrong_element_id_bytes[28] = static_cast<char>(99);
+    const std::filesystem::path wrong_element_id = root / "wrong_element_id.bin";
+    write_binary_file(
+        wrong_element_id,
+        std::vector<unsigned char>(wrong_element_id_bytes.begin(), wrong_element_id_bytes.end()));
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                    " decode_expect_failure " + shell_quote(wrong_element_id.string())),
+             0)
+        << "C accepted a record array with the wrong embedded record id on one element";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " decode_expect_failure " + shell_quote(wrong_element_id.string())),
+             0)
+        << "C++ accepted a record array with the wrong embedded record id on one element";
+
+    std::string truncated_items_bytes = c_items_full_bytes;
+    truncated_items_bytes.pop_back();
+    const std::filesystem::path truncated_items = root / "truncated_items.bin";
+    write_binary_file(
+        truncated_items,
+        std::vector<unsigned char>(truncated_items_bytes.begin(), truncated_items_bytes.end()));
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                    " decode_expect_failure " + shell_quote(truncated_items.string())),
+             0)
+        << "C accepted a truncated record array";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " decode_expect_failure " + shell_quote(truncated_items.string())),
+             0)
+        << "C++ accepted a truncated record array";
+
+    // Trailing-bytes rejection: distinct from truncation above (which
+    // makes the declared length too *short* relative to what decoding
+    // needs) -- this instead makes the "items" field's own declared
+    // length one byte too *long*, appending one garbage byte the real
+    // elements don't consume. This specifically exercises the new
+    // post-loop `array_reader.offset != array_reader.length` check
+    // (render_array_field_decode), which fixed-width scalar/enum arrays
+    // never needed (they validate total length up front instead). With
+    // field "value" absent, A's structure is: 16-byte header (bytes
+    // 0-15, payloadLength's low byte at index 15) + a single 3-byte
+    // Field Directory entry (bytes 16-18, its length-varuint's single
+    // byte -- guaranteed single-byte since the payload is well under 128
+    // bytes -- at index 18) + the items payload itself. Incrementing both
+    // the header's payloadLength and the directory entry's declared
+    // field length by 1, and appending one real extra byte at the very
+    // end of the buffer (the only field, so its byte range is exactly
+    // the buffer's tail), keeps the top-level record structurally valid
+    // (payloadLength still matches the buffer's actual total payload
+    // size) while making the *array's own* declared length one byte
+    // larger than what its count+elements actually consume.
+    ASSERT_GT(c_items_full_bytes.size(), 18U);
+    std::string trailing_items_bytes = c_items_full_bytes;
+    trailing_items_bytes[15] = static_cast<char>(trailing_items_bytes[15] + 1);
+    trailing_items_bytes[18] = static_cast<char>(trailing_items_bytes[18] + 1);
+    trailing_items_bytes.push_back(static_cast<char>(0xFF));
+    const std::filesystem::path trailing_items = root / "trailing_items.bin";
+    write_binary_file(
+        trailing_items,
+        std::vector<unsigned char>(trailing_items_bytes.begin(), trailing_items_bytes.end()));
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                    " decode_expect_failure " + shell_quote(trailing_items.string())),
+             0)
+        << "C accepted a record array with trailing bytes beyond its real elements";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " decode_expect_failure " + shell_quote(trailing_items.string())),
+             0)
+        << "C++ accepted a record array with trailing bytes beyond its real elements";
 }

@@ -105,21 +105,48 @@ structural requirement (header validation, exact payload length, matching
 record id) via its own existing `quarry_c_parse_record` call, so the
 parent needs no new validation code whatsoever. Cross-namespace nested
 record fields remain unsupported (the same "no cross-generated-file
-include mechanism" limitation as cross-namespace enum fields), and arrays
-of records remain unsupported. See `compiler/backend_c/README.md`'s
-"Nested record fields" section for the full representation rationale,
-topological-sort details, and scratch-buffer sizing.
+include mechanism" limitation as cross-namespace enum fields). See
+`compiler/backend_c/README.md`'s "Nested record fields" section for the
+full representation rationale, topological-sort details, and
+scratch-buffer sizing.
+
+PR-114 implemented bounded (fixed-capacity) arrays of same-namespace
+record elements, completing the array-of-record milestone Section 9's
+roadmap anticipated. The generated struct layout needed zero new
+rendering code: it reuses the existing array-of-scalar/enum shape
+verbatim (`ElementType_t <field>[max_elements]; uint32_t <field>_count;`),
+with the referenced record's own generated `_t` type as the element type.
+Cycle detection (a record cannot contain an array of itself, for the same
+hard C-language "complete type" reason a record cannot embed itself by
+value) generalizes for free by extending the existing dependency
+collection by one case -- `order_records_topologically` itself, introduced
+in PR-113, needed no changes at all. The investigation leading into this
+PR initially concluded that encode would need a new runtime primitive
+(appending pre-encoded bytes into a writer, mirroring how the C++ backend
+handles this), but a follow-up investigation disproved this: C already has
+a size-only, non-allocating `_encoded_size()` for every generated record
+(since PR-108), letting generated code learn an array element's encoded
+length *before* encoding it and then encode that element directly into the
+array field's own writer at its current tail position -- no temporary
+buffer, no byte copy, no new runtime function, no generated-code API
+epoch bump. Decode composes the element type's own `_decode()` exactly
+like a plain nested-record field already does, needing no new runtime
+code either. Arrays of records across namespaces, and arrays of
+string/bytes elements, remain unsupported. See
+`compiler/backend_c/README.md`'s "Record array fields" section for the
+full representation rationale, the write-side investigation, and
+scratch-buffer sizing.
 
 See `compiler/backend_c/README.md` and `runtime_c/README.md` for exactly
 what is and is not implemented today, and `jira/backlog.md`'s
-PR-107/PR-108/PR-109/PR-110/PR-111/PR-112/PR-113 entries for the
+PR-107/PR-108/PR-109/PR-110/PR-111/PR-112/PR-113/PR-114 entries for the
 implementation write-ups. Everything else in this document remains a
 design proposal for later PRs; the rest of this document is unchanged from
 PR-106 and should be read as forward-looking design, not a description of
 current behavior -- in particular, cross-namespace enum/nested-record
 field support (via an include-dependency mechanism this backend does not
-have yet) and arrays of records/string/bytes elements all remain proposed,
-not implemented.
+have yet) and arrays of string/bytes elements remain proposed, not
+implemented.
 
 ## Purpose
 

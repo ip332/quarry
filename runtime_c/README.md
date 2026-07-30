@@ -7,22 +7,23 @@ installed under its own canonical path (`include/quarry/runtime/` for C++,
 `include/quarry/runtime_c/` for C -- see "CMake Package" below).
 
 **Status: scalar, enum, bounded string, bounded bytes, bounded array (of
-scalar or same-namespace-enum elements), and same-namespace nested record
-field codec (PR-108/PR-109/PR-110/PR-111/PR-112/PR-113); enum fields and
-nested record fields (plain, or as array elements for enums) same-namespace
-only.** No arrays of records/string/bytes exist yet, and cross-namespace
-nested record fields are unsupported -- see `compiler/backend_c/README.md`
-and `docs/design/c-backend.md` for the current implemented subset and the
-roadmap for later increments. `include/quarry/runtime_c/binary_record.h` is
-not a speculative framework for those future features: it exposes exactly
-the primitives these slices need. PR-109 (enum fields) added **no new
-runtime code at all** -- enum field support only required generated-code
-changes (see `compiler/backend_c/README.md`'s "Enum fields" section); every
-primitive this runtime exposed after PR-108 was already sufficient. PR-110
-(string fields) is the first increment since PR-108 to add genuinely new
-runtime code: `quarry_c_is_valid_utf8` (a UTF-8 validator ported from the
-C++ runtime's `is_valid_utf8`, so both languages accept/reject exactly the
-same byte sequences) and `quarry_c_copy_bounded` (a checked bounds-check-
+scalar, same-namespace-enum, or same-namespace-record elements), and
+same-namespace nested record field codec (PR-108/PR-109/PR-110/PR-111/
+PR-112/PR-113/PR-114); enum fields and record references (plain, or as
+array elements) same-namespace only.** Arrays of string/bytes elements
+remain unimplemented, and cross-namespace references remain unsupported --
+see `compiler/backend_c/README.md` and `docs/design/c-backend.md` for the
+current implemented subset and the roadmap for later increments.
+`include/quarry/runtime_c/binary_record.h` is not a speculative framework
+for those future features: it exposes exactly the primitives these slices
+need. PR-109 (enum fields) added **no new runtime code at all** -- enum
+field support only required generated-code changes (see
+`compiler/backend_c/README.md`'s "Enum fields" section); every primitive
+this runtime exposed after PR-108 was already sufficient. PR-110 (string
+fields) is the first increment since PR-108 to add genuinely new runtime
+code: `quarry_c_is_valid_utf8` (a UTF-8 validator ported from the C++
+runtime's `is_valid_utf8`, so both languages accept/reject exactly the same
+byte sequences) and `quarry_c_copy_bounded` (a checked bounds-check-
 and-copy primitive for materializing a decoded string's wire bytes into its
 generated fixed-capacity buffer). This is also the first bump of
 `QUARRY_GENERATED_CODE_API_VERSION_C` (1 -> 2) since the epoch was
@@ -44,7 +45,17 @@ composition of the referenced record's own already-generated `_encode()`/
 already-epoch-2 runtime primitives) -- see `compiler/backend_c/README.md`'s
 "Nested record fields" section for why this composition alone is already
 sufficient to satisfy every BRF "Nested Records" structural requirement,
-with no new validation code anywhere. The epoch stayed at 2.
+with no new validation code anywhere. The epoch stayed at 2. **PR-114
+(bounded arrays of same-namespace record elements) also added no new
+runtime code**, and is the first field kind whose *encode* side needed no
+runtime addition either, not just its decode side: array-of-record encode
+composes the existing `<Type>_encoded_size()` (present since PR-108) with
+the existing `quarry_c_write_varuint` and a repositioned call to the
+existing `<Type>_encode()`, needing no scratch-buffer copy and no new
+write-side primitive -- an initial investigation concluded a new
+`quarry_c_write_bytes` function was required, but a follow-up
+investigation disproved this (see `compiler/backend_c/README.md`'s "Record
+array fields" section). The epoch stayed at 2.
 
 Generated C code calls the header-only `quarry_runtime_c` target for
 byte-level mechanics while generated code keeps schema-specific knowledge
@@ -58,7 +69,9 @@ Current support:
   and unsorted entries are rejected on decode)
 * unsigned LEB128 `varuint` emission and parsing for directory
   offsets/lengths -- reused as-is (PR-112) for a bounded array field's
-  element count prefix
+  element count prefix, and (PR-114) for a record-array field's
+  per-element length prefix, composed with the element type's own existing
+  `_encoded_size()`/`_encode()` rather than any new primitive
 * big-endian scalar emission and parsing for `bool`, fixed-width signed and
   unsigned integers, and IEEE 754 `float`/`double` -- matching
   `docs/specifications/binary-record-format.md`'s mandatory big-endian byte
@@ -77,8 +90,8 @@ Current support:
 
 Out of scope for this slice (all deferred, not rejected):
 
-* arrays of records, arrays of string/bytes elements, cross-namespace
-  nested record fields
+* arrays of string/bytes elements, cross-namespace references (plain
+  enum/record fields, or as array elements)
 * diagnostic path support (`path`-equivalent locating a failure inside a
   nested record or array element) -- a flat byte offset alone is always
   sufficient to locate a failure deterministically, so this remains

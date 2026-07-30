@@ -1051,15 +1051,20 @@ TEST(BackendCTest, ForwardDeclaredNestedRecordIsReorderedBeforeDependent) {
     EXPECT_NE(header.find("B_t value;"), std::string::npos);
 }
 
-TEST(BackendCTest, ArrayOfRecordElementTypeFailsWithClearDiagnostic) {
+TEST(BackendCTest, ArrayOfCrossNamespaceRecordElementTypeFailsWithClearDiagnostic) {
+    // Same-namespace array-of-record elements are supported (PR-114); a
+    // cross-namespace record element remains unsupported, mirroring the
+    // identical restriction on a plain nested-record field (PR-113) and on
+    // a cross-namespace enum array element (PR-112) -- no
+    // cross-generated-file include-dependency mechanism exists yet.
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
     root->set_ir_id(1);
-    NamespaceIR* telemetry_ns = add_child_namespace(*root, 2, "telemetry", "telemetry");
-    (void)add_zero_field_record(*telemetry_ns, 3, 1U, "Inner", "telemetry.Inner");
-    RecordIR* outer =
-        add_zero_field_record(*telemetry_ns, 4, 2U, "Outer", "telemetry.Outer");
+    NamespaceIR* alpha_ns = add_child_namespace(*root, 2, "alpha", "alpha");
+    (void)add_zero_field_record(*alpha_ns, 3, 1U, "Item", "alpha.Item");
+    NamespaceIR* beta_ns = add_child_namespace(*root, 4, "beta", "beta");
+    RecordIR* outer = add_zero_field_record(*beta_ns, 5, 2U, "Outer", "beta.Outer");
     FieldIR* field = outer->add_fields();
     field->set_name("items");
     field->set_field_index(0);
@@ -1071,9 +1076,200 @@ TEST(BackendCTest, ArrayOfRecordElementTypeFailsWithClearDiagnostic) {
     Backend backend;
     const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
     ASSERT_FALSE(result.success);
-    EXPECT_NE(result.error_message.find("telemetry.Outer.items"), std::string::npos);
-    EXPECT_NE(result.error_message.find("record-reference"), std::string::npos);
+    EXPECT_NE(result.error_message.find("beta.Outer.items"), std::string::npos);
+    EXPECT_NE(result.error_message.find("array element type"), std::string::npos);
+    EXPECT_NE(result.error_message.find("different namespace"), std::string::npos);
     EXPECT_TRUE(result.files.empty());
+}
+
+TEST(BackendCTest, ArrayOfRecordFieldGeneratesFixedCapacityStructFieldAndCodec) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* tree_ns = add_child_namespace(*root, 2, "tree", "tree");
+    RecordIR* item = add_zero_field_record(*tree_ns, 3, 1U, "Item", "tree.Item");
+    FieldIR* item_value = item->add_fields();
+    item_value->set_name("value");
+    item_value->set_field_index(0);
+    item_value->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    RecordIR* group = add_zero_field_record(*tree_ns, 4, 2U, "Group", "tree.Group");
+    FieldIR* items_field = group->add_fields();
+    items_field->set_name("items");
+    items_field->set_field_index(0);
+    items_field->mutable_type()->mutable_array()->set_max_elements(3);
+    items_field->mutable_type()->mutable_array()->mutable_element_type()->mutable_record()->
+        set_target_record_ir_id(3);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 2U);
+
+    const std::string& header = result.files[0].content;
+    EXPECT_NE(header.find("bool has_items;"), std::string::npos);
+    // Fixed-capacity array of the element record's own by-value struct
+    // type -- the exact same [max_elements]/_count shape scalar/enum
+    // arrays already use, with no new rendering code (see
+    // compiler/backend_c/README.md's "Record array fields" section).
+    EXPECT_NE(header.find("tree_Item_t items[3];"), std::string::npos);
+    EXPECT_NE(header.find("uint32_t items_count;"), std::string::npos);
+
+    const std::string& source = result.files[1].content;
+    // Scratch buffer sized from: 5 (worst-case count varuint) + 3 *
+    // (10 (worst-case per-element length varuint) + 41 (Item's own
+    // max_encoded_size: 16 header + 21 directory overhead + 4 payload)) =
+    // 5 + 3 * 51 = 158.
+    EXPECT_NE(source.find("uint8_t items_bytes[158];"), std::string::npos);
+    // Encode (PR-114 §2A "Option A"): learn the element's length from its
+    // own existing _encoded_size(), write that as the length-prefix
+    // varuint, then encode the element directly into the writer's own
+    // remaining tail space -- no temporary buffer, no raw-byte copy, no
+    // new runtime function.
+    EXPECT_NE(source.find("const size_t element_size = "
+                         "tree_Item_encoded_size(&record->items[element_index]);"),
+             std::string::npos);
+    EXPECT_NE(source.find("quarry_c_write_varuint(&writer, (uint64_t)element_size)"),
+             std::string::npos);
+    EXPECT_NE(source.find("tree_Item_encode(&record->items[element_index], "
+                         "writer.buffer + writer.length, writer.capacity - writer.length)"),
+             std::string::npos);
+    EXPECT_NE(source.find("writer.length += element_result.bytes_written;"), std::string::npos);
+    // Decode: per-element varuint length prefix, bounds-checked, then pure
+    // composition via the element type's own _decode() on the isolated
+    // element byte span.
+    EXPECT_NE(source.find("quarry_c_read_varuint(&array_reader, &element_length_raw)"),
+             std::string::npos);
+    EXPECT_NE(source.find("element_length_raw > array_reader.length - array_reader.offset"),
+             std::string::npos);
+    EXPECT_NE(source.find("tree_Item_decode(array_reader.buffer + array_reader.offset, "
+                         "element_length)"),
+             std::string::npos);
+    EXPECT_NE(source.find("result.value.items[element_index] = element_result.value;"),
+             std::string::npos);
+    EXPECT_NE(source.find("array_reader.offset += element_length;"), std::string::npos);
+    // Post-loop trailing-bytes check (only for variable-width/record
+    // elements -- fixed-width arrays check total length up front instead).
+    EXPECT_NE(source.find("if (array_reader.offset != array_reader.length) {"),
+             std::string::npos);
+}
+
+TEST(BackendCTest, ArrayOfRecordFieldEncodedSizeUsesChildEncodedSizeWithoutEncoding) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* tree_ns = add_child_namespace(*root, 2, "tree", "tree");
+    RecordIR* item = add_zero_field_record(*tree_ns, 3, 1U, "Item", "tree.Item");
+    FieldIR* item_value = item->add_fields();
+    item_value->set_name("value");
+    item_value->set_field_index(0);
+    item_value->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    RecordIR* group = add_zero_field_record(*tree_ns, 4, 2U, "Group", "tree.Group");
+    FieldIR* items_field = group->add_fields();
+    items_field->set_name("items");
+    items_field->set_field_index(0);
+    items_field->mutable_type()->mutable_array()->set_max_elements(3);
+    items_field->mutable_type()->mutable_array()->mutable_element_type()->mutable_record()->
+        set_target_record_ir_id(3);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    const std::string& source = result.files[1].content;
+
+    const std::size_t encoded_size_start = source.find("tree_Group_encoded_size(");
+    const std::size_t encode_start = source.find("tree_Group_encode(");
+    ASSERT_NE(encoded_size_start, std::string::npos);
+    ASSERT_NE(encode_start, std::string::npos);
+    ASSERT_LT(encoded_size_start, encode_start);
+    const std::string encoded_size_body =
+        source.substr(encoded_size_start, encode_start - encoded_size_start);
+    EXPECT_NE(encoded_size_body.find("tree_Item_encoded_size(&record->items[element_index])"),
+             std::string::npos);
+    // _encoded_size() must never call the child's real, validating
+    // _encode() -- only its own _encoded_size(), matching the
+    // string/bytes/array/plain-nested-record precedent exactly.
+    EXPECT_EQ(encoded_size_body.find("tree_Item_encode(&record->items"), std::string::npos);
+}
+
+TEST(BackendCTest, SelfReferentialArrayOfRecordsFailsWithCycleDiagnostic) {
+    // A record containing an array of itself is a hard C-language
+    // impossibility (a fixed-size array member, like a plain by-value
+    // struct member, requires a complete element type -- there is no
+    // valid declaration order for a record embedding an array of itself,
+    // directly or transitively), the exact same by-value-storage
+    // constraint that motivated PR-113's plain self-referential-record
+    // cycle diagnostic, now generalized to array-element dependencies.
+    // Not calling assert_valid(): Schema IR validation itself does not
+    // reject this (matching PR-113's identical precedent).
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* tree_ns = add_child_namespace(*root, 2, "tree", "tree");
+    RecordIR* node = add_zero_field_record(*tree_ns, 3, 1U, "Node", "tree.Node");
+    FieldIR* field = node->add_fields();
+    field->set_name("children");
+    field->set_field_index(0);
+    field->mutable_type()->mutable_array()->set_max_elements(4);
+    field->mutable_type()->mutable_array()->mutable_element_type()->mutable_record()->
+        set_target_record_ir_id(3);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_FALSE(result.success);
+    EXPECT_NE(result.error_message.find("cycle"), std::string::npos);
+    EXPECT_TRUE(result.files.empty());
+}
+
+TEST(BackendCTest, ArrayOfRecordComposesWithNestedRecordField) {
+    // Mirrors the C++ backend's own
+    // BackendCodegenTest.RecordArrayComposesWithNestedRecordFields
+    // (tests/fixtures/backend/schema_ir/nested_record_fields.pbtxt):
+    // Group.items is an array of Middle, and Middle itself embeds a
+    // nested Inner record -- proving the recursive max_encoded_size and
+    // pure-composition model generalizes without a depth limit.
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* tree_ns = add_child_namespace(*root, 2, "tree", "tree");
+    RecordIR* inner = add_zero_field_record(*tree_ns, 3, 1U, "Inner", "tree.Inner");
+    FieldIR* inner_count = inner->add_fields();
+    inner_count->set_name("count");
+    inner_count->set_field_index(0);
+    inner_count->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    RecordIR* middle = add_zero_field_record(*tree_ns, 4, 2U, "Middle", "tree.Middle");
+    FieldIR* middle_inner = middle->add_fields();
+    middle_inner->set_name("inner");
+    middle_inner->set_field_index(0);
+    middle_inner->mutable_type()->mutable_record()->set_target_record_ir_id(3);
+    RecordIR* group = add_zero_field_record(*tree_ns, 5, 3U, "Group", "tree.Group");
+    FieldIR* group_items = group->add_fields();
+    group_items->set_name("items");
+    group_items->set_field_index(0);
+    group_items->mutable_type()->mutable_array()->set_max_elements(2);
+    group_items->mutable_type()->mutable_array()->mutable_element_type()->mutable_record()->
+        set_target_record_ir_id(4);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    const std::string& header = result.files[0].content;
+    EXPECT_NE(header.find("tree_Middle_t items[2];"), std::string::npos);
+    const std::string& source = result.files[1].content;
+    EXPECT_NE(source.find("tree_Middle_encoded_size(&record->items[element_index])"),
+             std::string::npos);
+    EXPECT_NE(source.find("tree_Middle_encode(&record->items[element_index], "
+                         "writer.buffer + writer.length, writer.capacity - writer.length)"),
+             std::string::npos);
+    EXPECT_NE(source.find("tree_Middle_decode(array_reader.buffer + array_reader.offset, "
+                         "element_length)"),
+             std::string::npos);
 }
 
 TEST(BackendCTest, MixedScalarEnumStringBytesArrayRecordGeneratesAllFieldKinds) {
@@ -1118,6 +1314,12 @@ TEST(BackendCTest, MixedScalarEnumStringBytesArrayRecordGeneratesAllFieldKinds) 
     location_ref_field->set_name("location");
     location_ref_field->set_field_index(5);
     location_ref_field->mutable_type()->mutable_record()->set_target_record_ir_id(4);
+    FieldIR* locations_field = record->add_fields();
+    locations_field->set_name("locations");
+    locations_field->set_field_index(6);
+    locations_field->mutable_type()->mutable_array()->set_max_elements(2);
+    locations_field->mutable_type()->mutable_array()->mutable_element_type()->mutable_record()->
+        set_target_record_ir_id(4);
     assert_valid(schema_ir);
 
     Backend backend;
@@ -1131,6 +1333,8 @@ TEST(BackendCTest, MixedScalarEnumStringBytesArrayRecordGeneratesAllFieldKinds) 
     EXPECT_NE(header.find("float readings[4];"), std::string::npos);
     EXPECT_NE(header.find("uint32_t readings_count;"), std::string::npos);
     EXPECT_NE(header.find("telemetry_Location_t location;"), std::string::npos);
+    EXPECT_NE(header.find("telemetry_Location_t locations[2];"), std::string::npos);
+    EXPECT_NE(header.find("uint32_t locations_count;"), std::string::npos);
 }
 
 TEST(BackendCTest, DuplicateNamespaceFqnFailsWithClearDiagnostic) {

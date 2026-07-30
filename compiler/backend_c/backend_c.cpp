@@ -248,6 +248,15 @@ struct FieldEncoding {
                                                // reason as string_max_bytes (max_elements *
                                                // width_bytes, plus the worst-case varuint count
                                                // prefix, could overflow uint32_t)
+    bool array_element_is_record = false; // only meaningful when is_array; true when the
+                                          // array's element type is a same-namespace record
+                                          // reference rather than a scalar/enum. Reuses (does
+                                          // not duplicate) record_target_ir_id/
+                                          // record_symbol_name/record_max_encoded_size below --
+                                          // a field is never simultaneously is_record and
+                                          // is_array, so field reuse is unambiguous, mirroring
+                                          // how is_enum already double-duties for both plain-enum
+                                          // and array-of-enum fields.
     bool is_record = false;
     std::uint64_t record_target_ir_id = 0U; // only meaningful when is_record; the referenced
                                             // record's Schema IR id, used to look up its
@@ -579,6 +588,52 @@ void collect_record_catalog(const NamespaceIR& ns, RecordCatalog& catalog) {
     }
 }
 
+// Resolves a record-typed reference (either a plain nested-record field, or
+// an array field's record element type) by ir_id, given the whole-schema
+// record catalog and the FQN of the namespace the reference occurs in.
+// Mirrors lower_enum_reference's shape exactly, and for the same reason
+// (PR-112 extracted lower_enum_reference so plain enum fields and
+// array-of-enum elements share one same-namespace check; this does the
+// same for records so plain nested-record fields (PR-113) and
+// array-of-record elements (PR-114) share one same-namespace check).
+// `context_description` is used only in diagnostic text (e.g. "field
+// 'X.Y'" or "field 'X.Y' array element type"). Returns std::nullopt with
+// `error_message` set for a cross-namespace reference; returns
+// std::nullopt with `error_message` left untouched if `target_record_ir_id`
+// is not in the catalog at all (callers fall through to their own generic
+// diagnostic in that case). Deliberately does not set is_record or
+// array_element_is_record itself -- callers set whichever flag applies,
+// since the same reference-resolution logic serves both a plain
+// record-typed field and a record-typed array element.
+[[nodiscard]] std::optional<FieldEncoding>
+lower_record_reference(std::uint64_t target_record_ir_id, std::string_view current_namespace_fqn,
+                       const RecordCatalog& record_catalog, std::string_view context_description,
+                       std::string& error_message) {
+    const auto catalog_it = record_catalog.find(target_record_ir_id);
+    if (catalog_it == record_catalog.end()) {
+        return std::nullopt;
+    }
+    const RecordCatalogEntry& entry = catalog_it->second;
+    if (entry.owning_namespace_fqn != current_namespace_fqn) {
+        std::ostringstream stream;
+        stream << "backend_c: " << context_description << " references record '"
+               << entry.symbol_name << "' declared in a different namespace ('"
+               << entry.owning_namespace_fqn
+               << "'); cross-namespace nested record fields are not yet supported "
+                  "(see docs/design/c-backend.md)";
+        error_message = stream.str();
+        return std::nullopt;
+    }
+    FieldEncoding encoding;
+    encoding.record_target_ir_id = target_record_ir_id;
+    encoding.record_symbol_name = entry.symbol_name;
+    encoding.c_type = entry.symbol_name + "_t";
+    // encoding.record_max_encoded_size is resolved later, once the
+    // referenced record's own fields have been processed in dependency
+    // order -- see collect_namespace_files.
+    return encoding;
+}
+
 // Computes a record's own worst-case total encoded byte count (16-byte
 // header + Field Directory + payload), assuming every field is present
 // simultaneously (the true worst case -- a real encoding with fewer present
@@ -748,6 +803,16 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             element_encoding = lower_enum_reference(element_type.enum_type().target_enum_ir_id(),
                                                     current_namespace_fqn, catalog, context,
                                                     error_message);
+        } else if (element_type.kind_case() == FieldType::kRecord) {
+            const std::string context =
+                "field '" + record_ir.fqn() + "." + field_ir.name() + "' array element type";
+            element_encoding =
+                lower_record_reference(element_type.record().target_record_ir_id(),
+                                       current_namespace_fqn, record_catalog, context,
+                                       error_message);
+            if (element_encoding.has_value()) {
+                element_encoding->array_element_is_record = true;
+            }
         }
         if (!element_encoding.has_value()) {
             if (error_message.empty()) {
@@ -755,9 +820,10 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                 stream << "backend_c: field '" << record_ir.fqn() << "." << field_ir.name()
                        << "' is an array whose element type the C backend does not support yet "
                           "-- only arrays of bool, fixed-width signed/unsigned integer, f32/f64 "
-                          "scalar elements, and same-namespace non-negative-valued enum elements "
-                          "are supported (see docs/design/c-backend.md); arrays of string, "
-                          "bytes, record-reference, or array elements remain unsupported";
+                          "scalar elements, same-namespace non-negative-valued enum elements, "
+                          "and same-namespace record elements are supported (see "
+                          "docs/design/c-backend.md); arrays of string, bytes, or array "
+                          "elements, and cross-namespace record elements, remain unsupported";
                 error_message = stream.str();
             }
             return std::nullopt;
@@ -768,34 +834,30 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         FieldEncoding encoding = *element_encoding;
         encoding.is_array = true;
         encoding.array_max_elements = array_type.max_elements();
-        encoding.array_scratch_capacity =
-            static_cast<std::uint64_t>(kMaxVaruintBytesForUint32) +
-            static_cast<std::uint64_t>(array_type.max_elements()) *
-                static_cast<std::uint64_t>(encoding.width_bytes);
+        if (encoding.array_element_is_record) {
+            // array_scratch_capacity depends on the element record's own
+            // max_encoded_size, only resolved after topological sorting --
+            // see collect_namespace_files Phase 3, which fills this in
+            // (mirroring how a plain record field's record_max_encoded_size
+            // is deferred the same way).
+        } else {
+            encoding.array_scratch_capacity =
+                static_cast<std::uint64_t>(kMaxVaruintBytesForUint32) +
+                static_cast<std::uint64_t>(array_type.max_elements()) *
+                    static_cast<std::uint64_t>(encoding.width_bytes);
+        }
         return encoding;
     } else if (type.kind_case() == FieldType::kRecord) {
-        const auto catalog_it = record_catalog.find(type.record().target_record_ir_id());
-        if (catalog_it != record_catalog.end()) {
-            const RecordCatalogEntry& entry = catalog_it->second;
-            if (entry.owning_namespace_fqn != current_namespace_fqn) {
-                std::ostringstream stream;
-                stream << "backend_c: field '" << record_ir.fqn() << "." << field_ir.name()
-                       << "' references record '" << entry.symbol_name
-                       << "' declared in a different namespace ('" << entry.owning_namespace_fqn
-                       << "'); cross-namespace nested record fields are not yet supported "
-                          "(see docs/design/c-backend.md)";
-                error_message = stream.str();
-                return std::nullopt;
-            }
-            FieldEncoding encoding;
-            encoding.is_record = true;
-            encoding.record_target_ir_id = type.record().target_record_ir_id();
-            encoding.record_symbol_name = entry.symbol_name;
-            encoding.c_type = entry.symbol_name + "_t";
-            // encoding.record_max_encoded_size is resolved later, once the
-            // referenced record's own fields have been processed in
-            // dependency order -- see collect_namespace_files.
+        const std::string context = "field '" + record_ir.fqn() + "." + field_ir.name() + "'";
+        std::optional<FieldEncoding> encoding = lower_record_reference(
+            type.record().target_record_ir_id(), current_namespace_fqn, record_catalog, context,
+            error_message);
+        if (encoding.has_value()) {
+            encoding->is_record = true;
             return encoding;
+        }
+        if (!error_message.empty()) {
+            return std::nullopt;
         }
         // Catalog miss (record id not found at all): fall through to the
         // generic diagnostic below, matching the enum catalog-miss
@@ -810,9 +872,10 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
            << "' has a type the C backend does not support yet -- only bool, fixed-width "
               "signed/unsigned integer, f32/f64 scalar fields, same-namespace enum fields "
               "with only non-negative declared values, bounded string/bytes fields, bounded "
-              "arrays of those scalar/enum kinds, and same-namespace nested record fields are "
-              "supported (see docs/design/c-backend.md); arrays of records and "
-              "cross-namespace nested record fields remain unsupported";
+              "arrays of those scalar/enum/record kinds, and same-namespace nested record "
+              "fields are supported (see docs/design/c-backend.md); arrays of string/bytes "
+              "elements and cross-namespace nested record fields (plain or array-element) "
+              "remain unsupported";
     error_message = stream.str();
     return std::nullopt;
 }
@@ -875,7 +938,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                 if (!encoding.has_value()) {
                     return false;
                 }
-                if (encoding->is_record) {
+                if (encoding->is_record ||
+                    (encoding->is_array && encoding->array_element_is_record)) {
                     dependencies.push_back(encoding->record_target_ir_id);
                 }
                 planned_fields.push_back(PlannedField{
@@ -905,14 +969,28 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         // field's record_max_encoded_size (the referenced record, if
         // same-namespace, was necessarily processed earlier in this same
         // loop, so its catalog entry's max_encoded_size is already final)
-        // and then compute this record's own max_encoded_size for whatever
-        // depends on *it* later in the loop.
+        // -- and, for a record-element array field, also resolve
+        // array_scratch_capacity now (deferred from Phase 1 for exactly the
+        // same reason: it depends on the element record's own
+        // max_encoded_size, only available at this point) -- and then
+        // compute this record's own max_encoded_size for whatever depends
+        // on *it* later in the loop.
         for (PlannedRecord& planned_record : planned_records) {
             for (PlannedField& planned_field : planned_record.fields) {
                 if (planned_field.encoding.is_record) {
                     planned_field.encoding.record_max_encoded_size =
                         record_catalog.at(planned_field.encoding.record_target_ir_id)
                             .max_encoded_size;
+                } else if (planned_field.encoding.is_array &&
+                          planned_field.encoding.array_element_is_record) {
+                    const std::uint64_t element_max_encoded_size =
+                        record_catalog.at(planned_field.encoding.record_target_ir_id)
+                            .max_encoded_size;
+                    planned_field.encoding.record_max_encoded_size = element_max_encoded_size;
+                    planned_field.encoding.array_scratch_capacity =
+                        static_cast<std::uint64_t>(kMaxVaruintBytesForUint32) +
+                        static_cast<std::uint64_t>(planned_field.encoding.array_max_elements) *
+                            (kMaxVaruintBytesForUint64 + element_max_encoded_size);
                 }
             }
             record_catalog.at(planned_record.ir_id).max_encoded_size =
@@ -1273,6 +1351,72 @@ void render_scalar_or_enum_field_build(std::ostringstream& stream, const Planned
 // checked against max_elements before the loop starts, but load-bearing in
 // the unvalidated `_encoded_size()` path, where it prevents an unbounded
 // loop over an arbitrary caller-supplied count).
+// Renders one record-typed array element's contribution to the array
+// field's own writer (PR-114 §2A's "Option A": no temporary buffer, no
+// raw-byte copy, no new runtime function). The element's encoded length
+// is learned from the element type's own existing _encoded_size() *before*
+// anything is written -- this is what makes writing the length-prefix
+// varuint first, then the element's real bytes, possible without knowing
+// the length by any other means. In the validated (`_encode()`) path, the
+// element is encoded for real, directly into the writer's own remaining
+// tail space (`writer.buffer + writer.length`, capacity
+// `writer.capacity - writer.length`) -- an entirely ordinary _encode()
+// invocation, just with a repositioned destination instead of a fresh
+// buffer. `writer.length` is then advanced by the real `bytes_written`,
+// a direct write to an already-public field, mirroring how generated
+// array-decode code already reads `array_reader.offset` directly. In the
+// unvalidated (`_encoded_size()`) path, no real element bytes are ever
+// written at all -- only the length-prefix varuint is (matching the
+// scalar/enum path's existing "still perform the real write, just skip
+// validation" behavior) -- and `writer.length` is advanced by the
+// element's reported size directly, since nothing downstream in the
+// `_encoded_size()` flow ever reads the scratch buffer's *contents*,
+// only field lengths (see quarry_c_record_encoded_size, which sums
+// `.length` values only). This mirrors the existing plain nested-record
+// field's own `_encoded_size()` optimization of calling the child's
+// `_encoded_size()` instead of its `_encode()`.
+void render_record_array_element_build(std::ostringstream& stream, const PlannedField& field,
+                                       bool check_write_status) {
+    stream << "            const size_t element_size = " << field.encoding.record_symbol_name
+           << "_encoded_size(&record->" << field.name << "[element_index]);\n";
+    if (check_write_status) {
+        stream << "            const quarry_c_status_t element_length_status = "
+                  "quarry_c_write_varuint(&writer, (uint64_t)element_size);\n";
+        stream << "            if (element_length_status != QUARRY_C_STATUS_OK) {\n";
+        stream << "                result.status = element_length_status;\n";
+        stream << "                return result;\n";
+        stream << "            }\n";
+        stream << "            const " << field.encoding.record_symbol_name
+               << "_encode_result_t element_result = " << field.encoding.record_symbol_name
+               << "_encode(&record->" << field.name
+               << "[element_index], writer.buffer + writer.length, writer.capacity - "
+                  "writer.length);\n";
+        stream << "            if (element_result.status != QUARRY_C_STATUS_OK) {\n";
+        stream << "                result.status = element_result.status;\n";
+        stream << "                return result;\n";
+        stream << "            }\n";
+        stream << "            writer.length += element_result.bytes_written;\n";
+    } else {
+        stream << "            (void)quarry_c_write_varuint(&writer, (uint64_t)element_size);\n";
+        stream << "            writer.length += element_size;\n";
+    }
+}
+
+// Renders one array field's contribution to the fields[]/field_count
+// array-building loop. Order matches BRF's "Array Encoding" section: a
+// bounds check (declared count vs. schema max_elements) first, then the
+// count itself is written as a varuint, then every element is written in
+// index order using the exact same per-element codec (and, for enum
+// elements, the exact same membership check) a plain scalar/enum field
+// already uses. The element loop's `&& element_index < <max_elements>U`
+// clause is an unconditional safety bound, independent of
+// `check_write_status`: it keeps the loop iteration count bounded by a
+// schema-declared, generation-time-known constant even if
+// `record-><field>_count` holds a corrupted/out-of-range value at runtime
+// (harmless in the validated `_encode()` path, where count is already
+// checked against max_elements before the loop starts, but load-bearing in
+// the unvalidated `_encoded_size()` path, where it prevents an unbounded
+// loop over an arbitrary caller-supplied count).
 void render_array_field_build(std::ostringstream& stream, const PlannedField& field,
                               bool check_write_status) {
     if (check_write_status) {
@@ -1300,30 +1444,36 @@ void render_array_field_build(std::ostringstream& stream, const PlannedField& fi
     stream << "        for (uint32_t element_index = 0U; element_index < record->" << field.name
            << "_count && element_index < " << field.encoding.array_max_elements
            << "U; ++element_index) {\n";
-    if (field.encoding.is_enum && check_write_status) {
-        stream << "            if (!("
-               << render_enum_membership_condition("record->" + field.name + "[element_index]",
-                                                    field.encoding.enum_valid_values)
-               << ")) {\n";
-        stream << "                result.status = QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE;\n";
-        stream << "                return result;\n";
-        stream << "            }\n";
-    }
-    const std::string element_write_value =
-        field.encoding.is_enum
-            ? ("(" + unsigned_c_type_for_width(field.encoding.width_bytes) + ")record->" +
-              field.name + "[element_index]")
-            : ("record->" + field.name + "[element_index]");
-    if (check_write_status) {
-        stream << "            const quarry_c_status_t element_status = quarry_c_write_"
-               << field.encoding.runtime_verb << "(&writer, " << element_write_value << ");\n";
-        stream << "            if (element_status != QUARRY_C_STATUS_OK) {\n";
-        stream << "                result.status = element_status;\n";
-        stream << "                return result;\n";
-        stream << "            }\n";
+    if (field.encoding.array_element_is_record) {
+        render_record_array_element_build(stream, field, check_write_status);
     } else {
-        stream << "            (void)quarry_c_write_" << field.encoding.runtime_verb << "(&writer, "
-               << element_write_value << ");\n";
+        if (field.encoding.is_enum && check_write_status) {
+            stream << "            if (!("
+                   << render_enum_membership_condition(
+                          "record->" + field.name + "[element_index]",
+                          field.encoding.enum_valid_values)
+                   << ")) {\n";
+            stream << "                result.status = QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE;\n";
+            stream << "                return result;\n";
+            stream << "            }\n";
+        }
+        const std::string element_write_value =
+            field.encoding.is_enum
+                ? ("(" + unsigned_c_type_for_width(field.encoding.width_bytes) + ")record->" +
+                  field.name + "[element_index]")
+                : ("record->" + field.name + "[element_index]");
+        if (check_write_status) {
+            stream << "            const quarry_c_status_t element_status = quarry_c_write_"
+                   << field.encoding.runtime_verb << "(&writer, " << element_write_value
+                   << ");\n";
+            stream << "            if (element_status != QUARRY_C_STATUS_OK) {\n";
+            stream << "                result.status = element_status;\n";
+            stream << "                return result;\n";
+            stream << "            }\n";
+        } else {
+            stream << "            (void)quarry_c_write_" << field.encoding.runtime_verb
+                   << "(&writer, " << element_write_value << ");\n";
+        }
     }
     stream << "        }\n";
     stream << "        fields[field_count].field_index = " << field.field_index << "U;\n";
@@ -1490,21 +1640,78 @@ void render_bytes_field_decode(std::ostringstream& stream, const PlannedField& f
            << "_length = (uint32_t)field_view.length;\n";
 }
 
+// Renders one record-typed array element's decode block: pure composition
+// of the element type's own already-generated _decode(), exactly like a
+// plain nested-record field's decode (see render_record_field_decode).
+// Reads a per-element varuint `elementLength` (BRF's "Array Encoding"
+// section, `array<record>` case), bounds-checks it against the remaining
+// reader bytes, then passes the isolated element byte span directly to
+// the element type's own _decode() -- which, via its own
+// quarry_c_parse_record call, already enforces every BRF nested-record
+// structural requirement (header validation, exact payload length,
+// matching record id) with no new validation code needed here at all.
+// `array_reader.offset` is advanced by the real, decoded element length
+// afterward -- a direct write to an already-public field, the write-side
+// mirror of how this same field is already read directly elsewhere.
+void render_record_array_element_decode(std::ostringstream& stream, const PlannedField& field) {
+    stream << "                uint64_t element_length_raw = 0;\n";
+    stream << "                const quarry_c_status_t element_length_status = "
+              "quarry_c_read_varuint(&array_reader, &element_length_raw);\n";
+    stream << "                if (element_length_status != QUARRY_C_STATUS_OK) {\n";
+    stream << "                    result.status = element_length_status;\n";
+    stream << "                    result.has_byte_offset = true;\n";
+    stream << "                    result.byte_offset = field_view.byte_offset + "
+              "array_reader.offset;\n";
+    stream << "                    return result;\n";
+    stream << "                }\n";
+    stream << "                if (element_length_raw > array_reader.length - "
+              "array_reader.offset) {\n";
+    stream << "                    result.status = QUARRY_C_STATUS_INVALID_FIELD_LENGTH;\n";
+    stream << "                    result.has_byte_offset = true;\n";
+    stream << "                    result.byte_offset = field_view.byte_offset + "
+              "array_reader.offset;\n";
+    stream << "                    return result;\n";
+    stream << "                }\n";
+    stream << "                const size_t element_length = (size_t)element_length_raw;\n";
+    stream << "                const " << field.encoding.record_symbol_name
+           << "_decode_result_t element_result = " << field.encoding.record_symbol_name
+           << "_decode(array_reader.buffer + array_reader.offset, element_length);\n";
+    stream << "                if (element_result.status != QUARRY_C_STATUS_OK) {\n";
+    stream << "                    result.status = element_result.status;\n";
+    stream << "                    if (element_result.has_byte_offset) {\n";
+    stream << "                        result.has_byte_offset = true;\n";
+    stream << "                        result.byte_offset = field_view.byte_offset + "
+              "array_reader.offset + element_result.byte_offset;\n";
+    stream << "                    } else {\n";
+    stream << "                        result.has_byte_offset = false;\n";
+    stream << "                        result.byte_offset = 0U;\n";
+    stream << "                    }\n";
+    stream << "                    return result;\n";
+    stream << "                }\n";
+    stream << "                result.value." << field.name << "[element_index] = "
+           << "element_result.value;\n";
+    stream << "                array_reader.offset += element_length;\n";
+}
+
 // Renders one array field's decode block. Order matches BRF's "Array
 // Encoding" section and the C++ backend's identical array decode ordering:
 // read the varuint element count first (rejecting a malformed varuint or a
-// count exceeding max_elements before touching any element bytes), then
-// validate the exact remaining-byte-count against count * element_width
-// (rejecting truncated or over-long payloads before any element is read),
-// then read each element in index order using the exact same per-element
-// codec (and, for enum elements, the same membership check) a plain
-// scalar/enum field's decode already uses. All reads share one
+// count exceeding max_elements before touching any element bytes), then,
+// for fixed-width elements, validate the exact remaining-byte-count
+// against count * element_width (rejecting truncated or over-long
+// payloads before any element is read) before the per-element loop --
+// for record (variable-width) elements, this up-front total-length check
+// is impossible (element sizes vary), so instead a running
+// `array_reader.offset` is checked against `array_reader.length` *after*
+// the per-element loop (mirroring the C++ backend's identical
+// post-loop trailing-bytes check). Element reads share one
 // quarry_c_reader_t, so each element read's own bounds check (already
-// present in every quarry_c_read_uN function) is sufficient -- no manual
-// offset bookkeeping is needed, unlike the C++ backend's subspan-based
-// approach. Never writes beyond result.value.<field>[max_elements - 1],
-// since count is bounds-checked against max_elements before the element
-// loop ever runs.
+// present in every quarry_c_read_uN function, and independently enforced
+// by render_record_array_element_decode for record elements) is
+// sufficient -- no manual offset bookkeeping is needed for fixed-width
+// elements, unlike the C++ backend's subspan-based approach. Never writes
+// beyond result.value.<field>[max_elements - 1], since count is
+// bounds-checked against max_elements before the element loop ever runs.
 void render_array_field_decode(std::ostringstream& stream, const PlannedField& field) {
     stream << "            quarry_c_reader_t array_reader;\n";
     stream << "            quarry_c_reader_init(&array_reader, field_view.bytes, "
@@ -1526,19 +1733,23 @@ void render_array_field_decode(std::ostringstream& stream, const PlannedField& f
     stream << "                return result;\n";
     stream << "            }\n";
     stream << "            const uint32_t element_count = (uint32_t)element_count_raw;\n";
-    stream << "            const size_t remaining_bytes = field_view.length - "
-              "array_reader.offset;\n";
-    stream << "            if (remaining_bytes != (size_t)element_count * "
-           << static_cast<unsigned int>(field.encoding.width_bytes) << "U) {\n";
-    stream << "                result.status = QUARRY_C_STATUS_INVALID_FIELD_LENGTH;\n";
-    stream << "                result.has_byte_offset = true;\n";
-    stream << "                result.byte_offset = field_view.byte_offset + "
-              "array_reader.offset;\n";
-    stream << "                return result;\n";
-    stream << "            }\n";
+    if (!field.encoding.array_element_is_record) {
+        stream << "            const size_t remaining_bytes = field_view.length - "
+                  "array_reader.offset;\n";
+        stream << "            if (remaining_bytes != (size_t)element_count * "
+               << static_cast<unsigned int>(field.encoding.width_bytes) << "U) {\n";
+        stream << "                result.status = QUARRY_C_STATUS_INVALID_FIELD_LENGTH;\n";
+        stream << "                result.has_byte_offset = true;\n";
+        stream << "                result.byte_offset = field_view.byte_offset + "
+                  "array_reader.offset;\n";
+        stream << "                return result;\n";
+        stream << "            }\n";
+    }
     stream << "            for (uint32_t element_index = 0U; element_index < element_count; "
               "++element_index) {\n";
-    if (field.encoding.is_enum) {
+    if (field.encoding.array_element_is_record) {
+        render_record_array_element_decode(stream, field);
+    } else if (field.encoding.is_enum) {
         const std::string raw_name = "element_raw";
         stream << "                " << unsigned_c_type_for_width(field.encoding.width_bytes)
                << " " << raw_name << " = 0;\n";
@@ -1575,6 +1786,15 @@ void render_array_field_decode(std::ostringstream& stream, const PlannedField& f
         stream << "                }\n";
     }
     stream << "            }\n";
+    if (field.encoding.array_element_is_record) {
+        stream << "            if (array_reader.offset != array_reader.length) {\n";
+        stream << "                result.status = QUARRY_C_STATUS_INVALID_FIELD_LENGTH;\n";
+        stream << "                result.has_byte_offset = true;\n";
+        stream << "                result.byte_offset = field_view.byte_offset + "
+                  "array_reader.offset;\n";
+        stream << "                return result;\n";
+        stream << "            }\n";
+    }
     stream << "            result.value." << field.name << "_count = element_count;\n";
 }
 
