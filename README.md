@@ -153,14 +153,19 @@ Python is the third backend language (`--language python`). PR-118
 established the architecture (independent backend, true nested Python
 packages -- a real directory plus `__init__.py` per namespace segment,
 `@dataclass` records, methods delegating to internal helper functions).
-PR-119 made it functional for **scalar fields only**: `bool` and every
-fixed-width signed/unsigned integer and `f32`/`f64` field, encoded/decoded
-via a new `quarry.runtime.python.binary_record` runtime module built
-entirely on the standard library's `struct` module, verified byte-for-byte
-wire-compatible with the C and C++ backends for the same field values.
-Enum, string, bytes, array, and nested-record fields remain unsupported
-and fail generation with a diagnostic naming the record and field.
-Generated modules check a Python generated-code API compatibility epoch
+PR-119 made it functional for scalar fields: `bool` and every fixed-width
+signed/unsigned integer and `f32`/`f64` field, encoded/decoded via a new
+`quarry.runtime.python.binary_record` runtime module built entirely on the
+standard library's `struct` module. PR-120 added enum fields: a
+same-namespace, non-negative-valued enum renders as a real `enum.IntEnum`
+subclass, with two small `binary_record.py` additions
+(`pack_enum`/`unpack_enum`) validating membership and delegating to the
+existing scalar pack/unpack for the enum's wire width. Both are verified
+byte-for-byte wire-compatible with the C and C++ backends for the same
+field values. String, bytes, array, and nested-record fields, and
+cross-namespace enum references, remain unsupported and fail generation
+with a diagnostic naming the record and field. Generated modules check a
+Python generated-code API compatibility epoch
 (`QUARRY_GENERATED_CODE_API_VERSION_PYTHON`) against the small pip-installed
 `runtime/python/` package at import time. See `docs/design/python-backend.md`
 for the full architecture, scope, and roadmap.

@@ -1,13 +1,16 @@
 // Proves byte-for-byte BRF wire compatibility between the Python, C++, and
-// C backends for a scalar-only schema (PR-119): generates the same schema
-// through all three `quarry-schema-compiler` backends, compiles small C and
-// C++ harness programs and writes a Python harness script against each
-// generated output, and verifies (1) all three encoders produce identical
-// bytes for identical field values covering every one of PR-119's eleven
-// supported scalar types, (2) each language's decoder accepts bytes
-// produced by either of the other two languages, and (3) all three
-// languages identically reject a truncated buffer and identically reject
-// extra trailing bytes appended after a valid record.
+// C backends for a scalar-plus-enum schema (PR-119 scalars, PR-120 enum):
+// generates the same schema through all three `quarry-schema-compiler`
+// backends, compiles small C and C++ harness programs and writes a Python
+// harness script against each generated output, and verifies (1) all
+// three encoders produce identical bytes for identical field values
+// covering every one of PR-119's eleven supported scalar types plus a
+// same-namespace enum field, (2) each language's decoder accepts bytes
+// produced by either of the other two languages, (3) all three languages
+// identically reject a truncated buffer and identically reject extra
+// trailing bytes appended after a valid record, and (4) all three
+// languages identically reject a decoded enum byte the schema does not
+// define.
 
 #include <chrono>
 #include <cstdlib>
@@ -130,7 +133,15 @@ constexpr std::string_view kSchema = "namespace: acme.telemetry\n"
                                      "  f32:\n"
                                      "    type: float32\n"
                                      "  f64:\n"
-                                     "    type: float64\n";
+                                     "    type: float64\n"
+                                     "  status:\n"
+                                     "    type: Status\n"
+                                     "enums:\n"
+                                     "  Status:\n"
+                                     "    values:\n"
+                                     "      OK: 0\n"
+                                     "      WARNING: 1\n"
+                                     "      ERROR: 2\n";
 
 // Every harness (C, C++, Python) below sets/checks exactly these same
 // values, so their encoded bytes are directly comparable and their
@@ -151,6 +162,7 @@ constexpr std::string_view kCHarness =
     "  sample->has_u64 = true; sample->u64 = 10000000000000ULL;\n"
     "  sample->has_f32 = true; sample->f32 = 1.5f;\n"
     "  sample->has_f64 = true; sample->f64 = 2.71828182845904;\n"
+    "  sample->has_status = true; sample->status = ACME_TELEMETRY_STATUS_WARNING;\n"
     "}\n"
     "static int check_fields(const acme_telemetry_Sample_t* v) {\n"
     "  if (!v->has_flag || v->flag != true) return 1;\n"
@@ -164,6 +176,7 @@ constexpr std::string_view kCHarness =
     "  if (!v->has_u64 || v->u64 != 10000000000000ULL) return 9;\n"
     "  if (!v->has_f32 || v->f32 != 1.5f) return 10;\n"
     "  if (!v->has_f64 || v->f64 != 2.71828182845904) return 11;\n"
+    "  if (!v->has_status || v->status != ACME_TELEMETRY_STATUS_WARNING) return 12;\n"
     "  return 0;\n"
     "}\n"
     "int main(int argc, char** argv) {\n"
@@ -221,6 +234,7 @@ constexpr std::string_view kCppHarness =
     "  if (!builder.set_u64(10000000000000ULL)) return false;\n"
     "  if (!builder.set_f32(1.5f)) return false;\n"
     "  if (!builder.set_f64(2.71828182845904)) return false;\n"
+    "  if (!builder.set_status(acme::telemetry::Status::WARNING)) return false;\n"
     "  return true;\n"
     "}\n"
     "static int check_fields(const acme::telemetry::Sample& v) {\n"
@@ -235,6 +249,7 @@ constexpr std::string_view kCppHarness =
     "  if (!v.has_u64() || *v.u64() != 10000000000000ULL) return 9;\n"
     "  if (!v.has_f32() || *v.f32() != 1.5f) return 10;\n"
     "  if (!v.has_f64() || *v.f64() != 2.71828182845904) return 11;\n"
+    "  if (!v.has_status() || *v.status() != acme::telemetry::Status::WARNING) return 12;\n"
     "  return 0;\n"
     "}\n"
     "int main(int argc, char** argv) {\n"
@@ -280,14 +295,14 @@ constexpr std::string_view kCppHarness =
 // languages.
 constexpr std::string_view kPythonHarness =
     "import sys\n"
-    "from acme.telemetry.schema import Sample\n"
+    "from acme.telemetry.schema import Sample, Status\n"
     "\n"
     "\n"
     "def make_sample():\n"
     "    return Sample(\n"
     "        flag=True, i8=-5, u8=250, i16=-1000, u16=60000, i32=-100000,\n"
     "        u32=4000000000, i64=-5000000000, u64=10000000000000,\n"
-    "        f32=1.5, f64=2.71828182845904,\n"
+    "        f32=1.5, f64=2.71828182845904, status=Status.WARNING,\n"
     "    )\n"
     "\n"
     "\n"
@@ -484,6 +499,30 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
         << "C++ did not reject extra trailing data";
     EXPECT_EQ(run_python("decode_expect_failure", trailing), 0)
         << "Python did not reject extra trailing data";
+
+    // Unknown enum value: corrupt the status field's one-byte payload (the
+    // last-declared/highest-field_index field, so its payload byte is the
+    // last byte of the encoded record) to a value outside {0, 1, 2} and
+    // confirm all three languages reject it.
+    const std::filesystem::path unknown_enum = root / "unknown_enum.bin";
+    {
+        std::string corrupted_bytes = c_bytes;
+        ASSERT_FALSE(corrupted_bytes.empty());
+        corrupted_bytes.back() = static_cast<char>(99);
+        std::ofstream out(unknown_enum, std::ios::binary);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out.write(corrupted_bytes.data(), static_cast<std::streamsize>(corrupted_bytes.size()));
+    }
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                    " decode_expect_failure " + shell_quote(unknown_enum.string())),
+             0)
+        << "C did not reject an out-of-range enum byte";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " decode_expect_failure " + shell_quote(unknown_enum.string())),
+             0)
+        << "C++ did not reject an out-of-range enum byte";
+    EXPECT_EQ(run_python("decode_expect_failure", unknown_enum), 0)
+        << "Python did not reject an out-of-range enum byte";
 }
 
 } // namespace

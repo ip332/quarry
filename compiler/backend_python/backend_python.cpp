@@ -1,12 +1,15 @@
 #include "compiler/backend_python/backend_python.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <set>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -14,6 +17,8 @@ namespace quarry::compiler::backend_python {
 
 namespace {
 
+using ::quarry::schema_ir::EnumIR;
+using ::quarry::schema_ir::EnumValueIR;
 using ::quarry::schema_ir::FieldIR;
 using ::quarry::schema_ir::FieldType;
 using ::quarry::schema_ir::NamespaceIR;
@@ -191,13 +196,148 @@ struct ScalarEncoding {
     }
 }
 
+// --- Enum catalog -------------------------------------------------------
+//
+// PR-120 scope: same-namespace enum field references whose declared values
+// are all non-negative -- matching the BRF spec's Enum Encoding rule and
+// the C++ backend's own field-support boundary (compiler/backend/
+// backend.cpp's runtime_enum_encoding). Unlike compiler/backend_c/
+// backend_c.cpp's identical-in-spirit catalog, this one does not also cap
+// declared values to the 32-bit signed integer range: that cap is
+// backend_c's own narrower implementation choice, not a BRF-wide or
+// Schema-IR-wide restriction, and Python's width bucketing already covers
+// every value up to uint64::max cleanly, so there is nothing here that can
+// actually fail -- collect_enum_catalog is therefore infallible, unlike its
+// backend_c namesake.
+//
+// A flat, whole-schema map from enum ir_id to the information a field
+// reference needs, built once before any namespace file is planned, so a
+// record field can resolve an EnumRef by id regardless of declaration
+// order within the schema.
+
+struct EnumCatalogEntry {
+    std::string class_name; // bare enum name, e.g. "Status" -- no namespace
+                            // prefix, unlike C's symbol-prefixed constants;
+                            // Python's own package/module structure already
+                            // disambiguates, matching record class naming.
+    std::string owning_namespace_fqn;
+    bool all_non_negative = false;
+    std::string width_type_name; // meaningful only when all_non_negative,
+                                 // e.g. "uint8" -- passed directly to
+                                 // pack_enum()/unpack_enum() as their
+                                 // `type_name` argument
+    std::vector<std::pair<std::string, std::int64_t>> values; // (name, value),
+                                                               // in declaration order
+};
+
+using EnumCatalog = std::unordered_map<std::uint64_t, EnumCatalogEntry>;
+
+// Smallest unsigned scalar type name capable of representing max_value,
+// matching compiler/backend_c/backend_c.cpp's enum_width_for_max_value and
+// compiler/backend/backend.cpp's enum_width_for_max_value exactly -- this
+// is the property that keeps enum field wire encoding byte-for-byte
+// identical across all three backends.
+[[nodiscard]] std::string enum_width_type_name_for_max_value(std::uint64_t max_value) {
+    if (max_value <= std::numeric_limits<std::uint8_t>::max()) {
+        return "uint8";
+    }
+    if (max_value <= std::numeric_limits<std::uint16_t>::max()) {
+        return "uint16";
+    }
+    if (max_value <= std::numeric_limits<std::uint32_t>::max()) {
+        return "uint32";
+    }
+    return "uint64";
+}
+
+void collect_enum_catalog(const NamespaceIR& ns, EnumCatalog& catalog) {
+    for (const EnumIR& enum_ir : ns.enums()) {
+        EnumCatalogEntry entry;
+        entry.class_name = enum_ir.name();
+        entry.owning_namespace_fqn = ns.fqn();
+        entry.all_non_negative = true;
+
+        std::uint64_t max_value = 0U;
+        for (const EnumValueIR& value_ir : enum_ir.values()) {
+            entry.values.emplace_back(value_ir.name(), value_ir.value());
+            if (value_ir.value() < 0) {
+                entry.all_non_negative = false;
+            } else {
+                max_value = std::max(max_value, static_cast<std::uint64_t>(value_ir.value()));
+            }
+        }
+        if (entry.all_non_negative) {
+            entry.width_type_name = enum_width_type_name_for_max_value(max_value);
+        }
+        catalog.emplace(enum_ir.ir_id(), std::move(entry));
+    }
+
+    for (const NamespaceIR& child : ns.namespaces()) {
+        collect_enum_catalog(child, catalog);
+    }
+}
+
+struct EnumFieldEncoding {
+    std::string class_name;
+    std::string width_type_name;
+};
+
+// Resolves an enum-typed field reference by ir_id, given the whole-schema
+// enum catalog and the FQN of the namespace the reference occurs in.
+// `context_description` is used only in diagnostic text (e.g. "field
+// 'X.Y'"). Returns std::nullopt with `error_message` set for a
+// cross-namespace or negative-valued enum; returns std::nullopt with
+// `error_message` left untouched if `target_enum_ir_id` is not in the
+// catalog at all -- Schema IR guarantees a resolvable reference, so callers
+// treat a catalog miss as an internal-consistency fallback, not a normal
+// user-facing diagnostic path.
+[[nodiscard]] std::optional<EnumFieldEncoding>
+lower_enum_reference(std::uint64_t target_enum_ir_id, std::string_view current_namespace_fqn,
+                    const EnumCatalog& catalog, std::string_view context_description,
+                    std::string& error_message) {
+    const auto catalog_it = catalog.find(target_enum_ir_id);
+    if (catalog_it == catalog.end()) {
+        return std::nullopt;
+    }
+    const EnumCatalogEntry& entry = catalog_it->second;
+    if (entry.owning_namespace_fqn != current_namespace_fqn) {
+        std::ostringstream stream;
+        stream << "backend_python: " << context_description << " references enum '"
+               << entry.class_name << "' declared in a different namespace ('"
+               << entry.owning_namespace_fqn
+               << "'); cross-namespace enum field references are not yet supported "
+                  "(see docs/design/python-backend.md)";
+        error_message = stream.str();
+        return std::nullopt;
+    }
+    if (!entry.all_non_negative) {
+        std::ostringstream stream;
+        stream << "backend_python: " << context_description
+               << " references an enum with a negative declared value; enum fields are only "
+                  "supported when every declared value is non-negative, matching the BRF "
+                  "spec's Enum Encoding rule (see docs/design/python-backend.md)";
+        error_message = stream.str();
+        return std::nullopt;
+    }
+    return EnumFieldEncoding{entry.class_name, entry.width_type_name};
+}
+
 // --- Planning -------------------------------------------------------------
 
 struct PlannedField {
     std::string name;
     std::uint32_t field_index = 0U;
+    // For a scalar field: the scalar's own runtime type name (e.g.
+    // "uint32"), passed to pack_scalar()/unpack_scalar(). For an enum
+    // field: the enum's wire width type name (e.g. "uint8"), passed as
+    // pack_enum()/unpack_enum()'s `type_name` argument.
     std::string runtime_type_name;
+    // For a scalar field: the dataclass annotation's inner type ("bool",
+    // "int", or "float"). For an enum field: the enum class name (e.g.
+    // "Status") -- serves the same "what goes inside Optional[...]" role,
+    // and is also pack_enum()/unpack_enum()'s `enum_cls` argument.
     std::string python_type_hint;
+    bool is_enum = false;
 };
 
 struct PlannedRecord {
@@ -206,24 +346,92 @@ struct PlannedRecord {
     std::vector<PlannedField> fields;
 };
 
+struct PlannedEnumValue {
+    std::string name;
+    std::int64_t value = 0;
+};
+
+struct PlannedEnum {
+    std::string class_name;
+    std::vector<PlannedEnumValue> values;
+};
+
 struct PlannedNamespaceFile {
     std::string relative_module_path;
+    std::vector<PlannedEnum> enums;
     std::vector<PlannedRecord> records;
 };
 
-// A namespace emits a module if it directly owns one or more records.
-// Enums are deliberately ignored here -- PR-119's scope is scalar record
-// fields only; enum rendering is deferred to a later PR, per
-// docs/design/python-backend.md's roadmap.
-[[nodiscard]] bool namespace_emits_file(const NamespaceIR& ns) { return ns.records_size() > 0; }
+// A namespace emits a module if it directly owns one or more records or
+// enums.
+[[nodiscard]] bool namespace_emits_file(const NamespaceIR& ns) {
+    return ns.records_size() > 0 || ns.enums_size() > 0;
+}
+
+// Resolves one field's type: a scalar primitive, or a same-namespace
+// non-negative-valued enum reference. Returns std::nullopt (with
+// error_message set) for every unsupported case: a non-scalar, non-enum
+// type; an enum declared in a different namespace; or an enum with a
+// negative declared value.
+[[nodiscard]] std::optional<PlannedField>
+lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
+                    std::string_view current_namespace_fqn, const EnumCatalog& enum_catalog,
+                    std::string& error_message) {
+    const FieldType& type = field_ir.type();
+
+    if (type.kind_case() == FieldType::kEnumType) {
+        const std::string context = "field '" + record_ir.fqn() + "." + field_ir.name() + "'";
+        std::optional<EnumFieldEncoding> encoding = lower_enum_reference(
+            type.enum_type().target_enum_ir_id(), current_namespace_fqn, enum_catalog, context,
+            error_message);
+        if (encoding.has_value()) {
+            return PlannedField{
+                .name = field_ir.name(),
+                .field_index = field_ir.field_index(),
+                .runtime_type_name = encoding->width_type_name,
+                .python_type_hint = encoding->class_name,
+                .is_enum = true,
+            };
+        }
+        if (!error_message.empty()) {
+            return std::nullopt;
+        }
+        // Catalog miss (enum id not found at all): fall through to the
+        // generic diagnostic below -- Schema IR guarantees a resolvable
+        // reference, so this should not happen in practice.
+    } else {
+        std::optional<ScalarEncoding> encoding = lower_scalar_field_type(type);
+        if (encoding.has_value()) {
+            return PlannedField{
+                .name = field_ir.name(),
+                .field_index = field_ir.field_index(),
+                .runtime_type_name = encoding->runtime_type_name,
+                .python_type_hint = encoding->python_type_hint,
+                .is_enum = false,
+            };
+        }
+    }
+
+    std::ostringstream stream;
+    stream << "backend_python: field '" << record_ir.fqn() << "." << field_ir.name()
+           << "' has a type the Python backend does not support yet -- only bool, fixed-width "
+              "signed/unsigned integer, f32/f64 scalar fields, and same-namespace "
+              "non-negative-valued enum fields are supported (see "
+              "docs/design/python-backend.md); string, bytes, array, and nested record fields "
+              "remain unsupported";
+    error_message = stream.str();
+    return std::nullopt;
+}
 
 // Collects one PlannedNamespaceFile per namespace that directly owns
-// records, in Schema IR declaration order (pre-order namespace traversal),
-// and accumulates every such namespace's ancestor __init__.py paths into
-// `ancestor_init_paths`. Fails with a diagnostic naming the record and
-// field for any field whose type is not one of the eleven supported
-// scalar primitives.
+// records or enums, in Schema IR declaration order (pre-order namespace
+// traversal), and accumulates every such namespace's ancestor __init__.py
+// paths into `ancestor_init_paths`. Fails with a diagnostic naming the
+// record and field for any field whose type is not one of the eleven
+// supported scalar primitives or a same-namespace non-negative-valued
+// enum reference.
 [[nodiscard]] bool collect_namespace_files(const NamespaceIR& ns, const CodegenOptions& options,
+                                          const EnumCatalog& enum_catalog,
                                           std::vector<PlannedNamespaceFile>& files,
                                           std::set<std::string>& ancestor_init_paths,
                                           std::string& error_message) {
@@ -231,29 +439,31 @@ struct PlannedNamespaceFile {
         PlannedNamespaceFile file;
         file.relative_module_path = module_path_for_namespace(options, ns.fqn());
 
+        for (const EnumIR& enum_ir : ns.enums()) {
+            // Already computed once by collect_enum_catalog; reused here
+            // rather than recomputed, so there is exactly one place that
+            // decides an enum's rendering data.
+            const EnumCatalogEntry& entry = enum_catalog.at(enum_ir.ir_id());
+            PlannedEnum planned_enum;
+            planned_enum.class_name = entry.class_name;
+            for (const auto& [value_name, value] : entry.values) {
+                planned_enum.values.push_back(PlannedEnumValue{.name = value_name,
+                                                               .value = value});
+            }
+            file.enums.push_back(std::move(planned_enum));
+        }
+
         for (const RecordIR& record_ir : ns.records()) {
             std::vector<PlannedField> planned_fields;
             planned_fields.reserve(static_cast<std::size_t>(record_ir.fields_size()));
             for (const FieldIR& field_ir : record_ir.fields()) {
-                std::optional<ScalarEncoding> encoding = lower_scalar_field_type(field_ir.type());
-                if (!encoding.has_value()) {
-                    std::ostringstream stream;
-                    stream << "backend_python: field '" << record_ir.fqn() << "."
-                           << field_ir.name()
-                           << "' has a type the Python backend does not support yet -- only "
-                              "bool, fixed-width signed/unsigned integer, and f32/f64 scalar "
-                              "fields are supported (see docs/design/python-backend.md); enum, "
-                              "string, bytes, array, and nested record fields remain "
-                              "unsupported";
-                    error_message = stream.str();
+                std::optional<PlannedField> planned_field =
+                    lower_field_encoding(record_ir, field_ir, ns.fqn(), enum_catalog,
+                                        error_message);
+                if (!planned_field.has_value()) {
                     return false;
                 }
-                planned_fields.push_back(PlannedField{
-                    .name = field_ir.name(),
-                    .field_index = field_ir.field_index(),
-                    .runtime_type_name = encoding->runtime_type_name,
-                    .python_type_hint = encoding->python_type_hint,
-                });
+                planned_fields.push_back(std::move(*planned_field));
             }
             file.records.push_back(PlannedRecord{
                 .name = record_ir.name(),
@@ -267,7 +477,8 @@ struct PlannedNamespaceFile {
     }
 
     for (const NamespaceIR& child : ns.namespaces()) {
-        if (!collect_namespace_files(child, options, files, ancestor_init_paths, error_message)) {
+        if (!collect_namespace_files(child, options, enum_catalog, files, ancestor_init_paths,
+                                    error_message)) {
             return false;
         }
     }
@@ -283,8 +494,11 @@ struct PlannedNamespaceFile {
                                         std::vector<std::string>& init_file_paths,
                                         std::vector<PlannedNamespaceFile>& module_files,
                                         std::string& error_message) {
+    EnumCatalog enum_catalog;
+    collect_enum_catalog(schema_ir.root_namespace(), enum_catalog);
+
     std::set<std::string> ancestor_init_paths;
-    if (!collect_namespace_files(schema_ir.root_namespace(), options, module_files,
+    if (!collect_namespace_files(schema_ir.root_namespace(), options, enum_catalog, module_files,
                                  ancestor_init_paths, error_message)) {
         return false;
     }
@@ -353,8 +567,14 @@ struct PlannedNamespaceFile {
     stream << "    fields = []\n";
     for (const PlannedField& field : record.fields) {
         stream << "    if value." << field.name << " is not None:\n";
-        stream << "        fields.append((" << field.field_index << ", _brf.pack_scalar(\""
-               << field.runtime_type_name << "\", value." << field.name << ")))\n";
+        if (field.is_enum) {
+            stream << "        fields.append((" << field.field_index << ", _brf.pack_enum("
+                   << field.python_type_hint << ", value." << field.name << ", \""
+                   << field.runtime_type_name << "\")))\n";
+        } else {
+            stream << "        fields.append((" << field.field_index << ", _brf.pack_scalar(\""
+                   << field.runtime_type_name << "\", value." << field.name << ")))\n";
+        }
     }
     stream << "    return _brf.encode_record(" << record.record_id << ", fields)\n";
     stream << "\n";
@@ -369,8 +589,14 @@ struct PlannedNamespaceFile {
     for (const PlannedField& field : record.fields) {
         stream << "    " << field.name << " = None\n";
         stream << "    if " << field.field_index << " in fields:\n";
-        stream << "        " << field.name << " = _brf.unpack_scalar(\""
-               << field.runtime_type_name << "\", fields[" << field.field_index << "])\n";
+        if (field.is_enum) {
+            stream << "        " << field.name << " = _brf.unpack_enum(" << field.python_type_hint
+                   << ", \"" << field.runtime_type_name << "\", fields[" << field.field_index
+                   << "])\n";
+        } else {
+            stream << "        " << field.name << " = _brf.unpack_scalar(\""
+                   << field.runtime_type_name << "\", fields[" << field.field_index << "])\n";
+        }
     }
     stream << "    return " << record.name << "(";
     for (std::size_t index = 0; index < record.fields.size(); ++index) {
@@ -388,11 +614,27 @@ struct PlannedNamespaceFile {
     return stream.str();
 }
 
+// Renders one enum as an `enum.IntEnum` subclass. Rendered before any
+// record in the same file (see render_module): a record's dataclass field
+// annotation (`Optional[Status] = None`) evaluates eagerly when the class
+// body executes, so the enum class must already be defined at that point
+// -- there is no forward-reference or cycle concern here the way nested
+// records need topological sorting for in the C/C++ backends, since an
+// enum is a simple leaf value collection, never itself embedding a field.
+[[nodiscard]] std::string render_enum_block(const PlannedEnum& enum_ir) {
+    std::ostringstream stream;
+    stream << "class " << enum_ir.class_name << "(IntEnum):\n";
+    for (const PlannedEnumValue& value : enum_ir.values) {
+        stream << "    " << value.name << " = " << value.value << "\n";
+    }
+    return stream.str();
+}
+
 // A namespace's generated module: a file-level epoch-check preamble
 // (imports the runtime's compatibility constant and raises ImportError on
 // mismatch, mirroring the philosophy -- not the literal compile-time
-// mechanism -- of the C/C++ generated-code epoch guards) followed by one
-// record block per zero-field record declared in this namespace.
+// mechanism -- of the C/C++ generated-code epoch guards), followed by one
+// enum class per declared enum, then one record block per declared record.
 [[nodiscard]] std::string render_module(const PlannedNamespaceFile& file) {
     std::ostringstream stream;
     stream << "\"\"\"Generated by Quarry (Python backend). Do not edit by hand.\"\"\"\n";
@@ -409,16 +651,27 @@ struct PlannedNamespaceFile {
     stream << "    )\n";
     stream << "\n";
     stream << "from dataclasses import dataclass\n";
+    if (!file.enums.empty()) {
+        stream << "from enum import IntEnum\n";
+    }
     stream << "from typing import Optional\n";
 
-    bool first_record = true;
+    bool first_block = true;
+    for (const PlannedEnum& enum_ir : file.enums) {
+        stream << "\n";
+        if (!first_block) {
+            stream << "\n";
+        }
+        stream << render_enum_block(enum_ir);
+        first_block = false;
+    }
     for (const PlannedRecord& record : file.records) {
         stream << "\n";
-        if (!first_record) {
+        if (!first_block) {
             stream << "\n";
         }
         stream << render_record_block(record);
-        first_record = false;
+        first_block = false;
     }
 
     return stream.str();

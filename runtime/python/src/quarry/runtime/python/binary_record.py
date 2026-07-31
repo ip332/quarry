@@ -94,6 +94,39 @@ def unpack_scalar(type_name: str, data: bytes):
     return value
 
 
+def pack_enum(enum_cls, value, type_name: str) -> bytes:
+    """Validates that `value` is a member of `enum_cls` (constructing
+    `enum_cls(value)` also accepts a raw int matching one of its members,
+    which is how a plain-int field value ends up validated) and encodes its
+    underlying integer via pack_scalar. `enum_cls` is expected to be an
+    `enum.IntEnum` subclass; `type_name` is the smallest unsigned scalar
+    type wide enough for the enum's declared values (e.g. "uint8"),
+    matching the BRF spec's Enum Encoding rule and the C++/C backends'
+    identical width computation. Raises EncodeError -- not the stdlib's
+    ValueError -- for a value that is not a defined member, so callers only
+    ever need to catch EncodeError/DecodeError from generated code.
+    """
+    try:
+        member = enum_cls(value)
+    except ValueError as error:
+        raise EncodeError(f"{value!r} is not a valid {enum_cls.__name__} value") from error
+    return pack_scalar(type_name, int(member))
+
+
+def unpack_enum(enum_cls, type_name: str, data: bytes):
+    """Decodes an underlying integer via unpack_scalar and constructs
+    `enum_cls` from it. Raises DecodeError -- matching the BRF spec's
+    requirement that a decoded enum value the schema does not define is a
+    decode failure -- for a decoded integer that is not a defined member of
+    `enum_cls`.
+    """
+    raw_value = unpack_scalar(type_name, data)
+    try:
+        return enum_cls(raw_value)
+    except ValueError as error:
+        raise DecodeError(f"{raw_value!r} is not a valid {enum_cls.__name__} value") from error
+
+
 def append_varuint(buffer: bytearray, value: int) -> None:
     """Appends `value` (a non-negative int) to `buffer` as unsigned LEB128,
     matching the BRF spec's Varuint Encoding section exactly."""

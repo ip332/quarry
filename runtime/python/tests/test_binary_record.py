@@ -1,18 +1,27 @@
-"""Unit tests for quarry.runtime.python.binary_record (PR-119).
+"""Unit tests for quarry.runtime.python.binary_record (PR-119 scalars,
+PR-120 enums).
 
 Run directly: PYTHONPATH=runtime/python/src python3 -m unittest
 runtime/python/tests/test_binary_record.py -v
 
 Exercised only through the public module API (pack_scalar/unpack_scalar/
-append_varuint/read_varuint/encode_record/parse_record) -- these tests know
-nothing about the Python backend's code generator; they validate the
-runtime primitive layer in isolation, matching this project's "runtime
-components must not depend on the compiler" boundary.
+pack_enum/unpack_enum/append_varuint/read_varuint/encode_record/
+parse_record) -- these tests know nothing about the Python backend's code
+generator; they validate the runtime primitive layer in isolation, matching
+this project's "runtime components must not depend on the compiler"
+boundary.
 """
 
 import unittest
+from enum import IntEnum
 
 from quarry.runtime.python import binary_record as brf
+
+
+class Status(IntEnum):
+    OK = 0
+    WARNING = 1
+    ERROR = 2
 
 
 class ScalarRoundTripTest(unittest.TestCase):
@@ -110,6 +119,49 @@ class ScalarRoundTripTest(unittest.TestCase):
             brf.pack_scalar("string", "hello")
         with self.assertRaises(brf.DecodeError):
             brf.unpack_scalar("string", b"hello")
+
+
+class EnumRoundTripTest(unittest.TestCase):
+    def test_round_trip_by_enum_member(self):
+        encoded = brf.pack_enum(Status, Status.WARNING, "uint8")
+        self.assertEqual(encoded, b"\x01")
+        decoded = brf.unpack_enum(Status, "uint8", encoded)
+        self.assertIs(decoded, Status.WARNING)
+
+    def test_round_trip_by_raw_int_matching_a_member(self):
+        # A raw int equal to a defined member's value is accepted (this is
+        # how a plain-int field value that happens to match a member ends
+        # up validated-by-construction), and produces byte-identical output
+        # to encoding the enum member directly.
+        encoded_from_int = brf.pack_enum(Status, 1, "uint8")
+        encoded_from_member = brf.pack_enum(Status, Status.WARNING, "uint8")
+        self.assertEqual(encoded_from_int, encoded_from_member)
+
+    def test_pack_matches_pack_scalar_for_the_same_width_and_value(self):
+        # pack_enum must be wire-identical to pack_scalar for the
+        # underlying width/value -- it is validate-then-delegate, not a
+        # different wire representation.
+        self.assertEqual(brf.pack_enum(Status, Status.ERROR, "uint8"),
+                        brf.pack_scalar("uint8", int(Status.ERROR)))
+
+    def test_pack_rejects_a_value_not_defined_by_the_enum(self):
+        with self.assertRaises(brf.EncodeError):
+            brf.pack_enum(Status, 99, "uint8")
+
+    def test_unpack_rejects_a_decoded_value_not_defined_by_the_enum(self):
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_enum(Status, "uint8", bytes([99]))
+
+    def test_unpack_rejects_wrong_length_data(self):
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_enum(Status, "uint8", b"")
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_enum(Status, "uint8", b"\x00\x00")
+
+    def test_wider_width_type_round_trips(self):
+        encoded = brf.pack_enum(Status, Status.ERROR, "uint32")
+        self.assertEqual(len(encoded), 4)
+        self.assertIs(brf.unpack_enum(Status, "uint32", encoded), Status.ERROR)
 
 
 class VaruintTest(unittest.TestCase):

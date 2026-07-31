@@ -23,6 +23,16 @@ with the C and C++ backends for the same field values (see
 array, and nested-record fields remain unsupported and fail generation
 with a diagnostic naming the record and field.
 
+PR-120 added enum field support. A field may now reference a
+same-namespace enum whose declared values are all non-negative; the enum
+renders as a real `enum.IntEnum` subclass, and `pack_enum`/`unpack_enum`
+(two small additions to `binary_record.py`) validate membership and
+delegate to the existing scalar pack/unpack for the enum's wire width.
+An enum-only namespace (no records) now emits a file too, resolving a
+limitation PR-118/PR-119 had documented. String, bytes, array, and
+nested-record fields, and cross-namespace enum references, remain
+unsupported and fail generation with a diagnostic.
+
 This document supersedes, for implementation purposes, the investigation
 notes captured in this repository's PR-117 (native Python backend
 architecture) and PR-118A (encode/decode API boundary) working reports;
@@ -117,12 +127,12 @@ an incidental implementation detail:
   namespace-prefixed like C's `quarry_telemetry_Sample_t` -- Python's own
   package/module structure already disambiguates.
 
-### Scope: scalar record fields only
+### Scope: scalar and enum record fields
 
-Enums are not rendered at all. `namespace_emits_file()` for Python is
-`ns.records_size() > 0`, ignoring any enums the namespace may also declare
--- an enum-only namespace emits nothing. This is a narrow, intentional
-scope limitation (see "Known limitations" below), not an oversight.
+`namespace_emits_file()` for Python is `ns.records_size() > 0 ||
+ns.enums_size() > 0`: a namespace emits a module if it owns records,
+enums, or both. String, bytes, array, and nested-record fields remain
+unsupported.
 
 ### Scalar field lowering
 
@@ -133,15 +143,16 @@ established convention), producing a `runtime_type_name` string (e.g.
 `"uint32"`, passed directly to `binary_record.pack_scalar()`/
 `unpack_scalar()`) and a `python_type_hint` (`"bool"`, `"int"`, or
 `"float"`, used for the dataclass field's type annotation) per field. Any
-field whose type is not one of these eleven fails generation with a
-diagnostic naming the record and field:
+field whose type is not one of these eleven, and not a supported enum
+reference (see below), fails generation with a diagnostic naming the
+record and field:
 
 ```
 backend_python: field '<record-fqn>.<field-name>' has a type the Python
 backend does not support yet -- only bool, fixed-width signed/unsigned
-integer, and f32/f64 scalar fields are supported (see
-docs/design/python-backend.md); enum, string, bytes, array, and nested
-record fields remain unsupported
+integer, f32/f64 scalar fields, and same-namespace non-negative-valued
+enum fields are supported (see docs/design/python-backend.md); string,
+bytes, array, and nested record fields remain unsupported
 ```
 
 A record/class that silently dropped an unsupported field would be
@@ -150,6 +161,46 @@ partial, misleading output; this backend follows the project's existing
 fields remains fully supported (and, since PR-119, has genuinely working
 -- not stubbed -- encode/decode: an empty field list and a decode that
 expects no known field indices).
+
+### Enum field lowering
+
+PR-120 scope: a field may reference an enum declared in the **same
+namespace** as the referencing record, and only if every value the enum
+declares is non-negative -- matching the BRF spec's Enum Encoding rule and
+the C++ backend's own field-support boundary (`compiler/backend/
+backend.cpp`'s `runtime_enum_encoding`). Unlike `compiler/backend_c/
+backend_c.cpp`'s enum catalog, Python's does **not** also cap declared
+values to the 32-bit signed integer range -- that cap is backend_c's own
+narrower implementation choice, not a BRF-wide restriction, and Python's
+width bucketing (`enum_width_type_name_for_max_value`, mirroring both
+existing backends' identical `enum_width_for_max_value`) already covers
+every value up to `uint64::max` cleanly. A whole-schema `EnumCatalog`
+(built once via `collect_enum_catalog`, mirroring `backend_c`'s identical
+in spirit but independently-implemented catalog) resolves each enum-typed
+field's target by `ir_id`, recording the enum's bare class name (e.g.
+`"Status"` -- no namespace prefix, unlike C's symbol-prefixed constants,
+since Python's own package/module structure already disambiguates) and
+its wire width type name (`"uint8"`/`"uint16"`/`"uint32"`/`"uint64"`,
+passed to `pack_enum`/`unpack_enum`).
+
+A cross-namespace enum reference fails generation:
+
+```
+backend_python: field '<record-fqn>.<field-name>' references enum
+'<EnumName>' declared in a different namespace ('<other-namespace>');
+cross-namespace enum field references are not yet supported (see
+docs/design/python-backend.md)
+```
+
+An enum with any negative declared value fails generation for any field
+referencing it:
+
+```
+backend_python: field '<record-fqn>.<field-name>' references an enum with
+a negative declared value; enum fields are only supported when every
+declared value is non-negative, matching the BRF spec's Enum Encoding rule
+(see docs/design/python-backend.md)
+```
 
 ---
 
@@ -242,6 +293,56 @@ A namespace with multiple records repeats this block once per record,
 separated by the same single blank line used within the template (a
 judgment call for a case the literal single-record example doesn't show).
 
+### Enum fields
+
+An enum-typed field renders as `enum.IntEnum`, one class per declared
+enum, always emitted **before** any record in the same file:
+
+```python
+from enum import IntEnum
+
+class Status(IntEnum):
+    OK = 0
+    WARNING = 1
+    ERROR = 2
+
+
+@dataclass
+class Sample:
+    status: Optional[Status] = None
+    ...
+
+def _encode_sample(value):
+    fields = []
+    if value.status is not None:
+        fields.append((0, _brf.pack_enum(Status, value.status, "uint8")))
+    ...
+
+def _decode_sample(data):
+    ...
+    status = None
+    if 0 in fields:
+        status = _brf.unpack_enum(Status, "uint8", fields[0])
+    return Sample(status=status, ...)
+```
+
+The enum must be rendered before the record: a dataclass field annotation
+(`Optional[Status] = None`) evaluates eagerly when the class body
+executes (there is no `from __future__ import annotations` here), so
+`Status` must already exist in the module namespace at that point. This
+needs no topological sort the way nested records need in the C/C++
+backends -- an enum is a simple leaf value collection, never itself
+embedding a field, so there is no cycle to detect and same-namespace
+scope keeps every reference resolvable within one file. If a namespace
+declares only enums (no records), the module contains just the enum
+class(es) and none of the `dataclass`/`typing` imports or record
+machinery.
+
+`from enum import IntEnum` is emitted only when the file declares at
+least one enum (unlike `from typing import Optional`, which is always
+emitted regardless of whether any field needs it, since every dataclass
+field -- scalar or enum -- uses `Optional[...]`).
+
 ---
 
 ## Runtime boundary and compatibility epoch
@@ -284,7 +385,25 @@ binary_record.h` (C), covering the same scalar-field subset:
   Python's own exception mechanism is the idiomatic fit PR-118A's
   API-boundary investigation already anticipated.
 
-No enum, string, bytes, array, or nested-record codec support exists in
+Since PR-120, two more small functions cover enum fields -- deliberately
+kept minimal (validate-then-delegate, no new wire-format logic, no new
+`struct` usage), per this PR's "do not expand the runtime unless
+genuinely required" instruction:
+
+* `pack_enum(enum_cls, value, type_name)` -- validates `value` is a
+  member of `enum_cls` by constructing `enum_cls(value)` (which also
+  accepts a raw int matching a defined member, using the stdlib's own
+  `IntEnum` constructor as the validation, per PR-117 §8's finding that it
+  already raises `ValueError` for undefined values with no extra
+  validation code needed), converting that `ValueError` to `EncodeError`,
+  then delegating to `pack_scalar` for the actual big-endian encoding.
+* `unpack_enum(enum_cls, type_name, data)` -- delegates to `unpack_scalar`
+  to decode the underlying integer, then constructs `enum_cls` from it,
+  converting a `ValueError` (a decoded integer the enum does not define)
+  to `DecodeError` -- matching the BRF spec's requirement that an
+  undefined decoded enum value is a decode failure.
+
+No string, bytes, array, or nested-record codec support exists in
 `binary_record.py` yet -- see the roadmap below.
 
 Every generated module begins with an import-time compatibility check:
@@ -327,10 +446,13 @@ contract can change on its own schedule.
   the same trick doesn't directly apply. A follow-up PR could introduce a
   small shared source of truth (e.g. a generated `_version.py` the
   packaging step copies in) if manual drift becomes a real problem.
-* **No enum, string, bytes, array, or nested-record support.** A field of
-  any of those types fails generation with a diagnostic; an enum-owning
-  namespace with no records emits nothing at all. Deferred to later PRs,
-  per the roadmap below.
+* **No string, bytes, array, or nested-record support.** A field of any
+  of those types fails generation with a diagnostic. Deferred to later
+  PRs, per the roadmap below.
+* **No cross-namespace enum references.** Only a same-namespace enum
+  reference is supported; a field referencing an enum declared elsewhere
+  fails generation with a diagnostic. Matches the same restriction the
+  C/C++ backends impose on enum fields.
 * **`float32` round-trips through Python's only floating-point type.**
   Python has no native single-precision float; `pack_scalar("float32",
   value)` always narrows a Python `float` (always double-precision) to
@@ -355,8 +477,8 @@ contract can change on its own schedule.
   `sys.path` with real (non-namespace-package) `__init__.py` files at the
   shared `quarry` segment. Not exercised by this PR's tests (which use a
   distinct `acme.*` test namespace precisely to sidestep this), and not a
-  concern for the isolated verification use cases PR-118/PR-119 target,
-  but worth resolving (e.g. via PEP 420 namespace packages at the shared
+  concern for the isolated verification use cases PR-118/PR-119/PR-120
+  target, but worth resolving (e.g. via PEP 420 namespace packages at the shared
   prefix, or reserving a different runtime package name) before real
   multi-namespace production use.
 * **No re-exports in generated `__init__.py` files.** Every generated
@@ -377,17 +499,22 @@ Sequencing sketch (subject to revision as each PR reveals concrete
 problems), continuing PR-117 §11's sketch:
 
 1. PR-118: architecture skeleton -- zero-field records only. Done.
-2. PR-119 (this PR): scalar field support (bool, fixed-width integers,
-   f32/f64) plus real runtime codec mechanics in `runtime/python/`
-   (varuint, header/Field Directory assembly, `struct`-based scalar
-   pack/unpack), verified byte-for-byte wire-compatible with C/C++. Done.
-3. Enum support (`enum.IntEnum`, matching PR-117 §8's finding that
-   `IntEnum`'s constructor already raises `ValueError` for undefined
-   values with no extra validation code needed).
+2. PR-119: scalar field support (bool, fixed-width integers, f32/f64)
+   plus real runtime codec mechanics in `runtime/python/` (varuint,
+   header/Field Directory assembly, `struct`-based scalar pack/unpack),
+   verified byte-for-byte wire-compatible with C/C++. Done.
+3. PR-120 (this PR): enum support (`enum.IntEnum`, matching PR-117 §8's
+   finding that `IntEnum`'s constructor already raises `ValueError` for
+   undefined values with no extra validation code needed), same-namespace
+   and non-negative-valued-only, verified byte-for-byte wire-compatible
+   with C/C++. Done.
 4. String/bytes fields.
 5. Array fields.
 6. Nested record fields.
-7. Python-keyword escaping and generated `__init__.py` re-exports, once
+7. Cross-namespace enum/record references, if a concrete need is
+   demonstrated (currently out of scope for every backend, not just
+   Python's).
+8. Python-keyword escaping and generated `__init__.py` re-exports, once
    there is real content worth re-exporting.
 
 ---
@@ -401,8 +528,13 @@ generation, exact-template verification, helper-function snake_case
 naming, method-to-helper delegation, epoch-check preamble presence and
 placement, the unsupported-field-type failure diagnostic, all eleven
 scalar types generating successfully, generated encode/decode helper text
-referencing the runtime correctly, enum-only-namespace exclusion,
-plan/generate agreement, and generation determinism.
+referencing the runtime correctly, plan/generate agreement, and
+generation determinism. Since PR-120, it also covers: enum class
+generation and its ordering before any referencing record; enum wire
+width selection for the smallest unsigned type covering the max declared
+value; the cross-namespace-enum-field diagnostic; the
+negative-enum-value diagnostic; and an enum-only namespace now emitting a
+file (fixing the PR-118/PR-119-documented limitation).
 `tests/tools/schema_compiler_tool_test.cpp` adds `--language python`
 coverage (list-outputs, determinism, `--file-extension` rejection,
 generated content).
@@ -416,7 +548,11 @@ Since PR-119, three more test layers exist:
   round trips, and every structural rejection case: truncated header,
   bad version, nonzero flags/reserved, payload-length mismatch, truncated
   directory, unsorted/duplicate directory entries, out-of-range field
-  ranges, overlapping ranges, truncated field values, and trailing bytes).
+  ranges, overlapping ranges, truncated field values, and trailing bytes.
+  Since PR-120: `pack_enum`/`unpack_enum` round trips (by member and by a
+  raw int matching a member), wire-identity with `pack_scalar` for the
+  same width/value, rejection of a value not defined by the enum on both
+  encode and decode, and a wider (`uint32`) width round trip.
   `tests/backend_python/python_runtime_test.cpp` runs this suite via a
   real `python3 -m unittest` subprocess so `ctest` catches runtime
   regressions automatically.
@@ -428,13 +564,19 @@ Since PR-119, three more test layers exist:
   expected wire bytes; confirm an absent field decodes as `None`;
   confirm an out-of-range scalar value raises `EncodeError` at encode
   time; confirm truncated/trailing-byte/garbage input raises
-  `DecodeError` at decode time; and confirm an epoch mismatch still
-  raises `ImportError` at import time.
+  `DecodeError` at decode time; confirm an epoch mismatch still raises
+  `ImportError` at import time; and, since PR-120, round-trip an enum
+  field (including the raw-int-matching-a-member case and absence
+  alongside an enum field), confirm an enum value the schema does not
+  define raises `EncodeError` at encode time, and confirm a decoded byte
+  the schema does not define raises `DecodeError` at decode time.
 * `tests/interop/python_cpp_c_codec_interop_test.cpp` -- the genuinely new
-  kind of test this PR adds: generates one scalar-only schema (covering
-  all eleven supported types) through the C++, C, and Python backends,
-  compiles small C and C++ harnesses and writes a Python harness script,
-  and verifies all three encoders produce byte-for-byte identical output
-  for identical field values, all three decoders accept bytes produced by
-  either of the other two languages, and all three identically reject a
-  truncated buffer and identically reject extra trailing bytes.
+  kind of test PR-119 added: generates one schema (covering all eleven
+  supported scalar types, and, since PR-120, a same-namespace enum field)
+  through the C++, C, and Python backends, compiles small C and C++
+  harnesses and writes a Python harness script, and verifies all three
+  encoders produce byte-for-byte identical output for identical field
+  values, all three decoders accept bytes produced by either of the other
+  two languages, all three identically reject a truncated buffer and
+  identically reject extra trailing bytes, and (since PR-120) all three
+  identically reject a decoded enum byte the schema does not define.

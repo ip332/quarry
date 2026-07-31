@@ -23,6 +23,8 @@ using quarry::compiler::context::CompilerContext;
 using quarry::compiler::diagnostics::DiagnosticEngine;
 using quarry::compiler::schema_ir::SchemaIrModel;
 using quarry::compiler::schema_ir::SchemaIrValidator;
+using ::quarry::schema_ir::EnumIR;
+using ::quarry::schema_ir::EnumValueIR;
 using ::quarry::schema_ir::FieldIR;
 using ::quarry::schema_ir::NamespaceIR;
 using ::quarry::schema_ir::RecordIR;
@@ -56,6 +58,21 @@ void assert_valid(const SchemaIrModel& schema_ir) {
     record->set_name(std::string(name));
     record->set_fqn(std::string(fqn));
     return record;
+}
+
+[[nodiscard]] EnumIR* add_enum(NamespaceIR& ns, std::uint64_t ir_id, std::string_view name,
+                               std::string_view fqn) {
+    EnumIR* enum_ir = ns.add_enums();
+    enum_ir->set_ir_id(ir_id);
+    enum_ir->set_name(std::string(name));
+    enum_ir->set_fqn(std::string(fqn));
+    return enum_ir;
+}
+
+void add_enum_value(EnumIR& enum_ir, std::string_view name, std::int64_t value) {
+    EnumValueIR* value_ir = enum_ir.add_values();
+    value_ir->set_name(std::string(name));
+    value_ir->set_value(value);
 }
 
 [[nodiscard]] const GeneratedFile* find_file(const CodegenResult& result, std::string_view path) {
@@ -273,11 +290,11 @@ TEST(BackendPythonTest, EpochCheckPreambleImportsRuntimeAndRaisesOnMismatch) {
 }
 
 TEST(BackendPythonTest, UnsupportedFieldTypeFailsGenerationNamingRecordAndField) {
-    // string (like bytes/array/enum/record-reference fields) remains
-    // unsupported in this PR's scalar-only scope -- matching the same
-    // "swap the representative unsupported-type example once it becomes
-    // supported" maintenance pattern the C backend's own test history
-    // established each time it added a new field category.
+    // string (like bytes, array, and record-reference fields) remains
+    // unsupported -- matching the same "swap the representative
+    // unsupported-type example once it becomes supported" maintenance
+    // pattern the C backend's own test history established each time it
+    // added a new field category (enum became supported in PR-120).
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
@@ -376,27 +393,150 @@ TEST(BackendPythonTest, ScalarRecordEncodeDecodeHelpersReferenceRuntimeCorrectly
     EXPECT_NE(content.find("return Sample(count=count)"), std::string::npos);
 }
 
-TEST(BackendPythonTest, NamespaceWithOnlyEnumsEmitsNoFileInThisSkeleton) {
-    // PR-118 scope is records only; enum-only namespaces emit nothing until
-    // a later PR adds enum rendering (docs/design/python-backend.md).
+TEST(BackendPythonTest, EnumFieldGeneratesIntEnumClassBeforeReferencingRecord) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    EnumIR* enum_ir = add_enum(*root, 2, "Status", "Status");
+    add_enum_value(*enum_ir, "OK", 0);
+    add_enum_value(*enum_ir, "WARNING", 1);
+    add_enum_value(*enum_ir, "ERROR", 2);
+    RecordIR* record = add_zero_field_record(*root, 3, 1U, "Sample", "Sample");
+    FieldIR* field = record->add_fields();
+    field->set_name("status");
+    field->set_field_index(0);
+    field->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(2);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1U);
+
+    const std::string& content = result.files[0].content;
+    EXPECT_NE(content.find("from enum import IntEnum"), std::string::npos);
+    EXPECT_NE(content.find("class Status(IntEnum):\n"
+                          "    OK = 0\n"
+                          "    WARNING = 1\n"
+                          "    ERROR = 2\n"),
+             std::string::npos);
+    EXPECT_NE(content.find("status: Optional[Status] = None"), std::string::npos);
+    EXPECT_NE(content.find("fields.append((0, _brf.pack_enum(Status, value.status, \"uint8\")))"),
+             std::string::npos);
+    EXPECT_NE(content.find("status = _brf.unpack_enum(Status, \"uint8\", fields[0])"),
+             std::string::npos);
+    // The enum class must be fully defined before the record that
+    // references it, since the dataclass annotation evaluates eagerly.
+    EXPECT_LT(content.find("class Status(IntEnum):"), content.find("class Sample:"));
+}
+
+TEST(BackendPythonTest, EnumWidthMatchesSmallestUnsignedTypeForMaxDeclaredValue) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    EnumIR* enum_ir = add_enum(*root, 2, "Big", "Big");
+    add_enum_value(*enum_ir, "SMALL", 0);
+    add_enum_value(*enum_ir, "LARGE", 300); // exceeds uint8, needs uint16
+    RecordIR* record = add_zero_field_record(*root, 3, 1U, "Sample", "Sample");
+    FieldIR* field = record->add_fields();
+    field->set_name("value");
+    field->set_field_index(0);
+    field->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(2);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1U);
+
+    const std::string& content = result.files[0].content;
+    EXPECT_NE(content.find("_brf.pack_enum(Big, value.value, \"uint16\")"), std::string::npos);
+    EXPECT_NE(content.find("_brf.unpack_enum(Big, \"uint16\", fields[0])"), std::string::npos);
+}
+
+TEST(BackendPythonTest, CrossNamespaceEnumFieldFailsGenerationNamingRecordAndField) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* enums_ns = add_child_namespace(*root, 2, "enums", "enums");
+    EnumIR* enum_ir = add_enum(*enums_ns, 3, "Status", "enums.Status");
+    add_enum_value(*enum_ir, "OK", 0);
+    NamespaceIR* records_ns = add_child_namespace(*root, 4, "records", "records");
+    RecordIR* record = add_zero_field_record(*records_ns, 5, 1U, "Sample", "records.Sample");
+    FieldIR* field = record->add_fields();
+    field->set_name("status");
+    field->set_field_index(0);
+    field->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(3);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    EXPECT_FALSE(result.success);
+    EXPECT_NE(result.error_message.find("records.Sample.status"), std::string::npos);
+    EXPECT_NE(result.error_message.find("cross-namespace"), std::string::npos);
+
+    const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
+    EXPECT_FALSE(plan_result.success);
+}
+
+TEST(BackendPythonTest, NegativeEnumValueFieldFailsGenerationNamingRecordAndField) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    EnumIR* enum_ir = add_enum(*root, 2, "Status", "Status");
+    add_enum_value(*enum_ir, "UNKNOWN", -1);
+    add_enum_value(*enum_ir, "OK", 0);
+    RecordIR* record = add_zero_field_record(*root, 3, 1U, "Sample", "Sample");
+    FieldIR* field = record->add_fields();
+    field->set_name("status");
+    field->set_field_index(0);
+    field->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(2);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    EXPECT_FALSE(result.success);
+    EXPECT_NE(result.error_message.find("Sample.status"), std::string::npos);
+    EXPECT_NE(result.error_message.find("negative declared value"), std::string::npos);
+
+    const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
+    EXPECT_FALSE(plan_result.success);
+}
+
+TEST(BackendPythonTest, NamespaceWithOnlyEnumsEmitsAFileContainingJustTheEnum) {
+    // PR-120: enum-only namespaces now emit a file (fixing PR-118/PR-119's
+    // documented "known limitation"). No record class appears since this
+    // namespace declares none.
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
     root->set_ir_id(1);
     NamespaceIR* ns = add_child_namespace(*root, 2, "acme", "acme");
-    ::quarry::schema_ir::EnumIR* enum_ir = ns->add_enums();
-    enum_ir->set_ir_id(3);
-    enum_ir->set_name("Status");
-    enum_ir->set_fqn("acme.Status");
-    ::quarry::schema_ir::EnumValueIR* value_ir = enum_ir->add_values();
-    value_ir->set_name("OK");
-    value_ir->set_value(0);
+    EnumIR* enum_ir = add_enum(*ns, 3, "Status", "acme.Status");
+    add_enum_value(*enum_ir, "OK", 0);
+    add_enum_value(*enum_ir, "WARNING", 1);
     assert_valid(schema_ir);
 
     Backend backend;
     const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
     ASSERT_TRUE(plan_result.success) << plan_result.error_message;
-    EXPECT_TRUE(plan_result.plan.files.empty());
+    ASSERT_EQ(plan_result.plan.files.size(), 2U); // acme/__init__.py + acme/schema.py
+
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    const GeneratedFile* module = find_file(result, "generated/acme/schema.py");
+    ASSERT_NE(module, nullptr);
+    EXPECT_NE(module->content.find("from enum import IntEnum"), std::string::npos);
+    EXPECT_NE(module->content.find("class Status(IntEnum):\n"
+                                  "    OK = 0\n"
+                                  "    WARNING = 1\n"),
+             std::string::npos);
+    EXPECT_EQ(module->content.find("@dataclass"), std::string::npos);
+    EXPECT_EQ(module->content.find("class Sample"), std::string::npos);
 }
 
 TEST(BackendPythonTest, PlanAndGenerateAgreeOnOutputPaths) {
