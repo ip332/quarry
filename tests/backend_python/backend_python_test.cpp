@@ -290,7 +290,8 @@ TEST(BackendPythonTest, EpochCheckPreambleImportsRuntimeAndRaisesOnMismatch) {
 }
 
 TEST(BackendPythonTest, UnsupportedFieldTypeFailsGenerationNamingRecordAndField) {
-    // Nested-record fields remain unsupported; arrays are covered below.
+    // Nested-record fields remain unsupported; supported variable-width arrays
+    // are covered below.
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
@@ -357,6 +358,49 @@ TEST(BackendPythonTest, ScalarAndEnumArraysGenerateCorrectAnnotationsAndHelpers)
              std::string::npos);
     EXPECT_NE(content.find(
                   "_brf.unpack_array_of_enum(Status, \"uint8\", fields[1], 3)"),
+             std::string::npos);
+}
+
+TEST(BackendPythonTest, StringAndBytesArraysGenerateCorrectAnnotationsAndHelpers) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    RecordIR* record = add_zero_field_record(*root, 2, 1U, "Sample", "Sample");
+
+    FieldIR* labels = record->add_fields();
+    labels->set_name("labels");
+    labels->set_field_index(0);
+    auto* labels_array = labels->mutable_type()->mutable_array();
+    labels_array->set_max_elements(3);
+    labels_array->mutable_element_type()->mutable_string()->set_max_bytes(8);
+
+    FieldIR* blobs = record->add_fields();
+    blobs->set_name("blobs");
+    blobs->set_field_index(1);
+    auto* blobs_array = blobs->mutable_type()->mutable_array();
+    blobs_array->set_max_elements(2);
+    blobs_array->mutable_element_type()->mutable_bytes()->set_max_bytes(4);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1U);
+    const std::string& content = result.files[0].content;
+    EXPECT_NE(content.find("labels: Optional[list[str]] = None"), std::string::npos);
+    EXPECT_NE(content.find("blobs: Optional[list[bytes]] = None"), std::string::npos);
+    EXPECT_NE(content.find(
+                  "_brf.pack_array_of_string(value.labels, 3, 8)"),
+             std::string::npos);
+    EXPECT_NE(content.find(
+                  "_brf.unpack_array_of_string(fields[0], 3, 8)"),
+             std::string::npos);
+    EXPECT_NE(content.find(
+                  "_brf.pack_array_of_bytes(value.blobs, 2, 4)"),
+             std::string::npos);
+    EXPECT_NE(content.find(
+                  "_brf.unpack_array_of_bytes(fields[1], 2, 4)"),
              std::string::npos);
 }
 

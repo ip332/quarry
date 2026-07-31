@@ -73,6 +73,9 @@ target_link_libraries(backend_python_test PRIVATE quarry_schema_ir_warning_tweak
 find_program(QUARRY_PYTHON3_EXECUTABLE python3)
 add_quarry_gtest(python_execution_test backend_python/python_execution_test.cpp
                       quarry_compiler_support)
+target_link_libraries(python_execution_test PRIVATE quarry_compiler_backend_python)
+target_link_libraries(python_execution_test PRIVATE quarry_compiler_schema_ir)
+target_link_libraries(python_execution_test PRIVATE quarry_schema_ir_warning_tweaks)
 add_dependencies(python_execution_test quarry_schema_compiler)
 target_compile_definitions(python_execution_test PRIVATE
     QUARRY_SCHEMA_COMPILER_TOOL="$<TARGET_FILE:quarry_schema_compiler>"
@@ -145,6 +148,10 @@ target_compile_definitions(c_cpp_nested_record_interop_test PRIVATE
 add_quarry_gtest(python_cpp_c_codec_interop_test
                       interop/python_cpp_c_codec_interop_test.cpp
                       quarry_compiler_support)
+target_link_libraries(python_cpp_c_codec_interop_test PRIVATE quarry_compiler_backend)
+target_link_libraries(python_cpp_c_codec_interop_test PRIVATE quarry_compiler_backend_python)
+target_link_libraries(python_cpp_c_codec_interop_test PRIVATE quarry_compiler_schema_ir)
+target_link_libraries(python_cpp_c_codec_interop_test PRIVATE quarry_schema_ir_warning_tweaks)
 add_dependencies(python_cpp_c_codec_interop_test quarry_schema_compiler)
 target_compile_definitions(python_cpp_c_codec_interop_test PRIVATE
     QUARRY_SCHEMA_COMPILER_TOOL="$<TARGET_FILE:quarry_schema_compiler>"

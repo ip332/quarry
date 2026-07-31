@@ -1,7 +1,8 @@
 """Quarry Python runtime: BRF codec primitives.
 
 Covers bool, fixed-width signed/unsigned integers, float32/float64, enums,
-fixed-width arrays of scalar and enum values, varuint I/O, and whole-record
+strings, bytes, fixed-width arrays of scalar and enum values, and
+length-delimited arrays of strings and bytes, plus varuint I/O and whole-record
 (16-byte header + Field Directory + Payload) assembly/parsing. Mirrors the
 byte-for-byte wire behavior of
 quarry/runtime/binary_record.hpp (C++) and quarry/runtime_c/binary_record.h
@@ -9,9 +10,8 @@ quarry/runtime/binary_record.hpp (C++) and quarry/runtime_c/binary_record.h
 for big-endian packing/range-checked scalar conversion), per this project's
 "do not hand-write integer packing if the stdlib already provides it" rule.
 
-String, bytes, and nested-record support are implemented separately or remain
-backend limitations; see docs/design/python-backend.md for the supported
-surface and roadmap.
+Nested-record fields, record arrays, and nested arrays remain backend
+limitations; see docs/design/python-backend.md for the supported surface.
 """
 
 import struct
@@ -330,6 +330,111 @@ def unpack_array_of_enum(enum_cls, type_name: str, data: bytes, max_elements: in
     for index in range(count):
         start = index * element_width
         values.append(unpack_enum(enum_cls, type_name, remaining[start:start + element_width]))
+    return values
+
+
+def _read_array_varuint(data: bytes, offset: int, label: str) -> tuple[int, int]:
+    """Reads an array count/element length while retaining its byte offset."""
+    try:
+        return read_varuint(data, offset)
+    except DecodeError as error:
+        raise DecodeError(f"malformed {label} varuint at byte offset {offset}: {error}") from error
+
+
+def pack_array_of_string(values: list[str], max_elements: int, max_bytes: int) -> bytes:
+    """Encodes a bounded array of UTF-8 string elements.
+
+    The array count and every element length are varuints; each element's
+    bytes are produced by pack_string, so UTF-8 and encoded-byte bounds remain
+    centralized in the existing string helper.
+    """
+    if len(values) > max_elements:
+        raise EncodeError(
+            f"array length {len(values)} exceeds max_elements={max_elements}")
+    buffer = bytearray()
+    append_varuint(buffer, len(values))
+    for index, value in enumerate(values):
+        try:
+            encoded = pack_string(value, max_bytes)
+        except EncodeError as error:
+            raise EncodeError(f"array element {index}: {error}") from error
+        append_varuint(buffer, len(encoded))
+        buffer.extend(encoded)
+    return bytes(buffer)
+
+
+def unpack_array_of_string(data: bytes, max_elements: int, max_bytes: int) -> list[str]:
+    """Decodes a bounded array of length-delimited UTF-8 string elements."""
+    count, offset = _read_array_varuint(data, 0, "array count")
+    if count > max_elements:
+        raise DecodeError(f"array count {count} exceeds max_elements={max_elements}")
+    values = []
+    for index in range(count):
+        length_offset = offset
+        element_length, offset = _read_array_varuint(data, offset, "element length")
+        if element_length > max_bytes:
+            raise DecodeError(
+                f"array element {index} length {element_length} exceeds max_bytes={max_bytes} "
+                f"at byte offset {length_offset}")
+        if element_length > len(data) - offset:
+            raise DecodeError(
+                f"truncated array element {index} payload at byte offset {offset}: "
+                f"declared {element_length} byte(s), only {len(data) - offset} remain")
+        element_end = offset + element_length
+        try:
+            values.append(unpack_string(data[offset:element_end], max_bytes))
+        except DecodeError as error:
+            raise DecodeError(
+                f"array element {index} at byte offset {offset}: {error}") from error
+        offset = element_end
+    if offset != len(data):
+        raise DecodeError(f"trailing bytes in array payload at byte offset {offset}")
+    return values
+
+
+def pack_array_of_bytes(values: list[bytes], max_elements: int, max_bytes: int) -> bytes:
+    """Encodes a bounded array of arbitrary byte-string elements."""
+    if len(values) > max_elements:
+        raise EncodeError(
+            f"array length {len(values)} exceeds max_elements={max_elements}")
+    buffer = bytearray()
+    append_varuint(buffer, len(values))
+    for index, value in enumerate(values):
+        try:
+            encoded = pack_bytes(value, max_bytes)
+        except EncodeError as error:
+            raise EncodeError(f"array element {index}: {error}") from error
+        append_varuint(buffer, len(encoded))
+        buffer.extend(encoded)
+    return bytes(buffer)
+
+
+def unpack_array_of_bytes(data: bytes, max_elements: int, max_bytes: int) -> list[bytes]:
+    """Decodes a bounded array of arbitrary byte-string elements."""
+    count, offset = _read_array_varuint(data, 0, "array count")
+    if count > max_elements:
+        raise DecodeError(f"array count {count} exceeds max_elements={max_elements}")
+    values = []
+    for index in range(count):
+        length_offset = offset
+        element_length, offset = _read_array_varuint(data, offset, "element length")
+        if element_length > max_bytes:
+            raise DecodeError(
+                f"array element {index} length {element_length} exceeds max_bytes={max_bytes} "
+                f"at byte offset {length_offset}")
+        if element_length > len(data) - offset:
+            raise DecodeError(
+                f"truncated array element {index} payload at byte offset {offset}: "
+                f"declared {element_length} byte(s), only {len(data) - offset} remain")
+        element_end = offset + element_length
+        try:
+            values.append(unpack_bytes(data[offset:element_end], max_bytes))
+        except DecodeError as error:
+            raise DecodeError(
+                f"array element {index} at byte offset {offset}: {error}") from error
+        offset = element_end
+    if offset != len(data):
+        raise DecodeError(f"trailing bytes in array payload at byte offset {offset}")
     return values
 
 

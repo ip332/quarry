@@ -1,6 +1,6 @@
 // Proves byte-for-byte BRF wire compatibility between the Python, C++, and
 // C backends for a scalar-plus-enum-plus-string/bytes-plus-array schema
-// (PR-119 scalars, PR-120 enum, PR-121 string/bytes, PR-122 arrays): generates
+// (PR-119 scalars, PR-120 enum, PR-121 string/bytes, PR-122 fixed-width arrays): generates
 // the same schema
 // through all three `quarry-schema-compiler` backends, compiles small C
 // and C++ harness programs and writes a Python harness script against
@@ -13,7 +13,9 @@
 // extra trailing bytes appended after a valid record, (4) all three
 // languages identically reject a decoded enum byte the schema does not
 // define, and (5) all three languages identically reject malformed UTF-8
-// in a string field.
+// in a string field. PR-123 adds a separate direct Schema IR Python/C++ test
+// for string/bytes arrays because the C backend does not support those
+// element types.
 
 #include <chrono>
 #include <cstdlib>
@@ -23,6 +25,10 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+
+#include "compiler/backend/backend.hpp"
+#include "compiler/backend_python/backend_python.hpp"
+#include "compiler/schema_ir/schema_ir.hpp"
 
 #include <gtest/gtest.h>
 
@@ -618,6 +624,198 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
         << "C++ did not reject malformed UTF-8 in the label field";
     EXPECT_EQ(run_python("decode_expect_failure", malformed_utf8), 0)
         << "Python did not reject malformed UTF-8 in the label field";
+}
+
+TEST(PythonCppCCodecInteropTest, VariableWidthArraysAreCompatibleWithCpp) {
+    const std::string python3_executable = QUARRY_TEST_PYTHON3;
+    if (python3_executable.empty()) {
+        GTEST_SKIP() << "python3 interpreter not found; skipping Python/C++ interop test";
+    }
+
+    const std::filesystem::path root = make_temp_directory("variable-arrays");
+    const std::filesystem::path generated_cpp = root / "generated_cpp";
+    const std::filesystem::path generated_python = root / "generated_python";
+
+    quarry::compiler::schema_ir::SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    auto* root_namespace = schema_ir.mutable_root_namespace();
+    root_namespace->set_ir_id(1);
+    auto* acme = root_namespace->add_namespaces();
+    acme->set_ir_id(2);
+    acme->set_name("acme");
+    acme->set_fqn("acme");
+    auto* telemetry = acme->add_namespaces();
+    telemetry->set_ir_id(3);
+    telemetry->set_name("telemetry");
+    telemetry->set_fqn("acme.telemetry");
+    auto* record = telemetry->add_records();
+    record->set_ir_id(4);
+    record->set_record_id(1);
+    record->set_name("Sample");
+    record->set_fqn("acme.telemetry.Sample");
+
+    auto* labels = record->add_fields();
+    labels->set_name("labels");
+    labels->set_field_index(0);
+    auto* labels_array = labels->mutable_type()->mutable_array();
+    labels_array->set_max_elements(3);
+    labels_array->mutable_element_type()->mutable_string()->set_max_bytes(8);
+
+    auto* blobs = record->add_fields();
+    blobs->set_name("blobs");
+    blobs->set_field_index(1);
+    auto* blobs_array = blobs->mutable_type()->mutable_array();
+    blobs_array->set_max_elements(2);
+    blobs_array->mutable_element_type()->mutable_bytes()->set_max_bytes(4);
+
+    quarry::compiler::backend::Backend cpp_backend;
+    quarry::compiler::backend::CodegenOptions cpp_options;
+    cpp_options.output_directory = generated_cpp.string();
+    const auto cpp_result = cpp_backend.generate(schema_ir, cpp_options);
+    ASSERT_TRUE(cpp_result.success) << cpp_result.error_message;
+    for (const auto& file : cpp_result.files) {
+        write_text_file(generated_cpp / file.path, file.content);
+    }
+
+    quarry::compiler::backend_python::Backend python_backend;
+    quarry::compiler::backend_python::CodegenOptions python_options;
+    python_options.output_directory = generated_python.string();
+    const auto python_result = python_backend.generate(schema_ir, python_options);
+    ASSERT_TRUE(python_result.success) << python_result.error_message;
+    for (const auto& file : python_result.files) {
+        write_text_file(generated_python / file.path, file.content);
+    }
+
+    constexpr std::string_view cpp_harness = R"cpp(
+#include "acme/telemetry.generated.hpp"
+#include <cstdio>
+#include <cstring>
+#include <fstream>
+#include <iterator>
+#include <string>
+#include <vector>
+
+static acme::telemetry::Sample make_sample() {
+  acme::telemetry::SampleBuilder builder;
+  if (!builder.set_labels(std::vector<std::string>{"", std::string("caf\xC3\xA9"), "world"}))
+    return {};
+  if (!builder.set_blobs(std::vector<std::vector<std::byte>>{
+          {}, {std::byte{0x00U}, std::byte{0xFFU}, std::byte{0x80U}}}))
+    return {};
+  return builder.build();
+}
+
+static bool check_sample(const acme::telemetry::Sample& sample) {
+  if (!sample.has_labels() || sample.labels()->size() != 3 ||
+      (*sample.labels())[0] != "" ||
+      (*sample.labels())[1] != std::string("caf\xC3\xA9") ||
+      (*sample.labels())[2] != "world") return false;
+  if (!sample.has_blobs() || sample.blobs()->size() != 2 ||
+      !(*sample.blobs())[0].empty() || (*sample.blobs())[1].size() != 3 ||
+      (*sample.blobs())[1][0] != std::byte{0x00U} ||
+      (*sample.blobs())[1][1] != std::byte{0xFFU} ||
+      (*sample.blobs())[1][2] != std::byte{0x80U}) return false;
+  return true;
+}
+
+int main(int argc, char** argv) {
+  if (argc < 3) return 20;
+  if (std::strcmp(argv[1], "encode") == 0) {
+    auto encoded = acme::telemetry::encode(make_sample());
+    if (!encoded.has_value()) return 1;
+    std::ofstream output(argv[2], std::ios::binary);
+    output.write(reinterpret_cast<const char*>(encoded->data()),
+                 static_cast<std::streamsize>(encoded->size()));
+    return output ? 0 : 2;
+  }
+  std::ifstream input(argv[2], std::ios::binary);
+  const std::string raw((std::istreambuf_iterator<char>(input)), {});
+  std::vector<std::byte> data;
+  data.reserve(raw.size());
+  for (unsigned char byte : raw) data.push_back(static_cast<std::byte>(byte));
+  if (std::strcmp(argv[1], "decode") == 0) {
+    auto decoded = acme::telemetry::decode_Sample(data);
+    return decoded.has_value() && check_sample(*decoded) ? 0 : 1;
+  }
+  if (std::strcmp(argv[1], "decode_expect_failure") == 0) {
+    return acme::telemetry::decode_Sample(data).has_value() ? 1 : 0;
+  }
+  return 20;
+}
+)cpp";
+    const std::filesystem::path cpp_source = root / "cpp_harness.cpp";
+    const std::filesystem::path cpp_binary = root / "cpp_harness";
+    write_text_file(cpp_source, cpp_harness);
+    const std::string compile_cpp =
+        shell_quote(QUARRY_TEST_CXX_COMPILER) +
+        " -std=c++20 -Wall -Wextra -Wpedantic -Werror -I" +
+        shell_quote(generated_cpp.string()) + " -I" +
+        shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
+        shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
+        shell_quote(cpp_source.string()) + " -o " + shell_quote(cpp_binary.string());
+    ASSERT_EQ(run_and_get_exit_code(compile_cpp), 0) << compile_cpp;
+
+    constexpr std::string_view python_harness = R"py(
+import sys
+from acme.telemetry.schema import Sample
+
+def make_sample():
+    return Sample(labels=["", "café", "world"],
+                  blobs=[b"", bytes([0, 255, 128])])
+
+mode, path = sys.argv[1], sys.argv[2]
+if mode == "encode":
+    with open(path, "wb") as output:
+        output.write(make_sample().encode())
+elif mode == "decode":
+    with open(path, "rb") as input_file:
+        decoded = Sample.decode(input_file.read())
+    sys.exit(0 if decoded == make_sample() else 1)
+elif mode == "decode_expect_failure":
+    with open(path, "rb") as input_file:
+        data = input_file.read()
+    try:
+        Sample.decode(data)
+    except Exception:
+        sys.exit(0)
+    sys.exit(1)
+else:
+    sys.exit(20)
+)py";
+    const std::filesystem::path python_source = root / "python_harness.py";
+    write_text_file(python_source, python_harness);
+    const std::string python_path =
+        generated_python.string() + ":" + std::string(QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR);
+    const auto run_python = [&](std::string_view mode, const std::filesystem::path& path) {
+        return run_and_get_exit_code(
+            "PYTHONPATH=" + shell_quote(python_path) + " " + shell_quote(python3_executable) +
+            " " + shell_quote(python_source.string()) + " " + std::string(mode) + " " +
+            shell_quote(path.string()));
+    };
+
+    const std::filesystem::path cpp_encoded = root / "cpp_encoded.bin";
+    const std::filesystem::path python_encoded = root / "python_encoded.bin";
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " encode " +
+                                    shell_quote(cpp_encoded.string())),
+             0);
+    ASSERT_EQ(run_python("encode", python_encoded), 0);
+    EXPECT_EQ(read_binary_file(cpp_encoded), read_binary_file(python_encoded));
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " decode " +
+                                    shell_quote(python_encoded.string())),
+             0);
+    EXPECT_EQ(run_python("decode", cpp_encoded), 0);
+
+    const std::filesystem::path trailing = root / "trailing.bin";
+    std::string trailing_bytes = read_binary_file(cpp_encoded);
+    trailing_bytes.push_back('\0');
+    std::ofstream trailing_output(trailing, std::ios::binary);
+    trailing_output.write(trailing_bytes.data(),
+                          static_cast<std::streamsize>(trailing_bytes.size()));
+    trailing_output.close();
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) +
+                                    " decode_expect_failure " + shell_quote(trailing.string())),
+             0);
+    EXPECT_EQ(run_python("decode_expect_failure", trailing), 0);
 }
 
 } // namespace

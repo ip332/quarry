@@ -1,5 +1,6 @@
 // Proves the Python backend (PR-118 skeleton, PR-119 scalar support,
-// PR-120 enum support, PR-121 string/bytes support) produces a package
+// PR-120 enum support, PR-121 string/bytes support, PR-123 variable-width
+// arrays) produces a package
 // that a real Python interpreter can actually import and use, matching
 // the project's "verify end-to-end, don't just trust generated text"
 // discipline already applied to the C/C++ interop tests. Covers:
@@ -21,8 +22,11 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <cstdint>
 #include <string>
 #include <string_view>
+
+#include "compiler/backend_python/backend_python.hpp"
 
 #include <gtest/gtest.h>
 
@@ -135,23 +139,6 @@ constexpr std::string_view kStringBytesSchema = "namespace: acme.telemetry\n"
                                                "    type: bytes\n"
                                                "    max_bytes: 16\n";
 
-constexpr std::string_view kArraySchema = "namespace: acme.telemetry\n"
-                                         "record: Sample\n"
-                                         "version: 1\n"
-                                         "type: data\n"
-                                         "fields:\n"
-                                         "  readings:\n"
-                                         "    type: float32[]\n"
-                                         "    max_elements: 4\n"
-                                         "  statuses:\n"
-                                         "    type: Status[]\n"
-                                         "    max_elements: 3\n"
-                                         "enums:\n"
-                                         "  Status:\n"
-                                         "    values:\n"
-                                         "      OK: 0\n"
-                                         "      ERROR: 1\n";
-
 // Runs `harness_body` (a fragment of Python source assuming `generated` is
 // already on sys.path and `acme.telemetry.schema.Sample` is importable)
 // against the schema compiled from `schema_source`, returning the real
@@ -176,6 +163,62 @@ constexpr std::string_view kArraySchema = "namespace: acme.telemetry\n"
     const std::filesystem::path harness_script = root / "harness.py";
     write_text_file(harness_script, std::string(harness_body));
 
+    const std::string python_path =
+        generated.string() + ":" + std::string(QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR);
+    const std::string run_command = "PYTHONPATH=" + shell_quote(python_path) + " " +
+                                    shell_quote(QUARRY_TEST_PYTHON3) + " " +
+                                    shell_quote(harness_script.string());
+    return run_and_get_exit_code(run_command);
+}
+
+// The source-schema frontend currently has no property spelling for the
+// per-element max_bytes carried by a string/bytes array's Schema IR element.
+// Exercise the validated backend boundary directly so generated code still
+// runs through a real Python interpreter without expanding the frontend or
+// compiler pipeline in this PR.
+[[nodiscard]] int run_python_variable_array_harness(std::string_view stem,
+                                                    std::string_view harness_body) {
+    const std::filesystem::path root = make_temp_directory(stem);
+    const std::filesystem::path generated = root / "generated";
+
+    quarry::compiler::schema_ir::SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    auto* root_namespace = schema_ir.mutable_root_namespace();
+    root_namespace->set_ir_id(1);
+    auto* record = root_namespace->add_records();
+    record->set_ir_id(2);
+    record->set_record_id(1);
+    record->set_name("Sample");
+    record->set_fqn("Sample");
+
+    auto* labels = record->add_fields();
+    labels->set_name("labels");
+    labels->set_field_index(0);
+    auto* labels_array = labels->mutable_type()->mutable_array();
+    labels_array->set_max_elements(3);
+    labels_array->mutable_element_type()->mutable_string()->set_max_bytes(8);
+
+    auto* blobs = record->add_fields();
+    blobs->set_name("blobs");
+    blobs->set_field_index(1);
+    auto* blobs_array = blobs->mutable_type()->mutable_array();
+    blobs_array->set_max_elements(2);
+    blobs_array->mutable_element_type()->mutable_bytes()->set_max_bytes(4);
+
+    quarry::compiler::backend_python::Backend backend;
+    quarry::compiler::backend_python::CodegenOptions options;
+    options.output_directory = generated.string();
+    const auto result = backend.generate(schema_ir, options);
+    if (!result.success) {
+        ADD_FAILURE() << "direct Schema IR generation failed: " << result.error_message;
+        return 1;
+    }
+    for (const auto& file : result.files) {
+        write_text_file(generated / file.path, file.content);
+    }
+
+    const std::filesystem::path harness_script = root / "harness.py";
+    write_text_file(harness_script, std::string(harness_body));
     const std::string python_path =
         generated.string() + ":" + std::string(QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR);
     const std::string run_command = "PYTHONPATH=" + shell_quote(python_path) + " " +
@@ -473,39 +516,47 @@ TEST(PythonExecutionTest, ArrayFieldsEncodeDecodeAndValidateWithRealPython) {
         GTEST_SKIP() << "python3 interpreter not found; skipping Python execution test";
     }
 
-    EXPECT_EQ(run_python_harness("array-round-trip", kArraySchema,
+    EXPECT_EQ(run_python_variable_array_harness("variable-array-round-trip",
                                 "from quarry.runtime.python import binary_record as brf\n"
-                                "from acme.telemetry.schema import Sample, Status\n"
+                                "from schema import Sample\n"
                                 "\n"
-                                "sample = Sample(readings=[1.5, -2.0], statuses=[Status.OK, 1])\n"
+                                "sample = Sample(labels=['', 'café', '🌍'],\n"
+                                "               blobs=[b'', bytes([0, 255, 128])])\n"
                                 "data = sample.encode()\n"
                                 "decoded = Sample.decode(data)\n"
-                                "assert decoded.readings == [1.5, -2.0], decoded\n"
-                                "assert decoded.statuses == [Status.OK, Status.ERROR], decoded\n"
+                                "assert decoded.labels == ['', 'café', '🌍'], decoded\n"
+                                "assert decoded.blobs == [b'', bytes([0, 255, 128])], decoded\n"
                                 "assert sample.encoded_size() == len(data)\n"
                                 "\n"
-                                "empty = Sample(readings=[], statuses=[])\n"
+                                "empty = Sample(labels=[], blobs=[])\n"
                                 "decoded_empty = Sample.decode(empty.encode())\n"
-                                "assert decoded_empty.readings == []\n"
-                                "assert decoded_empty.statuses == []\n"
+                                "assert decoded_empty.labels == []\n"
+                                "assert decoded_empty.blobs == []\n"
                                 "\n"
                                 "absent = Sample.decode(Sample().encode())\n"
-                                "assert absent.readings is None\n"
-                                "assert absent.statuses is None\n"
+                                "assert absent.labels is None\n"
+                                "assert absent.blobs is None\n"
                                 "\n"
                                 "try:\n"
-                                "    Sample(readings=[1, 2, 3, 4, 5]).encode()\n"
+                                "    Sample(labels=['a', 'b', 'c', 'd']).encode()\n"
                                 "except brf.EncodeError:\n"
                                 "    pass\n"
                                 "else:\n"
                                 "    raise SystemExit('expected array bounds EncodeError')\n"
                                 "\n"
                                 "try:\n"
-                                "    Sample(statuses=[99]).encode()\n"
+                                "    Sample(labels=['123456789']).encode()\n"
                                 "except brf.EncodeError:\n"
                                 "    pass\n"
                                 "else:\n"
-                                "    raise SystemExit('expected unknown enum EncodeError')\n"
+                                "    raise SystemExit('expected string element bounds EncodeError')\n"
+                                "\n"
+                                "try:\n"
+                                "    Sample(blobs=[bytes(5)]).encode()\n"
+                                "except brf.EncodeError:\n"
+                                "    pass\n"
+                                "else:\n"
+                                "    raise SystemExit('expected bytes element bounds EncodeError')\n"
                                 "print('OK')\n"),
              0);
 }

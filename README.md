@@ -166,10 +166,11 @@ variable-length encoding rules unchanged and deliberately reusing Python's
 own `str.encode`/`bytes.decode("utf-8")` for UTF-8 validation rather than
 hand-rolling a validator. All are verified byte-for-byte wire-compatible
 with the C and C++ backends for the same field values. Bounded arrays of
-fixed-width scalar and same-namespace non-negative-valued enum elements are
-also supported using the BRF count-prefix encoding. Arrays of string, bytes,
-records, or arrays, standalone nested-record fields, and cross-namespace
-enum references remain unsupported and fail generation with a diagnostic
+fixed-width scalar and same-namespace non-negative-valued enum elements, plus
+bounded arrays of string and bytes elements, are supported using the BRF
+count-prefix encoding. Arrays of records or arrays, standalone nested-record
+fields, and cross-namespace enum references remain unsupported and fail
+generation with a diagnostic
 naming the record and field. Generated modules check a
 Python generated-code API compatibility epoch
 (`QUARRY_GENERATED_CODE_API_VERSION_PYTHON`) against the small pip-installed

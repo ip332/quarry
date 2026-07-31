@@ -384,7 +384,8 @@ struct PlannedNamespaceFile {
 }
 
 // Resolves one field's type: a scalar primitive, a same-namespace
-// non-negative-valued enum reference, or a bounded string/bytes field.
+// non-negative-valued enum reference, a bounded string/bytes field, or a
+// bounded array of one of those supported element kinds.
 // Returns std::nullopt (with error_message set) for every unsupported
 // case: a non-scalar/non-enum/non-string/non-bytes type; an enum declared
 // in a different namespace; or an enum with a negative declared value.
@@ -447,14 +448,14 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         field.bytes_max_bytes = type.bytes().max_bytes();
         return field;
     } else if (type.kind_case() == FieldType::kArray) {
-        // PR-122 scope: arrays of scalar primitives and same-namespace
+        // PR-122/PR-123 scope: arrays of scalar primitives, same-namespace
         // non-negative-valued enums only -- reusing lower_scalar_field_type
         // and lower_enum_reference unchanged so cross-namespace and
         // negative-enum-value checks apply identically to array elements,
         // matching backend_c.cpp's own array-element resolution structure.
-        // Arrays of string, bytes, or nested-record elements, and nested
-        // arrays, remain unsupported and fall through to the specific
-        // diagnostic below.
+        // and PR-123's bounded string/bytes elements. Nested-record elements
+        // and nested arrays remain unsupported and fall through to the
+        // specific diagnostic below.
         const ArrayType& array_type = type.array();
         const FieldType& element_type = array_type.element_type();
         std::optional<ScalarEncoding> scalar_encoding;
@@ -494,6 +495,28 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             field.array_max_elements = array_type.max_elements();
             return field;
         }
+        if (element_type.kind_case() == FieldType::kString) {
+            PlannedField field;
+            field.name = field_ir.name();
+            field.field_index = field_ir.field_index();
+            field.python_type_hint = "str";
+            field.is_string = true;
+            field.string_max_bytes = element_type.string().max_bytes();
+            field.is_array = true;
+            field.array_max_elements = array_type.max_elements();
+            return field;
+        }
+        if (element_type.kind_case() == FieldType::kBytes) {
+            PlannedField field;
+            field.name = field_ir.name();
+            field.field_index = field_ir.field_index();
+            field.python_type_hint = "bytes";
+            field.is_bytes = true;
+            field.bytes_max_bytes = element_type.bytes().max_bytes();
+            field.is_array = true;
+            field.array_max_elements = array_type.max_elements();
+            return field;
+        }
         if (!error_message.empty()) {
             return std::nullopt;
         }
@@ -504,9 +527,10 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         stream << "backend_python: field '" << record_ir.fqn() << "." << field_ir.name()
                << "' is an array whose element type the Python backend does not support yet -- "
                   "only arrays of bool, fixed-width signed/unsigned integer, f32/f64 scalar "
-                  "elements, and same-namespace non-negative-valued enum elements are supported "
-                  "(see docs/design/python-backend.md); arrays of string, bytes, or record "
-                  "elements, and nested arrays, remain unsupported";
+                  "elements, same-namespace non-negative-valued enum elements, bounded string "
+                  "elements, and bounded bytes elements are supported (see "
+                  "docs/design/python-backend.md); arrays of record elements and nested arrays "
+                  "remain unsupported";
         error_message = stream.str();
         return std::nullopt;
     } else {
@@ -526,8 +550,9 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
            << "' has a type the Python backend does not support yet -- only bool, fixed-width "
               "signed/unsigned integer, f32/f64 scalar fields, same-namespace "
               "non-negative-valued enum fields, bounded string/bytes fields, and bounded arrays "
-              "of scalar or same-namespace non-negative-valued enum elements are supported "
-              "(see docs/design/python-backend.md); nested record fields remain unsupported";
+              "of scalar, enum, string, or bytes elements are supported (see "
+              "docs/design/python-backend.md); nested record fields and nested arrays remain "
+              "unsupported";
     error_message = stream.str();
     return std::nullopt;
 }
@@ -679,7 +704,15 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     stream << "    fields = []\n";
     for (const PlannedField& field : record.fields) {
         stream << "    if value." << field.name << " is not None:\n";
-        if (field.is_array && field.is_enum) {
+        if (field.is_array && field.is_string) {
+            stream << "        fields.append((" << field.field_index
+                   << ", _brf.pack_array_of_string(value." << field.name << ", "
+                   << field.array_max_elements << ", " << field.string_max_bytes << ")))\n";
+        } else if (field.is_array && field.is_bytes) {
+            stream << "        fields.append((" << field.field_index
+                   << ", _brf.pack_array_of_bytes(value." << field.name << ", "
+                   << field.array_max_elements << ", " << field.bytes_max_bytes << ")))\n";
+        } else if (field.is_array && field.is_enum) {
             stream << "        fields.append((" << field.field_index
                    << ", _brf.pack_array_of_enum(" << field.python_type_hint << ", \""
                    << field.runtime_type_name << "\", value." << field.name << ", "
@@ -717,7 +750,15 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     for (const PlannedField& field : record.fields) {
         stream << "    " << field.name << " = None\n";
         stream << "    if " << field.field_index << " in fields:\n";
-        if (field.is_array && field.is_enum) {
+        if (field.is_array && field.is_string) {
+            stream << "        " << field.name << " = _brf.unpack_array_of_string(fields["
+                   << field.field_index << "], " << field.array_max_elements << ", "
+                   << field.string_max_bytes << ")\n";
+        } else if (field.is_array && field.is_bytes) {
+            stream << "        " << field.name << " = _brf.unpack_array_of_bytes(fields["
+                   << field.field_index << "], " << field.array_max_elements << ", "
+                   << field.bytes_max_bytes << ")\n";
+        } else if (field.is_array && field.is_enum) {
             stream << "        " << field.name << " = _brf.unpack_array_of_enum("
                    << field.python_type_hint << ", \"" << field.runtime_type_name
                    << "\", fields[" << field.field_index << "], " << field.array_max_elements

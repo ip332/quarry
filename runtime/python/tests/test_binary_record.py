@@ -1,12 +1,15 @@
 """Unit tests for quarry.runtime.python.binary_record (PR-119 scalars,
-PR-120 enums, PR-121 string/bytes, PR-122 arrays).
+PR-120 enums, PR-121 string/bytes, PR-122 fixed-width arrays, PR-123
+variable-width string/bytes arrays).
 
 Run directly: PYTHONPATH=runtime/python/src python3 -m unittest
 runtime/python/tests/test_binary_record.py -v
 
 Exercised only through the public module API (pack_scalar/unpack_scalar/
-pack_enum/unpack_enum/pack_array_of_scalar/unpack_array_of_scalar/
-pack_array_of_enum/unpack_array_of_enum/append_varuint/read_varuint/
+ pack_enum/unpack_enum/pack_array_of_scalar/unpack_array_of_scalar/
+pack_array_of_enum/unpack_array_of_enum/pack_array_of_string/
+unpack_array_of_string/pack_array_of_bytes/unpack_array_of_bytes/
+append_varuint/read_varuint/
 encode_record/parse_record) -- these tests know nothing about the Python
 backend's code generator; they validate the runtime primitive layer in
 isolation, matching this project's "runtime components must not depend on the
@@ -325,6 +328,68 @@ class ArrayRoundTripTest(unittest.TestCase):
             brf.unpack_array_of_scalar("uint8", b"\x80", 2)
         with self.assertRaises(brf.DecodeError):
             brf.unpack_array_of_scalar("uint8", b"\x80\x80\x80\x80\x80\x80\x80\x80\x80\x02", 2)
+
+    def test_string_array_round_trip_and_empty_element(self):
+        values = ["", "ASCII", "café", "🌍"]
+        encoded = brf.pack_array_of_string(values, 4, 8)
+        self.assertEqual(encoded, b"\x04\x00\x05ASCII\x05caf\xc3\xa9\x04\xf0\x9f\x8c\x8d")
+        self.assertEqual(brf.unpack_array_of_string(encoded, 4, 8), values)
+
+    def test_string_array_preserves_empty_array(self):
+        encoded = brf.pack_array_of_string([], 4, 8)
+        self.assertEqual(encoded, b"\x00")
+        self.assertEqual(brf.unpack_array_of_string(encoded, 4, 8), [])
+
+    def test_string_array_enforces_encoded_byte_and_count_bounds(self):
+        with self.assertRaises(brf.EncodeError):
+            brf.pack_array_of_string(["ééé"], 1, 5)
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_string(b"\x01\x06abcdef", 1, 5)
+        with self.assertRaises(brf.EncodeError):
+            brf.pack_array_of_string(["a", "b"], 1, 1)
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_string(b"\x02\x01a\x01b", 1, 1)
+
+    def test_string_array_rejects_malformed_utf8(self):
+        with self.assertRaises(brf.DecodeError) as context:
+            brf.unpack_array_of_string(b"\x01\x01\xff", 1, 8)
+        self.assertIn("array element 0", str(context.exception))
+
+    def test_string_array_rejects_malformed_lengths_truncation_and_trailing_bytes(self):
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_string(b"\x80", 1, 8)
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_string(b"\x01\x80", 1, 8)
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_string(b"\x01\x03ab", 1, 8)
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_string(b"\x00\x00", 1, 8)
+
+    def test_bytes_array_round_trip_and_empty_element(self):
+        values = [b"", bytes([0, 255, 128]), b"abc"]
+        encoded = brf.pack_array_of_bytes(values, 3, 8)
+        self.assertEqual(encoded, b"\x03\x00\x03\x00\xff\x80\x03abc")
+        self.assertEqual(brf.unpack_array_of_bytes(encoded, 3, 8), values)
+
+    def test_bytes_array_enforces_element_and_count_bounds(self):
+        with self.assertRaises(brf.EncodeError):
+            brf.pack_array_of_bytes([b"123456789"], 1, 8)
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_bytes(b"\x01\x09" + b"123456789", 1, 8)
+        with self.assertRaises(brf.EncodeError):
+            brf.pack_array_of_bytes([b"a", b"b"], 1, 1)
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_bytes(b"\x02\x01a\x01b", 1, 1)
+
+    def test_bytes_array_rejects_malformed_lengths_truncation_and_trailing_bytes(self):
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_bytes(b"\x80", 1, 8)
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_bytes(b"\x01\x80", 1, 8)
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_bytes(b"\x01\x03ab", 1, 8)
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_bytes(b"\x00\x00", 1, 8)
 
 
 class VaruintTest(unittest.TestCase):
