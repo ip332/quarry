@@ -290,27 +290,30 @@ TEST(BackendPythonTest, EpochCheckPreambleImportsRuntimeAndRaisesOnMismatch) {
 }
 
 TEST(BackendPythonTest, UnsupportedFieldTypeFailsGenerationNamingRecordAndField) {
-    // string (like bytes, array, and record-reference fields) remains
-    // unsupported -- matching the same "swap the representative
-    // unsupported-type example once it becomes supported" maintenance
-    // pattern the C backend's own test history established each time it
-    // added a new field category (enum became supported in PR-120).
+    // array (like nested-record fields) remains unsupported -- matching
+    // the same "swap the representative unsupported-type example once it
+    // becomes supported" maintenance pattern the C backend's own test
+    // history established each time it added a new field category (string
+    // and bytes became supported in PR-121).
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
     root->set_ir_id(1);
     RecordIR* record = add_zero_field_record(*root, 2, 1U, "Sample", "Sample");
     FieldIR* field = record->add_fields();
-    field->set_name("label");
+    field->set_name("readings");
     field->set_field_index(0);
-    field->mutable_type()->mutable_string()->set_max_bytes(16);
+    ::quarry::schema_ir::ArrayType* array_type = field->mutable_type()->mutable_array();
+    array_type->mutable_element_type()->set_primitive(
+        ::quarry::schema_ir::PrimitiveType::PRIMITIVE_TYPE_F32);
+    array_type->set_max_elements(4);
     assert_valid(schema_ir);
 
     Backend backend;
     const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
     EXPECT_FALSE(result.success);
     EXPECT_NE(result.error_message.find("Sample"), std::string::npos);
-    EXPECT_NE(result.error_message.find("label"), std::string::npos);
+    EXPECT_NE(result.error_message.find("readings"), std::string::npos);
 
     const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
     EXPECT_FALSE(plan_result.success);
@@ -391,6 +394,39 @@ TEST(BackendPythonTest, ScalarRecordEncodeDecodeHelpersReferenceRuntimeCorrectly
     EXPECT_NE(content.find("if record_id != 7:"), std::string::npos);
     EXPECT_NE(content.find("count = _brf.unpack_scalar(\"uint32\", fields[0])"), std::string::npos);
     EXPECT_NE(content.find("return Sample(count=count)"), std::string::npos);
+}
+
+TEST(BackendPythonTest, StringAndBytesFieldsGenerateCorrectDataclassAndHelpers) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    RecordIR* record = add_zero_field_record(*root, 2, 1U, "Sample", "Sample");
+    FieldIR* label_field = record->add_fields();
+    label_field->set_name("label");
+    label_field->set_field_index(0);
+    label_field->mutable_type()->mutable_string()->set_max_bytes(16);
+    FieldIR* blob_field = record->add_fields();
+    blob_field->set_name("blob");
+    blob_field->set_field_index(1);
+    blob_field->mutable_type()->mutable_bytes()->set_max_bytes(32);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1U);
+
+    const std::string& content = result.files[0].content;
+    EXPECT_NE(content.find("label: Optional[str] = None"), std::string::npos);
+    EXPECT_NE(content.find("blob: Optional[bytes] = None"), std::string::npos);
+    EXPECT_NE(content.find("fields.append((0, _brf.pack_string(value.label, 16)))"),
+             std::string::npos);
+    EXPECT_NE(content.find("fields.append((1, _brf.pack_bytes(value.blob, 32)))"),
+             std::string::npos);
+    EXPECT_NE(content.find("label = _brf.unpack_string(fields[0], 16)"), std::string::npos);
+    EXPECT_NE(content.find("blob = _brf.unpack_bytes(fields[1], 32)"), std::string::npos);
+    EXPECT_NE(content.find("return Sample(label=label, blob=blob)"), std::string::npos);
 }
 
 TEST(BackendPythonTest, EnumFieldGeneratesIntEnumClassBeforeReferencingRecord) {

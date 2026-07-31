@@ -330,14 +330,20 @@ struct PlannedField {
     // For a scalar field: the scalar's own runtime type name (e.g.
     // "uint32"), passed to pack_scalar()/unpack_scalar(). For an enum
     // field: the enum's wire width type name (e.g. "uint8"), passed as
-    // pack_enum()/unpack_enum()'s `type_name` argument.
+    // pack_enum()/unpack_enum()'s `type_name` argument. Unused for
+    // string/bytes fields.
     std::string runtime_type_name;
     // For a scalar field: the dataclass annotation's inner type ("bool",
     // "int", or "float"). For an enum field: the enum class name (e.g.
     // "Status") -- serves the same "what goes inside Optional[...]" role,
-    // and is also pack_enum()/unpack_enum()'s `enum_cls` argument.
+    // and is also pack_enum()/unpack_enum()'s `enum_cls` argument. For a
+    // string field: "str". For a bytes field: "bytes".
     std::string python_type_hint;
     bool is_enum = false;
+    bool is_string = false;
+    std::uint32_t string_max_bytes = 0U; // meaningful only when is_string
+    bool is_bytes = false;
+    std::uint32_t bytes_max_bytes = 0U; // meaningful only when is_bytes
 };
 
 struct PlannedRecord {
@@ -368,30 +374,41 @@ struct PlannedNamespaceFile {
     return ns.records_size() > 0 || ns.enums_size() > 0;
 }
 
-// Resolves one field's type: a scalar primitive, or a same-namespace
-// non-negative-valued enum reference. Returns std::nullopt (with
-// error_message set) for every unsupported case: a non-scalar, non-enum
-// type; an enum declared in a different namespace; or an enum with a
-// negative declared value.
+// Resolves one field's type: a scalar primitive, a same-namespace
+// non-negative-valued enum reference, or a bounded string/bytes field.
+// Returns std::nullopt (with error_message set) for every unsupported
+// case: a non-scalar/non-enum/non-string/non-bytes type; an enum declared
+// in a different namespace; or an enum with a negative declared value.
 [[nodiscard]] std::optional<PlannedField>
 lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                     std::string_view current_namespace_fqn, const EnumCatalog& enum_catalog,
                     std::string& error_message) {
     const FieldType& type = field_ir.type();
 
+    // Plain sequential member assignment (not a brace-enclosed designated
+    // initializer) at every return site below, deliberately: GCC's
+    // -Wmissing-field-initializers (part of -Wextra) flags a designated
+    // initializer that omits any member, even one with a default member
+    // initializer, unlike Clang -- as PlannedField's member count has grown
+    // across PR-119/PR-120/PR-121, keeping every construction site in sync
+    // with an ever-longer list of `.field = value` entries became exactly
+    // the kind of divergence backend_c.cpp's own make_scalar_encoding
+    // helper (see its identical comment) already worked around the same
+    // way; caught here by the Docker/CI-equivalent validation's GCC
+    // toolchain, not reproduced locally under Clang.
     if (type.kind_case() == FieldType::kEnumType) {
         const std::string context = "field '" + record_ir.fqn() + "." + field_ir.name() + "'";
         std::optional<EnumFieldEncoding> encoding = lower_enum_reference(
             type.enum_type().target_enum_ir_id(), current_namespace_fqn, enum_catalog, context,
             error_message);
         if (encoding.has_value()) {
-            return PlannedField{
-                .name = field_ir.name(),
-                .field_index = field_ir.field_index(),
-                .runtime_type_name = encoding->width_type_name,
-                .python_type_hint = encoding->class_name,
-                .is_enum = true,
-            };
+            PlannedField field;
+            field.name = field_ir.name();
+            field.field_index = field_ir.field_index();
+            field.runtime_type_name = encoding->width_type_name;
+            field.python_type_hint = encoding->class_name;
+            field.is_enum = true;
+            return field;
         }
         if (!error_message.empty()) {
             return std::nullopt;
@@ -399,26 +416,46 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         // Catalog miss (enum id not found at all): fall through to the
         // generic diagnostic below -- Schema IR guarantees a resolvable
         // reference, so this should not happen in practice.
+    } else if (type.kind_case() == FieldType::kString) {
+        // Schema validation already guarantees max_bytes > 0 and that it
+        // fits uint32_t (compiler/semantic/semantic.cpp's
+        // validate_positive_u32) -- nothing to re-validate here, matching
+        // both existing backends' identical trust-the-upstream-invariant
+        // stance for this same check.
+        PlannedField field;
+        field.name = field_ir.name();
+        field.field_index = field_ir.field_index();
+        field.python_type_hint = "str";
+        field.is_string = true;
+        field.string_max_bytes = type.string().max_bytes();
+        return field;
+    } else if (type.kind_case() == FieldType::kBytes) {
+        PlannedField field;
+        field.name = field_ir.name();
+        field.field_index = field_ir.field_index();
+        field.python_type_hint = "bytes";
+        field.is_bytes = true;
+        field.bytes_max_bytes = type.bytes().max_bytes();
+        return field;
     } else {
         std::optional<ScalarEncoding> encoding = lower_scalar_field_type(type);
         if (encoding.has_value()) {
-            return PlannedField{
-                .name = field_ir.name(),
-                .field_index = field_ir.field_index(),
-                .runtime_type_name = encoding->runtime_type_name,
-                .python_type_hint = encoding->python_type_hint,
-                .is_enum = false,
-            };
+            PlannedField field;
+            field.name = field_ir.name();
+            field.field_index = field_ir.field_index();
+            field.runtime_type_name = encoding->runtime_type_name;
+            field.python_type_hint = encoding->python_type_hint;
+            return field;
         }
     }
 
     std::ostringstream stream;
     stream << "backend_python: field '" << record_ir.fqn() << "." << field_ir.name()
            << "' has a type the Python backend does not support yet -- only bool, fixed-width "
-              "signed/unsigned integer, f32/f64 scalar fields, and same-namespace "
-              "non-negative-valued enum fields are supported (see "
-              "docs/design/python-backend.md); string, bytes, array, and nested record fields "
-              "remain unsupported";
+              "signed/unsigned integer, f32/f64 scalar fields, same-namespace "
+              "non-negative-valued enum fields, and bounded string/bytes fields are supported "
+              "(see docs/design/python-backend.md); array and nested record fields remain "
+              "unsupported";
     error_message = stream.str();
     return std::nullopt;
 }
@@ -571,6 +608,12 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             stream << "        fields.append((" << field.field_index << ", _brf.pack_enum("
                    << field.python_type_hint << ", value." << field.name << ", \""
                    << field.runtime_type_name << "\")))\n";
+        } else if (field.is_string) {
+            stream << "        fields.append((" << field.field_index << ", _brf.pack_string("
+                   << "value." << field.name << ", " << field.string_max_bytes << ")))\n";
+        } else if (field.is_bytes) {
+            stream << "        fields.append((" << field.field_index << ", _brf.pack_bytes("
+                   << "value." << field.name << ", " << field.bytes_max_bytes << ")))\n";
         } else {
             stream << "        fields.append((" << field.field_index << ", _brf.pack_scalar(\""
                    << field.runtime_type_name << "\", value." << field.name << ")))\n";
@@ -593,6 +636,12 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             stream << "        " << field.name << " = _brf.unpack_enum(" << field.python_type_hint
                    << ", \"" << field.runtime_type_name << "\", fields[" << field.field_index
                    << "])\n";
+        } else if (field.is_string) {
+            stream << "        " << field.name << " = _brf.unpack_string(fields["
+                   << field.field_index << "], " << field.string_max_bytes << ")\n";
+        } else if (field.is_bytes) {
+            stream << "        " << field.name << " = _brf.unpack_bytes(fields["
+                   << field.field_index << "], " << field.bytes_max_bytes << ")\n";
         } else {
             stream << "        " << field.name << " = _brf.unpack_scalar(\""
                    << field.runtime_type_name << "\", fields[" << field.field_index << "])\n";

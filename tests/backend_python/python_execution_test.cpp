@@ -1,17 +1,21 @@
 // Proves the Python backend (PR-118 skeleton, PR-119 scalar support,
-// PR-120 enum support) produces a package that a real Python interpreter
-// can actually import and use, matching the project's "verify end-to-end,
-// don't just trust generated text" discipline already applied to the
-// C/C++ interop tests. Covers: generating through the real
-// quarry-schema-compiler binary and importing the result with a real
-// `python3` subprocess; a zero-field record's real (not stubbed)
-// encode/decode round trip; a scalar record's real encode/decode round
-// trip with representative values; an absent scalar field decoding as
-// None; an out-of-range scalar value raising EncodeError at encode time;
-// malformed/truncated/trailing-byte input raising DecodeError at decode
-// time; an enum field's real encode/decode round trip; an enum value not
-// defined by the schema raising EncodeError at encode time; and a decoded
-// enum value not defined by the schema raising DecodeError at decode time.
+// PR-120 enum support, PR-121 string/bytes support) produces a package
+// that a real Python interpreter can actually import and use, matching
+// the project's "verify end-to-end, don't just trust generated text"
+// discipline already applied to the C/C++ interop tests. Covers:
+// generating through the real quarry-schema-compiler binary and importing
+// the result with a real `python3` subprocess; a zero-field record's real
+// (not stubbed) encode/decode round trip; a scalar record's real
+// encode/decode round trip with representative values; an absent scalar
+// field decoding as None; an out-of-range scalar value raising
+// EncodeError at encode time; malformed/truncated/trailing-byte input
+// raising DecodeError at decode time; an enum field's real encode/decode
+// round trip; an enum value not defined by the schema raising EncodeError
+// at encode time; a decoded enum value not defined by the schema raising
+// DecodeError at decode time; a string/bytes field's real encode/decode
+// round trip (including empty and maximum-length values); an over-length
+// string/bytes value raising EncodeError at encode time; and malformed
+// UTF-8 raising DecodeError at decode time for a string field.
 
 #include <chrono>
 #include <cstdlib>
@@ -118,6 +122,18 @@ constexpr std::string_view kEnumSchema = "namespace: acme.telemetry\n"
                                         "      OK: 0\n"
                                         "      WARNING: 1\n"
                                         "      ERROR: 2\n";
+
+constexpr std::string_view kStringBytesSchema = "namespace: acme.telemetry\n"
+                                               "record: Sample\n"
+                                               "version: 1\n"
+                                               "type: data\n"
+                                               "fields:\n"
+                                               "  label:\n"
+                                               "    type: string\n"
+                                               "    max_bytes: 16\n"
+                                               "  blob:\n"
+                                               "    type: bytes\n"
+                                               "    max_bytes: 16\n";
 
 // Runs `harness_body` (a fragment of Python source assuming `generated` is
 // already on sys.path and `acme.telemetry.schema.Sample` is importable)
@@ -335,6 +351,102 @@ TEST(PythonExecutionTest, UnknownDecodedEnumValueRaisesDecodeError) {
                                 "else:\n"
                                 "    raise SystemExit('expected DecodeError for an unknown enum "
                                 "value')\n"
+                                "print('OK')\n"),
+             0);
+}
+
+TEST(PythonExecutionTest, StringAndBytesFieldsEncodeDecodeRoundTripWithRealValues) {
+    if (std::string_view(QUARRY_TEST_PYTHON3).empty()) {
+        GTEST_SKIP() << "python3 interpreter not found; skipping Python execution test";
+    }
+
+    EXPECT_EQ(run_python_harness("string-bytes-round-trip", kStringBytesSchema,
+                                "from acme.telemetry.schema import Sample\n"
+                                "\n"
+                                "sample = Sample(label='caf\\u00e9', blob=bytes([0, 255, 128]))\n"
+                                "data = sample.encode()\n"
+                                "decoded = Sample.decode(data)\n"
+                                "assert decoded == sample, (decoded, sample)\n"
+                                "assert decoded.label == 'caf\\u00e9'\n"
+                                "assert decoded.blob == bytes([0, 255, 128])\n"
+                                "assert sample.encoded_size() == len(data)\n"
+                                "\n"
+                                "# Empty-present values round-trip distinctly from absence.\n"
+                                "empty = Sample(label='', blob=b'')\n"
+                                "decoded_empty = Sample.decode(empty.encode())\n"
+                                "assert decoded_empty.label == ''\n"
+                                "assert decoded_empty.blob == b''\n"
+                                "\n"
+                                "# Absent fields decode as None.\n"
+                                "absent = Sample()\n"
+                                "decoded_absent = Sample.decode(absent.encode())\n"
+                                "assert decoded_absent.label is None\n"
+                                "assert decoded_absent.blob is None\n"
+                                "\n"
+                                "# Maximum-length values (max_bytes=16) round-trip.\n"
+                                "maximum = Sample(label='x' * 16, blob=bytes(16))\n"
+                                "decoded_max = Sample.decode(maximum.encode())\n"
+                                "assert decoded_max.label == 'x' * 16\n"
+                                "assert decoded_max.blob == bytes(16)\n"
+                                "\n"
+                                "# Bytes fields never validate UTF-8.\n"
+                                "binary = Sample(blob=bytes([0xFF, 0xFE, 0x00, 0x80]))\n"
+                                "decoded_binary = Sample.decode(binary.encode())\n"
+                                "assert decoded_binary.blob == bytes([0xFF, 0xFE, 0x00, 0x80])\n"
+                                "print('OK')\n"),
+             0);
+}
+
+TEST(PythonExecutionTest, OverLengthStringOrBytesValueRaisesEncodeErrorAtEncodeTime) {
+    if (std::string_view(QUARRY_TEST_PYTHON3).empty()) {
+        GTEST_SKIP() << "python3 interpreter not found; skipping Python execution test";
+    }
+
+    EXPECT_EQ(run_python_harness("string-bytes-over-length", kStringBytesSchema,
+                                "from quarry.runtime.python import binary_record as brf\n"
+                                "from acme.telemetry.schema import Sample\n"
+                                "\n"
+                                "try:\n"
+                                "    Sample(label='x' * 17).encode()\n"
+                                "except brf.EncodeError:\n"
+                                "    pass\n"
+                                "else:\n"
+                                "    raise SystemExit('expected EncodeError for an over-length "
+                                "label')\n"
+                                "\n"
+                                "try:\n"
+                                "    Sample(blob=bytes(17)).encode()\n"
+                                "except brf.EncodeError:\n"
+                                "    pass\n"
+                                "else:\n"
+                                "    raise SystemExit('expected EncodeError for an over-length "
+                                "blob')\n"
+                                "print('OK')\n"),
+             0);
+}
+
+TEST(PythonExecutionTest, MalformedUtf8RaisesDecodeErrorForStringFieldAtDecodeTime) {
+    if (std::string_view(QUARRY_TEST_PYTHON3).empty()) {
+        GTEST_SKIP() << "python3 interpreter not found; skipping Python execution test";
+    }
+
+    EXPECT_EQ(run_python_harness("string-malformed-utf8", kStringBytesSchema,
+                                "from quarry.runtime.python import binary_record as brf\n"
+                                "from acme.telemetry.schema import Sample\n"
+                                "\n"
+                                "# label is field_index 0; its content bytes are the first\n"
+                                "# payload bytes, immediately after the 16-byte header and the\n"
+                                "# single-entry Field Directory (varuint offset/length both fit\n"
+                                "# in one byte each for this small payload: 1 + 1 + 1 = 3 bytes).\n"
+                                "data = bytearray(Sample(label='hi').encode())\n"
+                                "payload_start = 16 + 3\n"
+                                "data[payload_start] = 0xFF\n"
+                                "try:\n"
+                                "    Sample.decode(bytes(data))\n"
+                                "except brf.DecodeError:\n"
+                                "    pass\n"
+                                "else:\n"
+                                "    raise SystemExit('expected DecodeError for malformed UTF-8')\n"
                                 "print('OK')\n"),
              0);
 }

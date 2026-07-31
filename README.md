@@ -160,11 +160,15 @@ standard library's `struct` module. PR-120 added enum fields: a
 same-namespace, non-negative-valued enum renders as a real `enum.IntEnum`
 subclass, with two small `binary_record.py` additions
 (`pack_enum`/`unpack_enum`) validating membership and delegating to the
-existing scalar pack/unpack for the enum's wire width. Both are verified
-byte-for-byte wire-compatible with the C and C++ backends for the same
-field values. String, bytes, array, and nested-record fields, and
-cross-namespace enum references, remain unsupported and fail generation
-with a diagnostic naming the record and field. Generated modules check a
+existing scalar pack/unpack for the enum's wire width. PR-121 added
+bounded `string`/`bytes` fields, using the BRF spec's existing
+variable-length encoding rules unchanged and deliberately reusing Python's
+own `str.encode`/`bytes.decode("utf-8")` for UTF-8 validation rather than
+hand-rolling a validator. All are verified byte-for-byte wire-compatible
+with the C and C++ backends for the same field values. Array and
+nested-record fields, and cross-namespace enum references, remain
+unsupported and fail generation with a diagnostic naming the record and
+field. Generated modules check a
 Python generated-code API compatibility epoch
 (`QUARRY_GENERATED_CODE_API_VERSION_PYTHON`) against the small pip-installed
 `runtime/python/` package at import time. See `docs/design/python-backend.md`

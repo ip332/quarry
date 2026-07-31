@@ -33,6 +33,16 @@ limitation PR-118/PR-119 had documented. String, bytes, array, and
 nested-record fields, and cross-namespace enum references, remain
 unsupported and fail generation with a diagnostic.
 
+PR-121 added string and bytes field support, using the BRF spec's
+existing "Variable-Length Data Encoding" rules unchanged: bounded
+(`max_bytes`-limited) `str` and `bytes` dataclass fields, encoded/decoded
+via four new `binary_record.py` functions (`pack_string`/`unpack_string`/
+`pack_bytes`/`unpack_bytes`) that deliberately reuse Python's own
+`str.encode("utf-8")`/`bytes.decode("utf-8")` for UTF-8 validation rather
+than hand-rolling a validator the way the C++/C runtimes must. Array and
+nested-record fields remain unsupported and fail generation with a
+diagnostic.
+
 This document supersedes, for implementation purposes, the investigation
 notes captured in this repository's PR-117 (native Python backend
 architecture) and PR-118A (encode/decode API boundary) working reports;
@@ -127,12 +137,11 @@ an incidental implementation detail:
   namespace-prefixed like C's `quarry_telemetry_Sample_t` -- Python's own
   package/module structure already disambiguates.
 
-### Scope: scalar and enum record fields
+### Scope: scalar, enum, string, and bytes record fields
 
 `namespace_emits_file()` for Python is `ns.records_size() > 0 ||
 ns.enums_size() > 0`: a namespace emits a module if it owns records,
-enums, or both. String, bytes, array, and nested-record fields remain
-unsupported.
+enums, or both. Array and nested-record fields remain unsupported.
 
 ### Scalar field lowering
 
@@ -150,9 +159,10 @@ record and field:
 ```
 backend_python: field '<record-fqn>.<field-name>' has a type the Python
 backend does not support yet -- only bool, fixed-width signed/unsigned
-integer, f32/f64 scalar fields, and same-namespace non-negative-valued
-enum fields are supported (see docs/design/python-backend.md); string,
-bytes, array, and nested record fields remain unsupported
+integer, f32/f64 scalar fields, same-namespace non-negative-valued enum
+fields, and bounded string/bytes fields are supported (see
+docs/design/python-backend.md); array and nested record fields remain
+unsupported
 ```
 
 A record/class that silently dropped an unsupported field would be
@@ -201,6 +211,23 @@ a negative declared value; enum fields are only supported when every
 declared value is non-negative, matching the BRF spec's Enum Encoding rule
 (see docs/design/python-backend.md)
 ```
+
+### String/bytes field lowering
+
+PR-121 scope: `string` and `bytes` fields, using the BRF spec's existing
+"Variable-Length Data Encoding" rules unchanged -- no new wire-format
+decisions were needed. Schema validation
+(`compiler/semantic/semantic.cpp`'s `validate_positive_u32`) already
+guarantees every string/bytes field's `max_bytes` is present, positive,
+and fits `uint32_t` before `backend_python` ever sees it, exactly as both
+existing backends already rely on -- nothing is re-validated at
+lowering time. A `string` field becomes `python_type_hint = "str"`; a
+`bytes` field becomes `python_type_hint = "bytes"`. Both carry their
+`max_bytes` bound through to the generated `pack_string`/`unpack_string`/
+`pack_bytes`/`unpack_bytes` calls (see "Generated API" and "Runtime
+boundary" below) -- there is no wire-level length prefix specific to
+these field types to plan around (the Field Directory's own `fieldLength`
+already supplies the byte count, per the BRF spec).
 
 ---
 
@@ -343,6 +370,41 @@ least one enum (unlike `from typing import Optional`, which is always
 emitted regardless of whether any field needs it, since every dataclass
 field -- scalar or enum -- uses `Optional[...]`).
 
+### String/bytes fields
+
+A `string` field becomes `Optional[str] = None`; a `bytes` field becomes
+`Optional[bytes] = None`. Both encode/decode helpers carry the field's
+declared `max_bytes` bound as a literal argument:
+
+```python
+@dataclass
+class Sample:
+    label: Optional[str] = None
+    blob: Optional[bytes] = None
+    ...
+
+def _encode_sample(value):
+    fields = []
+    if value.label is not None:
+        fields.append((0, _brf.pack_string(value.label, 16)))
+    if value.blob is not None:
+        fields.append((1, _brf.pack_bytes(value.blob, 16)))
+    ...
+
+def _decode_sample(data):
+    ...
+    label = None
+    if 0 in fields:
+        label = _brf.unpack_string(fields[0], 16)
+    blob = None
+    if 1 in fields:
+        blob = _brf.unpack_bytes(fields[1], 16)
+    return Sample(label=label, blob=blob, ...)
+```
+
+No new imports are needed for string/bytes fields -- `str` and `bytes`
+are Python builtins, unlike `Optional` or `IntEnum`.
+
 ---
 
 ## Runtime boundary and compatibility epoch
@@ -403,8 +465,34 @@ genuinely required" instruction:
   to `DecodeError` -- matching the BRF spec's requirement that an
   undefined decoded enum value is a decode failure.
 
-No string, bytes, array, or nested-record codec support exists in
-`binary_record.py` yet -- see the roadmap below.
+Since PR-121, four more functions cover `string`/`bytes` fields, per the
+BRF spec's "Variable-Length Data Encoding" / "string" / "bytes" sections
+(no internal length prefix -- the Field Directory's own `fieldLength`
+supplies the byte count):
+
+* `pack_string(value, max_bytes)` -- encodes `value` via Python's own
+  `str.encode("utf-8")` (no hand-rolled UTF-8 validator, unlike the
+  C++/C runtimes, per this PR's explicit "do not duplicate UTF-8
+  validation already provided by Python" instruction), converting the one
+  remaining failure mode (`UnicodeEncodeError`, raised for a lone
+  surrogate code point a Python `str` can hold but that has no UTF-8
+  encoding) to `EncodeError`, then checks the encoded length against
+  `max_bytes`, raising `EncodeError` if it is exceeded.
+* `unpack_string(data, max_bytes)` -- checks `len(data)` against
+  `max_bytes` first (mirroring the C++/C runtimes' own
+  bounds-check-before-content-validate ordering), then decodes via
+  `bytes.decode("utf-8")`, converting `UnicodeDecodeError` to
+  `DecodeError`. Python's strict-mode UTF-8 decoder already rejects
+  overlong encodings, lone continuation bytes, truncated sequences, and
+  encoded surrogate halves -- exactly what the BRF spec and the C++/C
+  runtimes' custom validators require, with no extra code needed.
+* `pack_bytes(value, max_bytes)` / `unpack_bytes(data, max_bytes)` -- the
+  raw content verbatim (no UTF-8 validation at all, per the BRF spec's
+  "bytes" section), with the same `max_bytes` bound check as the string
+  functions.
+
+No array or nested-record codec support exists in `binary_record.py`
+yet -- see the roadmap below.
 
 Every generated module begins with an import-time compatibility check:
 
@@ -446,9 +534,9 @@ contract can change on its own schedule.
   the same trick doesn't directly apply. A follow-up PR could introduce a
   small shared source of truth (e.g. a generated `_version.py` the
   packaging step copies in) if manual drift becomes a real problem.
-* **No string, bytes, array, or nested-record support.** A field of any
-  of those types fails generation with a diagnostic. Deferred to later
-  PRs, per the roadmap below.
+* **No array or nested-record support.** A field of either type fails
+  generation with a diagnostic. Deferred to later PRs, per the roadmap
+  below.
 * **No cross-namespace enum references.** Only a same-namespace enum
   reference is supported; a field referencing an enum declared elsewhere
   fails generation with a diagnostic. Matches the same restriction the
@@ -477,7 +565,7 @@ contract can change on its own schedule.
   `sys.path` with real (non-namespace-package) `__init__.py` files at the
   shared `quarry` segment. Not exercised by this PR's tests (which use a
   distinct `acme.*` test namespace precisely to sidestep this), and not a
-  concern for the isolated verification use cases PR-118/PR-119/PR-120
+  concern for the isolated verification use cases PR-118/PR-119/PR-120/PR-121
   target, but worth resolving (e.g. via PEP 420 namespace packages at the shared
   prefix, or reserving a different runtime package name) before real
   multi-namespace production use.
@@ -503,12 +591,15 @@ problems), continuing PR-117 §11's sketch:
    plus real runtime codec mechanics in `runtime/python/` (varuint,
    header/Field Directory assembly, `struct`-based scalar pack/unpack),
    verified byte-for-byte wire-compatible with C/C++. Done.
-3. PR-120 (this PR): enum support (`enum.IntEnum`, matching PR-117 §8's
+3. PR-120: enum support (`enum.IntEnum`, matching PR-117 §8's
    finding that `IntEnum`'s constructor already raises `ValueError` for
    undefined values with no extra validation code needed), same-namespace
    and non-negative-valued-only, verified byte-for-byte wire-compatible
    with C/C++. Done.
-4. String/bytes fields.
+4. PR-121 (this PR): string/bytes field support, using the BRF spec's
+   existing variable-length encoding rules unchanged, with UTF-8
+   validation delegated entirely to Python's own `str`/`bytes` codec
+   methods, verified byte-for-byte wire-compatible with C/C++. Done.
 5. Array fields.
 6. Nested record fields.
 7. Cross-namespace enum/record references, if a concrete need is
@@ -526,15 +617,22 @@ registration, output planning, package/`__init__.py` layout (including
 sibling-namespace ancestor deduplication), zero-field dataclass
 generation, exact-template verification, helper-function snake_case
 naming, method-to-helper delegation, epoch-check preamble presence and
-placement, the unsupported-field-type failure diagnostic, all eleven
-scalar types generating successfully, generated encode/decode helper text
-referencing the runtime correctly, plan/generate agreement, and
-generation determinism. Since PR-120, it also covers: enum class
+placement, the unsupported-field-type failure diagnostic (its
+representative unsupported-type example has moved as each PR added
+support for the previous one: `count`/`u32` -> `label`/`string` in
+PR-119, `label`/`string` -> `readings`/`array` in PR-121, mirroring the
+same swap pattern the C backend's own test history established), all
+eleven scalar types generating successfully, generated encode/decode
+helper text referencing the runtime correctly, plan/generate agreement,
+and generation determinism. Since PR-120, it also covers: enum class
 generation and its ordering before any referencing record; enum wire
 width selection for the smallest unsigned type covering the max declared
 value; the cross-namespace-enum-field diagnostic; the
 negative-enum-value diagnostic; and an enum-only namespace now emitting a
-file (fixing the PR-118/PR-119-documented limitation).
+file (fixing the PR-118/PR-119-documented limitation). Since PR-121, it
+also covers string/bytes dataclass field generation and generated
+encode/decode helper text referencing `pack_string`/`unpack_string`/
+`pack_bytes`/`unpack_bytes` with the correct `max_bytes` values.
 `tests/tools/schema_compiler_tool_test.cpp` adds `--language python`
 coverage (list-outputs, determinism, `--file-extension` rejection,
 generated content).
@@ -552,7 +650,13 @@ Since PR-119, three more test layers exist:
   Since PR-120: `pack_enum`/`unpack_enum` round trips (by member and by a
   raw int matching a member), wire-identity with `pack_scalar` for the
   same width/value, rejection of a value not defined by the enum on both
-  encode and decode, and a wider (`uint32`) width round trip.
+  encode and decode, and a wider (`uint32`) width round trip. Since
+  PR-121: string/bytes round trips (including empty and maximum-length
+  values, embedded U+0000, and a lone-surrogate encode rejection),
+  over-length rejection on both encode and decode, malformed-UTF-8
+  rejection on decode, non-str/non-bytes value rejection on encode, and
+  bytes fields never validating UTF-8 (round-tripping arbitrary binary
+  content unchanged).
   `tests/backend_python/python_runtime_test.cpp` runs this suite via a
   real `python3 -m unittest` subprocess so `ctest` catches runtime
   regressions automatically.
@@ -565,18 +669,29 @@ Since PR-119, three more test layers exist:
   confirm an out-of-range scalar value raises `EncodeError` at encode
   time; confirm truncated/trailing-byte/garbage input raises
   `DecodeError` at decode time; confirm an epoch mismatch still raises
-  `ImportError` at import time; and, since PR-120, round-trip an enum
-  field (including the raw-int-matching-a-member case and absence
-  alongside an enum field), confirm an enum value the schema does not
-  define raises `EncodeError` at encode time, and confirm a decoded byte
-  the schema does not define raises `DecodeError` at decode time.
+  `ImportError` at import time; since PR-120, round-trip an enum field
+  (including the raw-int-matching-a-member case and absence alongside an
+  enum field), confirm an enum value the schema does not define raises
+  `EncodeError` at encode time, and confirm a decoded byte the schema
+  does not define raises `DecodeError` at decode time; and, since PR-121,
+  round-trip string/bytes fields (empty-present, absent, maximum-length,
+  and bytes-never-validates-UTF-8 cases), confirm an over-length
+  string/bytes value raises `EncodeError` at encode time, and confirm
+  malformed UTF-8 in a string field raises `DecodeError` at decode time.
 * `tests/interop/python_cpp_c_codec_interop_test.cpp` -- the genuinely new
   kind of test PR-119 added: generates one schema (covering all eleven
-  supported scalar types, and, since PR-120, a same-namespace enum field)
-  through the C++, C, and Python backends, compiles small C and C++
-  harnesses and writes a Python harness script, and verifies all three
-  encoders produce byte-for-byte identical output for identical field
-  values, all three decoders accept bytes produced by either of the other
-  two languages, all three identically reject a truncated buffer and
-  identically reject extra trailing bytes, and (since PR-120) all three
-  identically reject a decoded enum byte the schema does not define.
+  supported scalar types, a same-namespace enum field since PR-120, and
+  bounded string/bytes fields since PR-121) through the C++, C, and
+  Python backends, compiles small C and C++ harnesses and writes a Python
+  harness script, and verifies all three encoders produce byte-for-byte
+  identical output for identical field values (the string field's value
+  deliberately includes a non-ASCII character to exercise real UTF-8
+  encoding, not just ASCII), all three decoders accept bytes produced by
+  either of the other two languages, all three identically reject a
+  truncated buffer and identically reject extra trailing bytes, all three
+  identically reject a decoded enum byte the schema does not define
+  (since PR-120), and all three identically reject malformed UTF-8 in the
+  string field (since PR-121) -- the two corruption cases locate their
+  target byte by searching for the string field's own known plaintext
+  bytes rather than hand-computing a payload offset, so the test does not
+  need updating if the schema's field list changes again.

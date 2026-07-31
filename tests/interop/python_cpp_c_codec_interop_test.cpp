@@ -1,16 +1,18 @@
 // Proves byte-for-byte BRF wire compatibility between the Python, C++, and
-// C backends for a scalar-plus-enum schema (PR-119 scalars, PR-120 enum):
-// generates the same schema through all three `quarry-schema-compiler`
-// backends, compiles small C and C++ harness programs and writes a Python
-// harness script against each generated output, and verifies (1) all
-// three encoders produce identical bytes for identical field values
-// covering every one of PR-119's eleven supported scalar types plus a
-// same-namespace enum field, (2) each language's decoder accepts bytes
-// produced by either of the other two languages, (3) all three languages
-// identically reject a truncated buffer and identically reject extra
-// trailing bytes appended after a valid record, and (4) all three
+// C backends for a scalar-plus-enum-plus-string/bytes schema (PR-119
+// scalars, PR-120 enum, PR-121 string/bytes): generates the same schema
+// through all three `quarry-schema-compiler` backends, compiles small C
+// and C++ harness programs and writes a Python harness script against
+// each generated output, and verifies (1) all three encoders produce
+// identical bytes for identical field values covering every one of
+// PR-119's eleven supported scalar types plus a same-namespace enum field
+// plus bounded string/bytes fields, (2) each language's decoder accepts
+// bytes produced by either of the other two languages, (3) all three
+// languages identically reject a truncated buffer and identically reject
+// extra trailing bytes appended after a valid record, (4) all three
 // languages identically reject a decoded enum byte the schema does not
-// define.
+// define, and (5) all three languages identically reject malformed UTF-8
+// in a string field.
 
 #include <chrono>
 #include <cstdlib>
@@ -136,6 +138,12 @@ constexpr std::string_view kSchema = "namespace: acme.telemetry\n"
                                      "    type: float64\n"
                                      "  status:\n"
                                      "    type: Status\n"
+                                     "  label:\n"
+                                     "    type: string\n"
+                                     "    max_bytes: 16\n"
+                                     "  blob:\n"
+                                     "    type: bytes\n"
+                                     "    max_bytes: 16\n"
                                      "enums:\n"
                                      "  Status:\n"
                                      "    values:\n"
@@ -163,6 +171,14 @@ constexpr std::string_view kCHarness =
     "  sample->has_f32 = true; sample->f32 = 1.5f;\n"
     "  sample->has_f64 = true; sample->f64 = 2.71828182845904;\n"
     "  sample->has_status = true; sample->status = ACME_TELEMETRY_STATUS_WARNING;\n"
+    "  sample->has_label = true;\n"
+    "  memcpy(sample->label, \"caf\\xc3\\xa9\", 5); sample->label_length = 5;\n"
+    "  sample->has_blob = true;\n"
+    "  {\n"
+    "    uint8_t blob_content[] = {0x00U, 0xFFU, 0x80U};\n"
+    "    memcpy(sample->blob, blob_content, 3);\n"
+    "    sample->blob_length = 3;\n"
+    "  }\n"
     "}\n"
     "static int check_fields(const acme_telemetry_Sample_t* v) {\n"
     "  if (!v->has_flag || v->flag != true) return 1;\n"
@@ -177,6 +193,13 @@ constexpr std::string_view kCHarness =
     "  if (!v->has_f32 || v->f32 != 1.5f) return 10;\n"
     "  if (!v->has_f64 || v->f64 != 2.71828182845904) return 11;\n"
     "  if (!v->has_status || v->status != ACME_TELEMETRY_STATUS_WARNING) return 12;\n"
+    "  if (!v->has_label || v->label_length != 5 || memcmp(v->label, \"caf\\xc3\\xa9\", 5) != 0)\n"
+    "    return 13;\n"
+    "  {\n"
+    "    uint8_t expected_blob[] = {0x00U, 0xFFU, 0x80U};\n"
+    "    if (!v->has_blob || v->blob_length != 3 || memcmp(v->blob, expected_blob, 3) != 0)\n"
+    "      return 14;\n"
+    "  }\n"
     "  return 0;\n"
     "}\n"
     "int main(int argc, char** argv) {\n"
@@ -235,6 +258,12 @@ constexpr std::string_view kCppHarness =
     "  if (!builder.set_f32(1.5f)) return false;\n"
     "  if (!builder.set_f64(2.71828182845904)) return false;\n"
     "  if (!builder.set_status(acme::telemetry::Status::WARNING)) return false;\n"
+    "  if (!builder.set_label(std::string(\"caf\\xc3\\xa9\"))) return false;\n"
+    "  {\n"
+    "    const std::vector<std::byte> blob_content{std::byte{0x00U}, std::byte{0xFFU},\n"
+    "                                               std::byte{0x80U}};\n"
+    "    if (!builder.set_blob(blob_content)) return false;\n"
+    "  }\n"
     "  return true;\n"
     "}\n"
     "static int check_fields(const acme::telemetry::Sample& v) {\n"
@@ -250,6 +279,12 @@ constexpr std::string_view kCppHarness =
     "  if (!v.has_f32() || *v.f32() != 1.5f) return 10;\n"
     "  if (!v.has_f64() || *v.f64() != 2.71828182845904) return 11;\n"
     "  if (!v.has_status() || *v.status() != acme::telemetry::Status::WARNING) return 12;\n"
+    "  if (!v.has_label() || *v.label() != std::string(\"caf\\xc3\\xa9\")) return 13;\n"
+    "  {\n"
+    "    const std::vector<std::byte> expected_blob{std::byte{0x00U}, std::byte{0xFFU},\n"
+    "                                                std::byte{0x80U}};\n"
+    "    if (!v.has_blob() || *v.blob() != expected_blob) return 14;\n"
+    "  }\n"
     "  return 0;\n"
     "}\n"
     "int main(int argc, char** argv) {\n"
@@ -303,6 +338,7 @@ constexpr std::string_view kPythonHarness =
     "        flag=True, i8=-5, u8=250, i16=-1000, u16=60000, i32=-100000,\n"
     "        u32=4000000000, i64=-5000000000, u64=10000000000000,\n"
     "        f32=1.5, f64=2.71828182845904, status=Status.WARNING,\n"
+    "        label=\"caf\\u00e9\", blob=bytes([0x00, 0xFF, 0x80]),\n"
     "    )\n"
     "\n"
     "\n"
@@ -500,15 +536,24 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     EXPECT_EQ(run_python("decode_expect_failure", trailing), 0)
         << "Python did not reject extra trailing data";
 
+    // Both remaining corruption cases locate their target byte by searching
+    // for the label field's own known plaintext bytes, rather than
+    // hand-computing payload offsets that would need updating every time
+    // the schema's field list changes.
+    const std::string label_bytes = "caf\xc3\xa9";
+    const std::size_t label_pos = c_bytes.find(label_bytes);
+    ASSERT_NE(label_pos, std::string::npos)
+        << "could not locate the label field's bytes in the encoded record";
+
     // Unknown enum value: corrupt the status field's one-byte payload (the
-    // last-declared/highest-field_index field, so its payload byte is the
-    // last byte of the encoded record) to a value outside {0, 1, 2} and
-    // confirm all three languages reject it.
+    // field immediately preceding label in declaration/field_index order,
+    // so its payload byte immediately precedes label's own bytes) to a
+    // value outside {0, 1, 2} and confirm all three languages reject it.
     const std::filesystem::path unknown_enum = root / "unknown_enum.bin";
     {
         std::string corrupted_bytes = c_bytes;
-        ASSERT_FALSE(corrupted_bytes.empty());
-        corrupted_bytes.back() = static_cast<char>(99);
+        ASSERT_GT(label_pos, 0U);
+        corrupted_bytes[label_pos - 1] = static_cast<char>(99);
         std::ofstream out(unknown_enum, std::ios::binary);
         ASSERT_TRUE(static_cast<bool>(out));
         out.write(corrupted_bytes.data(), static_cast<std::streamsize>(corrupted_bytes.size()));
@@ -523,6 +568,30 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
         << "C++ did not reject an out-of-range enum byte";
     EXPECT_EQ(run_python("decode_expect_failure", unknown_enum), 0)
         << "Python did not reject an out-of-range enum byte";
+
+    // Malformed UTF-8: corrupt one byte of the label field's content (the
+    // 0xA9 continuation byte of its one accented character) to an invalid
+    // UTF-8 lead byte and confirm all three languages reject it.
+    const std::filesystem::path malformed_utf8 = root / "malformed_utf8.bin";
+    {
+        std::string corrupted_bytes = c_bytes;
+        corrupted_bytes[label_pos + 4] = static_cast<char>(0xFF);
+        std::ofstream out(malformed_utf8, std::ios::binary);
+        ASSERT_TRUE(static_cast<bool>(out));
+        out.write(corrupted_bytes.data(), static_cast<std::streamsize>(corrupted_bytes.size()));
+    }
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
+                                    " decode_expect_failure " +
+                                    shell_quote(malformed_utf8.string())),
+             0)
+        << "C did not reject malformed UTF-8 in the label field";
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
+                                    " decode_expect_failure " +
+                                    shell_quote(malformed_utf8.string())),
+             0)
+        << "C++ did not reject malformed UTF-8 in the label field";
+    EXPECT_EQ(run_python("decode_expect_failure", malformed_utf8), 0)
+        << "Python did not reject malformed UTF-8 in the label field";
 }
 
 } // namespace

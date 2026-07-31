@@ -75,29 +75,33 @@ generated-code API compatibility epoch
 (`QUARRY_C_GENERATED_CODE_API_VERSION`, currently epoch `2`), independent
 from the C++ epoch described below.
 
-**`--language python` supports scalar fields (PR-119) and enum fields
-(PR-120), on top of the architecture skeleton PR-118 established.** It
-emits one `.py` module per namespace that directly owns one or more
-records, enums, or both, inside a true nested Python package (one real
-directory plus `__init__.py` per namespace segment, unlike C's flat
-symbol-prefix convention -- see `docs/design/python-backend.md`). Each
-record renders as a `@dataclass` (one `Optional[bool | int | float |
-<EnumClass>] = None` attribute per declared scalar or enum field) whose
-`encode`/`decode`/`encoded_size` methods delegate to three module-level
-`_encode_<name>`/`_decode_<name>`/`_encoded_size_<name>` helper functions
--- the public/internal split PR-118A's investigation recommended, wired
-end to end. Those helpers perform real BRF encode/decode for `bool` and
-every fixed-width signed/unsigned integer and `f32`/`f64` field, and for a
-same-namespace, non-negative-valued `enum` field (rendered as a real
-`enum.IntEnum` subclass, always emitted before any record referencing it
-in the same module), via a `quarry.runtime.python.binary_record` runtime
-module (built on the standard library's `struct` module), verified
-byte-for-byte wire-compatible with the C and C++ backends
+**`--language python` supports scalar fields (PR-119), enum fields
+(PR-120), and string/bytes fields (PR-121), on top of the architecture
+skeleton PR-118 established.** It emits one `.py` module per namespace
+that directly owns one or more records, enums, or both, inside a true
+nested Python package (one real directory plus `__init__.py` per
+namespace segment, unlike C's flat symbol-prefix convention -- see
+`docs/design/python-backend.md`). Each record renders as a `@dataclass`
+(one `Optional[bool | int | float | str | bytes | <EnumClass>] = None`
+attribute per declared field) whose `encode`/`decode`/`encoded_size`
+methods delegate to three module-level `_encode_<name>`/`_decode_<name>`/
+`_encoded_size_<name>` helper functions -- the public/internal split
+PR-118A's investigation recommended, wired end to end. Those helpers
+perform real BRF encode/decode for `bool` and every fixed-width
+signed/unsigned integer and `f32`/`f64` field, for a same-namespace,
+non-negative-valued `enum` field (rendered as a real `enum.IntEnum`
+subclass, always emitted before any record referencing it in the same
+module), and for a bounded `string`/`bytes` field (UTF-8 validation for
+`string` delegated entirely to Python's own `str.encode`/
+`bytes.decode("utf-8")`, not hand-rolled), via a
+`quarry.runtime.python.binary_record` runtime module (built on the
+standard library's `struct` module), verified byte-for-byte
+wire-compatible with the C and C++ backends
 (`tests/interop/python_cpp_c_codec_interop_test.cpp`). A field of any
-other type (string, bytes, array, or nested record), or a cross-namespace
-enum reference, fails generation with a diagnostic naming the record and
-field, mirroring the same "do not emit partial code" rule PR-107
-established for the original C skeleton. Every generated module imports
+other type (array or nested record), or a cross-namespace enum reference,
+fails generation with a diagnostic naming the record and field, mirroring
+the same "do not emit partial code" rule PR-107 established for the
+original C skeleton. Every generated module imports
 `QUARRY_GENERATED_CODE_API_VERSION_PYTHON`
 from the `quarry.runtime.python` package (`runtime/python/`, pip-installed
 independently of CMake) and raises `ImportError` at import time on a

@@ -127,6 +127,79 @@ def unpack_enum(enum_cls, type_name: str, data: bytes):
         raise DecodeError(f"{raw_value!r} is not a valid {enum_cls.__name__} value") from error
 
 
+def pack_string(value: str, max_bytes: int) -> bytes:
+    """Encodes `value` as UTF-8 BRF field bytes, per the BRF spec's
+    "Variable-Length Data Encoding" / "string" sections: no internal length
+    prefix (the Field Directory's own fieldLength supplies the byte
+    length), UTF-8 required, embedded U+0000 valid.
+
+    Deliberately reuses Python's own `str.encode("utf-8")` for UTF-8
+    validation rather than hand-rolling a validator the way the C++/C
+    runtimes must -- Python's `str` type already guarantees well-formed
+    Unicode text, and `encode()` itself raises `UnicodeEncodeError` for the
+    one remaining edge case (a lone surrogate code point, which can exist
+    in a Python `str` but has no UTF-8 encoding). Raises EncodeError (not
+    the stdlib's UnicodeEncodeError) for that case, and for an encoded
+    length exceeding `max_bytes`, so callers only ever need to catch
+    EncodeError/DecodeError from generated code.
+    """
+    if not isinstance(value, str):
+        raise EncodeError(f"expected str, got {type(value).__name__}: {value!r}")
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise EncodeError(f"value is not valid UTF-8 text: {error}") from error
+    if len(encoded) > max_bytes:
+        raise EncodeError(
+            f"encoded string length {len(encoded)} exceeds max_bytes={max_bytes}")
+    return encoded
+
+
+def unpack_string(data: bytes, max_bytes: int) -> str:
+    """Decodes UTF-8 BRF field bytes back into a `str`.
+
+    Checks `len(data)` against `max_bytes` first, then decodes -- mirroring
+    the C++/C runtimes' own bounds-check-before-content-validate ordering.
+    Reuses Python's own `bytes.decode("utf-8")` for UTF-8 validation (no
+    hand-rolled validator): its strict-mode rejection of overlong
+    encodings, lone continuation bytes, truncated sequences, and encoded
+    surrogate halves already matches exactly what the BRF spec and the
+    C++/C runtimes' custom validators require. Raises DecodeError (not the
+    stdlib's UnicodeDecodeError) for malformed UTF-8, and for a length
+    exceeding `max_bytes`.
+    """
+    if len(data) > max_bytes:
+        raise DecodeError(f"string field length {len(data)} exceeds max_bytes={max_bytes}")
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise DecodeError(f"field is not valid UTF-8: {error}") from error
+
+
+def pack_bytes(value: bytes, max_bytes: int) -> bytes:
+    """Encodes `value` as BRF field bytes for a `bytes` field: the raw
+    content verbatim, no UTF-8 validation (per the BRF spec's "bytes"
+    section: "Bytes data may contain any byte sequence... No UTF-8
+    validation applies"). Raises EncodeError for a non-bytes-like value or
+    a length exceeding `max_bytes`.
+    """
+    if not isinstance(value, (bytes, bytearray)):
+        raise EncodeError(f"expected bytes, got {type(value).__name__}: {value!r}")
+    if len(value) > max_bytes:
+        raise EncodeError(f"bytes length {len(value)} exceeds max_bytes={max_bytes}")
+    return bytes(value)
+
+
+def unpack_bytes(data: bytes, max_bytes: int) -> bytes:
+    """Decodes BRF field bytes for a `bytes` field: the raw content
+    verbatim, no UTF-8 validation. Raises DecodeError for a length
+    exceeding `max_bytes`.
+    """
+    if len(data) > max_bytes:
+        raise DecodeError(f"bytes field length {len(data)} exceeds max_bytes={max_bytes}")
+    return bytes(data)
+
+
 def append_varuint(buffer: bytearray, value: int) -> None:
     """Appends `value` (a non-negative int) to `buffer` as unsigned LEB128,
     matching the BRF spec's Varuint Encoding section exactly."""

@@ -164,6 +164,104 @@ class EnumRoundTripTest(unittest.TestCase):
         self.assertIs(brf.unpack_enum(Status, "uint32", encoded), Status.ERROR)
 
 
+class StringBytesRoundTripTest(unittest.TestCase):
+    def test_string_round_trip(self):
+        encoded = brf.pack_string("café", 16)
+        self.assertEqual(encoded, "café".encode("utf-8"))
+        self.assertEqual(brf.unpack_string(encoded, 16), "café")
+
+    def test_string_empty_value(self):
+        encoded = brf.pack_string("", 16)
+        self.assertEqual(encoded, b"")
+        self.assertEqual(brf.unpack_string(encoded, 16), "")
+
+    def test_string_embedded_nul_is_valid(self):
+        value = "ab\x00cd"
+        encoded = brf.pack_string(value, 16)
+        self.assertEqual(brf.unpack_string(encoded, 16), value)
+
+    def test_string_maximum_length_value(self):
+        value = "x" * 16
+        encoded = brf.pack_string(value, 16)
+        self.assertEqual(len(encoded), 16)
+        self.assertEqual(brf.unpack_string(encoded, 16), value)
+
+    def test_string_over_length_value_is_rejected_on_encode(self):
+        with self.assertRaises(brf.EncodeError):
+            brf.pack_string("x" * 17, 16)
+
+    def test_string_over_length_value_is_rejected_on_decode(self):
+        # A field whose byte length exceeds max_bytes must be rejected even
+        # if it happens to be otherwise-valid UTF-8 -- the bound is checked
+        # before content is decoded, mirroring the C++/C runtimes' own
+        # bounds-check-first ordering.
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_string(b"x" * 17, 16)
+
+    def test_string_rejects_non_str_value_on_encode(self):
+        with self.assertRaises(brf.EncodeError):
+            brf.pack_string(b"not a str", 16)
+        with self.assertRaises(brf.EncodeError):
+            brf.pack_string(123, 16)
+
+    def test_string_rejects_malformed_utf8_on_decode(self):
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_string(b"\xff\xfe", 16)
+
+    def test_string_rejects_lone_surrogate_on_encode(self):
+        # A lone surrogate code point can exist in a Python str (e.g. via
+        # surrogateescape decoding) but has no UTF-8 encoding -- the one
+        # "invalid content" case pack_string must still catch even though
+        # it delegates UTF-8 validation to the stdlib.
+        lone_surrogate = "\udc80"
+        with self.assertRaises(brf.EncodeError):
+            brf.pack_string(lone_surrogate, 16)
+
+    def test_bytes_round_trip(self):
+        value = bytes([0x00, 0xFF, 0x80, 0x01, 0xC0])
+        encoded = brf.pack_bytes(value, 16)
+        self.assertEqual(encoded, value)
+        self.assertEqual(brf.unpack_bytes(encoded, 16), value)
+
+    def test_bytes_empty_value(self):
+        encoded = brf.pack_bytes(b"", 16)
+        self.assertEqual(encoded, b"")
+        self.assertEqual(brf.unpack_bytes(encoded, 16), b"")
+
+    def test_bytes_maximum_length_value(self):
+        value = bytes(range(16))
+        encoded = brf.pack_bytes(value, 16)
+        self.assertEqual(len(encoded), 16)
+        self.assertEqual(brf.unpack_bytes(encoded, 16), value)
+
+    def test_bytes_over_length_value_is_rejected_on_encode(self):
+        with self.assertRaises(brf.EncodeError):
+            brf.pack_bytes(bytes(17), 16)
+
+    def test_bytes_over_length_value_is_rejected_on_decode(self):
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_bytes(bytes(17), 16)
+
+    def test_bytes_never_validates_utf8(self):
+        # Arbitrary binary content that is not valid UTF-8 must round-trip
+        # through bytes fields unchanged -- proving bytes fields never
+        # validate it, unlike string fields.
+        invalid_utf8 = bytes([0xFF, 0xFE, 0x00, 0x80])
+        encoded = brf.pack_bytes(invalid_utf8, 16)
+        self.assertEqual(brf.unpack_bytes(encoded, 16), invalid_utf8)
+
+    def test_bytes_accepts_bytearray(self):
+        encoded = brf.pack_bytes(bytearray([1, 2, 3]), 16)
+        self.assertEqual(encoded, b"\x01\x02\x03")
+        self.assertIsInstance(encoded, bytes)
+
+    def test_bytes_rejects_non_bytes_value_on_encode(self):
+        with self.assertRaises(brf.EncodeError):
+            brf.pack_bytes("not bytes", 16)
+        with self.assertRaises(brf.EncodeError):
+            brf.pack_bytes(123, 16)
+
+
 class VaruintTest(unittest.TestCase):
     def _round_trip(self, value, expected_hex):
         buffer = bytearray()
