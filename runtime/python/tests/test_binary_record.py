@@ -1,15 +1,16 @@
 """Unit tests for quarry.runtime.python.binary_record (PR-119 scalars,
-PR-120 enums).
+PR-120 enums, PR-121 string/bytes, PR-122 arrays).
 
 Run directly: PYTHONPATH=runtime/python/src python3 -m unittest
 runtime/python/tests/test_binary_record.py -v
 
 Exercised only through the public module API (pack_scalar/unpack_scalar/
-pack_enum/unpack_enum/append_varuint/read_varuint/encode_record/
-parse_record) -- these tests know nothing about the Python backend's code
-generator; they validate the runtime primitive layer in isolation, matching
-this project's "runtime components must not depend on the compiler"
-boundary.
+pack_enum/unpack_enum/pack_array_of_scalar/unpack_array_of_scalar/
+pack_array_of_enum/unpack_array_of_enum/append_varuint/read_varuint/
+encode_record/parse_record) -- these tests know nothing about the Python
+backend's code generator; they validate the runtime primitive layer in
+isolation, matching this project's "runtime components must not depend on the
+compiler" boundary.
 """
 
 import unittest
@@ -260,6 +261,70 @@ class StringBytesRoundTripTest(unittest.TestCase):
             brf.pack_bytes("not bytes", 16)
         with self.assertRaises(brf.EncodeError):
             brf.pack_bytes(123, 16)
+
+
+class ArrayRoundTripTest(unittest.TestCase):
+    def test_scalar_array_round_trip_and_wire_framing(self):
+        encoded = brf.pack_array_of_scalar("uint16", [1, 0x2345, 0xFFFF], 3)
+        self.assertEqual(encoded, b"\x03\x00\x01\x23\x45\xff\xff")
+        self.assertEqual(brf.unpack_array_of_scalar("uint16", encoded, 3),
+                         [1, 0x2345, 0xFFFF])
+
+    def test_empty_scalar_array_is_present_and_has_zero_count(self):
+        encoded = brf.pack_array_of_scalar("uint32", [], 4)
+        self.assertEqual(encoded, b"\x00")
+        self.assertEqual(brf.unpack_array_of_scalar("uint32", encoded, 4), [])
+
+    def test_scalar_array_supports_all_fixed_width_element_kinds(self):
+        cases = [
+            ("bool", [True, False]),
+            ("int8", [-2, 127]),
+            ("uint8", [0, 255]),
+            ("int16", [-2, 32767]),
+            ("uint16", [0, 65535]),
+            ("int32", [-2, 2147483647]),
+            ("uint32", [0, 4294967295]),
+            ("int64", [-2, 9223372036854775807]),
+            ("uint64", [0, 18446744073709551615]),
+            ("float32", [-1.5, 2.5]),
+            ("float64", [-1.5, 2.5]),
+        ]
+        for type_name, values in cases:
+            with self.subTest(type_name=type_name):
+                encoded = brf.pack_array_of_scalar(type_name, values, len(values))
+                self.assertEqual(brf.unpack_array_of_scalar(type_name, encoded, len(values)),
+                                 values)
+
+    def test_enum_array_round_trip_and_membership(self):
+        encoded = brf.pack_array_of_enum(Status, "uint8",
+                                         [Status.OK, Status.ERROR], 2)
+        self.assertEqual(encoded, b"\x02\x00\x02")
+        self.assertEqual(brf.unpack_array_of_enum(Status, "uint8", encoded, 2),
+                         [Status.OK, Status.ERROR])
+        with self.assertRaises(brf.EncodeError):
+            brf.pack_array_of_enum(Status, "uint8", [99], 1)
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_enum(Status, "uint8", b"\x01\x63", 1)
+
+    def test_array_length_bound_is_checked_on_encode_and_decode(self):
+        with self.assertRaises(brf.EncodeError):
+            brf.pack_array_of_scalar("uint8", [1, 2, 3], 2)
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_scalar("uint8", b"\x03\x01\x02\x03", 2)
+
+    def test_array_payload_must_be_exactly_consumed(self):
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_scalar("uint16", b"\x02\x00\x01", 2)
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_scalar("uint16", b"\x01\x00\x01\x00", 2)
+
+    def test_array_count_rejects_truncated_or_malformed_varuint(self):
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_scalar("uint8", b"", 2)
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_scalar("uint8", b"\x80", 2)
+        with self.assertRaises(brf.DecodeError):
+            brf.unpack_array_of_scalar("uint8", b"\x80\x80\x80\x80\x80\x80\x80\x80\x80\x02", 2)
 
 
 class VaruintTest(unittest.TestCase):

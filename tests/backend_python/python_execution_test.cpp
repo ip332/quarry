@@ -135,6 +135,23 @@ constexpr std::string_view kStringBytesSchema = "namespace: acme.telemetry\n"
                                                "    type: bytes\n"
                                                "    max_bytes: 16\n";
 
+constexpr std::string_view kArraySchema = "namespace: acme.telemetry\n"
+                                         "record: Sample\n"
+                                         "version: 1\n"
+                                         "type: data\n"
+                                         "fields:\n"
+                                         "  readings:\n"
+                                         "    type: float32[]\n"
+                                         "    max_elements: 4\n"
+                                         "  statuses:\n"
+                                         "    type: Status[]\n"
+                                         "    max_elements: 3\n"
+                                         "enums:\n"
+                                         "  Status:\n"
+                                         "    values:\n"
+                                         "      OK: 0\n"
+                                         "      ERROR: 1\n";
+
 // Runs `harness_body` (a fragment of Python source assuming `generated` is
 // already on sys.path and `acme.telemetry.schema.Sample` is importable)
 // against the schema compiled from `schema_source`, returning the real
@@ -447,6 +464,48 @@ TEST(PythonExecutionTest, MalformedUtf8RaisesDecodeErrorForStringFieldAtDecodeTi
                                 "    pass\n"
                                 "else:\n"
                                 "    raise SystemExit('expected DecodeError for malformed UTF-8')\n"
+                                "print('OK')\n"),
+             0);
+}
+
+TEST(PythonExecutionTest, ArrayFieldsEncodeDecodeAndValidateWithRealPython) {
+    if (std::string_view(QUARRY_TEST_PYTHON3).empty()) {
+        GTEST_SKIP() << "python3 interpreter not found; skipping Python execution test";
+    }
+
+    EXPECT_EQ(run_python_harness("array-round-trip", kArraySchema,
+                                "from quarry.runtime.python import binary_record as brf\n"
+                                "from acme.telemetry.schema import Sample, Status\n"
+                                "\n"
+                                "sample = Sample(readings=[1.5, -2.0], statuses=[Status.OK, 1])\n"
+                                "data = sample.encode()\n"
+                                "decoded = Sample.decode(data)\n"
+                                "assert decoded.readings == [1.5, -2.0], decoded\n"
+                                "assert decoded.statuses == [Status.OK, Status.ERROR], decoded\n"
+                                "assert sample.encoded_size() == len(data)\n"
+                                "\n"
+                                "empty = Sample(readings=[], statuses=[])\n"
+                                "decoded_empty = Sample.decode(empty.encode())\n"
+                                "assert decoded_empty.readings == []\n"
+                                "assert decoded_empty.statuses == []\n"
+                                "\n"
+                                "absent = Sample.decode(Sample().encode())\n"
+                                "assert absent.readings is None\n"
+                                "assert absent.statuses is None\n"
+                                "\n"
+                                "try:\n"
+                                "    Sample(readings=[1, 2, 3, 4, 5]).encode()\n"
+                                "except brf.EncodeError:\n"
+                                "    pass\n"
+                                "else:\n"
+                                "    raise SystemExit('expected array bounds EncodeError')\n"
+                                "\n"
+                                "try:\n"
+                                "    Sample(statuses=[99]).encode()\n"
+                                "except brf.EncodeError:\n"
+                                "    pass\n"
+                                "else:\n"
+                                "    raise SystemExit('expected unknown enum EncodeError')\n"
                                 "print('OK')\n"),
              0);
 }

@@ -76,7 +76,8 @@ generated-code API compatibility epoch
 from the C++ epoch described below.
 
 **`--language python` supports scalar fields (PR-119), enum fields
-(PR-120), and string/bytes fields (PR-121), on top of the architecture
+(PR-120), string/bytes fields (PR-121), and bounded arrays of fixed-width
+scalar or same-namespace enum elements (PR-122), on top of the architecture
 skeleton PR-118 established.** It emits one `.py` module per namespace
 that directly owns one or more records, enums, or both, inside a true
 nested Python package (one real directory plus `__init__.py` per
@@ -97,9 +98,11 @@ module), and for a bounded `string`/`bytes` field (UTF-8 validation for
 `quarry.runtime.python.binary_record` runtime module (built on the
 standard library's `struct` module), verified byte-for-byte
 wire-compatible with the C and C++ backends
-(`tests/interop/python_cpp_c_codec_interop_test.cpp`). A field of any
-other type (array or nested record), or a cross-namespace enum reference,
-fails generation with a diagnostic naming the record and field, mirroring
+(`tests/interop/python_cpp_c_codec_interop_test.cpp`). Bounded arrays of
+fixed-width scalar or same-namespace enum elements are supported; arrays of
+string, bytes, records, or arrays, standalone nested-record fields, and
+cross-namespace enum references fail generation with a diagnostic naming
+the record and field, mirroring
 the same "do not emit partial code" rule PR-107 established for the
 original C skeleton. Every generated module imports
 `QUARRY_GENERATED_CODE_API_VERSION_PYTHON`

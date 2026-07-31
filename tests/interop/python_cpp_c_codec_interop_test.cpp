@@ -1,12 +1,13 @@
 // Proves byte-for-byte BRF wire compatibility between the Python, C++, and
-// C backends for a scalar-plus-enum-plus-string/bytes schema (PR-119
-// scalars, PR-120 enum, PR-121 string/bytes): generates the same schema
+// C backends for a scalar-plus-enum-plus-string/bytes-plus-array schema
+// (PR-119 scalars, PR-120 enum, PR-121 string/bytes, PR-122 arrays): generates
+// the same schema
 // through all three `quarry-schema-compiler` backends, compiles small C
 // and C++ harness programs and writes a Python harness script against
 // each generated output, and verifies (1) all three encoders produce
 // identical bytes for identical field values covering every one of
-// PR-119's eleven supported scalar types plus a same-namespace enum field
-// plus bounded string/bytes fields, (2) each language's decoder accepts
+// PR-119's eleven supported scalar types plus a same-namespace enum field,
+// bounded string/bytes fields, and fixed-width scalar/enum arrays, (2) each language's decoder accepts
 // bytes produced by either of the other two languages, (3) all three
 // languages identically reject a truncated buffer and identically reject
 // extra trailing bytes appended after a valid record, (4) all three
@@ -144,6 +145,12 @@ constexpr std::string_view kSchema = "namespace: acme.telemetry\n"
                                      "  blob:\n"
                                      "    type: bytes\n"
                                      "    max_bytes: 16\n"
+                                     "  readings:\n"
+                                     "    type: float32[]\n"
+                                     "    max_elements: 4\n"
+                                     "  statuses:\n"
+                                     "    type: Status[]\n"
+                                     "    max_elements: 3\n"
                                      "enums:\n"
                                      "  Status:\n"
                                      "    values:\n"
@@ -179,6 +186,11 @@ constexpr std::string_view kCHarness =
     "    memcpy(sample->blob, blob_content, 3);\n"
     "    sample->blob_length = 3;\n"
     "  }\n"
+    "  sample->has_readings = true; sample->readings_count = 2;\n"
+    "  sample->readings[0] = 1.5f; sample->readings[1] = -2.0f;\n"
+    "  sample->has_statuses = true; sample->statuses_count = 2;\n"
+    "  sample->statuses[0] = ACME_TELEMETRY_STATUS_OK;\n"
+    "  sample->statuses[1] = ACME_TELEMETRY_STATUS_ERROR;\n"
     "}\n"
     "static int check_fields(const acme_telemetry_Sample_t* v) {\n"
     "  if (!v->has_flag || v->flag != true) return 1;\n"
@@ -200,6 +212,11 @@ constexpr std::string_view kCHarness =
     "    if (!v->has_blob || v->blob_length != 3 || memcmp(v->blob, expected_blob, 3) != 0)\n"
     "      return 14;\n"
     "  }\n"
+    "  if (!v->has_readings || v->readings_count != 2 || v->readings[0] != 1.5f ||\n"
+    "      v->readings[1] != -2.0f) return 15;\n"
+    "  if (!v->has_statuses || v->statuses_count != 2 ||\n"
+    "      v->statuses[0] != ACME_TELEMETRY_STATUS_OK ||\n"
+    "      v->statuses[1] != ACME_TELEMETRY_STATUS_ERROR) return 16;\n"
     "  return 0;\n"
     "}\n"
     "int main(int argc, char** argv) {\n"
@@ -264,6 +281,9 @@ constexpr std::string_view kCppHarness =
     "                                               std::byte{0x80U}};\n"
     "    if (!builder.set_blob(blob_content)) return false;\n"
     "  }\n"
+    "  if (!builder.set_readings(std::vector<float>{1.5f, -2.0f})) return false;\n"
+    "  if (!builder.set_statuses(std::vector<acme::telemetry::Status>{\n"
+    "          acme::telemetry::Status::OK, acme::telemetry::Status::ERROR})) return false;\n"
     "  return true;\n"
     "}\n"
     "static int check_fields(const acme::telemetry::Sample& v) {\n"
@@ -285,6 +305,11 @@ constexpr std::string_view kCppHarness =
     "                                                std::byte{0x80U}};\n"
     "    if (!v.has_blob() || *v.blob() != expected_blob) return 14;\n"
     "  }\n"
+    "  if (!v.has_readings() || v.readings()->size() != 2 ||\n"
+    "      (*v.readings())[0] != 1.5f || (*v.readings())[1] != -2.0f) return 15;\n"
+    "  if (!v.has_statuses() || v.statuses()->size() != 2 ||\n"
+    "      (*v.statuses())[0] != acme::telemetry::Status::OK ||\n"
+    "      (*v.statuses())[1] != acme::telemetry::Status::ERROR) return 16;\n"
     "  return 0;\n"
     "}\n"
     "int main(int argc, char** argv) {\n"
@@ -339,6 +364,7 @@ constexpr std::string_view kPythonHarness =
     "        u32=4000000000, i64=-5000000000, u64=10000000000000,\n"
     "        f32=1.5, f64=2.71828182845904, status=Status.WARNING,\n"
     "        label=\"caf\\u00e9\", blob=bytes([0x00, 0xFF, 0x80]),\n"
+    "        readings=[1.5, -2.0], statuses=[Status.OK, Status.ERROR],\n"
     "    )\n"
     "\n"
     "\n"

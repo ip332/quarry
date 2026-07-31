@@ -20,8 +20,9 @@ module, `quarry.runtime.python.binary_record`, built entirely on the
 standard library's `struct` module. Verified byte-for-byte wire-compatible
 with the C and C++ backends for the same field values (see
 `tests/interop/python_cpp_c_codec_interop_test.cpp`). Enum, string, bytes,
-array, and nested-record fields remain unsupported and fail generation
-with a diagnostic naming the record and field.
+and supported fixed-width scalar/enum array fields are implemented; nested
+records and unsupported array element categories fail generation with a
+diagnostic naming the record and field.
 
 PR-120 added enum field support. A field may now reference a
 same-namespace enum whose declared values are all non-negative; the enum
@@ -39,9 +40,9 @@ existing "Variable-Length Data Encoding" rules unchanged: bounded
 via four new `binary_record.py` functions (`pack_string`/`unpack_string`/
 `pack_bytes`/`unpack_bytes`) that deliberately reuse Python's own
 `str.encode("utf-8")`/`bytes.decode("utf-8")` for UTF-8 validation rather
-than hand-rolling a validator the way the C++/C runtimes must. Array and
-nested-record fields remain unsupported and fail generation with a
-diagnostic.
+than hand-rolling a validator the way the C++/C runtimes must. Nested
+records and unsupported array element categories remain unsupported and fail
+generation with a diagnostic.
 
 This document supersedes, for implementation purposes, the investigation
 notes captured in this repository's PR-117 (native Python backend
@@ -137,11 +138,13 @@ an incidental implementation detail:
   namespace-prefixed like C's `quarry_telemetry_Sample_t` -- Python's own
   package/module structure already disambiguates.
 
-### Scope: scalar, enum, string, and bytes record fields
+### Scope: scalar, enum, string, bytes, and array record fields
 
 `namespace_emits_file()` for Python is `ns.records_size() > 0 ||
 ns.enums_size() > 0`: a namespace emits a module if it owns records,
-enums, or both. Array and nested-record fields remain unsupported.
+enums, or both. Bounded arrays of scalar and same-namespace,
+non-negative-valued enum elements are supported; nested-record fields and
+arrays of string, bytes, records, or arrays remain unsupported.
 
 ### Scalar field lowering
 
@@ -160,9 +163,9 @@ record and field:
 backend_python: field '<record-fqn>.<field-name>' has a type the Python
 backend does not support yet -- only bool, fixed-width signed/unsigned
 integer, f32/f64 scalar fields, same-namespace non-negative-valued enum
-fields, and bounded string/bytes fields are supported (see
-docs/design/python-backend.md); array and nested record fields remain
-unsupported
+fields, and bounded arrays of scalar or same-namespace non-negative-valued
+enum elements are supported (see docs/design/python-backend.md); nested
+records and unsupported array element categories remain unsupported
 ```
 
 A record/class that silently dropped an unsupported field would be
@@ -228,6 +231,23 @@ lowering time. A `string` field becomes `python_type_hint = "str"`; a
 boundary" below) -- there is no wire-level length prefix specific to
 these field types to plan around (the Field Directory's own `fieldLength`
 already supplies the byte count, per the BRF spec).
+
+### Array field lowering
+
+PR-122 supports bounded arrays whose elements are fixed-width scalar
+primitives or same-namespace, non-negative-valued enum references. The
+element lowering reuses the scalar and enum lowering decisions, including
+wire width, Python type hint, namespace restrictions, and enum membership
+validation. Array `max_elements` is already validated by the semantic layer
+as a positive `uint32`, so the backend passes it directly to the generated
+runtime calls.
+
+Arrays render as `Optional[list[T]]`. A present array, including an empty
+array, is encoded as a Field Directory field whose payload starts with an
+unsigned LEB128 element count followed by tightly packed fixed-width element
+bytes. The runtime rejects counts above `max_elements` before materializing a
+list and requires the remaining payload to be exactly `count * element_width`
+bytes, rejecting truncation and trailing bytes.
 
 ---
 
@@ -319,6 +339,34 @@ acronym-handling gap.
 A namespace with multiple records repeats this block once per record,
 separated by the same single blank line used within the template (a
 judgment call for a case the literal single-record example doesn't show).
+
+### Array fields
+
+PR-122 supports arrays of fixed-width scalar and same-namespace enum
+elements. They render as `Optional[list[T]] = None` and use the BRF array
+count-prefix encoding:
+
+```python
+@dataclass
+class Sample:
+    readings: Optional[list[float]] = None
+    statuses: Optional[list[Status]] = None
+
+def _encode_sample(value):
+    fields = []
+    if value.readings is not None:
+        fields.append((0, _brf.pack_array_of_scalar(
+            "float32", value.readings, 4)))
+    if value.statuses is not None:
+        fields.append((1, _brf.pack_array_of_enum(
+            Status, "uint8", value.statuses, 3)))
+```
+
+The payload begins with an unsigned LEB128 element count followed by
+tightly packed fixed-width element bytes. Empty arrays are present values
+and encode as a zero count; `None` continues to mean absent. Decoding checks
+the count against `max_elements` before creating the result list and requires
+exact payload consumption.
 
 ### Enum fields
 
@@ -491,8 +539,20 @@ supplies the byte count):
   "bytes" section), with the same `max_bytes` bound check as the string
   functions.
 
-No array or nested-record codec support exists in `binary_record.py`
-yet -- see the roadmap below.
+Since PR-122, four small functions cover fixed-width arrays:
+
+* `pack_array_of_scalar(type_name, values, max_elements)` /
+  `unpack_array_of_scalar(type_name, data, max_elements)` -- encode and
+  decode the count varuint and tightly packed scalar elements, enforcing the
+  element-count bound and exact payload consumption.
+* `pack_array_of_enum(enum_cls, type_name, values, max_elements)` /
+  `unpack_array_of_enum(enum_cls, type_name, data, max_elements)` -- the same
+  framing for enum elements, delegating per-element membership validation to
+  `pack_enum`/`unpack_enum`.
+
+Arrays of string, bytes, or records, nested arrays, and standalone
+nested-record fields remain unsupported and are deferred to later roadmap
+work.
 
 Every generated module begins with an import-time compatibility check:
 
@@ -534,8 +594,10 @@ contract can change on its own schedule.
   the same trick doesn't directly apply. A follow-up PR could introduce a
   small shared source of truth (e.g. a generated `_version.py` the
   packaging step copies in) if manual drift becomes a real problem.
-* **No array or nested-record support.** A field of either type fails
-  generation with a diagnostic. Deferred to later PRs, per the roadmap
+* **Limited array support.** Arrays of fixed-width scalar and
+  same-namespace, non-negative-valued enum elements are supported. Arrays of
+  string, bytes, records, or arrays, plus standalone nested-record fields,
+  fail generation with a diagnostic. Deferred to later PRs, per the roadmap
   below.
 * **No cross-namespace enum references.** Only a same-namespace enum
   reference is supported; a field referencing an enum declared elsewhere
@@ -596,11 +658,13 @@ problems), continuing PR-117 §11's sketch:
    undefined values with no extra validation code needed), same-namespace
    and non-negative-valued-only, verified byte-for-byte wire-compatible
    with C/C++. Done.
-4. PR-121 (this PR): string/bytes field support, using the BRF spec's
+4. PR-121: string/bytes field support, using the BRF spec's
    existing variable-length encoding rules unchanged, with UTF-8
    validation delegated entirely to Python's own `str`/`bytes` codec
    methods, verified byte-for-byte wire-compatible with C/C++. Done.
-5. Array fields.
+5. PR-122: bounded arrays of fixed-width scalar and same-namespace enum
+   elements, using the BRF count-prefix encoding and exact payload checks.
+   Done.
 6. Nested record fields.
 7. Cross-namespace enum/record references, if a concrete need is
    demonstrated (currently out of scope for every backend, not just
@@ -620,7 +684,7 @@ naming, method-to-helper delegation, epoch-check preamble presence and
 placement, the unsupported-field-type failure diagnostic (its
 representative unsupported-type example has moved as each PR added
 support for the previous one: `count`/`u32` -> `label`/`string` in
-PR-119, `label`/`string` -> `readings`/`array` in PR-121, mirroring the
+PR-119, `label`/`string` -> nested-record `item`/`record` in PR-122, mirroring the
 same swap pattern the C backend's own test history established), all
 eleven scalar types generating successfully, generated encode/decode
 helper text referencing the runtime correctly, plan/generate agreement,
@@ -633,6 +697,9 @@ file (fixing the PR-118/PR-119-documented limitation). Since PR-121, it
 also covers string/bytes dataclass field generation and generated
 encode/decode helper text referencing `pack_string`/`unpack_string`/
 `pack_bytes`/`unpack_bytes` with the correct `max_bytes` values.
+Since PR-122, it also covers scalar and enum array annotations and generated
+array helper calls; nested-record fields remain the representative
+unsupported type.
 `tests/tools/schema_compiler_tool_test.cpp` adds `--language python`
 coverage (list-outputs, determinism, `--file-extension` rejection,
 generated content).
@@ -656,7 +723,10 @@ Since PR-119, three more test layers exist:
   over-length rejection on both encode and decode, malformed-UTF-8
   rejection on decode, non-str/non-bytes value rejection on encode, and
   bytes fields never validating UTF-8 (round-tripping arbitrary binary
-  content unchanged).
+  content unchanged). Since PR-122, it also covers scalar arrays for all
+  fixed-width element kinds, enum arrays, empty arrays, count bounds,
+  malformed/truncated counts, exact payload consumption, and enum
+  membership rejection.
   `tests/backend_python/python_runtime_test.cpp` runs this suite via a
   real `python3 -m unittest` subprocess so `ctest` catches runtime
   regressions automatically.
@@ -677,11 +747,14 @@ Since PR-119, three more test layers exist:
   round-trip string/bytes fields (empty-present, absent, maximum-length,
   and bytes-never-validates-UTF-8 cases), confirm an over-length
   string/bytes value raises `EncodeError` at encode time, and confirm
-  malformed UTF-8 in a string field raises `DecodeError` at decode time.
+  malformed UTF-8 in a string field raises `DecodeError` at decode time; and,
+  since PR-122, execute scalar/enum array round trips, empty-vs-absent array
+  handling, array-bound rejection, and enum-membership rejection.
 * `tests/interop/python_cpp_c_codec_interop_test.cpp` -- the genuinely new
   kind of test PR-119 added: generates one schema (covering all eleven
-  supported scalar types, a same-namespace enum field since PR-120, and
-  bounded string/bytes fields since PR-121) through the C++, C, and
+  supported scalar types, a same-namespace enum field since PR-120,
+  bounded string/bytes fields since PR-121, and fixed-width scalar/enum
+  arrays since PR-122) through the C++, C, and
   Python backends, compiles small C and C++ harnesses and writes a Python
   harness script, and verifies all three encoders produce byte-for-byte
   identical output for identical field values (the string field's value

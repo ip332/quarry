@@ -1,16 +1,17 @@
-"""Quarry Python runtime: BRF scalar codec primitives.
+"""Quarry Python runtime: BRF codec primitives.
 
-Covers bool, fixed-width signed/unsigned integers, float32/float64, varuint
-I/O, and whole-record (16-byte header + Field Directory + Payload)
-assembly/parsing -- the runtime surface PR-119's scalar field milestone
-needs. Mirrors the byte-for-byte wire behavior of
+Covers bool, fixed-width signed/unsigned integers, float32/float64, enums,
+fixed-width arrays of scalar and enum values, varuint I/O, and whole-record
+(16-byte header + Field Directory + Payload) assembly/parsing. Mirrors the
+byte-for-byte wire behavior of
 quarry/runtime/binary_record.hpp (C++) and quarry/runtime_c/binary_record.h
 (C) for that same subset. Built entirely on the standard library (`struct`
 for big-endian packing/range-checked scalar conversion), per this project's
 "do not hand-write integer packing if the stdlib already provides it" rule.
 
-No enum, string, bytes, array, or nested-record support exists here yet --
-see docs/design/python-backend.md for the roadmap.
+String, bytes, and nested-record support are implemented separately or remain
+backend limitations; see docs/design/python-backend.md for the supported
+surface and roadmap.
 """
 
 import struct
@@ -237,6 +238,99 @@ def read_varuint(data: bytes, offset: int) -> tuple[int, int]:
             return value, offset
         shift += 7
     raise DecodeError("malformed varuint (exceeds 10 bytes)")
+
+
+def _scalar_width(type_name: str) -> int:
+    """Byte width of one fixed-width scalar element, used to validate an
+    array payload's exact remaining length after its count varuint."""
+    if type_name == "bool":
+        return 1
+    return struct.calcsize(_SCALAR_STRUCT_FORMATS[type_name])
+
+
+def pack_array_of_scalar(type_name: str, values: list, max_elements: int) -> bytes:
+    """Encodes a bounded array of scalar values, per the BRF spec's Array
+    Encoding section: an unsigned LEB128 element count, followed by each
+    element tightly packed via pack_scalar with no padding or per-element
+    framing (fixed-width elements need none). Raises EncodeError if
+    len(values) exceeds max_elements, or if any element itself fails to
+    encode (propagated from pack_scalar unchanged).
+    """
+    if len(values) > max_elements:
+        raise EncodeError(
+            f"array length {len(values)} exceeds max_elements={max_elements}")
+    buffer = bytearray()
+    append_varuint(buffer, len(values))
+    for value in values:
+        buffer.extend(pack_scalar(type_name, value))
+    return bytes(buffer)
+
+
+def unpack_array_of_scalar(type_name: str, data: bytes, max_elements: int) -> list:
+    """Decodes a bounded array of scalar values.
+
+    Rejects a count exceeding max_elements before materializing the list,
+    and rejects a payload whose remaining bytes (after the count varuint)
+    are not exactly count * element_width -- both per the BRF spec's Array
+    Encoding section's decoder requirements. This single length check
+    catches truncated payloads, malformed counts, and trailing bytes alike
+    (any of those makes the remaining length disagree with the expected
+    count * element_width).
+    """
+    count, offset = read_varuint(data, 0)
+    if count > max_elements:
+        raise DecodeError(f"array count {count} exceeds max_elements={max_elements}")
+    element_width = _scalar_width(type_name)
+    remaining = data[offset:]
+    expected_length = count * element_width
+    if len(remaining) != expected_length:
+        raise DecodeError(
+            f"array payload has {len(remaining)} byte(s) after the count, expected "
+            f"exactly {expected_length} for {count} {type_name} element(s)")
+    values = []
+    for index in range(count):
+        start = index * element_width
+        values.append(unpack_scalar(type_name, remaining[start:start + element_width]))
+    return values
+
+
+def pack_array_of_enum(enum_cls, type_name: str, values: list, max_elements: int) -> bytes:
+    """Encodes a bounded array of enum values -- identical framing to
+    pack_array_of_scalar, delegating each element to pack_enum (which
+    already validates membership, so an invalid element value raises
+    EncodeError with no extra code needed here).
+    """
+    if len(values) > max_elements:
+        raise EncodeError(
+            f"array length {len(values)} exceeds max_elements={max_elements}")
+    buffer = bytearray()
+    append_varuint(buffer, len(values))
+    for value in values:
+        buffer.extend(pack_enum(enum_cls, value, type_name))
+    return bytes(buffer)
+
+
+def unpack_array_of_enum(enum_cls, type_name: str, data: bytes, max_elements: int) -> list:
+    """Decodes a bounded array of enum values -- identical framing and
+    length validation to unpack_array_of_scalar, delegating each element
+    to unpack_enum (which already raises DecodeError for a decoded integer
+    the enum does not define, with no extra code needed here).
+    """
+    count, offset = read_varuint(data, 0)
+    if count > max_elements:
+        raise DecodeError(f"array count {count} exceeds max_elements={max_elements}")
+    element_width = _scalar_width(type_name)
+    remaining = data[offset:]
+    expected_length = count * element_width
+    if len(remaining) != expected_length:
+        raise DecodeError(
+            f"array payload has {len(remaining)} byte(s) after the count, expected "
+            f"exactly {expected_length} for {count} {type_name} element(s)")
+    values = []
+    for index in range(count):
+        start = index * element_width
+        values.append(unpack_enum(enum_cls, type_name, remaining[start:start + element_width]))
+    return values
 
 
 def encode_record(record_id: int, fields: list[tuple[int, bytes]]) -> bytes:

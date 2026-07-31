@@ -290,23 +290,17 @@ TEST(BackendPythonTest, EpochCheckPreambleImportsRuntimeAndRaisesOnMismatch) {
 }
 
 TEST(BackendPythonTest, UnsupportedFieldTypeFailsGenerationNamingRecordAndField) {
-    // array (like nested-record fields) remains unsupported -- matching
-    // the same "swap the representative unsupported-type example once it
-    // becomes supported" maintenance pattern the C backend's own test
-    // history established each time it added a new field category (string
-    // and bytes became supported in PR-121).
+    // Nested-record fields remain unsupported; arrays are covered below.
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
     root->set_ir_id(1);
-    RecordIR* record = add_zero_field_record(*root, 2, 1U, "Sample", "Sample");
+    (void)add_zero_field_record(*root, 2, 1U, "Item", "Item");
+    RecordIR* record = add_zero_field_record(*root, 3, 2U, "Sample", "Sample");
     FieldIR* field = record->add_fields();
     field->set_name("readings");
     field->set_field_index(0);
-    ::quarry::schema_ir::ArrayType* array_type = field->mutable_type()->mutable_array();
-    array_type->mutable_element_type()->set_primitive(
-        ::quarry::schema_ir::PrimitiveType::PRIMITIVE_TYPE_F32);
-    array_type->set_max_elements(4);
+    field->mutable_type()->mutable_record()->set_target_record_ir_id(2);
     assert_valid(schema_ir);
 
     Backend backend;
@@ -317,6 +311,53 @@ TEST(BackendPythonTest, UnsupportedFieldTypeFailsGenerationNamingRecordAndField)
 
     const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
     EXPECT_FALSE(plan_result.success);
+}
+
+TEST(BackendPythonTest, ScalarAndEnumArraysGenerateCorrectAnnotationsAndHelpers) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    EnumIR* status_enum = add_enum(*root, 2, "Status", "Status");
+    add_enum_value(*status_enum, "OK", 0);
+    add_enum_value(*status_enum, "ERROR", 1);
+    RecordIR* record = add_zero_field_record(*root, 3, 1U, "Sample", "Sample");
+
+    FieldIR* readings = record->add_fields();
+    readings->set_name("readings");
+    readings->set_field_index(0);
+    auto* readings_array = readings->mutable_type()->mutable_array();
+    readings_array->set_max_elements(4);
+    readings_array->mutable_element_type()->set_primitive(
+        ::quarry::schema_ir::PrimitiveType::PRIMITIVE_TYPE_F32);
+
+    FieldIR* statuses = record->add_fields();
+    statuses->set_name("statuses");
+    statuses->set_field_index(1);
+    auto* statuses_array = statuses->mutable_type()->mutable_array();
+    statuses_array->set_max_elements(3);
+    statuses_array->mutable_element_type()->mutable_enum_type()->set_target_enum_ir_id(2);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1U);
+    const std::string& content = result.files[0].content;
+    EXPECT_NE(content.find("readings: Optional[list[float]] = None"), std::string::npos);
+    EXPECT_NE(content.find("statuses: Optional[list[Status]] = None"), std::string::npos);
+    EXPECT_NE(content.find(
+                  "_brf.pack_array_of_scalar(\"float32\", value.readings, 4)"),
+             std::string::npos);
+    EXPECT_NE(content.find(
+                  "_brf.unpack_array_of_scalar(\"float32\", fields[0], 4)"),
+             std::string::npos);
+    EXPECT_NE(content.find(
+                  "_brf.pack_array_of_enum(Status, \"uint8\", value.statuses, 3)"),
+             std::string::npos);
+    EXPECT_NE(content.find(
+                  "_brf.unpack_array_of_enum(Status, \"uint8\", fields[1], 3)"),
+             std::string::npos);
 }
 
 TEST(BackendPythonTest, AllElevenScalarTypesGenerateSuccessfully) {
