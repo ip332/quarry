@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <cstdint>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -13,7 +14,10 @@ namespace quarry::compiler::backend_python {
 
 namespace {
 
+using ::quarry::schema_ir::FieldIR;
+using ::quarry::schema_ir::FieldType;
 using ::quarry::schema_ir::NamespaceIR;
+using ::quarry::schema_ir::PrimitiveType;
 using ::quarry::schema_ir::RecordIR;
 
 // Compatibility epoch embedded in every generated module's import-time check
@@ -135,10 +139,71 @@ void collect_ancestor_init_paths(std::string_view fqn, std::set<std::string>& in
     return result;
 }
 
+// --- Scalar field lowering --------------------------------------------
+//
+// PR-119 scope: bool and every fixed-width signed/unsigned integer and
+// f32/f64 scalar primitive -- the same eleven types
+// compiler/backend_c/backend_c.cpp's lower_scalar_field_type supports,
+// independently re-derived here (not shared, per this backend's own
+// established convention of not depending on backend_c). `runtime_type_name`
+// is the string literal passed to quarry.runtime.python.binary_record's
+// pack_scalar()/unpack_scalar() (e.g. "uint32"); `python_type_hint` is the
+// dataclass field's type annotation ("bool", "int", or "float"). No enum,
+// string, bytes, array, or nested-record field type is supported yet --
+// lower_field_encoding below fails generation with a diagnostic for any of
+// those, naming the record and field.
+
+struct ScalarEncoding {
+    std::string runtime_type_name;
+    std::string python_type_hint;
+};
+
+[[nodiscard]] std::optional<ScalarEncoding> lower_scalar_field_type(const FieldType& type) {
+    if (type.kind_case() != FieldType::kPrimitive) {
+        return std::nullopt;
+    }
+    switch (type.primitive()) {
+    case PrimitiveType::PRIMITIVE_TYPE_BOOL:
+        return ScalarEncoding{"bool", "bool"};
+    case PrimitiveType::PRIMITIVE_TYPE_I8:
+        return ScalarEncoding{"int8", "int"};
+    case PrimitiveType::PRIMITIVE_TYPE_U8:
+        return ScalarEncoding{"uint8", "int"};
+    case PrimitiveType::PRIMITIVE_TYPE_I16:
+        return ScalarEncoding{"int16", "int"};
+    case PrimitiveType::PRIMITIVE_TYPE_U16:
+        return ScalarEncoding{"uint16", "int"};
+    case PrimitiveType::PRIMITIVE_TYPE_I32:
+        return ScalarEncoding{"int32", "int"};
+    case PrimitiveType::PRIMITIVE_TYPE_U32:
+        return ScalarEncoding{"uint32", "int"};
+    case PrimitiveType::PRIMITIVE_TYPE_I64:
+        return ScalarEncoding{"int64", "int"};
+    case PrimitiveType::PRIMITIVE_TYPE_U64:
+        return ScalarEncoding{"uint64", "int"};
+    case PrimitiveType::PRIMITIVE_TYPE_F32:
+        return ScalarEncoding{"float32", "float"};
+    case PrimitiveType::PRIMITIVE_TYPE_F64:
+        return ScalarEncoding{"float64", "float"};
+    case PrimitiveType::PRIMITIVE_TYPE_UNSPECIFIED:
+    default:
+        return std::nullopt;
+    }
+}
+
 // --- Planning -------------------------------------------------------------
+
+struct PlannedField {
+    std::string name;
+    std::uint32_t field_index = 0U;
+    std::string runtime_type_name;
+    std::string python_type_hint;
+};
 
 struct PlannedRecord {
     std::string name;
+    std::uint32_t record_id = 0U;
+    std::vector<PlannedField> fields;
 };
 
 struct PlannedNamespaceFile {
@@ -146,20 +211,18 @@ struct PlannedNamespaceFile {
     std::vector<PlannedRecord> records;
 };
 
-// A namespace emits a module in this skeleton only if it directly owns one
-// or more records. Enums are deliberately ignored here -- PR-118's scope is
-// records only (the given per-record template is the entire generated-code
-// surface this PR defines); enum rendering is deferred to a later PR, per
+// A namespace emits a module if it directly owns one or more records.
+// Enums are deliberately ignored here -- PR-119's scope is scalar record
+// fields only; enum rendering is deferred to a later PR, per
 // docs/design/python-backend.md's roadmap.
 [[nodiscard]] bool namespace_emits_file(const NamespaceIR& ns) { return ns.records_size() > 0; }
 
 // Collects one PlannedNamespaceFile per namespace that directly owns
 // records, in Schema IR declaration order (pre-order namespace traversal),
 // and accumulates every such namespace's ancestor __init__.py paths into
-// `ancestor_init_paths`. Fails with a diagnostic naming the record and its
-// field count for any record declaring one or more fields -- this skeleton
-// supports zero-field records only (mirrors PR-107's identical rule for the
-// original C backend skeleton).
+// `ancestor_init_paths`. Fails with a diagnostic naming the record and
+// field for any field whose type is not one of the eleven supported
+// scalar primitives.
 [[nodiscard]] bool collect_namespace_files(const NamespaceIR& ns, const CodegenOptions& options,
                                           std::vector<PlannedNamespaceFile>& files,
                                           std::set<std::string>& ancestor_init_paths,
@@ -169,17 +232,34 @@ struct PlannedNamespaceFile {
         file.relative_module_path = module_path_for_namespace(options, ns.fqn());
 
         for (const RecordIR& record_ir : ns.records()) {
-            if (record_ir.fields_size() > 0) {
-                std::ostringstream stream;
-                stream << "backend_python: record '" << record_ir.fqn() << "' declares "
-                       << record_ir.fields_size()
-                       << " field(s); the Python backend skeleton does not yet support any "
-                          "field types -- only zero-field records can be generated (see "
-                          "docs/design/python-backend.md)";
-                error_message = stream.str();
-                return false;
+            std::vector<PlannedField> planned_fields;
+            planned_fields.reserve(static_cast<std::size_t>(record_ir.fields_size()));
+            for (const FieldIR& field_ir : record_ir.fields()) {
+                std::optional<ScalarEncoding> encoding = lower_scalar_field_type(field_ir.type());
+                if (!encoding.has_value()) {
+                    std::ostringstream stream;
+                    stream << "backend_python: field '" << record_ir.fqn() << "."
+                           << field_ir.name()
+                           << "' has a type the Python backend does not support yet -- only "
+                              "bool, fixed-width signed/unsigned integer, and f32/f64 scalar "
+                              "fields are supported (see docs/design/python-backend.md); enum, "
+                              "string, bytes, array, and nested record fields remain "
+                              "unsupported";
+                    error_message = stream.str();
+                    return false;
+                }
+                planned_fields.push_back(PlannedField{
+                    .name = field_ir.name(),
+                    .field_index = field_ir.field_index(),
+                    .runtime_type_name = encoding->runtime_type_name,
+                    .python_type_hint = encoding->python_type_hint,
+                });
             }
-            file.records.push_back(PlannedRecord{.name = record_ir.name()});
+            file.records.push_back(PlannedRecord{
+                .name = record_ir.name(),
+                .record_id = record_ir.record_id(),
+                .fields = std::move(planned_fields),
+            });
         }
 
         collect_ancestor_init_paths(ns.fqn(), ancestor_init_paths);
@@ -234,18 +314,28 @@ struct PlannedNamespaceFile {
     return "\"\"\"Generated by Quarry (Python backend). Do not edit by hand.\"\"\"\n";
 }
 
-// Reproduces the record template exactly as specified for PR-118: the
-// dataclass's methods are the public API and delegate their single line of
-// implementation to the module-level helper functions below them (PR-118A's
-// recommended design, now wired end to end); the helpers themselves still
-// raise NotImplementedError, since no real codec logic exists yet -- there
-// is deliberately only one place (the helper) that can raise, not two
-// independent copies of the same "not implemented" behavior.
+// Renders one record: a @dataclass (one Optional[<hint>] = None field per
+// declared scalar field, matching PR-117's decided absent/present-via-None
+// representation) whose encode/decode/encoded_size methods delegate their
+// single line of implementation to the module-level helper functions below
+// them (PR-118A's recommended design), plus those helper functions
+// themselves, which now perform real BRF scalar encode/decode via
+// quarry.runtime.python.binary_record (aliased _brf in the module preamble)
+// rather than raising NotImplementedError -- PR-119's scalar milestone.
+// _encoded_size_<name> is implemented as len(_encode_<name>(value)): always
+// exactly correct by construction, at the cost of doing a full encode to
+// learn a size (unlike the C/C++ backends' size-only computation) -- an
+// acceptable simplicity/performance tradeoff for this first functional
+// milestone, revisitable later without changing the public API.
 [[nodiscard]] std::string render_record_block(const PlannedRecord& record) {
     const std::string snake_name = snake_case_from_pascal(record.name);
     std::ostringstream stream;
     stream << "@dataclass\n";
     stream << "class " << record.name << ":\n";
+    for (const PlannedField& field : record.fields) {
+        stream << "    " << field.name << ": Optional[" << field.python_type_hint
+               << "] = None\n";
+    }
     stream << "\n";
     stream << "    def encode(self):\n";
     stream << "        return _encode_" << snake_name << "(self)\n";
@@ -258,16 +348,43 @@ struct PlannedNamespaceFile {
     stream << "        return _encoded_size_" << snake_name << "(self)\n";
     stream << "\n";
     stream << "\n";
+
     stream << "def _encode_" << snake_name << "(value):\n";
-    stream << "    raise NotImplementedError\n";
+    stream << "    fields = []\n";
+    for (const PlannedField& field : record.fields) {
+        stream << "    if value." << field.name << " is not None:\n";
+        stream << "        fields.append((" << field.field_index << ", _brf.pack_scalar(\""
+               << field.runtime_type_name << "\", value." << field.name << ")))\n";
+    }
+    stream << "    return _brf.encode_record(" << record.record_id << ", fields)\n";
     stream << "\n";
     stream << "\n";
+
     stream << "def _decode_" << snake_name << "(data):\n";
-    stream << "    raise NotImplementedError\n";
+    stream << "    record_id, fields = _brf.parse_record(data)\n";
+    stream << "    if record_id != " << record.record_id << ":\n";
+    stream << "        raise _brf.DecodeError(\n";
+    stream << "            f\"unexpected record id: {record_id} (expected " << record.record_id
+           << ")\")\n";
+    for (const PlannedField& field : record.fields) {
+        stream << "    " << field.name << " = None\n";
+        stream << "    if " << field.field_index << " in fields:\n";
+        stream << "        " << field.name << " = _brf.unpack_scalar(\""
+               << field.runtime_type_name << "\", fields[" << field.field_index << "])\n";
+    }
+    stream << "    return " << record.name << "(";
+    for (std::size_t index = 0; index < record.fields.size(); ++index) {
+        if (index > 0) {
+            stream << ", ";
+        }
+        stream << record.fields[index].name << "=" << record.fields[index].name;
+    }
+    stream << ")\n";
     stream << "\n";
     stream << "\n";
+
     stream << "def _encoded_size_" << snake_name << "(value):\n";
-    stream << "    raise NotImplementedError\n";
+    stream << "    return len(_encode_" << snake_name << "(value))\n";
     return stream.str();
 }
 
@@ -281,6 +398,7 @@ struct PlannedNamespaceFile {
     stream << "\"\"\"Generated by Quarry (Python backend). Do not edit by hand.\"\"\"\n";
     stream << "\n";
     stream << "from quarry.runtime.python import QUARRY_GENERATED_CODE_API_VERSION_PYTHON\n";
+    stream << "from quarry.runtime.python import binary_record as _brf\n";
     stream << "\n";
     stream << "if QUARRY_GENERATED_CODE_API_VERSION_PYTHON != " << kGeneratedCodeApiVersionPython
            << ":\n";
@@ -291,6 +409,7 @@ struct PlannedNamespaceFile {
     stream << "    )\n";
     stream << "\n";
     stream << "from dataclasses import dataclass\n";
+    stream << "from typing import Optional\n";
 
     bool first_record = true;
     for (const PlannedRecord& record : file.records) {

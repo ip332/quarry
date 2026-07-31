@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -163,6 +165,7 @@ TEST(BackendPythonTest, ZeroFieldRecordEmitsExactTemplate) {
 
     const std::string expected_template =
         "from dataclasses import dataclass\n"
+        "from typing import Optional\n"
         "\n"
         "@dataclass\n"
         "class Sample:\n"
@@ -179,15 +182,20 @@ TEST(BackendPythonTest, ZeroFieldRecordEmitsExactTemplate) {
         "\n"
         "\n"
         "def _encode_sample(value):\n"
-        "    raise NotImplementedError\n"
+        "    fields = []\n"
+        "    return _brf.encode_record(1, fields)\n"
         "\n"
         "\n"
         "def _decode_sample(data):\n"
-        "    raise NotImplementedError\n"
+        "    record_id, fields = _brf.parse_record(data)\n"
+        "    if record_id != 1:\n"
+        "        raise _brf.DecodeError(\n"
+        "            f\"unexpected record id: {record_id} (expected 1)\")\n"
+        "    return Sample()\n"
         "\n"
         "\n"
         "def _encoded_size_sample(value):\n"
-        "    raise NotImplementedError\n";
+        "    return len(_encode_sample(value))\n";
 
     EXPECT_NE(result.files[0].content.find(expected_template), std::string::npos)
         << "generated content:\n"
@@ -264,12 +272,85 @@ TEST(BackendPythonTest, EpochCheckPreambleImportsRuntimeAndRaisesOnMismatch) {
              content.find("from dataclasses import dataclass"));
 }
 
-TEST(BackendPythonTest, RecordWithFieldsFailsGenerationNamingRecordAndFieldCount) {
+TEST(BackendPythonTest, UnsupportedFieldTypeFailsGenerationNamingRecordAndField) {
+    // string (like bytes/array/enum/record-reference fields) remains
+    // unsupported in this PR's scalar-only scope -- matching the same
+    // "swap the representative unsupported-type example once it becomes
+    // supported" maintenance pattern the C backend's own test history
+    // established each time it added a new field category.
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
     root->set_ir_id(1);
     RecordIR* record = add_zero_field_record(*root, 2, 1U, "Sample", "Sample");
+    FieldIR* field = record->add_fields();
+    field->set_name("label");
+    field->set_field_index(0);
+    field->mutable_type()->mutable_string()->set_max_bytes(16);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    EXPECT_FALSE(result.success);
+    EXPECT_NE(result.error_message.find("Sample"), std::string::npos);
+    EXPECT_NE(result.error_message.find("label"), std::string::npos);
+
+    const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
+    EXPECT_FALSE(plan_result.success);
+}
+
+TEST(BackendPythonTest, AllElevenScalarTypesGenerateSuccessfully) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    RecordIR* record = add_zero_field_record(*root, 2, 1U, "Sample", "Sample");
+
+    const std::vector<std::pair<std::string, ::quarry::schema_ir::PrimitiveType>> kFields = {
+        {"f_bool", ::quarry::schema_ir::PrimitiveType::PRIMITIVE_TYPE_BOOL},
+        {"f_i8", ::quarry::schema_ir::PrimitiveType::PRIMITIVE_TYPE_I8},
+        {"f_u8", ::quarry::schema_ir::PrimitiveType::PRIMITIVE_TYPE_U8},
+        {"f_i16", ::quarry::schema_ir::PrimitiveType::PRIMITIVE_TYPE_I16},
+        {"f_u16", ::quarry::schema_ir::PrimitiveType::PRIMITIVE_TYPE_U16},
+        {"f_i32", ::quarry::schema_ir::PrimitiveType::PRIMITIVE_TYPE_I32},
+        {"f_u32", ::quarry::schema_ir::PrimitiveType::PRIMITIVE_TYPE_U32},
+        {"f_i64", ::quarry::schema_ir::PrimitiveType::PRIMITIVE_TYPE_I64},
+        {"f_u64", ::quarry::schema_ir::PrimitiveType::PRIMITIVE_TYPE_U64},
+        {"f_f32", ::quarry::schema_ir::PrimitiveType::PRIMITIVE_TYPE_F32},
+        {"f_f64", ::quarry::schema_ir::PrimitiveType::PRIMITIVE_TYPE_F64},
+    };
+    for (std::size_t index = 0; index < kFields.size(); ++index) {
+        FieldIR* field = record->add_fields();
+        field->set_name(kFields[index].first);
+        field->set_field_index(static_cast<std::uint32_t>(index));
+        field->mutable_type()->set_primitive(kFields[index].second);
+    }
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1U);
+
+    const std::string& content = result.files[0].content;
+    EXPECT_NE(content.find("f_bool: Optional[bool] = None"), std::string::npos);
+    EXPECT_NE(content.find("f_i8: Optional[int] = None"), std::string::npos);
+    EXPECT_NE(content.find("f_u8: Optional[int] = None"), std::string::npos);
+    EXPECT_NE(content.find("f_f32: Optional[float] = None"), std::string::npos);
+    EXPECT_NE(content.find("f_f64: Optional[float] = None"), std::string::npos);
+    EXPECT_NE(content.find("_brf.pack_scalar(\"bool\", value.f_bool)"), std::string::npos);
+    EXPECT_NE(content.find("_brf.pack_scalar(\"int8\", value.f_i8)"), std::string::npos);
+    EXPECT_NE(content.find("_brf.pack_scalar(\"uint64\", value.f_u64)"), std::string::npos);
+    EXPECT_NE(content.find("_brf.pack_scalar(\"float32\", value.f_f32)"), std::string::npos);
+    EXPECT_NE(content.find("_brf.unpack_scalar(\"float64\", fields[10])"), std::string::npos);
+}
+
+TEST(BackendPythonTest, ScalarRecordEncodeDecodeHelpersReferenceRuntimeCorrectly) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    RecordIR* record = add_zero_field_record(*root, 2, 7U, "Sample", "Sample");
     FieldIR* field = record->add_fields();
     field->set_name("count");
     field->set_field_index(0);
@@ -278,12 +359,21 @@ TEST(BackendPythonTest, RecordWithFieldsFailsGenerationNamingRecordAndFieldCount
 
     Backend backend;
     const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
-    EXPECT_FALSE(result.success);
-    EXPECT_NE(result.error_message.find("Sample"), std::string::npos);
-    EXPECT_NE(result.error_message.find('1'), std::string::npos);
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1U);
 
-    const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
-    EXPECT_FALSE(plan_result.success);
+    const std::string& content = result.files[0].content;
+    EXPECT_NE(content.find("from quarry.runtime.python import binary_record as _brf"),
+             std::string::npos);
+    EXPECT_NE(content.find("if value.count is not None:\n"
+                          "        fields.append((0, _brf.pack_scalar(\"uint32\", "
+                          "value.count)))\n"),
+             std::string::npos);
+    EXPECT_NE(content.find("return _brf.encode_record(7, fields)"), std::string::npos);
+    EXPECT_NE(content.find("record_id, fields = _brf.parse_record(data)"), std::string::npos);
+    EXPECT_NE(content.find("if record_id != 7:"), std::string::npos);
+    EXPECT_NE(content.find("count = _brf.unpack_scalar(\"uint32\", fields[0])"), std::string::npos);
+    EXPECT_NE(content.find("return Sample(count=count)"), std::string::npos);
 }
 
 TEST(BackendPythonTest, NamespaceWithOnlyEnumsEmitsNoFileInThisSkeleton) {

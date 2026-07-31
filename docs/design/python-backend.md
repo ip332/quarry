@@ -7,13 +7,21 @@ skeleton**, not serialization. `compiler/backend_python/` is a real,
 independent CMake target that consumes Schema IR and produces real,
 importable Python packages through the same `Backend`/`CodegenOptions`/
 `plan()`/`generate()` shape and CLI (`--language python`) integration the C
-and C++ backends already use. It supports **zero-field records only**; a
-record declaring one or more fields fails generation with a diagnostic. No
-BRF encoding/decoding, no scalar field support, no varuint, and no
-interoperability are implemented -- every generated method body
-unconditionally `raise`s `NotImplementedError`. This document describes the
-architecture PR-118 established and the scope it deliberately left for
-later PRs.
+and C++ backends already use. It supported zero-field records only, with
+every generated method body unconditionally `raise`-ing
+`NotImplementedError`.
+
+PR-119 implemented the first **functional** Python backend milestone:
+scalar field support. Records may now declare any of the eleven supported
+scalar types (`bool`, `int8`/`uint8`/`int16`/`uint16`/`int32`/`uint32`/
+`int64`/`uint64`, `float32`/`float64`); `_encode_<name>`/`_decode_<name>`/
+`_encoded_size_<name>` perform real BRF encode/decode via a new runtime
+module, `quarry.runtime.python.binary_record`, built entirely on the
+standard library's `struct` module. Verified byte-for-byte wire-compatible
+with the C and C++ backends for the same field values (see
+`tests/interop/python_cpp_c_codec_interop_test.cpp`). Enum, string, bytes,
+array, and nested-record fields remain unsupported and fail generation
+with a diagnostic naming the record and field.
 
 This document supersedes, for implementation purposes, the investigation
 notes captured in this repository's PR-117 (native Python backend
@@ -109,48 +117,58 @@ an incidental implementation detail:
   namespace-prefixed like C's `quarry_telemetry_Sample_t` -- Python's own
   package/module structure already disambiguates.
 
-### Scope: records only, this PR
+### Scope: scalar record fields only
 
-Enums are not rendered at all in this skeleton. `namespace_emits_file()`
-for Python is `ns.records_size() > 0`, ignoring any enums the namespace may
-also declare -- an enum-only namespace emits nothing. This is a narrow,
-intentional scope limitation (see "Known limitations" below), not an
-oversight: the per-record template PR-118 specifies is the entire
-generated-code surface this PR defines, and enums aren't mentioned in its
-scope at all.
+Enums are not rendered at all. `namespace_emits_file()` for Python is
+`ns.records_size() > 0`, ignoring any enums the namespace may also declare
+-- an enum-only namespace emits nothing. This is a narrow, intentional
+scope limitation (see "Known limitations" below), not an oversight.
 
-### Zero-field-only records
+### Scalar field lowering
 
-Mirroring PR-107's identical rule for the original C backend skeleton, any
-record declaring one or more fields fails generation with a diagnostic
-naming the record and its field count:
+`lower_scalar_field_type()` independently re-derives the same eleven
+scalar-primitive mapping `compiler/backend_c/backend_c.cpp`'s own
+`lower_scalar_field_type()` uses (not shared, per this backend's
+established convention), producing a `runtime_type_name` string (e.g.
+`"uint32"`, passed directly to `binary_record.pack_scalar()`/
+`unpack_scalar()`) and a `python_type_hint` (`"bool"`, `"int"`, or
+`"float"`, used for the dataclass field's type annotation) per field. Any
+field whose type is not one of these eleven fails generation with a
+diagnostic naming the record and field:
 
 ```
-backend_python: record '<fqn>' declares <N> field(s); the Python backend
-skeleton does not yet support any field types -- only zero-field records
-can be generated (see docs/design/python-backend.md)
+backend_python: field '<record-fqn>.<field-name>' has a type the Python
+backend does not support yet -- only bool, fixed-width signed/unsigned
+integer, and f32/f64 scalar fields are supported (see
+docs/design/python-backend.md); enum, string, bytes, array, and nested
+record fields remain unsupported
 ```
 
-A struct/class that silently dropped unsupported fields would be partial,
-misleading output; this PR follows the project's existing "do not emit
-partial code" convention instead.
+A record/class that silently dropped an unsupported field would be
+partial, misleading output; this backend follows the project's existing
+"do not emit partial code" convention instead. A record with **zero**
+fields remains fully supported (and, since PR-119, has genuinely working
+-- not stubbed -- encode/decode: an empty field list and a decode that
+expects no known field indices).
 
 ---
 
 ## Generated API
 
-For each zero-field record, the backend emits exactly this template
-(verbatim, per PR-118's specification -- a single blank line separates the
-import from the class and separates each method within the class; two
-blank lines, PEP8's top-level-definition convention, separate the class
-from the first module-level helper and separate each helper from the
-next):
+For a record with scalar fields, the backend emits (illustrated with one
+`bool` and one `uint32` field; a single blank line separates the import
+from the class and separates each method within the class; two blank
+lines, PEP8's top-level-definition convention, separate the class from the
+first module-level helper and separate each helper from the next):
 
 ```python
 from dataclasses import dataclass
+from typing import Optional
 
 @dataclass
 class Sample:
+    active: Optional[bool] = None
+    count: Optional[int] = None
 
     def encode(self):
         return _encode_sample(self)
@@ -164,27 +182,54 @@ class Sample:
 
 
 def _encode_sample(value):
-    raise NotImplementedError
+    fields = []
+    if value.active is not None:
+        fields.append((0, _brf.pack_scalar("bool", value.active)))
+    if value.count is not None:
+        fields.append((1, _brf.pack_scalar("uint32", value.count)))
+    return _brf.encode_record(1, fields)
 
 
 def _decode_sample(data):
-    raise NotImplementedError
+    record_id, fields = _brf.parse_record(data)
+    if record_id != 1:
+        raise _brf.DecodeError(
+            f"unexpected record id: {record_id} (expected 1)")
+    active = None
+    if 0 in fields:
+        active = _brf.unpack_scalar("bool", fields[0])
+    count = None
+    if 1 in fields:
+        count = _brf.unpack_scalar("uint32", fields[1])
+    return Sample(active=active, count=count)
 
 
 def _encoded_size_sample(value):
-    raise NotImplementedError
+    return len(_encode_sample(value))
 ```
+
+(`_brf` is `quarry.runtime.python.binary_record`, imported once per module
+-- see "Runtime boundary" below.) A zero-field record emits the same
+shape with an empty field list and no field-checking lines: `_encode_x`
+becomes `fields = []` followed directly by `return
+_brf.encode_record(<id>, fields)`, and `_decode_x` becomes the record-id
+check followed directly by `return X()` -- genuinely working code, not a
+stub, since encoding/decoding zero fields is just the empty case of the
+same real logic.
 
 The public API is the three dataclass methods; the leading-underscore
 module-level functions are implementation details, per PR-118A's
-methods-with-internal-free-function-delegation recommendation, now wired
-end to end: each method's single line of implementation is a delegating
-call to its corresponding helper (`return _encode_sample(self)`, etc.).
-Only the helpers themselves `raise NotImplementedError` -- there is
-deliberately one place, not two independent copies, where "not implemented
-yet" is expressed. A later PR will replace each helper's body with real
-codec logic; the methods above will not need to change at all when that
-happens.
+methods-with-internal-free-function-delegation recommendation, wired end
+to end: each method's single line of implementation is a delegating call
+to its corresponding helper (`return _encode_sample(self)`, etc.). Every
+scalar field becomes an `Optional[<hint>] = None` dataclass attribute
+(PR-117's decided absent/present-via-`None` representation) -- `hint` is
+`bool`, `int`, or `float` depending on the field's declared scalar type.
+`_encoded_size_<name>` is implemented as `len(_encode_<name>(value))`:
+always exactly correct by construction, at the cost of a full encode to
+learn a size (unlike the C/C++ backends' size-only computation) -- an
+acceptable simplicity/performance tradeoff for this first functional
+milestone, revisitable later without changing the public API.
 
 Helper function names use a PascalCase -> snake_case conversion (`Sample`
 -> `sample`, `SensorReading` -> `sensor_reading`): an underscore is
@@ -203,24 +248,50 @@ judgment call for a case the literal single-record example doesn't show).
 
 `runtime/python/` is a small, independently pip-installable package
 (`quarry-runtime-python` on PyPI; `pyproject.toml` + `src/quarry/runtime/
-python/`), importable as `quarry.runtime.python`. This skeleton exposes
+python/`), importable as `quarry.runtime.python`. `__init__.py` exposes
 exactly one symbol:
 
 ```python
 QUARRY_GENERATED_CODE_API_VERSION_PYTHON = 1
 ```
 
-No serialization helpers exist yet -- unlike the C++ and C runtimes
-(`quarry::runtime`, `quarry_runtime_c`), which already implement varuint,
-header/Field-Directory, and scalar codec mechanics, the Python runtime's
-real codec surface (varuint I/O, whole-record assembly/parsing, a
-`struct`-based scalar pack/unpack helper -- see PR-117 §6/§7) is deferred
-until a PR actually needs it.
+Since PR-119, a sibling module,
+`quarry/runtime/python/binary_record.py`, implements the real BRF codec
+mechanics generated code needs -- the Python analog of
+`quarry/runtime/binary_record.hpp` (C++) and `quarry/runtime_c/
+binary_record.h` (C), covering the same scalar-field subset:
+
+* `pack_scalar(type_name, value)` / `unpack_scalar(type_name, data)` --
+  big-endian encode/decode for `"bool"` and the ten fixed-width
+  integer/float type names, built on the standard library's `struct`
+  module rather than hand-rolled bit shifting (`struct.pack`/`unpack`
+  with an explicit `">"` big-endian format code). `struct.pack`'s own
+  range checking on a fixed-width format code (e.g. `"B"` for `uint8`) is
+  reused directly as the Python-specific scalar range check C++/C get for
+  free from their native fixed-width types.
+* `append_varuint(buffer, value)` / `read_varuint(data, offset)` --
+  unsigned LEB128, matching the BRF spec's Varuint Encoding section byte
+  for byte.
+* `encode_record(record_id, fields)` / `parse_record(data)` -- whole-record
+  (16-byte header + Field Directory + Payload) assembly/parsing, with the
+  same structural validation the C++/C runtimes perform: header version,
+  zero flags/reserved fields, exact payload-length match (catching both
+  truncation and trailing bytes), Field Directory sort/duplicate/overlap
+  checks, and field-range-within-payload checks.
+* `EncodeError` / `DecodeError` -- plain `Exception` subclasses raised for
+  any encode/decode failure. Generated code and callers alike catch these
+  directly; there is no C++/C-style `CodecResult<T, E>` value type, since
+  Python's own exception mechanism is the idiomatic fit PR-118A's
+  API-boundary investigation already anticipated.
+
+No enum, string, bytes, array, or nested-record codec support exists in
+`binary_record.py` yet -- see the roadmap below.
 
 Every generated module begins with an import-time compatibility check:
 
 ```python
 from quarry.runtime.python import QUARRY_GENERATED_CODE_API_VERSION_PYTHON
+from quarry.runtime.python import binary_record as _brf
 
 if QUARRY_GENERATED_CODE_API_VERSION_PYTHON != 1:
     raise ImportError(
@@ -256,15 +327,23 @@ contract can change on its own schedule.
   the same trick doesn't directly apply. A follow-up PR could introduce a
   small shared source of truth (e.g. a generated `_version.py` the
   packaging step copies in) if manual drift becomes a real problem.
-* **No enum support.** Enum-owning namespaces emit nothing in this
-  skeleton, even if they also own records (only the records are rejected
-  for having fields; the enum itself is silently not rendered). Deferred
-  to a later PR alongside general field-type support.
+* **No enum, string, bytes, array, or nested-record support.** A field of
+  any of those types fails generation with a diagnostic; an enum-owning
+  namespace with no records emits nothing at all. Deferred to later PRs,
+  per the roadmap below.
+* **`float32` round-trips through Python's only floating-point type.**
+  Python has no native single-precision float; `pack_scalar("float32",
+  value)` always narrows a Python `float` (always double-precision) to
+  IEEE 754 binary32 via `struct.pack`, and `unpack_scalar` widens it back.
+  A value not already exactly representable in binary32 loses precision
+  on encode -- inherent to using Python's one float type for both widths,
+  not a bug, and no different in effect from what any binary32 field
+  does in any language. `float64` has no such narrowing.
 * **No Python-keyword escaping.** A record or field named `class`,
-  `import`, etc. would currently produce invalid Python. Not reachable
-  yet since no field rendering exists, but must be addressed before field
-  support lands.
-  * **Simple snake_case heuristic.** `HTTPResponse` becomes
+  `import`, etc. would currently produce invalid Python (e.g. `class:
+  Optional[bool] = None`). Reachable now that field rendering exists;
+  not yet addressed.
+* **Simple snake_case heuristic.** `HTTPResponse` becomes
   `h_t_t_p_response`, not `http_response` -- acronym runs are not
   special-cased. Acceptable for this PR's narrow scope; revisit if
   real schemas hit this.
@@ -276,7 +355,7 @@ contract can change on its own schedule.
   `sys.path` with real (non-namespace-package) `__init__.py` files at the
   shared `quarry` segment. Not exercised by this PR's tests (which use a
   distinct `acme.*` test namespace precisely to sidestep this), and not a
-  concern for the isolated skeleton-verification use case PR-118 targets,
+  concern for the isolated verification use cases PR-118/PR-119 target,
   but worth resolving (e.g. via PEP 420 namespace packages at the shared
   prefix, or reserving a different runtime package name) before real
   multi-namespace production use.
@@ -286,6 +365,9 @@ contract can change on its own schedule.
   `from .schema import Sample`-style convenience re-export yet, so callers
   must import the concrete module (`acme.telemetry.schema.Sample`), not
   the package (`acme.telemetry.Sample`).
+* **`_encoded_size_<name>` always performs a full encode.** Correct by
+  construction, but not the size-only computation the C/C++ backends do.
+  Acceptable for now; revisit only if profiling shows it matters.
 
 ---
 
@@ -294,10 +376,11 @@ contract can change on its own schedule.
 Sequencing sketch (subject to revision as each PR reveals concrete
 problems), continuing PR-117 §11's sketch:
 
-1. PR-118 (this PR): architecture skeleton -- zero-field records only.
-2. Scalar field support (bool, fixed-width integers, f32/f64) plus real
-   runtime codec mechanics in `runtime/python/` (varuint, header/Field
-   Directory assembly, `struct`-based scalar pack/unpack).
+1. PR-118: architecture skeleton -- zero-field records only. Done.
+2. PR-119 (this PR): scalar field support (bool, fixed-width integers,
+   f32/f64) plus real runtime codec mechanics in `runtime/python/`
+   (varuint, header/Field Directory assembly, `struct`-based scalar
+   pack/unpack), verified byte-for-byte wire-compatible with C/C++. Done.
 3. Enum support (`enum.IntEnum`, matching PR-117 §8's finding that
    `IntEnum`'s constructor already raises `ValueError` for undefined
    values with no extra validation code needed).
@@ -306,7 +389,6 @@ problems), continuing PR-117 §11's sketch:
 6. Nested record fields.
 7. Python-keyword escaping and generated `__init__.py` re-exports, once
    there is real content worth re-exporting.
-8. Interoperability verification against the C/C++ backends' wire output.
 
 ---
 
@@ -316,15 +398,43 @@ problems), continuing PR-117 §11's sketch:
 registration, output planning, package/`__init__.py` layout (including
 sibling-namespace ancestor deduplication), zero-field dataclass
 generation, exact-template verification, helper-function snake_case
-naming, epoch-check preamble presence and placement, the
-record-with-fields failure diagnostic, enum-only-namespace exclusion,
+naming, method-to-helper delegation, epoch-check preamble presence and
+placement, the unsupported-field-type failure diagnostic, all eleven
+scalar types generating successfully, generated encode/decode helper text
+referencing the runtime correctly, enum-only-namespace exclusion,
 plan/generate agreement, and generation determinism.
 `tests/tools/schema_compiler_tool_test.cpp` adds `--language python`
 coverage (list-outputs, determinism, `--file-extension` rejection,
-generated content). `tests/backend_python/python_execution_test.cpp` is
-the genuinely new kind of test this PR adds: it invokes the real
-`quarry-schema-compiler` binary to generate a package, then a real
-`python3` subprocess to import it, instantiate a zero-field record, verify
-`encode()` raises `NotImplementedError`, and verify an epoch mismatch
-raises `ImportError` at import time. No serialization tests exist, since
-there is no serialization to test.
+generated content).
+
+Since PR-119, three more test layers exist:
+
+* `runtime/python/tests/test_binary_record.py` -- a stdlib `unittest`
+  suite exercising `binary_record.py` in isolation (scalar round trips and
+  boundary values for all eleven types, range-check rejection, varuint
+  round trips and malformed-varuint rejection, whole-record encode/decode
+  round trips, and every structural rejection case: truncated header,
+  bad version, nonzero flags/reserved, payload-length mismatch, truncated
+  directory, unsorted/duplicate directory entries, out-of-range field
+  ranges, overlapping ranges, truncated field values, and trailing bytes).
+  `tests/backend_python/python_runtime_test.cpp` runs this suite via a
+  real `python3 -m unittest` subprocess so `ctest` catches runtime
+  regressions automatically.
+* `tests/backend_python/python_execution_test.cpp` invokes the real
+  `quarry-schema-compiler` binary to generate a package, then a real
+  `python3` subprocess to: round-trip a zero-field record through real
+  (not stubbed) encode/decode; round-trip a scalar record with
+  representative values across all eleven types and assert the exact
+  expected wire bytes; confirm an absent field decodes as `None`;
+  confirm an out-of-range scalar value raises `EncodeError` at encode
+  time; confirm truncated/trailing-byte/garbage input raises
+  `DecodeError` at decode time; and confirm an epoch mismatch still
+  raises `ImportError` at import time.
+* `tests/interop/python_cpp_c_codec_interop_test.cpp` -- the genuinely new
+  kind of test this PR adds: generates one scalar-only schema (covering
+  all eleven supported types) through the C++, C, and Python backends,
+  compiles small C and C++ harnesses and writes a Python harness script,
+  and verifies all three encoders produce byte-for-byte identical output
+  for identical field values, all three decoders accept bytes produced by
+  either of the other two languages, and all three identically reject a
+  truncated buffer and identically reject extra trailing bytes.

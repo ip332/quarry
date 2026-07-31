@@ -78,6 +78,12 @@ target_compile_definitions(python_execution_test PRIVATE
     QUARRY_SCHEMA_COMPILER_TOOL="$<TARGET_FILE:quarry_schema_compiler>"
     QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR="${CMAKE_SOURCE_DIR}/runtime/python/src"
     QUARRY_TEST_PYTHON3="${QUARRY_PYTHON3_EXECUTABLE}")
+add_quarry_gtest(python_runtime_test backend_python/python_runtime_test.cpp
+                      quarry_compiler_support)
+target_compile_definitions(python_runtime_test PRIVATE
+    QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR="${CMAKE_SOURCE_DIR}/runtime/python/src"
+    QUARRY_TEST_PYTHON_RUNTIME_TESTS_DIR="${CMAKE_SOURCE_DIR}/runtime/python/tests"
+    QUARRY_TEST_PYTHON3="${QUARRY_PYTHON3_EXECUTABLE}")
 add_quarry_gtest(runtime_binary_record_test runtime/binary_record_test.cpp
                       quarry_runtime)
 target_compile_definitions(runtime_binary_record_test PRIVATE
@@ -136,5 +142,16 @@ target_compile_definitions(c_cpp_nested_record_interop_test PRIVATE
     QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
     QUARRY_TEST_REPO_INCLUDE_DIR="${CMAKE_SOURCE_DIR}/include"
     QUARRY_TEST_GENERATED_INCLUDE_DIR="${QUARRY_GENERATED_INCLUDE_DIR}")
+add_quarry_gtest(python_cpp_c_codec_interop_test
+                      interop/python_cpp_c_codec_interop_test.cpp
+                      quarry_compiler_support)
+add_dependencies(python_cpp_c_codec_interop_test quarry_schema_compiler)
+target_compile_definitions(python_cpp_c_codec_interop_test PRIVATE
+    QUARRY_SCHEMA_COMPILER_TOOL="$<TARGET_FILE:quarry_schema_compiler>"
+    QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
+    QUARRY_TEST_REPO_INCLUDE_DIR="${CMAKE_SOURCE_DIR}/include"
+    QUARRY_TEST_GENERATED_INCLUDE_DIR="${QUARRY_GENERATED_INCLUDE_DIR}"
+    QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR="${CMAKE_SOURCE_DIR}/runtime/python/src"
+    QUARRY_TEST_PYTHON3="${QUARRY_PYTHON3_EXECUTABLE}")
 add_quarry_gtest(diagnostics_smoke_test diagnostics/diagnostics_smoke_test.cpp quarry_compiler_context)
 add_quarry_gtest(support_test support/support_test.cpp quarry_compiler_support)
