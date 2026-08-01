@@ -101,8 +101,9 @@ standard library's `struct` module), verified byte-for-byte
 wire-compatible with the C and C++ backends
 (`tests/interop/python_cpp_c_codec_interop_test.cpp`). Bounded arrays of
 fixed-width scalar or same-namespace enum elements and bounded arrays of
-string or bytes elements are supported; arrays of records or arrays,
-standalone nested-record fields, and cross-namespace enum references fail
+string or bytes elements are supported; same-namespace nested record fields
+are supported by composing generated record helpers; arrays of records or
+arrays, and cross-namespace enum/record references fail
 generation with a diagnostic naming
 the record and field, mirroring
 the same "do not emit partial code" rule PR-107 established for the

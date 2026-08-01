@@ -553,6 +553,24 @@ class RecordEncodeDecodeTest(unittest.TestCase):
         with self.assertRaises(brf.EncodeError):
             brf.encode_record(1, fields)
 
+    def test_embedded_record_payload_composes_with_existing_record_helpers(self):
+        child = brf.encode_record(2, [(0, brf.pack_scalar("uint32", 7))])
+        parent = brf.encode_record(1, [(0, child)])
+        parent_id, parent_fields = brf.parse_record(parent)
+        child_id, child_fields = brf.parse_record(parent_fields[0])
+        self.assertEqual(parent_id, 1)
+        self.assertEqual(child_id, 2)
+        self.assertEqual(brf.unpack_scalar("uint32", child_fields[0]), 7)
+
+    def test_malformed_embedded_record_is_rejected_by_child_parse(self):
+        child = brf.encode_record(2, [])
+        parent = brf.encode_record(1, [(0, child + b"\x00")])
+        _, parent_fields = brf.parse_record(parent)
+        with self.assertRaises(brf.DecodeError):
+            brf.parse_record(parent_fields[0])
+        with self.assertRaises(brf.DecodeError):
+            brf.parse_record(child[:-1])
+
 
 if __name__ == "__main__":
     unittest.main()

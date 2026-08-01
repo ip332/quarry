@@ -227,6 +227,64 @@ constexpr std::string_view kStringBytesSchema = "namespace: acme.telemetry\n"
     return run_and_get_exit_code(run_command);
 }
 
+[[nodiscard]] int run_python_nested_record_harness(std::string_view stem,
+                                                   std::string_view harness_body) {
+    const std::filesystem::path root = make_temp_directory(stem);
+    const std::filesystem::path generated = root / "generated";
+
+    quarry::compiler::schema_ir::SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    auto* root_namespace = schema_ir.mutable_root_namespace();
+    root_namespace->set_ir_id(1);
+
+    auto* parent = root_namespace->add_records();
+    parent->set_ir_id(2);
+    parent->set_record_id(1);
+    parent->set_name("Parent");
+    parent->set_fqn("Parent");
+    auto* child_field = parent->add_fields();
+    child_field->set_name("child");
+    child_field->set_field_index(0);
+    child_field->mutable_type()->mutable_record()->set_target_record_ir_id(3);
+    auto* optional_count = parent->add_fields();
+    optional_count->set_name("count");
+    optional_count->set_field_index(1);
+    optional_count->mutable_type()->set_primitive(
+        ::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+
+    auto* child = root_namespace->add_records();
+    child->set_ir_id(3);
+    child->set_record_id(2);
+    child->set_name("Child");
+    child->set_fqn("Child");
+    auto* value = child->add_fields();
+    value->set_name("value");
+    value->set_field_index(0);
+    value->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+
+    quarry::compiler::backend_python::Backend backend;
+    quarry::compiler::backend_python::CodegenOptions options;
+    options.output_directory = generated.string();
+    const auto result = backend.generate(schema_ir, options);
+    if (!result.success) {
+        ADD_FAILURE() << "direct nested-record Schema IR generation failed: "
+                      << result.error_message;
+        return 1;
+    }
+    for (const auto& file : result.files) {
+        write_text_file(generated / file.path, file.content);
+    }
+
+    const std::filesystem::path harness_script = root / "harness.py";
+    write_text_file(harness_script, std::string(harness_body));
+    const std::string python_path =
+        generated.string() + ":" + std::string(QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR);
+    const std::string run_command = "PYTHONPATH=" + shell_quote(python_path) + " " +
+                                    shell_quote(QUARRY_TEST_PYTHON3) + " " +
+                                    shell_quote(harness_script.string());
+    return run_and_get_exit_code(run_command);
+}
+
 TEST(PythonExecutionTest, GeneratedZeroFieldRecordRoundTripsThroughEncodeDecode) {
     if (std::string_view(QUARRY_TEST_PYTHON3).empty()) {
         GTEST_SKIP() << "python3 interpreter not found; skipping Python execution test";
@@ -559,6 +617,49 @@ TEST(PythonExecutionTest, ArrayFieldsEncodeDecodeAndValidateWithRealPython) {
                                 "    raise SystemExit('expected bytes element bounds EncodeError')\n"
                                 "print('OK')\n"),
              0);
+}
+
+TEST(PythonExecutionTest, NestedRecordRoundTripAndMalformedPayloadsWithRealPython) {
+    if (std::string_view(QUARRY_TEST_PYTHON3).empty()) {
+        GTEST_SKIP() << "python3 interpreter not found; skipping Python execution test";
+    }
+
+    EXPECT_EQ(run_python_nested_record_harness(
+                  "nested-record-round-trip",
+                  "from quarry.runtime.python import binary_record as brf\n"
+                  "from schema import Child, Parent\n"
+                  "\n"
+                  "sample = Parent(child=Child(value=7), count=42)\n"
+                  "data = sample.encode()\n"
+                  "decoded = Parent.decode(data)\n"
+                  "assert decoded == sample, (decoded, sample)\n"
+                  "assert decoded.child == Child(value=7)\n"
+                  "assert sample.encoded_size() == len(data)\n"
+                  "\n"
+                  "# A present empty child is distinct from an absent child.\n"
+                  "empty = Parent(child=Child())\n"
+                  "assert Parent.decode(empty.encode()).child == Child()\n"
+                  "absent = Parent(count=1)\n"
+                  "assert Parent.decode(absent.encode()).child is None\n"
+                  "\n"
+                  "child_data = Child(value=7).encode()\n"
+                  "for malformed_child in (child_data[:-1], child_data + b'\\x00'):\n"
+                  "    malformed_parent = brf.encode_record(1, [(0, malformed_child)])\n"
+                  "    try:\n"
+                  "        Parent.decode(malformed_parent)\n"
+                  "    except brf.DecodeError:\n"
+                  "        pass\n"
+                  "    else:\n"
+                  "        raise SystemExit('malformed nested record was accepted')\n"
+                  "\n"
+                  "try:\n"
+                  "    Parent.decode(data[:-1])\n"
+                  "except brf.DecodeError:\n"
+                  "    pass\n"
+                  "else:\n"
+                  "    raise SystemExit('truncated parent record was accepted')\n"
+                  "print('OK')\n"),
+              0);
 }
 
 TEST(PythonExecutionTest, EpochMismatchRaisesImportErrorAtImportTime) {

@@ -149,6 +149,7 @@ add_quarry_gtest(python_cpp_c_codec_interop_test
                       interop/python_cpp_c_codec_interop_test.cpp
                       quarry_compiler_support)
 target_link_libraries(python_cpp_c_codec_interop_test PRIVATE quarry_compiler_backend)
+target_link_libraries(python_cpp_c_codec_interop_test PRIVATE quarry_compiler_backend_c)
 target_link_libraries(python_cpp_c_codec_interop_test PRIVATE quarry_compiler_backend_python)
 target_link_libraries(python_cpp_c_codec_interop_test PRIVATE quarry_compiler_schema_ir)
 target_link_libraries(python_cpp_c_codec_interop_test PRIVATE quarry_schema_ir_warning_tweaks)

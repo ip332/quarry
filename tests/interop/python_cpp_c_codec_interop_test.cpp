@@ -27,6 +27,7 @@
 #include <string_view>
 
 #include "compiler/backend/backend.hpp"
+#include "compiler/backend_c/backend_c.hpp"
 #include "compiler/backend_python/backend_python.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 
@@ -816,6 +817,289 @@ else:
                                     " decode_expect_failure " + shell_quote(trailing.string())),
              0);
     EXPECT_EQ(run_python("decode_expect_failure", trailing), 0);
+}
+
+TEST(PythonCppCCodecInteropTest, NestedRecordsAreByteForByteCompatibleAcrossAllBackends) {
+    const std::string python3_executable = QUARRY_TEST_PYTHON3;
+    if (python3_executable.empty()) {
+        GTEST_SKIP() << "python3 interpreter not found; skipping nested-record interop test";
+    }
+
+    const std::filesystem::path root = make_temp_directory("nested-records");
+    const std::filesystem::path generated_c = root / "generated_c";
+    const std::filesystem::path generated_cpp = root / "generated_cpp";
+    const std::filesystem::path generated_python = root / "generated_python";
+
+    quarry::compiler::schema_ir::SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    auto* root_namespace = schema_ir.mutable_root_namespace();
+    root_namespace->set_ir_id(1);
+
+    auto* parent = root_namespace->add_records();
+    parent->set_ir_id(2);
+    parent->set_record_id(1);
+    parent->set_name("Parent");
+    parent->set_fqn("Parent");
+    auto* child_field = parent->add_fields();
+    child_field->set_name("child");
+    child_field->set_field_index(0);
+    child_field->mutable_type()->mutable_record()->set_target_record_ir_id(3);
+    auto* count_field = parent->add_fields();
+    count_field->set_name("count");
+    count_field->set_field_index(1);
+    count_field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+
+    auto* child = root_namespace->add_records();
+    child->set_ir_id(3);
+    child->set_record_id(2);
+    child->set_name("Child");
+    child->set_fqn("Child");
+    auto* value_field = child->add_fields();
+    value_field->set_name("value");
+    value_field->set_field_index(0);
+    value_field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+
+    quarry::compiler::backend_c::Backend c_backend;
+    quarry::compiler::backend_c::CodegenOptions c_options;
+    c_options.output_directory = generated_c.string();
+    const auto c_result = c_backend.generate(schema_ir, c_options);
+    ASSERT_TRUE(c_result.success) << c_result.error_message;
+    for (const auto& file : c_result.files) {
+        write_text_file(generated_c / file.path, file.content);
+    }
+
+    quarry::compiler::backend::Backend cpp_backend;
+    quarry::compiler::backend::CodegenOptions cpp_options;
+    cpp_options.output_directory = generated_cpp.string();
+    const auto cpp_result = cpp_backend.generate(schema_ir, cpp_options);
+    ASSERT_TRUE(cpp_result.success) << cpp_result.error_message;
+    for (const auto& file : cpp_result.files) {
+        write_text_file(generated_cpp / file.path, file.content);
+    }
+
+    quarry::compiler::backend_python::Backend python_backend;
+    quarry::compiler::backend_python::CodegenOptions python_options;
+    python_options.output_directory = generated_python.string();
+    const auto python_result = python_backend.generate(schema_ir, python_options);
+    ASSERT_TRUE(python_result.success) << python_result.error_message;
+    for (const auto& file : python_result.files) {
+        write_text_file(generated_python / file.path, file.content);
+    }
+
+    constexpr std::string_view c_harness = R"c(
+#include "schema.generated.h"
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static void set_parent(Parent_t* parent) {
+  Parent_init(parent);
+  parent->has_child = true;
+  Child_init(&parent->child);
+  parent->child.has_value = true;
+  parent->child.value = 7U;
+  parent->has_count = true;
+  parent->count = 42U;
+}
+
+static int check_parent(const Parent_t* parent) {
+  return parent->has_child && parent->child.has_value && parent->child.value == 7U &&
+         parent->has_count && parent->count == 42U;
+}
+
+int main(int argc, char** argv) {
+  if (argc < 3) return 20;
+  if (strcmp(argv[1], "encode") == 0) {
+    Parent_t parent;
+    set_parent(&parent);
+    uint8_t data[256];
+    Parent_encode_result_t result = Parent_encode(&parent, data, sizeof(data));
+    if (result.status != QUARRY_C_STATUS_OK) return 1;
+    FILE* output = fopen(argv[2], "wb");
+    if (output == NULL) return 2;
+    const size_t written = fwrite(data, 1, result.bytes_written, output);
+    fclose(output);
+    return written == result.bytes_written ? 0 : 3;
+  }
+  FILE* input = fopen(argv[2], "rb");
+  if (input == NULL) return 4;
+  uint8_t data[256];
+  const size_t length = fread(data, 1, sizeof(data), input);
+  fclose(input);
+  Parent_decode_result_t result = Parent_decode(data, length);
+  if (strcmp(argv[1], "decode") == 0)
+    return result.status == QUARRY_C_STATUS_OK && check_parent(&result.value) ? 0 : 1;
+  if (strcmp(argv[1], "decode_expect_failure") == 0)
+    return result.status == QUARRY_C_STATUS_OK ? 1 : 0;
+  return 20;
+}
+)c";
+    const std::filesystem::path c_source = root / "c_harness.c";
+    const std::filesystem::path c_object = root / "c_harness.o";
+    const std::filesystem::path generated_c_source = generated_c / "schema.generated.c";
+    const std::filesystem::path generated_c_object = root / "schema.generated.o";
+    write_text_file(c_source, c_harness);
+    const std::string compile_c_flags = shell_quote(QUARRY_TEST_CXX_COMPILER) +
+                                        " -x c -std=c99 -Wall -Wextra -Wpedantic -Werror -I" +
+                                        shell_quote(generated_c.string()) + " -I" +
+                                        shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
+                                        shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " -c ";
+    ASSERT_EQ(run_and_get_exit_code(compile_c_flags + shell_quote(c_source.string()) + " -o " +
+                                    shell_quote(c_object.string())),
+             0);
+    ASSERT_EQ(run_and_get_exit_code(compile_c_flags + shell_quote(generated_c_source.string()) +
+                                    " -o " + shell_quote(generated_c_object.string())),
+             0);
+    const std::filesystem::path c_binary = root / "c_harness";
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_TEST_CXX_COMPILER) + " " +
+                                    shell_quote(c_object.string()) + " " +
+                                    shell_quote(generated_c_object.string()) + " -o " +
+                                    shell_quote(c_binary.string())),
+             0);
+
+    constexpr std::string_view cpp_harness = R"cpp(
+#include "schema.generated.hpp"
+#include <cstddef>
+#include <fstream>
+#include <iterator>
+#include <vector>
+
+static Parent make_parent() {
+  ChildBuilder child;
+  child.set_value(7U);
+  ParentBuilder parent;
+  parent.set_child(child.build());
+  parent.set_count(42U);
+  return parent.build();
+}
+
+static bool check_parent(const Parent& parent) {
+  return parent.has_child() && parent.child()->has_value() &&
+         *parent.child()->value() == 7U && parent.has_count() && *parent.count() == 42U;
+}
+
+int main(int argc, char** argv) {
+  if (argc < 3) return 20;
+  if (std::string(argv[1]) == "encode") {
+    const auto encoded = encode(make_parent());
+    if (!encoded.has_value()) return 1;
+    std::ofstream output(argv[2], std::ios::binary);
+    output.write(reinterpret_cast<const char*>(encoded->data()),
+                 static_cast<std::streamsize>(encoded->size()));
+    return output ? 0 : 2;
+  }
+  std::ifstream input(argv[2], std::ios::binary);
+  const std::string raw(std::istreambuf_iterator<char>(input), {});
+  std::vector<std::byte> data;
+  data.reserve(raw.size());
+  for (unsigned char byte : raw) data.push_back(static_cast<std::byte>(byte));
+  const auto decoded = decode_Parent(data);
+  if (std::string(argv[1]) == "decode") return decoded.has_value() && check_parent(*decoded) ? 0 : 1;
+  if (std::string(argv[1]) == "decode_expect_failure") return decoded.has_value() ? 1 : 0;
+  return 20;
+}
+)cpp";
+    const std::filesystem::path cpp_source = root / "cpp_harness.cpp";
+    const std::filesystem::path cpp_binary = root / "cpp_harness";
+    write_text_file(cpp_source, cpp_harness);
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_TEST_CXX_COMPILER) +
+                                    " -std=c++20 -Wall -Wextra -Wpedantic -I" +
+                                    shell_quote(generated_cpp.string()) + " -I" +
+                                    shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
+                                    shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
+                                    shell_quote(cpp_source.string()) + " -o " +
+                                    shell_quote(cpp_binary.string())),
+             0);
+
+    const std::filesystem::path python_source = root / "python_harness.py";
+    write_text_file(python_source, R"py(
+import sys
+from schema import Child, Parent
+
+def make_parent():
+    return Parent(child=Child(value=7), count=42)
+
+mode, path = sys.argv[1], sys.argv[2]
+if mode == "encode":
+    with open(path, "wb") as output:
+        output.write(make_parent().encode())
+elif mode == "decode":
+    with open(path, "rb") as input_file:
+        decoded = Parent.decode(input_file.read())
+    sys.exit(0 if decoded == make_parent() else 1)
+elif mode == "decode_expect_failure":
+    with open(path, "rb") as input_file:
+        data = input_file.read()
+    try:
+        Parent.decode(data)
+    except Exception:
+        sys.exit(0)
+    sys.exit(1)
+else:
+    sys.exit(20)
+)py");
+    const std::string python_path =
+        generated_python.string() + ":" + std::string(QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR);
+    const auto run_python = [&](std::string_view mode, const std::filesystem::path& path) {
+        return run_and_get_exit_code("PYTHONPATH=" + shell_quote(python_path) + " " +
+                                     shell_quote(python3_executable) + " " +
+                                     shell_quote(python_source.string()) + " " + std::string(mode) +
+                                     " " + shell_quote(path.string()));
+    };
+
+    const std::filesystem::path c_encoded = root / "c.bin";
+    const std::filesystem::path cpp_encoded = root / "cpp.bin";
+    const std::filesystem::path python_encoded = root / "python.bin";
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) + " encode " +
+                                    shell_quote(c_encoded.string())), 0);
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " encode " +
+                                    shell_quote(cpp_encoded.string())), 0);
+    ASSERT_EQ(run_python("encode", python_encoded), 0);
+    const std::string c_bytes = read_binary_file(c_encoded);
+    EXPECT_EQ(c_bytes, read_binary_file(cpp_encoded));
+    EXPECT_EQ(c_bytes, read_binary_file(python_encoded));
+
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) + " decode " +
+                                    shell_quote(cpp_encoded.string())), 0);
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) + " decode " +
+                                    shell_quote(python_encoded.string())), 0);
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " decode " +
+                                    shell_quote(c_encoded.string())), 0);
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " decode " +
+                                    shell_quote(python_encoded.string())), 0);
+    EXPECT_EQ(run_python("decode", c_encoded), 0);
+    EXPECT_EQ(run_python("decode", cpp_encoded), 0);
+
+    ASSERT_GE(c_bytes.size(), 20U);
+    std::string malformed = c_bytes;
+    // Parent field 0's one-byte directory length is at offset 18. Extend its
+    // embedded Child payload by one byte and update the outer payload length.
+    ASSERT_LT(static_cast<unsigned char>(malformed[18]), 0x80U);
+    malformed[18] = static_cast<char>(static_cast<unsigned char>(malformed[18]) + 1U);
+    const std::uint32_t payload_length =
+        (static_cast<std::uint32_t>(static_cast<unsigned char>(malformed[12])) << 24U) |
+        (static_cast<std::uint32_t>(static_cast<unsigned char>(malformed[13])) << 16U) |
+        (static_cast<std::uint32_t>(static_cast<unsigned char>(malformed[14])) << 8U) |
+        static_cast<std::uint32_t>(static_cast<unsigned char>(malformed[15]));
+    const std::uint32_t new_payload_length = payload_length + 1U;
+    malformed[12] = static_cast<char>((new_payload_length >> 24U) & 0xFFU);
+    malformed[13] = static_cast<char>((new_payload_length >> 16U) & 0xFFU);
+    malformed[14] = static_cast<char>((new_payload_length >> 8U) & 0xFFU);
+    malformed[15] = static_cast<char>(new_payload_length & 0xFFU);
+    malformed.push_back('\0');
+    const std::filesystem::path malformed_path = root / "malformed-nested.bin";
+    std::ofstream malformed_output(malformed_path, std::ios::binary);
+    malformed_output.write(malformed.data(), static_cast<std::streamsize>(malformed.size()));
+    malformed_output.close();
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) +
+                                    " decode_expect_failure " + shell_quote(malformed_path.string())),
+             0);
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) +
+                                    " decode_expect_failure " + shell_quote(malformed_path.string())),
+             0);
+    EXPECT_EQ(run_python("decode_expect_failure", malformed_path), 0);
 }
 
 } // namespace

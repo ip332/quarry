@@ -53,6 +53,12 @@ helpers. The current source-schema frontend does not expose per-element
 validated Schema IR/backend boundary until that separate frontend contract is
 addressed; no compiler-pipeline or Schema IR change is part of PR-123.
 
+PR-124 added same-namespace nested record fields. Generated dataclasses use
+the referenced generated record type, and generated record helpers compose
+the child's existing encode/decode helpers. Records are rendered in
+dependency order; record arrays, nested arrays, and cross-namespace record
+references remain unsupported. No runtime helper was needed.
+
 This document supersedes, for implementation purposes, the investigation
 notes captured in this repository's PR-117 (native Python backend
 architecture) and PR-118A (encode/decode API boundary) working reports;
@@ -147,13 +153,14 @@ an incidental implementation detail:
   namespace-prefixed like C's `quarry_telemetry_Sample_t` -- Python's own
   package/module structure already disambiguates.
 
-### Scope: scalar, enum, string, bytes, and array record fields
+### Scope: scalar, enum, string, bytes, arrays, and nested record fields
 
 `namespace_emits_file()` for Python is `ns.records_size() > 0 ||
 ns.enums_size() > 0`: a namespace emits a module if it owns records,
 enums, or both. Bounded arrays of scalar, same-namespace non-negative-valued
-enum, bounded string, and bounded bytes elements are supported; nested-record
-fields, record arrays, and nested arrays remain unsupported.
+enum, bounded string, and bounded bytes elements are supported, as are
+same-namespace nested record fields; record arrays and nested arrays remain
+unsupported.
 
 ### Scalar field lowering
 
@@ -172,9 +179,10 @@ record and field:
 backend_python: field '<record-fqn>.<field-name>' has a type the Python
 backend does not support yet -- only bool, fixed-width signed/unsigned
 integer, f32/f64 scalar fields, same-namespace non-negative-valued enum
-fields, bounded string/bytes fields, and bounded arrays of scalar, enum,
-string, or bytes elements are supported (see docs/design/python-backend.md);
-nested records, record arrays, and nested arrays remain unsupported
+fields, bounded string/bytes fields, bounded arrays of scalar, enum, string,
+or bytes elements, and same-namespace nested record fields are supported (see
+docs/design/python-backend.md); record arrays and nested arrays remain
+unsupported
 ```
 
 A record/class that silently dropped an unsupported field would be
@@ -489,6 +497,34 @@ def _encode_sample(value):
 payload `b"\x00"`. Each string element is encoded with `str.encode("utf-8")`
 and bounded by encoded byte length. Bytes elements are copied verbatim.
 
+### Nested record fields
+
+PR-124 nested fields use the referenced generated dataclass directly:
+
+```python
+@dataclass
+class Parent:
+    child: Optional[Child] = None
+    count: Optional[int] = None
+
+def _encode_parent(value):
+    fields = []
+    if value.child is not None:
+        fields.append((0, _encode_child(value.child)))
+    ...
+
+def _decode_parent(data):
+    ...
+    if 0 in fields:
+        child = _decode_child(fields[0])
+```
+
+The child value is an embedded complete BRF record. `None` omits the field;
+an empty child record is present and remains distinguishable. The planner
+topologically orders same-namespace record declarations so annotations refer
+to already-defined dataclasses. Child `parse_record` validation rejects
+truncated, malformed, wrong-record, and trailing-byte nested payloads.
+
 ---
 
 ## Runtime boundary and compatibility epoch
@@ -599,8 +635,8 @@ Since PR-123, four more helpers cover variable-width arrays:
 Malformed count or element-length varuints, count/element bounds violations,
 truncated element data, malformed UTF-8, and trailing bytes raise the existing
 `DecodeError`, with array index and byte-offset context included in the
-message where the Python exception model permits. Arrays of records, nested
-arrays, and standalone nested-record fields remain unsupported.
+message where the Python exception model permits. Arrays of records and
+nested arrays remain unsupported.
 
 Every generated module begins with an import-time compatibility check:
 
@@ -644,8 +680,8 @@ contract can change on its own schedule.
   packaging step copies in) if manual drift becomes a real problem.
 * **Limited array support.** Arrays of fixed-width scalar,
   same-namespace non-negative-valued enum, bounded string, and bounded bytes
-  elements are supported. Arrays of records or arrays, plus standalone
-  nested-record fields, fail generation with a diagnostic. The current source
+  elements are supported. Arrays of records or arrays fail generation with a
+  diagnostic. The current source
   schema frontend does not expose per-element `max_bytes` for array fields;
   PR-123 therefore consumes that already-defined constraint at the validated
   Schema IR/backend boundary without changing the frontend pipeline.
@@ -718,11 +754,10 @@ problems), continuing PR-117 §11's sketch:
 6. PR-123: bounded arrays of strings and bytes, using count-plus-element-length
    varuint framing, UTF-8/arbitrary-byte validation, per-element bounds, and
    exact payload checks. Done.
-7. Nested record fields.
-8. Cross-namespace enum/record references, if a concrete need is
+7. Cross-namespace enum/record references, if a concrete need is
    demonstrated (currently out of scope for every backend, not just
    Python's).
-9. Python-keyword escaping and generated `__init__.py` re-exports, once
+8. Python-keyword escaping and generated `__init__.py` re-exports, once
    there is real content worth re-exporting.
 
 ---
@@ -751,8 +786,9 @@ also covers string/bytes dataclass field generation and generated
 encode/decode helper text referencing `pack_string`/`unpack_string`/
 `pack_bytes`/`unpack_bytes` with the correct `max_bytes` values.
 Since PR-122, it also covers scalar and enum array annotations and generated
-array helper calls; nested-record fields remain the representative
-unsupported type.
+array helper calls. Since PR-124, nested-record annotations and helper
+delegation are covered; record arrays remain the representative unsupported
+type.
 `tests/tools/schema_compiler_tool_test.cpp` adds `--language python`
 coverage (list-outputs, determinism, `--file-extension` rejection,
 generated content).
@@ -809,6 +845,9 @@ Since PR-119, three more test layers exist:
   PR-123, it generates the variable-width array module from direct validated
   Schema IR and executes it with a real Python interpreter, covering
   string/bytes arrays and their empty-vs-absent semantics.
+  Since PR-124, it also executes nested dataclasses with present, absent, and
+  empty child records, and verifies truncated and trailing embedded-record
+  payloads raise `DecodeError`.
 * `tests/interop/python_cpp_c_codec_interop_test.cpp` -- the genuinely new
   kind of test PR-119 added: generates one schema (covering all eleven
   supported scalar types, a same-namespace enum field since PR-120,
@@ -832,3 +871,7 @@ Since PR-119, three more test layers exist:
   backends, including byte-for-byte encoding, cross-decoding, and trailing
   payload rejection. The C backend still rejects these array element kinds,
   so three-way coverage remains a separate future C-backend increment.
+  Since PR-124, the same interoperability target adds a direct validated-
+  Schema-IR three-way C/C++/Python nested-record case, verifying identical
+  bytes, all pairwise cross-decoding, and rejection of trailing bytes inside
+  the embedded child record.

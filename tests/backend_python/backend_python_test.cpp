@@ -290,8 +290,8 @@ TEST(BackendPythonTest, EpochCheckPreambleImportsRuntimeAndRaisesOnMismatch) {
 }
 
 TEST(BackendPythonTest, UnsupportedFieldTypeFailsGenerationNamingRecordAndField) {
-    // Nested-record fields remain unsupported; supported variable-width arrays
-    // are covered below.
+    // Record arrays remain unsupported; plain nested-record fields are covered
+    // by the dedicated generation test below.
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
@@ -301,7 +301,9 @@ TEST(BackendPythonTest, UnsupportedFieldTypeFailsGenerationNamingRecordAndField)
     FieldIR* field = record->add_fields();
     field->set_name("readings");
     field->set_field_index(0);
-    field->mutable_type()->mutable_record()->set_target_record_ir_id(2);
+    auto* array = field->mutable_type()->mutable_array();
+    array->set_max_elements(2);
+    array->mutable_element_type()->mutable_record()->set_target_record_ir_id(2);
     assert_valid(schema_ir);
 
     Backend backend;
@@ -312,6 +314,41 @@ TEST(BackendPythonTest, UnsupportedFieldTypeFailsGenerationNamingRecordAndField)
 
     const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
     EXPECT_FALSE(plan_result.success);
+}
+
+TEST(BackendPythonTest, NestedRecordGeneratesOrderedDataclassesAndDelegatingHelpers) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+
+    RecordIR* parent = add_zero_field_record(*root, 2, 1U, "Parent", "Parent");
+    FieldIR* child_field = parent->add_fields();
+    child_field->set_name("child");
+    child_field->set_field_index(0);
+    child_field->mutable_type()->mutable_record()->set_target_record_ir_id(3);
+    FieldIR* optional_count = parent->add_fields();
+    optional_count->set_name("count");
+    optional_count->set_field_index(1);
+    optional_count->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+
+    RecordIR* child = add_zero_field_record(*root, 3, 2U, "Child", "Child");
+    FieldIR* value = child->add_fields();
+    value->set_name("value");
+    value->set_field_index(0);
+    value->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1U);
+    const std::string& content = result.files[0].content;
+    ASSERT_LT(content.find("class Child:"), content.find("class Parent:"));
+    EXPECT_NE(content.find("child: Optional[Child] = None"), std::string::npos);
+    EXPECT_NE(content.find("count: Optional[int] = None"), std::string::npos);
+    EXPECT_NE(content.find("_encode_child(value.child)"), std::string::npos);
+    EXPECT_NE(content.find("_decode_child(fields[0])"), std::string::npos);
 }
 
 TEST(BackendPythonTest, ScalarAndEnumArraysGenerateCorrectAnnotationsAndHelpers) {
