@@ -848,6 +848,11 @@ TEST(PythonCppCCodecInteropTest, NestedRecordsAreByteForByteCompatibleAcrossAllB
     count_field->set_name("count");
     count_field->set_field_index(1);
     count_field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    auto* items_field = parent->add_fields();
+    items_field->set_name("items");
+    items_field->set_field_index(2);
+    items_field->mutable_type()->mutable_array()->set_max_elements(3);
+    items_field->mutable_type()->mutable_array()->mutable_element_type()->mutable_record()->set_target_record_ir_id(3);
 
     auto* child = root_namespace->add_records();
     child->set_ir_id(3);
@@ -902,11 +907,21 @@ static void set_parent(Parent_t* parent) {
   parent->child.value = 7U;
   parent->has_count = true;
   parent->count = 42U;
+  parent->has_items = true;
+  parent->items_count = 2;
+  Child_init(&parent->items[0]);
+  parent->items[0].has_value = true;
+  parent->items[0].value = 1U;
+  Child_init(&parent->items[1]);
+  parent->items[1].has_value = true;
+  parent->items[1].value = 3U;
 }
 
 static int check_parent(const Parent_t* parent) {
   return parent->has_child && parent->child.has_value && parent->child.value == 7U &&
-         parent->has_count && parent->count == 42U;
+         parent->has_count && parent->count == 42U && parent->has_items &&
+         parent->items_count == 2 && parent->items[0].value == 1U &&
+         parent->items[1].value == 3U;
 }
 
 int main(int argc, char** argv) {
@@ -972,12 +987,23 @@ static Parent make_parent() {
   ParentBuilder parent;
   parent.set_child(child.build());
   parent.set_count(42U);
+  std::vector<Child> items;
+  ChildBuilder first;
+  first.set_value(1U);
+  items.push_back(first.build());
+  ChildBuilder second;
+  second.set_value(3U);
+  items.push_back(second.build());
+  parent.set_items(items);
   return parent.build();
 }
 
 static bool check_parent(const Parent& parent) {
   return parent.has_child() && parent.child()->has_value() &&
-         *parent.child()->value() == 7U && parent.has_count() && *parent.count() == 42U;
+         *parent.child()->value() == 7U && parent.has_count() && *parent.count() == 42U &&
+         parent.has_items() && parent.items()->size() == 2 &&
+         (*parent.items())[0].has_value() && *(*parent.items())[0].value() == 1U &&
+         (*parent.items())[1].has_value() && *(*parent.items())[1].value() == 3U;
 }
 
 int main(int argc, char** argv) {
@@ -1019,7 +1045,8 @@ import sys
 from schema import Child, Parent
 
 def make_parent():
-    return Parent(child=Child(value=7), count=42)
+    return Parent(child=Child(value=7), count=42,
+                  items=[Child(value=1), Child(value=3)])
 
 mode, path = sys.argv[1], sys.argv[2]
 if mode == "encode":

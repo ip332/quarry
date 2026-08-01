@@ -511,14 +511,13 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             return std::nullopt;
         }
     } else if (type.kind_case() == FieldType::kArray) {
-        // PR-122/PR-123 scope: arrays of scalar primitives, same-namespace
+        // PR-122/PR-123/PR-125 scope: arrays of scalar primitives, same-namespace
         // non-negative-valued enums only -- reusing lower_scalar_field_type
         // and lower_enum_reference unchanged so cross-namespace and
         // negative-enum-value checks apply identically to array elements,
         // matching backend_c.cpp's own array-element resolution structure.
-        // and PR-123's bounded string/bytes elements. Nested-record elements
-        // and nested arrays remain unsupported and fall through to the
-        // specific diagnostic below.
+        // and PR-123's bounded string/bytes elements. PR-125 adds
+        // same-namespace record elements; nested arrays remain unsupported.
         const ArrayType& array_type = type.array();
         const FieldType& element_type = array_type.element_type();
         std::optional<ScalarEncoding> scalar_encoding;
@@ -580,20 +579,41 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             field.array_max_elements = array_type.max_elements();
             return field;
         }
+        if (element_type.kind_case() == FieldType::kRecord) {
+            const std::string context =
+                "field '" + record_ir.fqn() + "." + field_ir.name() + "' array element type";
+            const std::optional<std::string> record_name = lower_record_reference(
+                element_type.record().target_record_ir_id(), current_namespace_fqn,
+                record_catalog, context, error_message);
+            if (record_name.has_value()) {
+                PlannedField field;
+                field.name = field_ir.name();
+                field.field_index = field_ir.field_index();
+                field.python_type_hint = *record_name;
+                field.is_record = true;
+                field.record_target_ir_id = element_type.record().target_record_ir_id();
+                field.is_array = true;
+                field.array_max_elements = array_type.max_elements();
+                return field;
+            }
+            if (!error_message.empty()) {
+                return std::nullopt;
+            }
+        }
         if (!error_message.empty()) {
             return std::nullopt;
         }
         // Not a catalog miss (that path already set error_message above);
         // this is an array element type the Python backend does not
-        // support at all (string, bytes, record, or nested array).
+        // support at all (nested arrays or unresolved references).
         std::ostringstream stream;
         stream << "backend_python: field '" << record_ir.fqn() << "." << field_ir.name()
                << "' is an array whose element type the Python backend does not support yet -- "
                   "only arrays of bool, fixed-width signed/unsigned integer, f32/f64 scalar "
                   "elements, same-namespace non-negative-valued enum elements, bounded string "
-                  "elements, and bounded bytes elements are supported (see "
-                  "docs/design/python-backend.md); arrays of record elements and nested arrays "
-                  "remain unsupported";
+                  "elements, bounded bytes elements, and same-namespace record elements are "
+                  "supported (see docs/design/python-backend.md); nested arrays remain "
+                  "unsupported";
         error_message = stream.str();
         return std::nullopt;
     } else {
@@ -613,9 +633,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
            << "' has a type the Python backend does not support yet -- only bool, fixed-width "
               "signed/unsigned integer, f32/f64 scalar fields, same-namespace "
               "non-negative-valued enum fields, bounded string/bytes fields, and bounded arrays "
-              "of scalar, enum, string, or bytes elements are supported (see "
-              "docs/design/python-backend.md); record arrays and nested arrays remain "
-              "unsupported";
+              "of scalar, enum, string, bytes, or same-namespace record elements are supported "
+              "(see docs/design/python-backend.md); nested arrays remain unsupported";
     error_message = stream.str();
     return std::nullopt;
 }
@@ -836,7 +855,21 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     stream << "    fields = []\n";
     for (const PlannedField& field : record.fields) {
         stream << "    if value." << field.name << " is not None:\n";
-        if (field.is_array && field.is_string) {
+        if (field.is_array && field.is_record) {
+            const std::string child_snake = snake_case_from_pascal(field.python_type_hint);
+            stream << "        _items = value." << field.name << "\n";
+            stream << "        if len(_items) > " << field.array_max_elements << ":\n";
+            stream << "            raise _brf.EncodeError(\"array length \" + str(len(_items)) + \" exceeds max_elements="
+                   << field.array_max_elements << "\")\n";
+            stream << "        _array_payload = bytearray()\n";
+            stream << "        _brf.append_varuint(_array_payload, len(_items))\n";
+            stream << "        for _item in _items:\n";
+            stream << "            _encoded_item = _encode_" << child_snake << "(_item)\n";
+            stream << "            _brf.append_varuint(_array_payload, len(_encoded_item))\n";
+            stream << "            _array_payload.extend(_encoded_item)\n";
+            stream << "        fields.append((" << field.field_index
+                   << ", bytes(_array_payload)))\n";
+        } else if (field.is_array && field.is_string) {
             stream << "        fields.append((" << field.field_index
                    << ", _brf.pack_array_of_string(value." << field.name << ", "
                    << field.array_max_elements << ", " << field.string_max_bytes << ")))\n";
@@ -886,7 +919,37 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     for (const PlannedField& field : record.fields) {
         stream << "    " << field.name << " = None\n";
         stream << "    if " << field.field_index << " in fields:\n";
-        if (field.is_array && field.is_string) {
+        if (field.is_array && field.is_record) {
+            const std::string child_snake = snake_case_from_pascal(field.python_type_hint);
+            stream << "        _array_data = fields[" << field.field_index << "]\n";
+            stream << "        try:\n";
+            stream << "            _count, _offset = _brf.read_varuint(_array_data, 0)\n";
+            stream << "        except _brf.DecodeError as _error:\n";
+            stream << "            raise _brf.DecodeError(\"malformed array count varuint at byte "
+                   "offset 0: \" + str(_error)) from _error\n";
+            stream << "        if _count > " << field.array_max_elements << ":\n";
+            stream << "            raise _brf.DecodeError(\"array count \" + str(_count) + \" exceeds max_elements="
+                   << field.array_max_elements << "\")\n";
+            stream << "        " << field.name << " = []\n";
+            stream << "        for _index in range(_count):\n";
+            stream << "            _length_offset = _offset\n";
+            stream << "            try:\n";
+            stream << "                _element_length, _offset = _brf.read_varuint(_array_data, _offset)\n";
+            stream << "            except _brf.DecodeError as _error:\n";
+            stream << "                raise _brf.DecodeError('malformed element length varuint for ' + str(_index) + ' at byte offset ' + str(_length_offset) + ': ' + str(_error)) from _error\n";
+            stream << "            if _element_length > len(_array_data) - _offset:\n";
+            stream << "                raise _brf.DecodeError('truncated array element ' + str(_index) + ' payload at byte offset ' + str(_offset))\n";
+            stream << "            _element_end = _offset + _element_length\n";
+            stream << "            try:\n";
+            stream << "                " << field.name << ".append(_decode_" << child_snake
+                   << "(_array_data[_offset:_element_end]))\n";
+            stream << "            except _brf.DecodeError as _error:\n";
+            stream << "                raise _brf.DecodeError('array element ' + str(_index) + ' at byte offset ' + str(_offset) + ': ' + str(_error)) from _error\n";
+            stream << "            _offset = _element_end\n";
+            stream << "        if _offset != len(_array_data):\n";
+            stream << "            raise _brf.DecodeError(\"trailing bytes in record array payload at "
+                   "byte offset \" + str(_offset))\n";
+        } else if (field.is_array && field.is_string) {
             stream << "        " << field.name << " = _brf.unpack_array_of_string(fields["
                    << field.field_index << "], " << field.array_max_elements << ", "
                    << field.string_max_bytes << ")\n";

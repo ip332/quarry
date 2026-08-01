@@ -10,8 +10,9 @@ quarry/runtime/binary_record.hpp (C++) and quarry/runtime_c/binary_record.h
 for big-endian packing/range-checked scalar conversion), per this project's
 "do not hand-write integer packing if the stdlib already provides it" rule.
 
-Nested-record fields, record arrays, and nested arrays remain backend
-limitations; see docs/design/python-backend.md for the supported surface.
+Nested-record fields and record arrays are composed by generated codecs using
+the schema-neutral record and varuint helpers; nested arrays remain a backend
+limitation. See docs/design/python-backend.md for the supported surface.
 """
 
 import struct

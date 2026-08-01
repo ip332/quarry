@@ -251,6 +251,11 @@ constexpr std::string_view kStringBytesSchema = "namespace: acme.telemetry\n"
     optional_count->set_field_index(1);
     optional_count->mutable_type()->set_primitive(
         ::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    auto* items = parent->add_fields();
+    items->set_name("items");
+    items->set_field_index(2);
+    items->mutable_type()->mutable_array()->set_max_elements(3);
+    items->mutable_type()->mutable_array()->mutable_element_type()->mutable_record()->set_target_record_ir_id(3);
 
     auto* child = root_namespace->add_records();
     child->set_ir_id(3);
@@ -658,6 +663,48 @@ TEST(PythonExecutionTest, NestedRecordRoundTripAndMalformedPayloadsWithRealPytho
                   "    pass\n"
                   "else:\n"
                   "    raise SystemExit('truncated parent record was accepted')\n"
+                  "print('OK')\n"),
+              0);
+}
+
+TEST(PythonExecutionTest, RecordArrayRoundTripAndMalformedElementsWithRealPython) {
+    if (std::string_view(QUARRY_TEST_PYTHON3).empty()) {
+        GTEST_SKIP() << "python3 interpreter not found; skipping Python execution test";
+    }
+
+    EXPECT_EQ(run_python_nested_record_harness(
+                  "record-array-round-trip",
+                  "from quarry.runtime.python import binary_record as brf\n"
+                  "from schema import Child, Parent\n"
+                  "\n"
+                  "assert Parent.decode(Parent().encode()).items is None\n"
+                  "assert Parent.decode(Parent(items=[]).encode()).items == []\n"
+                  "sample = Parent(items=[Child(value=1), Child(), Child(value=3)])\n"
+                  "assert Parent.decode(sample.encode()) == sample\n"
+                  "try:\n"
+                  "    Parent(items=[Child(), Child(), Child(), Child()]).encode()\n"
+                  "except brf.EncodeError:\n"
+                  "    pass\n"
+                  "else:\n"
+                  "    raise SystemExit('array max_elements was not enforced')\n"
+                  "child = Child(value=7).encode()\n"
+                  "def array_payload(payload):\n"
+                  "    return b'\\x01' + bytes([len(payload)]) + payload\n"
+                  "for payload in (child[:-1], child + b'\\x00'):\n"
+                  "    malformed = brf.encode_record(1, [(2, array_payload(payload))])\n"
+                  "    try:\n"
+                  "        Parent.decode(malformed)\n"
+                  "    except brf.DecodeError:\n"
+                  "        pass\n"
+                  "    else:\n"
+                  "        raise SystemExit('malformed record array element was accepted')\n"
+                  "trailing = brf.encode_record(1, [(2, b'\\x00\\x00')])\n"
+                  "try:\n"
+                  "    Parent.decode(trailing)\n"
+                  "except brf.DecodeError:\n"
+                  "    pass\n"
+                  "else:\n"
+                  "    raise SystemExit('record array trailing bytes were accepted')\n"
                   "print('OK')\n"),
               0);
 }

@@ -168,9 +168,9 @@ hand-rolling a validator. All are verified byte-for-byte wire-compatible
 with the C and C++ backends for the same field values. Bounded arrays of
 fixed-width scalar and same-namespace non-negative-valued enum elements, plus
 bounded arrays of string and bytes elements, are supported using the BRF
-count-prefix encoding. Same-namespace nested record fields are also
-supported by composing the existing generated record helpers. Arrays of
-records or arrays, and cross-namespace enum/record references remain
+count-prefix encoding. Same-namespace nested record fields and arrays of
+records are also supported by composing the existing generated record helpers
+and BRF array framing. Nested arrays and cross-namespace enum/record references remain
 unsupported and fail generation with a diagnostic
 naming the record and field. Generated modules check a
 Python generated-code API compatibility epoch

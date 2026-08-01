@@ -433,6 +433,25 @@ class VaruintTest(unittest.TestCase):
 
 
 class RecordEncodeDecodeTest(unittest.TestCase):
+    def test_record_array_framing_composes_existing_record_helpers(self):
+        child = brf.encode_record(2, [(0, brf.pack_scalar("uint32", 7))])
+        payload = bytearray()
+        brf.append_varuint(payload, 2)
+        brf.append_varuint(payload, len(child))
+        payload.extend(child)
+        brf.append_varuint(payload, len(child))
+        payload.extend(child)
+        count, offset = brf.read_varuint(bytes(payload), 0)
+        self.assertEqual(count, 2)
+        decoded = []
+        for _ in range(count):
+            length, offset = brf.read_varuint(bytes(payload), offset)
+            decoded.append(brf.parse_record(bytes(payload)[offset:offset + length]))
+            offset += length
+        self.assertEqual(decoded[0][0], 2)
+        self.assertEqual(brf.unpack_scalar("uint32", decoded[1][1][0]), 7)
+        self.assertEqual(offset, len(payload))
+
     def test_empty_record_round_trip(self):
         data = brf.encode_record(1, [])
         self.assertEqual(data.hex(), "01000000000000010000000000000000")

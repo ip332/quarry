@@ -11,8 +11,9 @@ non-negative enums, bounded strings, and bounded bytes. String and bytes
 arrays use the existing BRF count-plus-length-delimited-element encoding and
 carry the element `max_bytes` constraint from Schema IR into the runtime
 helper call. Same-namespace nested record fields are supported by composing
-generated record helpers. Record arrays, nested arrays, and cross-namespace
-references remain unsupported.
+generated record helpers. Same-namespace record arrays use the same generated
+child helpers and existing variable-width array framing. Nested arrays and
+cross-namespace references remain unsupported.
 
 The backend does not modify Schema IR or the compiler pipeline and does not
 depend on the C or C++ backend. See [the design document](../../docs/design/python-backend.md)

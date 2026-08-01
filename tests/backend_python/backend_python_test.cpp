@@ -290,20 +290,21 @@ TEST(BackendPythonTest, EpochCheckPreambleImportsRuntimeAndRaisesOnMismatch) {
 }
 
 TEST(BackendPythonTest, UnsupportedFieldTypeFailsGenerationNamingRecordAndField) {
-    // Record arrays remain unsupported; plain nested-record fields are covered
-    // by the dedicated generation test below.
+    // Nested arrays remain unsupported; plain nested-record fields and record
+    // arrays are covered by dedicated generation tests below.
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
     root->set_ir_id(1);
-    (void)add_zero_field_record(*root, 2, 1U, "Item", "Item");
     RecordIR* record = add_zero_field_record(*root, 3, 2U, "Sample", "Sample");
     FieldIR* field = record->add_fields();
     field->set_name("readings");
     field->set_field_index(0);
     auto* array = field->mutable_type()->mutable_array();
     array->set_max_elements(2);
-    array->mutable_element_type()->mutable_record()->set_target_record_ir_id(2);
+    array->mutable_element_type()->mutable_array()->set_max_elements(2);
+    array->mutable_element_type()->mutable_array()->mutable_element_type()->set_primitive(
+        ::quarry::schema_ir::PRIMITIVE_TYPE_U32);
     assert_valid(schema_ir);
 
     Backend backend;
@@ -314,6 +315,31 @@ TEST(BackendPythonTest, UnsupportedFieldTypeFailsGenerationNamingRecordAndField)
 
     const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
     EXPECT_FALSE(plan_result.success);
+}
+
+TEST(BackendPythonTest, RecordArraysGenerateTypedAnnotationsAndChildHelperFraming) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    RecordIR* parent = add_zero_field_record(*root, 2, 1U, "Parent", "Parent");
+    FieldIR* items = parent->add_fields();
+    items->set_name("items");
+    items->set_field_index(0);
+    items->mutable_type()->mutable_array()->set_max_elements(3);
+    items->mutable_type()->mutable_array()->mutable_element_type()->mutable_record()->set_target_record_ir_id(3);
+    (void)add_zero_field_record(*root, 3, 2U, "Child", "Child");
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    const std::string& content = result.files[0].content;
+    EXPECT_LT(content.find("class Child:"), content.find("class Parent:"));
+    EXPECT_NE(content.find("items: Optional[list[Child]] = None"), std::string::npos);
+    EXPECT_NE(content.find("_brf.append_varuint(_array_payload, len(_items))"), std::string::npos);
+    EXPECT_NE(content.find("_encoded_item = _encode_child(_item)"), std::string::npos);
+    EXPECT_NE(content.find("_decode_child(_array_data[_offset:_element_end])"), std::string::npos);
 }
 
 TEST(BackendPythonTest, NestedRecordGeneratesOrderedDataclassesAndDelegatingHelpers) {

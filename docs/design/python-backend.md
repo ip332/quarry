@@ -31,8 +31,9 @@ renders as a real `enum.IntEnum` subclass, and `pack_enum`/`unpack_enum`
 delegate to the existing scalar pack/unpack for the enum's wire width.
 An enum-only namespace (no records) now emits a file too, resolving a
 limitation PR-118/PR-119 had documented. String, bytes, and supported array
-fields are implemented; nested-record fields, record arrays, nested arrays,
-and cross-namespace enum references remain unsupported and fail generation
+fields are implemented; nested-record fields and same-namespace record arrays
+are implemented; nested arrays and cross-namespace enum references remain
+unsupported and fail generation
 with a diagnostic.
 
 PR-121 added string and bytes field support, using the BRF spec's
@@ -56,7 +57,8 @@ addressed; no compiler-pipeline or Schema IR change is part of PR-123.
 PR-124 added same-namespace nested record fields. Generated dataclasses use
 the referenced generated record type, and generated record helpers compose
 the child's existing encode/decode helpers. Records are rendered in
-dependency order; record arrays, nested arrays, and cross-namespace record
+dependency order; same-namespace record arrays use the existing variable-width
+array framing and child helpers. Nested arrays and cross-namespace record
 references remain unsupported. No runtime helper was needed.
 
 This document supersedes, for implementation purposes, the investigation
@@ -158,8 +160,8 @@ an incidental implementation detail:
 `namespace_emits_file()` for Python is `ns.records_size() > 0 ||
 ns.enums_size() > 0`: a namespace emits a module if it owns records,
 enums, or both. Bounded arrays of scalar, same-namespace non-negative-valued
-enum, bounded string, and bounded bytes elements are supported, as are
-same-namespace nested record fields; record arrays and nested arrays remain
+enum, bounded string, bounded bytes, and same-namespace record elements are
+supported, as are same-namespace nested record fields; nested arrays remain
 unsupported.
 
 ### Scalar field lowering
@@ -180,9 +182,9 @@ backend_python: field '<record-fqn>.<field-name>' has a type the Python
 backend does not support yet -- only bool, fixed-width signed/unsigned
 integer, f32/f64 scalar fields, same-namespace non-negative-valued enum
 fields, bounded string/bytes fields, bounded arrays of scalar, enum, string,
-or bytes elements, and same-namespace nested record fields are supported (see
-docs/design/python-backend.md); record arrays and nested arrays remain
-unsupported
+or bytes elements, same-namespace nested record fields, and same-namespace
+record arrays are supported (see docs/design/python-backend.md); nested arrays
+remain unsupported
 ```
 
 A record/class that silently dropped an unsupported field would be
@@ -787,8 +789,8 @@ encode/decode helper text referencing `pack_string`/`unpack_string`/
 `pack_bytes`/`unpack_bytes` with the correct `max_bytes` values.
 Since PR-122, it also covers scalar and enum array annotations and generated
 array helper calls. Since PR-124, nested-record annotations and helper
-delegation are covered; record arrays remain the representative unsupported
-type.
+delegation are covered; since PR-125, record-array annotations and framing are
+covered, with nested arrays remaining the representative unsupported type.
 `tests/tools/schema_compiler_tool_test.cpp` adds `--language python`
 coverage (list-outputs, determinism, `--file-extension` rejection,
 generated content).
