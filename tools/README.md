@@ -75,19 +75,15 @@ generated-code API compatibility epoch
 (`QUARRY_C_GENERATED_CODE_API_VERSION`, currently epoch `2`), independent
 from the C++ epoch described below.
 
-**`--language python` supports scalar fields (PR-119), enum fields
-(PR-120), string/bytes fields (PR-121), bounded arrays of fixed-width
-scalar or same-namespace enum elements (PR-122), and bounded arrays of
-string or bytes elements (PR-123), on top of the architecture
-skeleton PR-118 established.** It emits one `.py` module per namespace
+**`--language python` supports scalar, enum, bounded string/bytes, nested
+record, and supported array fields.** It emits one `.py` module per namespace
 that directly owns one or more records, enums, or both, inside a true
 nested Python package (one real directory plus `__init__.py` per
 namespace segment, unlike C's flat symbol-prefix convention -- see
 `docs/design/python-backend.md`). Each record renders as a `@dataclass`
 (one `Optional[bool | int | float | str | bytes | <EnumClass>] = None`
 attribute per declared field) whose `encode`/`decode`/`encoded_size`
-methods delegate to three module-level `_encode_<name>`/`_decode_<name>`/
-`_encoded_size_<name>` helper functions -- the public/internal split
+methods delegate to private `_quarry_` codec helpers -- the public/internal split
 PR-118A's investigation recommended, wired end to end. Those helpers
 perform real BRF encode/decode for `bool` and every fixed-width
 signed/unsigned integer and `f32`/`f64` field, for a same-namespace,
@@ -107,8 +103,9 @@ records are also supported using the existing array framing. Nested arrays and
 cross-namespace enum/record references fail
 generation with a diagnostic naming
 the record and field, mirroring
-the same "do not emit partial code" rule PR-107 established for the
-original C skeleton. Every generated module imports
+the same "do not emit partial code" rule established for the C backend.
+Schema-derived names are deterministically escaped for Python keywords and
+illegal characters, with post-normalization collisions rejected. Every generated module imports
 `QUARRY_GENERATED_CODE_API_VERSION_PYTHON`
 from the `quarry.runtime.python` package (`runtime/python/`, pip-installed
 independently of CMake) and raises `ImportError` at import time on a

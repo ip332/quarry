@@ -794,7 +794,7 @@ TEST(SchemaCompilerToolTest, PythonBackendWritesPackageWithExpectedContent) {
 
     const std::string module_content = read_text_file(output / "acme" / "telemetry" / "schema.py");
     EXPECT_NE(module_content.find("class Sample:"), std::string::npos);
-    EXPECT_NE(module_content.find("def _encode_sample(value):"), std::string::npos);
+    EXPECT_NE(module_content.find("def _quarry_encode_sample(value):"), std::string::npos);
     EXPECT_NE(module_content.find("QUARRY_GENERATED_CODE_API_VERSION_PYTHON"),
              std::string::npos);
 }

@@ -188,22 +188,22 @@ TEST(BackendPythonTest, ZeroFieldRecordEmitsExactTemplate) {
         "class Sample:\n"
         "\n"
         "    def encode(self):\n"
-        "        return _encode_sample(self)\n"
+        "        return _quarry_encode_sample(self)\n"
         "\n"
         "    @classmethod\n"
         "    def decode(cls, data):\n"
-        "        return _decode_sample(data)\n"
+        "        return _quarry_decode_sample(data)\n"
         "\n"
         "    def encoded_size(self):\n"
-        "        return _encoded_size_sample(self)\n"
+        "        return _quarry_encoded_size_sample(self)\n"
         "\n"
         "\n"
-        "def _encode_sample(value):\n"
+        "def _quarry_encode_sample(value):\n"
         "    fields = []\n"
         "    return _brf.encode_record(1, fields)\n"
         "\n"
         "\n"
-        "def _decode_sample(data):\n"
+        "def _quarry_decode_sample(data):\n"
         "    record_id, fields = _brf.parse_record(data)\n"
         "    if record_id != 1:\n"
         "        raise _brf.DecodeError(\n"
@@ -211,8 +211,8 @@ TEST(BackendPythonTest, ZeroFieldRecordEmitsExactTemplate) {
         "    return Sample()\n"
         "\n"
         "\n"
-        "def _encoded_size_sample(value):\n"
-        "    return len(_encode_sample(value))\n";
+        "def _quarry_encoded_size_sample(value):\n"
+        "    return len(_quarry_encode_sample(value))\n";
 
     EXPECT_NE(result.files[0].content.find(expected_template), std::string::npos)
         << "generated content:\n"
@@ -233,11 +233,11 @@ TEST(BackendPythonTest, HelperFunctionNamesUseSnakeCaseConversion) {
     ASSERT_EQ(result.files.size(), 1U);
 
     EXPECT_NE(result.files[0].content.find("class SensorReading:"), std::string::npos);
-    EXPECT_NE(result.files[0].content.find("def _encode_sensor_reading(value):"),
+    EXPECT_NE(result.files[0].content.find("def _quarry_encode_sensor_reading(value):"),
              std::string::npos);
-    EXPECT_NE(result.files[0].content.find("def _decode_sensor_reading(data):"),
+    EXPECT_NE(result.files[0].content.find("def _quarry_decode_sensor_reading(data):"),
              std::string::npos);
-    EXPECT_NE(result.files[0].content.find("def _encoded_size_sensor_reading(value):"),
+    EXPECT_NE(result.files[0].content.find("def _quarry_encoded_size_sensor_reading(value):"),
              std::string::npos);
 }
 
@@ -255,9 +255,9 @@ TEST(BackendPythonTest, PublicMethodsDelegateToHelpersRatherThanDuplicatingLogic
     ASSERT_EQ(result.files.size(), 1U);
 
     const std::string& content = result.files[0].content;
-    EXPECT_NE(content.find("        return _encode_sample(self)\n"), std::string::npos);
-    EXPECT_NE(content.find("        return _decode_sample(data)\n"), std::string::npos);
-    EXPECT_NE(content.find("        return _encoded_size_sample(self)\n"), std::string::npos);
+    EXPECT_NE(content.find("        return _quarry_encode_sample(self)\n"), std::string::npos);
+    EXPECT_NE(content.find("        return _quarry_decode_sample(data)\n"), std::string::npos);
+    EXPECT_NE(content.find("        return _quarry_encoded_size_sample(self)\n"), std::string::npos);
 
     // Only the helper functions raise NotImplementedError; the public
     // methods delegate rather than duplicating that behavior themselves.
@@ -338,7 +338,7 @@ TEST(BackendPythonTest, RecordArraysGenerateTypedAnnotationsAndChildHelperFramin
     EXPECT_LT(content.find("class Child:"), content.find("class Parent:"));
     EXPECT_NE(content.find("items: Optional[list[Child]] = None"), std::string::npos);
     EXPECT_NE(content.find("_brf.append_varuint(_array_payload, len(_items))"), std::string::npos);
-    EXPECT_NE(content.find("_encoded_item = _encode_child(_item)"), std::string::npos);
+    EXPECT_NE(content.find("_encoded_item = _quarry_encode_child(_item)"), std::string::npos);
     EXPECT_NE(content.find("_decode_child(_array_data[_offset:_element_end])"), std::string::npos);
 }
 
@@ -374,7 +374,7 @@ TEST(BackendPythonTest, NestedRecordGeneratesOrderedDataclassesAndDelegatingHelp
     EXPECT_NE(content.find("child: Optional[Child] = None"), std::string::npos);
     EXPECT_NE(content.find("count: Optional[int] = None"), std::string::npos);
     EXPECT_NE(content.find("_encode_child(value.child)"), std::string::npos);
-    EXPECT_NE(content.find("_decode_child(fields[0])"), std::string::npos);
+    EXPECT_NE(content.find("_quarry_decode_child(fields[0])"), std::string::npos);
 }
 
 TEST(BackendPythonTest, ScalarAndEnumArraysGenerateCorrectAnnotationsAndHelpers) {
@@ -779,6 +779,100 @@ TEST(BackendPythonTest, OutputPathForPlannedFileHonorsOutputDirectory) {
     options.output_directory.clear();
     EXPECT_EQ(quarry::compiler::backend_python::output_path_for_planned_file(options, "a/b.py"),
              "a/b.py");
+}
+
+TEST(BackendPythonTest, PythonKeywordsAreEscapedAcrossGeneratedNames) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    EnumIR* keyword_enum = add_enum(*root, 2, "class", "class");
+    add_enum_value(*keyword_enum, "import", 0);
+    RecordIR* keyword_record = add_zero_field_record(*root, 3, 1U, "def", "def");
+    FieldIR* keyword_field = keyword_record->add_fields();
+    keyword_field->set_name("Optional");
+    keyword_field->set_field_index(0);
+    keyword_field->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(2);
+    for (const std::string_view name : {"encode", "decode", "encoded_size"}) {
+        FieldIR* reserved_field = keyword_record->add_fields();
+        reserved_field->set_name(std::string(name));
+        reserved_field->set_field_index(keyword_record->fields_size() - 1);
+        reserved_field->mutable_type()->set_primitive(
+            ::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    }
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 1U);
+    const std::string& content = result.files[0].content;
+    EXPECT_NE(content.find("class class_(IntEnum):"), std::string::npos);
+    EXPECT_NE(content.find("    import_ = 0"), std::string::npos);
+    EXPECT_NE(content.find("class def_:"), std::string::npos);
+    EXPECT_NE(content.find("    Optional_: Optional[class_] = None"), std::string::npos);
+    EXPECT_NE(content.find("    encode_: Optional[int] = None"), std::string::npos);
+    EXPECT_NE(content.find("    decode_: Optional[int] = None"), std::string::npos);
+    EXPECT_NE(content.find("    encoded_size_: Optional[int] = None"), std::string::npos);
+}
+
+TEST(BackendPythonTest, KeywordNamespaceAndRootModuleStemProduceSafePaths) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* keyword_namespace = add_child_namespace(*root, 2, "class", "class");
+    (void)add_zero_field_record(*keyword_namespace, 3, 1U, "Sample", "class.Sample");
+    assert_valid(schema_ir);
+
+    CodegenOptions options;
+    options.root_module_stem = "import";
+    Backend backend;
+    const PlanResult result = backend.plan(schema_ir, options);
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.plan.files.size(), 2U);
+    EXPECT_EQ(result.plan.files[0].relative_output_path, "class_/__init__.py");
+    EXPECT_EQ(result.plan.files[1].relative_output_path, "class_/import_.py");
+}
+
+TEST(BackendPythonTest, PostSanitizationFieldCollisionsAreRejected) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    RecordIR* record = add_zero_field_record(*root, 2, 1U, "Sample", "Sample");
+    for (const std::string_view name : {"class", "class_"}) {
+        FieldIR* field = record->add_fields();
+        field->set_name(std::string(name));
+        field->set_field_index(record->fields_size() - 1);
+        field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    }
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    EXPECT_FALSE(result.success);
+    EXPECT_NE(result.error_message.find("class_"), std::string::npos);
+    EXPECT_NE(result.error_message.find("Sample"), std::string::npos);
+}
+
+TEST(BackendPythonTest, ReservedDunderNamesAreRejectedWithDiagnostic) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    RecordIR* record = add_zero_field_record(*root, 2, 1U, "Sample", "Sample");
+    FieldIR* field = record->add_fields();
+    field->set_name("__init__");
+    field->set_field_index(0);
+    field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    EXPECT_FALSE(result.success);
+    EXPECT_NE(result.error_message.find("__init__"), std::string::npos);
+    EXPECT_NE(result.error_message.find("reserved Python identifier"), std::string::npos);
 }
 
 } // namespace

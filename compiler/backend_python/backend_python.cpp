@@ -73,6 +73,131 @@ constexpr std::uint32_t kGeneratedCodeApiVersionPython = 1U;
     return parts;
 }
 
+using PythonNameSet = std::set<std::string>;
+
+[[nodiscard]] bool is_python_keyword(std::string_view name) {
+    static constexpr std::string_view keywords[] = {
+        "False", "None", "True", "and", "as", "assert", "async", "await", "break",
+        "case", "class", "continue", "def", "del", "elif", "else", "except", "finally",
+        "for", "from", "global", "if", "import", "in", "is", "lambda", "match", "nonlocal",
+        "not", "or", "pass", "raise", "return", "try", "while", "with", "yield",
+    };
+    for (const std::string_view keyword : keywords) {
+        if (keyword == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool is_python_reserved_convention(std::string_view name) {
+    if (name.size() >= 4U && name.starts_with("__") && name.ends_with("__")) {
+        return true;
+    }
+    return name.size() >= 3U && name.front() == '_' && name.back() == '_' &&
+           name[1] != '_' && name[name.size() - 2U] != '_';
+}
+
+[[nodiscard]] std::string sanitize_python_identifier(std::string_view original) {
+    std::string result;
+    result.reserve(original.size() + 1U);
+    for (const unsigned char character : original) {
+        const bool ascii_letter = (character >= static_cast<unsigned char>('a') &&
+                                   character <= static_cast<unsigned char>('z')) ||
+                                  (character >= static_cast<unsigned char>('A') &&
+                                   character <= static_cast<unsigned char>('Z'));
+        if (ascii_letter || character == '_' ||
+            (character >= static_cast<unsigned char>('0') &&
+             character <= static_cast<unsigned char>('9') && !result.empty())) {
+            result.push_back(static_cast<char>(character));
+        } else {
+            result.push_back('_');
+        }
+    }
+    if (result.empty()) {
+        result = "_";
+    } else if (std::isdigit(static_cast<unsigned char>(result.front())) != 0) {
+        result.insert(result.begin(), '_');
+    }
+    if (is_python_keyword(result)) {
+        result.push_back('_');
+    }
+    return result;
+}
+
+[[nodiscard]] std::optional<std::string> python_name_for(
+    std::string_view original, std::string_view context, const PythonNameSet& reserved,
+    std::string& error_message) {
+    std::string generated = sanitize_python_identifier(original);
+    if (generated.starts_with("_quarry_")) {
+        error_message = "backend_python: " + std::string(context) + " '" + std::string(original) +
+                        "' normalizes to generator-reserved identifier '" + generated + "'";
+        return std::nullopt;
+    }
+    if (is_python_reserved_convention(generated)) {
+        error_message = "backend_python: " + std::string(context) + " '" + std::string(original) +
+                        "' normalizes to reserved Python identifier '" + generated + "'";
+        return std::nullopt;
+    }
+    if (reserved.contains(generated)) {
+        generated.push_back('_');
+    }
+    return generated;
+}
+
+[[nodiscard]] bool insert_python_name(PythonNameSet& names, std::string_view generated,
+                                      std::string_view original, std::string_view context,
+                                      std::string& error_message) {
+    if (names.insert(std::string(generated)).second) {
+        return true;
+    }
+    error_message = "backend_python: " + std::string(context) + " names '" +
+                    std::string(original) + "' and another schema identifier both normalize to '" +
+                    std::string(generated) + "'; generation is ambiguous";
+    return false;
+}
+
+[[nodiscard]] const PythonNameSet& module_reserved_names() {
+    static const PythonNameSet names = {
+        "IntEnum", "Optional", "_brf", "QUARRY_GENERATED_CODE_API_VERSION_PYTHON", "dataclass",
+    };
+    return names;
+}
+
+[[nodiscard]] const PythonNameSet& field_reserved_names() {
+    static const PythonNameSet names = {
+        "IntEnum", "Optional", "_brf", "QUARRY_GENERATED_CODE_API_VERSION_PYTHON", "dataclass",
+        "encode", "decode", "encoded_size", "fields",
+        "_array_data", "_count", "_offset", "_index", "_length_offset", "_element_length",
+        "_error", "_element_end", "_items", "_array_payload", "_item", "_encoded_item",
+    };
+    return names;
+}
+
+[[nodiscard]] const PythonNameSet& enum_member_reserved_names() {
+    static const PythonNameSet names = {"name", "value"};
+    return names;
+}
+
+[[nodiscard]] const PythonNameSet& namespace_reserved_names() {
+    static const PythonNameSet names = {"quarry"};
+    return names;
+}
+
+[[nodiscard]] std::optional<std::vector<std::string>> sanitize_namespace_parts(
+    std::string_view fqn, std::string& error_message) {
+    std::vector<std::string> result;
+    for (const std::string& original : namespace_parts(fqn)) {
+        const std::optional<std::string> generated =
+            python_name_for(original, "namespace segment", namespace_reserved_names(), error_message);
+        if (!generated.has_value()) {
+            return std::nullopt;
+        }
+        result.push_back(*generated);
+    }
+    return result;
+}
+
 [[nodiscard]] std::string join_with(const std::vector<std::string>& parts, char separator) {
     std::string joined;
     for (std::size_t index = 0; index < parts.size(); ++index) {
@@ -89,13 +214,18 @@ constexpr std::uint32_t kGeneratedCodeApiVersionPython = 1U;
 // module lives directly under the output directory with no wrapping
 // package, mirroring the root-namespace precedent already established by
 // both existing backends' file_stem_for_namespace equivalents.
-[[nodiscard]] std::string module_path_for_namespace(const CodegenOptions& options,
-                                                    std::string_view fqn) {
-    const std::vector<std::string> parts = namespace_parts(fqn);
-    if (parts.empty()) {
-        return options.root_module_stem + ".py";
+[[nodiscard]] std::optional<std::string> module_path_for_namespace(
+    const CodegenOptions& options, const std::vector<std::string>& parts, std::string& error_message) {
+    static const PythonNameSet no_reserved_names;
+    const std::optional<std::string> stem = python_name_for(
+        options.root_module_stem, "root module stem", no_reserved_names, error_message);
+    if (!stem.has_value()) {
+        return std::nullopt;
     }
-    return join_with(parts, '/') + "/" + options.root_module_stem + ".py";
+    if (parts.empty()) {
+        return *stem + ".py";
+    }
+    return join_with(parts, '/') + "/" + *stem + ".py";
 }
 
 // Every ancestor directory of a record-owning namespace needs its own
@@ -107,8 +237,8 @@ constexpr std::uint32_t kGeneratedCodeApiVersionPython = 1U;
 // overlap is deduplicated silently, unlike a genuine module-path
 // collision (see build_generation_plan's separate, non-deduplicating
 // check for that).
-void collect_ancestor_init_paths(std::string_view fqn, std::set<std::string>& init_paths) {
-    const std::vector<std::string> parts = namespace_parts(fqn);
+void collect_ancestor_init_paths(const std::vector<std::string>& parts,
+                                 std::set<std::string>& init_paths) {
     std::string prefix;
     for (std::size_t index = 0; index < parts.size(); ++index) {
         if (index > 0) {
@@ -144,6 +274,11 @@ void collect_ancestor_init_paths(std::string_view fqn, std::set<std::string>& in
         result.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
     }
     return result;
+}
+
+[[nodiscard]] std::string record_helper_name(std::string_view record_name,
+                                             std::string_view operation) {
+    return "_quarry_" + std::string(operation) + "_" + snake_case_from_pascal(record_name);
 }
 
 // --- Scalar field lowering --------------------------------------------
@@ -208,9 +343,8 @@ struct ScalarEncoding {
 // declared values to the 32-bit signed integer range: that cap is
 // backend_c's own narrower implementation choice, not a BRF-wide or
 // Schema-IR-wide restriction, and Python's width bucketing already covers
-// every value up to uint64::max cleanly, so there is nothing here that can
-// actually fail -- collect_enum_catalog is therefore infallible, unlike its
-// backend_c namesake.
+// every value up to uint64::max cleanly; catalog collection can still fail on
+// unsafe or colliding Python identifiers.
 //
 // A flat, whole-schema map from enum ir_id to the information a field
 // reference needs, built once before any namespace file is planned, so a
@@ -218,7 +352,7 @@ struct ScalarEncoding {
 // order within the schema.
 
 struct EnumCatalogEntry {
-    std::string class_name; // bare enum name, e.g. "Status" -- no namespace
+    std::string class_name; // sanitized bare enum name, e.g. "Status" -- no namespace
                             // prefix, unlike C's symbol-prefixed constants;
                             // Python's own package/module structure already
                             // disambiguates, matching record class naming.
@@ -252,10 +386,16 @@ using EnumCatalog = std::unordered_map<std::uint64_t, EnumCatalogEntry>;
     return "uint64";
 }
 
-void collect_enum_catalog(const NamespaceIR& ns, EnumCatalog& catalog) {
+[[nodiscard]] bool collect_enum_catalog(const NamespaceIR& ns, EnumCatalog& catalog,
+                                        std::string& error_message) {
     for (const EnumIR& enum_ir : ns.enums()) {
         EnumCatalogEntry entry;
-        entry.class_name = enum_ir.name();
+        const std::optional<std::string> python_name =
+            python_name_for(enum_ir.name(), "enum", module_reserved_names(), error_message);
+        if (!python_name.has_value()) {
+            return false;
+        }
+        entry.class_name = *python_name;
         entry.owning_namespace_fqn = ns.fqn();
         entry.all_non_negative = true;
 
@@ -275,8 +415,11 @@ void collect_enum_catalog(const NamespaceIR& ns, EnumCatalog& catalog) {
     }
 
     for (const NamespaceIR& child : ns.namespaces()) {
-        collect_enum_catalog(child, catalog);
+        if (!collect_enum_catalog(child, catalog, error_message)) {
+            return false;
+        }
     }
+    return true;
 }
 
 struct EnumFieldEncoding {
@@ -285,20 +428,29 @@ struct EnumFieldEncoding {
 };
 
 struct RecordCatalogEntry {
-    std::string class_name;
+    std::string class_name; // sanitized Python class name
     std::string owning_namespace_fqn;
 };
 
 using RecordCatalog = std::unordered_map<std::uint64_t, RecordCatalogEntry>;
 
-void collect_record_catalog(const NamespaceIR& ns, RecordCatalog& catalog) {
+[[nodiscard]] bool collect_record_catalog(const NamespaceIR& ns, RecordCatalog& catalog,
+                                          std::string& error_message) {
     for (const RecordIR& record_ir : ns.records()) {
+        const std::optional<std::string> python_name =
+            python_name_for(record_ir.name(), "record", module_reserved_names(), error_message);
+        if (!python_name.has_value()) {
+            return false;
+        }
         catalog.emplace(record_ir.ir_id(),
-                        RecordCatalogEntry{record_ir.name(), ns.fqn()});
+                        RecordCatalogEntry{*python_name, ns.fqn()});
     }
     for (const NamespaceIR& child : ns.namespaces()) {
-        collect_record_catalog(child, catalog);
+        if (!collect_record_catalog(child, catalog, error_message)) {
+            return false;
+        }
     }
+    return true;
 }
 
 [[nodiscard]] std::optional<std::string> lower_record_reference(
@@ -416,6 +568,7 @@ struct PlannedEnum {
 };
 
 struct PlannedNamespaceFile {
+    std::string source_namespace_fqn;
     std::string relative_module_path;
     std::vector<PlannedEnum> enums;
     std::vector<PlannedRecord> records;
@@ -709,24 +862,66 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                                           std::string& error_message) {
     if (namespace_emits_file(ns)) {
         PlannedNamespaceFile file;
-        file.relative_module_path = module_path_for_namespace(options, ns.fqn());
+        const std::optional<std::vector<std::string>> safe_namespace =
+            sanitize_namespace_parts(ns.fqn(), error_message);
+        if (!safe_namespace.has_value()) {
+            return false;
+        }
+        const std::optional<std::string> module_path =
+            module_path_for_namespace(options, *safe_namespace, error_message);
+        if (!module_path.has_value()) {
+            return false;
+        }
+        file.source_namespace_fqn = ns.fqn();
+        file.relative_module_path = *module_path;
+        collect_ancestor_init_paths(*safe_namespace, ancestor_init_paths);
+
+        PythonNameSet module_symbols;
 
         for (const EnumIR& enum_ir : ns.enums()) {
             // Already computed once by collect_enum_catalog; reused here
             // rather than recomputed, so there is exactly one place that
             // decides an enum's rendering data.
             const EnumCatalogEntry& entry = enum_catalog.at(enum_ir.ir_id());
+            if (!insert_python_name(module_symbols, entry.class_name, enum_ir.name(),
+                                    "module-level class", error_message)) {
+                return false;
+            }
             PlannedEnum planned_enum;
             planned_enum.class_name = entry.class_name;
+            PythonNameSet enum_members;
             for (const auto& [value_name, value] : entry.values) {
-                planned_enum.values.push_back(PlannedEnumValue{.name = value_name,
+                const std::optional<std::string> python_member =
+                    python_name_for(value_name, "enum member", enum_member_reserved_names(),
+                                    error_message);
+                if (!python_member.has_value() ||
+                    !insert_python_name(enum_members, *python_member, value_name, "enum member",
+                                        error_message)) {
+                    return false;
+                }
+                planned_enum.values.push_back(PlannedEnumValue{.name = *python_member,
                                                                .value = value});
             }
             file.enums.push_back(std::move(planned_enum));
         }
 
         for (const RecordIR& record_ir : ns.records()) {
+            const RecordCatalogEntry& record_entry = record_catalog.at(record_ir.ir_id());
+            if (!insert_python_name(module_symbols, record_entry.class_name, record_ir.name(),
+                                    "module-level class", error_message)) {
+                return false;
+            }
+            for (const std::string_view operation : {"encode", "decode", "encoded_size"}) {
+                const std::string helper = record_helper_name(record_entry.class_name, operation);
+                if (!module_symbols.insert(helper).second) {
+                    error_message = "backend_python: generated helper '" + helper +
+                                    "' for record '" + record_ir.name() +
+                                    "' collides with another module-level generated identifier";
+                    return false;
+                }
+            }
             std::vector<PlannedField> planned_fields;
+            PythonNameSet field_names;
             std::vector<std::uint64_t> dependencies;
             planned_fields.reserve(static_cast<std::size_t>(record_ir.fields_size()));
             for (const FieldIR& field_ir : record_ir.fields()) {
@@ -736,6 +931,16 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                 if (!planned_field.has_value()) {
                     return false;
                 }
+                const std::optional<std::string> python_field_name = python_name_for(
+                    field_ir.name(), "field '" + record_ir.fqn() + "'", field_reserved_names(),
+                    error_message);
+                if (!python_field_name.has_value() ||
+                    !insert_python_name(field_names, *python_field_name, field_ir.name(),
+                                        "field in record '" + record_ir.fqn() + "'",
+                                        error_message)) {
+                    return false;
+                }
+                planned_field->name = *python_field_name;
                 if (planned_field->is_record) {
                     dependencies.push_back(planned_field->record_target_ir_id);
                 }
@@ -743,7 +948,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             }
             file.records.push_back(PlannedRecord{
                 .ir_id = record_ir.ir_id(),
-                .name = record_ir.name(),
+                .name = record_entry.class_name,
                 .record_id = record_ir.record_id(),
                 .fields = std::move(planned_fields),
                 .same_namespace_dependencies = std::move(dependencies),
@@ -754,7 +959,6 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             return false;
         }
 
-        collect_ancestor_init_paths(ns.fqn(), ancestor_init_paths);
         files.push_back(std::move(file));
     }
 
@@ -777,10 +981,14 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                                         std::vector<PlannedNamespaceFile>& module_files,
                                         std::string& error_message) {
     EnumCatalog enum_catalog;
-    collect_enum_catalog(schema_ir.root_namespace(), enum_catalog);
+    if (!collect_enum_catalog(schema_ir.root_namespace(), enum_catalog, error_message)) {
+        return false;
+    }
 
     RecordCatalog record_catalog;
-    collect_record_catalog(schema_ir.root_namespace(), record_catalog);
+    if (!collect_record_catalog(schema_ir.root_namespace(), record_catalog, error_message)) {
+        return false;
+    }
 
     std::set<std::string> ancestor_init_paths;
     if (!collect_namespace_files(schema_ir.root_namespace(), options, enum_catalog, record_catalog,
@@ -788,17 +996,20 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         return false;
     }
 
-    // Module paths are unique by construction (one per distinct namespace
-    // FQN, and FQNs are unique within Schema IR), but this check is kept as
-    // a defensive guard against future refactors, mirroring backend_c's own
-    // duplicate-output-path check -- unlike ancestor __init__.py paths,
-    // which are expected to repeat across sibling namespaces, two different
-    // namespaces producing the same module path would be a genuine error.
-    std::set<std::string> seen_module_paths;
+    // Every generated path, including package markers, must be unique after
+    // Python-specific namespace/module normalization. Shared ancestor package
+    // markers were already deduplicated in the set used above.
+    std::map<std::string, std::string> seen_output_paths;
+    for (const std::string& path : init_file_paths) {
+        seen_output_paths.emplace(path, "package ancestor");
+    }
     for (const PlannedNamespaceFile& file : module_files) {
-        if (!seen_module_paths.insert(file.relative_module_path).second) {
-            error_message =
-                "backend_python: duplicate generated module path: " + file.relative_module_path;
+        const auto [it, inserted] =
+            seen_output_paths.emplace(file.relative_module_path, file.source_namespace_fqn);
+        if (!inserted) {
+            error_message = "backend_python: namespaces '" + it->second + "' and '" +
+                            file.source_namespace_fqn + "' both normalize to generated path '" +
+                            file.relative_module_path + "'";
             return false;
         }
     }
@@ -821,13 +1032,16 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 // themselves, which now perform real BRF scalar encode/decode via
 // quarry.runtime.python.binary_record (aliased _brf in the module preamble)
 // rather than raising NotImplementedError -- PR-119's scalar milestone.
-// _encoded_size_<name> is implemented as len(_encode_<name>(value)): always
+// The private _quarry_encoded_size_<name> helper is implemented as
+// len(_quarry_encode_<name>(value)): always
 // exactly correct by construction, at the cost of doing a full encode to
 // learn a size (unlike the C/C++ backends' size-only computation) -- an
 // acceptable simplicity/performance tradeoff for this first functional
 // milestone, revisitable later without changing the public API.
 [[nodiscard]] std::string render_record_block(const PlannedRecord& record) {
-    const std::string snake_name = snake_case_from_pascal(record.name);
+    const std::string encode_name = record_helper_name(record.name, "encode");
+    const std::string decode_name = record_helper_name(record.name, "decode");
+    const std::string encoded_size_name = record_helper_name(record.name, "encoded_size");
     std::ostringstream stream;
     stream << "@dataclass\n";
     stream << "class " << record.name << ":\n";
@@ -840,23 +1054,22 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     }
     stream << "\n";
     stream << "    def encode(self):\n";
-    stream << "        return _encode_" << snake_name << "(self)\n";
+    stream << "        return " << encode_name << "(self)\n";
     stream << "\n";
     stream << "    @classmethod\n";
     stream << "    def decode(cls, data):\n";
-    stream << "        return _decode_" << snake_name << "(data)\n";
+    stream << "        return " << decode_name << "(data)\n";
     stream << "\n";
     stream << "    def encoded_size(self):\n";
-    stream << "        return _encoded_size_" << snake_name << "(self)\n";
+    stream << "        return " << encoded_size_name << "(self)\n";
     stream << "\n";
     stream << "\n";
 
-    stream << "def _encode_" << snake_name << "(value):\n";
+    stream << "def " << encode_name << "(value):\n";
     stream << "    fields = []\n";
     for (const PlannedField& field : record.fields) {
         stream << "    if value." << field.name << " is not None:\n";
         if (field.is_array && field.is_record) {
-            const std::string child_snake = snake_case_from_pascal(field.python_type_hint);
             stream << "        _items = value." << field.name << "\n";
             stream << "        if len(_items) > " << field.array_max_elements << ":\n";
             stream << "            raise _brf.EncodeError(\"array length \" + str(len(_items)) + \" exceeds max_elements="
@@ -864,7 +1077,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             stream << "        _array_payload = bytearray()\n";
             stream << "        _brf.append_varuint(_array_payload, len(_items))\n";
             stream << "        for _item in _items:\n";
-            stream << "            _encoded_item = _encode_" << child_snake << "(_item)\n";
+            stream << "            _encoded_item = " << record_helper_name(field.python_type_hint, "encode")
+                   << "(_item)\n";
             stream << "            _brf.append_varuint(_array_payload, len(_encoded_item))\n";
             stream << "            _array_payload.extend(_encoded_item)\n";
             stream << "        fields.append((" << field.field_index
@@ -898,9 +1112,9 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             stream << "        fields.append((" << field.field_index << ", _brf.pack_bytes("
                    << "value." << field.name << ", " << field.bytes_max_bytes << ")))\n";
         } else if (field.is_record) {
-            stream << "        fields.append((" << field.field_index << ", _encode_"
-                   << snake_case_from_pascal(field.python_type_hint) << "(value." << field.name
-                   << ")))\n";
+            stream << "        fields.append((" << field.field_index << ", "
+                   << record_helper_name(field.python_type_hint, "encode") << "(value."
+                   << field.name << ")))\n";
         } else {
             stream << "        fields.append((" << field.field_index << ", _brf.pack_scalar(\""
                    << field.runtime_type_name << "\", value." << field.name << ")))\n";
@@ -910,7 +1124,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     stream << "\n";
     stream << "\n";
 
-    stream << "def _decode_" << snake_name << "(data):\n";
+    stream << "def " << decode_name << "(data):\n";
     stream << "    record_id, fields = _brf.parse_record(data)\n";
     stream << "    if record_id != " << record.record_id << ":\n";
     stream << "        raise _brf.DecodeError(\n";
@@ -920,7 +1134,6 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         stream << "    " << field.name << " = None\n";
         stream << "    if " << field.field_index << " in fields:\n";
         if (field.is_array && field.is_record) {
-            const std::string child_snake = snake_case_from_pascal(field.python_type_hint);
             stream << "        _array_data = fields[" << field.field_index << "]\n";
             stream << "        try:\n";
             stream << "            _count, _offset = _brf.read_varuint(_array_data, 0)\n";
@@ -941,7 +1154,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             stream << "                raise _brf.DecodeError('truncated array element ' + str(_index) + ' payload at byte offset ' + str(_offset))\n";
             stream << "            _element_end = _offset + _element_length\n";
             stream << "            try:\n";
-            stream << "                " << field.name << ".append(_decode_" << child_snake
+            stream << "                " << field.name << ".append("
+                   << record_helper_name(field.python_type_hint, "decode")
                    << "(_array_data[_offset:_element_end]))\n";
             stream << "            except _brf.DecodeError as _error:\n";
             stream << "                raise _brf.DecodeError('array element ' + str(_index) + ' at byte offset ' + str(_offset) + ': ' + str(_error)) from _error\n";
@@ -977,8 +1191,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             stream << "        " << field.name << " = _brf.unpack_bytes(fields["
                    << field.field_index << "], " << field.bytes_max_bytes << ")\n";
         } else if (field.is_record) {
-            stream << "        " << field.name << " = _decode_"
-                   << snake_case_from_pascal(field.python_type_hint) << "(fields["
+            stream << "        " << field.name << " = "
+                   << record_helper_name(field.python_type_hint, "decode") << "(fields["
                    << field.field_index << "])\n";
         } else {
             stream << "        " << field.name << " = _brf.unpack_scalar(\""
@@ -996,8 +1210,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     stream << "\n";
     stream << "\n";
 
-    stream << "def _encoded_size_" << snake_name << "(value):\n";
-    stream << "    return len(_encode_" << snake_name << "(value))\n";
+    stream << "def " << encoded_size_name << "(value):\n";
+    stream << "    return len(" << encode_name << "(value))\n";
     return stream.str();
 }
 

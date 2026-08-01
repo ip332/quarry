@@ -139,6 +139,18 @@ constexpr std::string_view kStringBytesSchema = "namespace: acme.telemetry\n"
                                                "    type: bytes\n"
                                                "    max_bytes: 16\n";
 
+constexpr std::string_view kKeywordSchema = "namespace: class\n"
+                                           "record: def\n"
+                                           "version: 1\n"
+                                           "type: data\n"
+                                           "fields:\n"
+                                           "  Optional:\n"
+                                           "    type: class\n"
+                                           "enums:\n"
+                                           "  class:\n"
+                                           "    values:\n"
+                                           "      import: 0\n";
+
 // Runs `harness_body` (a fragment of Python source assuming `generated` is
 // already on sys.path and `acme.telemetry.schema.Sample` is importable)
 // against the schema compiled from `schema_source`, returning the real
@@ -724,6 +736,21 @@ TEST(PythonExecutionTest, EpochMismatchRaisesImportErrorAtImportTime) {
                                 "else:\n"
                                 "    raise SystemExit('import did not raise ImportError')\n"),
              0);
+}
+
+TEST(PythonExecutionTest, EscapedKeywordNamesImportAndRoundTripInRealPython) {
+    if (std::string_view(QUARRY_TEST_PYTHON3).empty()) {
+        GTEST_SKIP() << "python3 interpreter not found; skipping Python execution test";
+    }
+
+    EXPECT_EQ(run_python_harness(
+                  "keyword-names", kKeywordSchema,
+                  "from class_.schema import class_ as KeywordEnum, def_ as KeywordRecord\n"
+                  "sample = KeywordRecord(Optional_=KeywordEnum.import_)\n"
+                  "assert KeywordRecord.decode(sample.encode()) == sample\n"
+                  "assert KeywordRecord.decode(KeywordRecord().encode()).Optional_ is None\n"
+                  "print('OK')\n"),
+              0);
 }
 
 } // namespace
