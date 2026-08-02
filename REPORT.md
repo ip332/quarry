@@ -1808,6 +1808,96 @@ No implementation files were changed for that work in this audit.
 ### Files changed by PR-132
 
 * `REPORT.md`
+
+## PR-137 — Dependency-Aware Output Planning
+
+### Executive summary
+
+Implemented a language-neutral output-planning pass between semantic analysis
+and layout/Schema IR construction. It consumes the deterministic source-unit
+graph from PR-135 and the resolved semantic state from PR-136, records every
+loaded unit and its imported-unit dependencies, marks explicit roots as the
+current generating outputs, and exposes a deterministic generation order.
+
+### Architecture and generation roots
+
+`output_planning::OutputPlanner` produces an `OutputPlan` containing
+`PlannedSourceUnit` nodes. Each node carries source-unit identity, canonical
+path, namespace FQN, root/output flags, a language-neutral logical output key,
+and dependency identities. Repeated import edges are deduplicated. Nodes
+preserve CompilerContext's dependency-first DFS order, which is also the
+future backend generation order.
+
+The current CLI accepts one explicit root. That root is the only node marked
+`emits_output`; transitive imports remain dependency nodes and do not create
+standalone backend files. This preserves existing one-source behavior while
+making dependency metadata available to later backend PRs.
+
+### Listing and collision behavior
+
+`YamlCompiler::compile()` constructs and validates the output plan for normal
+generation and `--list-outputs`. The CLI continues to ask the selected backend
+for concrete language-specific paths, so extensions, packages, headers, and
+source-file listings remain unchanged. Imported units do not add extra listed
+files yet.
+
+The planner derives a logical output key from the namespace FQN (or `<root>`
+for an empty namespace) and reports `BC8001` when multiple generating roots
+claim the same key. Diagnostics name both source units and paths; outputs are
+never silently overwritten.
+
+### Backend contract and impact
+
+Future backend work can consume `OutputPlan::units`, filter `emits_output`, use
+`dependency_identities`, and follow `generation_order` without rediscovering
+the source graph. No backend-specific include/import generation was added.
+
+Schema IR changed: no. BRF changed: no. Runtimes changed: no. Generated-code
+API epochs changed: no. Backend dependency generation: not implemented.
+
+### Tests and validation
+
+Added compiler tests for graph ordering/dependency metadata, imported units as
+non-generating dependencies, duplicate root output keys, and CLI
+`--list-outputs` preserving root-only output inventory. Existing single-source
+listing and backend plan tests remain unchanged.
+
+Focused native YAML compiler/output-planning tests passed 10/10 after the
+change. The clean Docker/Linux/GCC build and full CTest passed 30/30,
+including packaging, installed-consumer, and interoperability tests. Native
+configure and the focused tests were restored and revalidated after Docker;
+the full native build is blocked by pre-existing Clang `-Werror`
+signed/unsigned warnings in the existing test suite (including
+`tests/backend/backend_codegen_test.cpp:436` and
+`tests/tools/schema_compiler_tool_test.cpp:541`). No new warning was
+introduced by this change. `git diff --check` passed.
+
+### Remaining work and recommended next PR
+
+Concrete C++, C, and Python include/import emission remains. Multi-root CLI
+support, multi-record YAML, Schema IR redesign, BRF/runtime changes, and API
+epoch changes remain out of scope.
+
+Recommend **PR-138 — C++ Cross-Namespace Dependency Generation**: consume the
+output plan in the C++ backend, emit generated header dependencies, use
+qualified C++ types, and add forward declarations where appropriate. C and
+Python dependency generation should remain separate follow-ups.
+
+### Exact files changed in PR-137
+
+* `compiler/CMakeLists.txt`
+* `compiler/frontend/README.md`
+* `compiler/frontend/yaml_compiler.cpp`
+* `compiler/frontend/yaml_compiler.hpp`
+* `compiler/output_planning/output_planning.cpp`
+* `compiler/output_planning/output_planning.hpp`
+* `compiler/output_planning/README.md`
+* `docs/compiler-architecture.md`
+* `jira/backlog.md`
+* `tests/frontend/yaml_compiler_test.cpp`
+* `tests/tools/schema_compiler_tool_test.cpp`
+* `tools/README.md`
+* `REPORT.md`
 * `runtime_c/README.md`
 * `include/quarry/runtime_c/binary_record.h`
 * `docs/design/c-backend.md`

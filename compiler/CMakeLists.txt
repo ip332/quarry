@@ -198,6 +198,17 @@ target_link_libraries(quarry_compiler_layout
         quarry_project_options
 )
 
+add_library(quarry_compiler_output_planning
+    output_planning/output_planning.cpp
+)
+target_include_directories(quarry_compiler_output_planning PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(quarry_compiler_output_planning
+    PUBLIC
+        quarry_compiler_context
+        quarry_compiler_diagnostics
+        quarry_project_options
+)
+
 add_library(quarry_compiler_schema_ir
     schema_ir/schema_ir.cpp
     schema_ir/validation.cpp
@@ -223,6 +234,7 @@ target_include_directories(quarry_compiler_frontend PUBLIC ${CMAKE_CURRENT_SOURC
 target_link_libraries(quarry_compiler_frontend
     PUBLIC
         quarry_compiler_context
+        quarry_compiler_output_planning
         quarry_compiler_schema_ir
         quarry_project_options
     PRIVATE

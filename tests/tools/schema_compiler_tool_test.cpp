@@ -390,6 +390,34 @@ TEST(SchemaCompilerToolTest, ListOutputsPrintsRelativePathsAndDoesNotWriteFiles)
     EXPECT_FALSE(std::filesystem::exists(root / output));
 }
 
+TEST(SchemaCompilerToolTest, ListOutputsKeepsImportedUnitsAsDependenciesOnly) {
+    const std::filesystem::path root = make_temp_directory("list-outputs-imports");
+    const std::filesystem::path input = root / "schema.brd";
+    write_text_file(root / "shared.brd",
+                    "namespace: quarry.shared\n"
+                    "record: Shared\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields: {}\n");
+    write_text_file(input,
+                    "namespace: quarry.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "imports:\n"
+                    "  - shared.brd\n"
+                    "fields:\n"
+                    "  count:\n"
+                    "    type: uint32\n");
+
+    const CommandResult result =
+        run_tool({"--list-outputs", "--output-directory", "generated", input.string()}, root);
+
+    EXPECT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_EQ(result.stdout_text, "generated/quarry/telemetry.generated.hpp\n");
+    EXPECT_TRUE(result.stderr_text.empty());
+}
+
 TEST(SchemaCompilerToolTest, ListOutputsPrintsAbsolutePathsAndDoesNotCreateOutputDirectory) {
     const std::filesystem::path root = make_temp_directory("list-outputs-absolute");
     const std::filesystem::path working_directory = root / "working directory with spaces";

@@ -91,13 +91,20 @@ protobufs, tools, tests, fuzzers, and examples.
 contract, native imported-target discovery policy, and downstream CMake
 integration boundaries.
 
-Generated-output naming belongs to backend-owned planning. `GenerationPlan`
+The compiler output-planning pass first builds a language-neutral source-unit
+generation graph. It records explicit generation roots, imported-unit
+dependencies, logical output keys, and deterministic dependency-first order;
+imported units remain dependency nodes rather than standalone outputs under the
+current one-root CLI contract. Duplicate logical output keys are diagnosed
+before backend generation.
+
+Backend-specific output naming belongs to backend-owned planning. `GenerationPlan`
 (backend-internal `build_render_generation_plan`) is the single, canonical
 generated-output planning model that feeds both rendering (`Backend::generate`)
 and the schema compiler's `--list-outputs` query mode (`Backend::plan`), so
 filenames, output directories, and include paths are computed exactly once and
 cannot diverge between the two modes. No filename, output-directory, or
-include-path computation is reimplemented anywhere outside this stage — not in
+include-path computation is reimplemented anywhere outside the backend stage — not in
 the CLI tool, and not in the CMake helper, which treats `--list-outputs`'
 printed paths as authoritative rather than predicting them. Tool-side file
 writing remains separate, and no CMake helper, depfile, manifest, or

@@ -1,6 +1,7 @@
 #include "compiler/frontend/yaml_compiler.hpp"
 
 #include "compiler/layout/layout.hpp"
+#include "compiler/output_planning/output_planning.hpp"
 #include "compiler/source_schema/source_schema.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "compiler/schema_ir/validation.hpp"
@@ -308,6 +309,13 @@ YamlCompilationResult YamlCompiler::compile(support::SourceFileId source_file_id
     if (has_fatal_diagnostics(diagnostics)) {
         return result;
     }
+
+    output_planning::OutputPlanner output_planner;
+    const output_planning::OutputPlan output_plan = output_planner.plan(context, diagnostics);
+    if (has_fatal_diagnostics(diagnostics)) {
+        return result;
+    }
+    result.output_plan = output_plan;
 
     layout::LayoutComputer layout_computer;
     const layout::LayoutModel layout_model =

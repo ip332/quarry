@@ -1,6 +1,7 @@
 #include "compiler/context/compiler_context.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/frontend/yaml_compiler.hpp"
+#include "compiler/output_planning/output_planning.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "compiler/support/source_manager.hpp"
 
@@ -15,6 +16,9 @@
 #include <gtest/gtest.h>
 
 namespace {
+
+namespace context = quarry::compiler::context;
+namespace output_planning = quarry::compiler::output_planning;
 
 using quarry::compiler::context::CompilerContext;
 using quarry::compiler::diagnostics::DiagnosticEngine;
@@ -329,6 +333,16 @@ fields: {}
     ASSERT_TRUE(result.succeeded());
     ASSERT_TRUE(diagnostics.empty());
     ASSERT_EQ(context.source_units().size(), 4U);
+    ASSERT_TRUE(result.output_plan.has_value());
+    ASSERT_EQ(result.output_plan->units.size(), 4U);
+    ASSERT_EQ(result.output_plan->generation_order.size(), 4U);
+    EXPECT_EQ(result.output_plan->generation_order[0], "quarry.shared.Shared");
+    EXPECT_EQ(result.output_plan->generation_order[3], "quarry.root.Root");
+    EXPECT_FALSE(result.output_plan->units[0].emits_output);
+    EXPECT_TRUE(result.output_plan->units[3].emits_output);
+    ASSERT_EQ(result.output_plan->units[3].dependency_identities.size(), 2U);
+    EXPECT_EQ(result.output_plan->units[3].dependency_identities[0], "quarry.a.A");
+    EXPECT_EQ(result.output_plan->units[3].dependency_identities[1], "quarry.b.B");
     EXPECT_EQ(context.source_units()[0].identity, "quarry.shared.Shared");
     EXPECT_EQ(context.source_units()[1].identity, "quarry.a.A");
     EXPECT_EQ(context.source_units()[2].identity, "quarry.b.B");
@@ -440,4 +454,29 @@ fields:
     EXPECT_FALSE(result.succeeded());
     EXPECT_FALSE(diagnostics.empty());
     EXPECT_TRUE(has_diagnostic(diagnostics, "semantic", "BC5001"));
+}
+
+TEST(YamlCompilerTest, DetectsDuplicateRootOutputKeys) {
+    context::CompilerContext context;
+    context::SourceUnit first;
+    first.canonical_path = "/test/first.yaml";
+    first.identity = "vehicle.Telemetry";
+    first.namespace_fqn = "vehicle";
+    first.is_root = true;
+    ASSERT_TRUE(context.register_source_unit(std::move(first)));
+
+    context::SourceUnit second;
+    second.canonical_path = "/test/second.yaml";
+    second.identity = "vehicle.Configuration";
+    second.namespace_fqn = "vehicle";
+    second.is_root = true;
+    ASSERT_TRUE(context.register_source_unit(std::move(second)));
+
+    DiagnosticEngine diagnostics;
+    const output_planning::OutputPlan plan =
+        output_planning::OutputPlanner{}.plan(context, diagnostics);
+
+    ASSERT_EQ(plan.units.size(), 2U);
+    ASSERT_FALSE(diagnostics.empty());
+    EXPECT_TRUE(has_diagnostic(diagnostics, "output-planning", "BC8001"));
 }

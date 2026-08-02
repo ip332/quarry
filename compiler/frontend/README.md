@@ -12,6 +12,7 @@ compilation and source-unit graph discovery.
 * source-schema normalization
 * compiler-wide `NamespaceBuilder`
 * compiler-wide `SemanticValidator`
+* language-neutral `OutputPlanner`
 * `LayoutComputer`
 * `SchemaIrBuilder`
 * `SchemaIrValidator`
@@ -50,8 +51,10 @@ Non-empty YAML imports are decoded, normalized, and loaded transitively by the
 source-unit graph loader. Missing files, duplicate source-unit identities, and
 import cycles fail before semantic analysis. The loaded normalized documents
 now feed one compiler-wide symbol index and semantic pass; qualified record
-and enum references resolve to canonical FQNs within that graph. Backend
-dependency generation and imported-output planning remain future work.
+and enum references resolve to canonical FQNs within that graph. The output
+planner then records the root artifact and its imported-unit dependencies in a
+deterministic generation graph. Backend dependency generation and concrete
+import/include emission remain future work.
 
 ## Dependencies
 

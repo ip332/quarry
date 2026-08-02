@@ -181,7 +181,8 @@ Exit codes:
 * `2`: command-line usage error
 
 The command supports exactly one root input file. That root may now load a
-transitive relative-import graph; multiple explicit roots, stale-output
+transitive relative-import graph; the root is the only generating output and
+imports are dependency nodes for planning. Multiple explicit roots, stale-output
 deletion, response files, configuration files, installed package integration,
 color diagnostics, and JSON diagnostics remain out of scope.
 
