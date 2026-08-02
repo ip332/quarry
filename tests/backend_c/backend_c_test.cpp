@@ -146,6 +146,22 @@ TEST(BackendCTest, NestedNamespaceProducesSymbolPrefixedFileAndSymbols) {
     EXPECT_NE(source->content.find("quarry_telemetry_Sample_init"), std::string::npos);
 }
 
+TEST(BackendCTest, KeywordNamespaceSegmentRemainsValidWithSymbolPrefix) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* keyword_ns = add_child_namespace(*root, 2, "switch", "switch");
+    (void)add_zero_field_record(*keyword_ns, 3, 1U, "Sample", "switch.Sample");
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 2U);
+    EXPECT_NE(result.files[0].content.find("switch_Sample_t"), std::string::npos);
+}
+
 TEST(BackendCTest, EnumRendersUppercasePrefixedConstants) {
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
@@ -165,6 +181,146 @@ TEST(BackendCTest, EnumRendersUppercasePrefixedConstants) {
     const std::string& header_content = result.files[0].content;
     EXPECT_NE(header_content.find("TELEMETRY_STATUS_OK = 0"), std::string::npos);
     EXPECT_NE(header_content.find("TELEMETRY_STATUS_ERROR = 1"), std::string::npos);
+}
+
+TEST(BackendCTest, HardenedNamesMapKeywordsReservedNamesAndDerivedCollisions) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    RecordIR* record = add_zero_field_record(*root, 2, 1U, "switch", "switch");
+
+    FieldIR* keyword = record->add_fields();
+    keyword->set_name("switch");
+    keyword->set_field_index(0);
+    keyword->mutable_type()->mutable_string()->set_max_bytes(8U);
+
+    FieldIR* payload = record->add_fields();
+    payload->set_name("payload");
+    payload->set_field_index(1);
+    payload->mutable_type()->mutable_bytes()->set_max_bytes(8U);
+
+    FieldIR* explicit_length = record->add_fields();
+    explicit_length->set_name("payload_length");
+    explicit_length->set_field_index(2);
+    explicit_length->mutable_type()->set_primitive(
+        ::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+
+    FieldIR* samples = record->add_fields();
+    samples->set_name("samples");
+    samples->set_field_index(3);
+    samples->mutable_type()->mutable_array()->set_max_elements(2U);
+    samples->mutable_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->mutable_string()
+        ->set_max_bytes(8U);
+
+    FieldIR* explicit_count = record->add_fields();
+    explicit_count->set_name("samples_count");
+    explicit_count->set_field_index(4);
+    explicit_count->mutable_type()->set_primitive(
+        ::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+
+    FieldIR* double_underscore = record->add_fields();
+    double_underscore->set_name("__value");
+    double_underscore->set_field_index(5);
+    double_underscore->mutable_type()->set_primitive(
+        ::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+
+    FieldIR* underscore_upper = record->add_fields();
+    underscore_upper->set_name("_Value");
+    underscore_upper->set_field_index(6);
+    underscore_upper->mutable_type()->set_primitive(
+        ::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+
+    FieldIR* underscore_lower = record->add_fields();
+    underscore_lower->set_name("_internal");
+    underscore_lower->set_field_index(7);
+    underscore_lower->mutable_type()->set_primitive(
+        ::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+
+    FieldIR* escaped_candidate = record->add_fields();
+    escaped_candidate->set_name("quarry_switch");
+    escaped_candidate->set_field_index(8);
+    escaped_candidate->mutable_type()->set_primitive(
+        ::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+
+    EnumIR* enum_ir = add_enum(*root, 3, "enum", "enum");
+    add_enum_value(*enum_ir, "ok", 0);
+    add_enum_value(*enum_ir, "OK", 1);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 2U);
+    const std::string& header = result.files[0].content;
+
+    EXPECT_NE(header.find("quarry_switch_t"), std::string::npos);
+    EXPECT_NE(header.find("quarry_switch_length"), std::string::npos);
+    EXPECT_NE(header.find("payload_length_2"), std::string::npos);
+    EXPECT_NE(header.find("samples_count_2"), std::string::npos);
+    EXPECT_NE(header.find("quarry___value"), std::string::npos);
+    EXPECT_NE(header.find("quarry__Value"), std::string::npos);
+    EXPECT_NE(header.find("quarry__internal"), std::string::npos);
+    EXPECT_NE(header.find("quarry_switch_2"), std::string::npos);
+    EXPECT_NE(header.find("bool has_payload_length_2;"), std::string::npos);
+    EXPECT_NE(header.find("uint32_t payload_length_2;"), std::string::npos);
+    EXPECT_NE(header.find("bool has_samples_count_2;"), std::string::npos);
+    EXPECT_NE(header.find("uint32_t samples_count_2;"), std::string::npos);
+    EXPECT_NE(header.find("ENUM_OK = 0"), std::string::npos);
+    EXPECT_NE(header.find("ENUM_OK_2 = 1"), std::string::npos);
+    EXPECT_NE(header.find("quarry_enum_t"), std::string::npos);
+    EXPECT_EQ(header.find("bool has_payload_length;"), std::string::npos);
+    EXPECT_EQ(header.find("bool has_samples_count;"), std::string::npos);
+}
+
+TEST(BackendCTest, SafeFieldNamesRemainUnchanged) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    RecordIR* record = add_zero_field_record(*root, 2, 1U, "Sample", "Sample");
+    FieldIR* field = record->add_fields();
+    field->set_name("count");
+    field->set_field_index(0);
+    field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    EXPECT_NE(result.files[0].content.find("bool has_count;"), std::string::npos);
+    EXPECT_NE(result.files[0].content.find("uint32_t count;"), std::string::npos);
+}
+
+TEST(BackendCTest, ArrayElementTypeCollisionIsDisambiguated) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    RecordIR* record = add_zero_field_record(*root, 2, 1U, "Sample", "Sample");
+    (void)add_zero_field_record(*root, 3, 2U, "Sample_array_0_string_element",
+                                "Sample_array_0_string_element");
+    FieldIR* field = record->add_fields();
+    field->set_name("labels");
+    field->set_field_index(0);
+    field->mutable_type()->mutable_array()->set_max_elements(2U);
+    field->mutable_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->mutable_string()
+        ->set_max_bytes(8U);
+    assert_valid(schema_ir);
+
+    Backend backend;
+    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    EXPECT_NE(result.files[0].content.find(
+                  "} Sample_array_0_string_element_t;"), std::string::npos);
+    EXPECT_NE(result.files[0].content.find(
+                  "} Sample_array_0_string_element_t_2;"), std::string::npos);
 }
 
 TEST(BackendCTest, EnumValueOutsideInt32RangeFailsGenerationWithClearDiagnostic) {

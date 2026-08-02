@@ -139,9 +139,29 @@ typedef struct {
   because ISO C forbids an empty struct body; it is not a schema field, uses
   no leading underscore (avoiding any identifier the C standard reserves for
   the implementation), and disappears once the record has real fields
-* every public identifier is schema-derived and prefixed
-  (`quarry_<namespace>_<Record>...`); nothing is emitted under a reserved
-  name
+* every generated identifier is a valid, non-reserved C99 identifier. Safe
+  schema names retain their existing spelling. C keywords, implementation-
+  reserved spellings, and collisions with generated presence/length/count or
+  scratch names are deterministically mapped with a `quarry_` prefix and,
+  when necessary, a numeric suffix (`_2`, `_3`, ...). This mapping is local
+  to the C backend; it does not change field indexes or wire names.
+
+### Generated-name policy
+
+The C backend keeps ordinary valid names unchanged, but never emits a C99
+keyword or implementation-reserved identifier. A keyword or reserved source
+name is prefixed with `quarry_`; a collision is resolved by trying
+`_2`, `_3`, and so on in declaration order. Field allocation reserves the
+base member, `has_<name>`, `<name>_length` or `<name>_count`, and all
+field-specific local scratch names as one unit. This handles, for example,
+`payload` plus `payload_length` without duplicate members. Uppercase enum
+value normalization uses the same deterministic allocator, and generated
+type names are checked against record, enum, and array-element types.
+
+Namespace/type/function symbols use the existing namespace prefix and are
+also normalized if a root-level name is reserved. Header-guard collisions
+after path normalization are diagnosed. No Schema IR, BRF, or runtime
+change is involved, and the C generated-code API epoch remains `2`.
 
 Every record additionally gets:
 

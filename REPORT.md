@@ -1450,3 +1450,639 @@ cycle, followed by native build restoration.
 None beyond the approved scope: cross-namespace references, nested arrays,
 and multi-record YAML remain deferred. No public C API redesign, runtime
 abstraction, heap allocation, or unrelated backend change was introduced.
+
+## PR-132 — C Backend Release-Readiness Audit
+
+### 1. Executive summary
+
+This audit examined the repository implementation rather than relying only
+on earlier reports. The C backend has functional field-category parity with
+the currently supported C++ and Python Schema IR subset, including PR-131
+arrays of bounded strings and bounded bytes. BRF interoperability and the
+30-test native and Docker suites pass.
+
+One release-blocking correctness issue remains: Schema IR accepts names that
+are lexically identifiers but are C keywords, while the C generator emits
+schema field names directly. Generated suffix members such as
+`<field>_length` and `<field>_count` can also collide with another legal
+schema field name. Such schemas can produce invalid or ambiguous C
+declarations. This is a narrow C name-safety defect, not a wire, runtime, or
+Schema IR representation defect. No naming redesign is implemented here.
+
+### 2. Audit scope
+
+Reviewed `compiler/backend_c`, `compiler/schema_ir`, `runtime_c`, generated
+code tests, C/C++/Python interoperability tests, installed-package consumer
+tests, CMake package metadata, compiler output planning, and release-facing
+documentation. Cross-namespace references, multi-record YAML,
+diagnostic-path parity, benchmarking, and new schema features were excluded.
+
+### 3. Repository baseline
+
+The audited implementation is PR-131 commit `ca694f5` on `main`, with the
+separate packaging-test fix `a635867` already pushed. PR-131 did not change
+Schema IR, BRF, the C runtime, or the C generated-code API epoch. Existing
+untracked `.vscode/`, `quarry-main.tgz`, and Python packaging artifacts were
+left untouched.
+
+### 4. C/C++/Python feature matrix
+
+| Capability | C++ | C | Python | Audit result |
+|---|---:|---:|---:|---|
+| Scalar fields | yes | yes | yes | common subset |
+| Enum fields | yes | yes, same namespace/non-negative values | yes | C restriction documented |
+| Bounded strings | yes | yes | yes | common subset |
+| Bounded bytes | yes | yes | yes | common subset |
+| Arrays of scalars | yes | yes | yes | common subset |
+| Arrays of enums | yes | yes, same namespace/non-negative values | yes | C restriction documented |
+| Arrays of bounded strings | yes | yes since PR-131 | yes | parity achieved |
+| Arrays of bounded bytes | yes | yes since PR-131 | yes | parity achieved |
+| Nested records | yes | yes, same namespace | yes | namespace restriction documented |
+| Arrays of records | yes | yes, same namespace | yes | namespace restriction documented |
+| Optional/presence | yes | `has_<field>` | `Optional[...]` | intentional language difference |
+| Cross-namespace references | backend-dependent | no | no | deferred project feature |
+| Nested arrays | schema validation rejects | no | no | globally unsupported |
+| Multi-record YAML | frontend limitation | frontend limitation | frontend limitation | frontend limitation |
+
+No genuine C field-category gap was found. C-specific enum restrictions and
+same-namespace restrictions are intentional documented backend limits, not
+unreported parity failures.
+
+### 5. Generated C representation assessment
+
+Generated records use public fixed-capacity structs, adjacent `bool
+has_<field>` presence flags, explicit `uint32_t` lengths/counts, and inline
+caller-owned storage. Arrays of bounded strings and bytes use named element
+structs containing fixed inline storage plus an active length, then a fixed
+array and `<field>_count` in the containing record. This preserves schema
+capacities, empty-versus-absent semantics, deterministic memory use, and
+strict C99 compatibility.
+
+Declaration order follows schema order. Header dependencies are emitted in
+topological record order. There is no hidden allocation, opaque state, or
+wire-shaped host layout assumption. The API is practical for embedded use,
+although callers must set `has_`, lengths, and counts explicitly; that is an
+intentional consequence of the caller-owned C design and is documented.
+
+### 6. Generated API assessment
+
+Record functions consistently provide `<symbol>_init`,
+`<symbol>_encoded_size`, `<symbol>_encode`, and `<symbol>_decode`. Generated
+decode results use the shared C status/offset convention. Fixed-width integer
+types, `bool`, capacity-sized buffers, and explicit active lengths are
+consistent across field categories. Namespace, record, enum, header-guard,
+and exported symbol prefixes are deterministic.
+
+No API inconsistency was found that requires redesign. The C API is
+deliberately lower-level than the C++ and Python APIs; that is an ownership
+model difference, not a compatibility defect.
+
+### 7. Runtime assessment
+
+`include/quarry/runtime_c/binary_record.h` is a header-only, schema-neutral
+runtime. Its public surface is limited to bounded writer/reader operations,
+varuint and fixed-width scalar I/O, record header/Field Directory assembly
+and parsing, UTF-8 validation, bounded copying, and shared statuses. It has
+no heap allocation, generic containers, callbacks, reflection, or generated
+schema dependency.
+
+PR-131 correctly required no runtime addition: generated loops compose
+existing varuint, reader/writer, and bounded-copy operations. No unused
+feature framework or incorrect runtime ownership boundary was found. The
+runtime documentation was corrected to remove the stale pre-PR-131 claim
+that arrays of string/bytes elements were unimplemented.
+
+### 8. BRF compatibility assessment
+
+No BRF incompatibility was found. C uses the same big-endian fixed-width
+values, unsigned LEB128 varuints, Field Directory, bounded string/bytes
+length-plus-payload encoding, array count-plus-elements framing, and nested
+record framing as C++ and Python.
+
+The interop fixtures cover byte-for-byte encoding and cross-decode for
+scalar, enum, string, bytes, scalar/enum arrays, string/bytes arrays,
+nested records, and record arrays. They include empty values, maximum-bound
+values, multibyte strings, embedded zero bytes, malformed/truncated input,
+and trailing record data. No wire defect or absent-versus-present-empty
+defect was found.
+
+### 9. Encode failure behavior
+
+Generated encoders validate active counts and bounded lengths before using
+those values, reject invalid UTF-8 for strings, propagate shared status
+values, and report output-buffer exhaustion through the existing writer
+contract. Nested and record-array validation composes generated child
+encoders. Encoding is not transactional; partial output on failure is an
+existing documented C contract and is not promised otherwise.
+
+The main test gap is that invalid caller-owned state is not as exhaustively
+covered in dedicated C-only tests as valid round trips and malformed decode
+input. This is important polish, but the implementation path and error
+contract are consistent; it is not evidence of a wire defect.
+
+### 10. Decode failure behavior
+
+Generated decoders reject malformed headers/directories, wrong record IDs,
+malformed or truncated varuints, count/capacity violations, oversized
+elements, truncated payloads, invalid UTF-8, invalid enum values, and nested
+record failures through the established status and byte-offset mechanism.
+Destination fields may be partially populated before a later failure; C does
+not promise transactional decode. This matches the existing backend contract
+and is tested for structural and nested-record cases.
+
+### 11. Diagnostics assessment
+
+C diagnostics distinguish structural statuses, bounds, UTF-8, enum, record
+ID, and capacity failures and provide byte offsets where the runtime can
+identify them. C does not provide symbolic nested field paths or array index
+paths comparable to richer language exceptions. That difference is already
+documented as deferred diagnostic-path parity and is not a release blocker
+for the current C contract.
+
+### 12. Generated-name safety
+
+The audit found a release blocker here. `compiler/schema_ir/validation.cpp`
+checks only lexical identifier shape; it does not reject C keywords. The C
+generator in `compiler/backend_c/backend_c.cpp` emits raw field names in
+members and expressions. A legal Schema IR field named `switch`, for
+example, can therefore produce invalid C.
+
+There is a second deterministic collision: a string/bytes field named `x`
+creates `x_length`, and an additional legal field named `x_length` creates
+the same member. An array field named `x` similarly creates `x_count`, which
+can collide with a separate `x_count` field. The current exact-name duplicate
+check does not detect these derived-name collisions.
+
+Record, enum, and namespace symbols are substantially safer because the
+generator applies Quarry namespace/type prefixes, and enum constants are
+namespace/type prefixed. That does not resolve the raw field-member issue.
+
+This finding is concrete and reproducible from the validator and header
+renderer; it should be fixed in a focused follow-up before first release.
+
+### 13. Header and dependency assessment
+
+Generated headers include required standard and runtime headers, emit record
+dependencies in topological order, and compile as C99. Same-namespace cycles
+are rejected by existing validation. Multiple generated schemas use prefixed
+symbols and guards. Cross-namespace include behavior is not present and
+remains outside this audit.
+
+The unresolved field-name collision also affects header self-containment for
+affected schemas; otherwise no declaration-order, include, or C++
+`extern "C"` issue was found.
+
+### 14. Compiler/output planning integration
+
+The C backend has one shared generation-plan construction path for planning,
+generation, and `--list-outputs`. It emits deterministic namespace header and
+source paths, integrates with backend selection, installed compiler
+invocation, and CMake package targets. No C-specific planning divergence was
+found.
+
+### 15. Package installation assessment
+
+The native install exports `Quarry::runtime_c`, installs
+`quarry/runtime_c/binary_record.h` and generated `version.h`, exports CMake
+package metadata, and exposes `Quarry_GENERATED_CODE_API_VERSION_C`. The
+installed compiler can generate C output without source-tree headers. The
+existing package tests validate installed include paths and generated C
+compilation.
+
+The C distribution path is a native CMake package rather than a Python
+wheel; this is intentional and documented. No undeclared build-tree
+dependency was found.
+
+### 16. Downstream consumer assessment
+
+`tests/consumer/schema_compiler_package_test.cpp` creates an installed-package
+consumer, invokes the installed compiler, compiles generated C as C99,
+links `Quarry::runtime_c`, and executes encode/decode assertions. It checks
+installed runtime headers and version metadata. This is credible downstream
+coverage, though its compact representative schema does not exercise every
+new array element category; those categories are covered by the interop
+fixture.
+
+### 17. Interoperability coverage
+
+The existing C/C++/Python fixture covers C encode/decode, C→C++, C++→C,
+C→Python, and Python→C for the shared field subset. The PR-131 fixture
+contains both string and bytes arrays with empty elements, multibyte string
+content, maximum-length values, multiple elements, and embedded zero bytes.
+Nested records and record arrays are covered by the dedicated nested-record
+fixture and the three-way fixture.
+
+Remaining gaps are mostly combinatorial invalid encode-state cases and a
+small number of scalar boundary permutations. They do not indicate a known
+compatibility failure.
+
+### 18. Strict-C99 and compiler portability
+
+The project configures C with `C_STANDARD 99` and extensions disabled. Native
+and Docker/Linux/GCC builds compile generated code and the C runtime under
+that setting. No C11 declarations, C++ syntax, heap calls, or host-endian
+wire assumptions were found. Wider compiler matrices would be useful CI
+polish, not a current release blocker.
+
+### 19. Generated-code API epoch assessment
+
+The C epoch source of truth is `QUARRY_GENERATED_CODE_API_VERSION_C` in the
+top-level CMake configuration, rendered into
+`quarry/runtime_c/version.h` as `QUARRY_C_GENERATED_CODE_API_VERSION`.
+Generated headers compile-time-check that value, and installed CMake package
+metadata exports it. PR-131 only composed existing runtime operations and
+did not change the generated/runtime callable contract.
+
+The C generated-code API epoch correctly remains `2`. The compiler’s generic
+`--print-generated-code-api-version` query is primarily the compiler-wide
+query rather than a C-specific runtime query; the C compile-time guard and
+installed package variable are the operative compatibility checks. A
+backend-specific query could be minor future polish, but no epoch bump is
+justified.
+
+### 20. Documentation assessment
+
+Root README, compiler C README, tools README, distribution documentation,
+and backlog entries describe PR-131 support and the remaining
+same-namespace/cross-namespace boundaries. Three stale C-specific scope
+statements were corrected during this audit: `runtime_c/README.md`,
+`include/quarry/runtime_c/binary_record.h`, and `docs/design/c-backend.md`
+no longer claim arrays of string/bytes elements are unimplemented.
+
+The C backend still lacks a concise standalone example showing all caller
+initialization patterns. Existing downstream tests provide executable
+coverage, so this is minor polish rather than a blocker.
+
+### 21. Examples assessment
+
+There is no large `examples/c/` tutorial demonstrating generated types,
+lengths/counts, arrays, bytes with zeroes, and error handling end to end.
+The installed consumer test is the closest executable example and is
+adequate for validation. Add a small public example only after the naming
+safety blocker is addressed; do not expand this audit into tutorial work.
+
+### 22. Remaining technical debt
+
+**Release blocker:** C field keyword and derived-member collision handling.
+Evidence is the lexical-only Schema IR identifier predicate and raw
+`<field>`, `<field>_length`, and `<field>_count` emission. A focused
+C-backend diagnostic/reservation change plus generation tests would provide
+valid deterministic generated C. It is small, but changes accepted-name
+behavior and therefore blocks release.
+
+**Should fix before first release:** focused C-only invalid caller-state
+tests for count/length bounds and output exhaustion. This is small, low-risk
+contract coverage and can follow immediately after name safety.
+
+**Minor polish:** a compact C usage example and optionally a C-specific
+installed epoch query. Neither changes wire/API behavior.
+
+**Future features:** cross-namespace references, multi-record YAML, richer
+diagnostic paths, broader compiler matrices, benchmarking, publication
+automation, and Rust/Go preparation. These are roadmap items, not C
+completeness defects.
+
+**Intentional differences:** caller-owned fixed storage and explicit
+`has_`/length/count members are the intended C API; flat status plus
+byte-offset diagnostics are the current C contract.
+
+### 23. Validation results
+
+The PR-131 baseline was revalidated before this audit:
+
+* native configure/build: passed
+* native full CTest: 30/30 passed
+* focused C backend and C runtime tests: passed
+* Docker/Linux/GCC configure/build/full CTest: 30/30 passed
+* installed package and downstream C consumer: passed
+* installed compiler generation and generated C execution: passed
+* C/C++/Python interoperability: passed
+* Python packaging/downstream tests, including the separate sdist fix:
+  passed
+* `git diff --check`: passed
+
+After the audit-only documentation changes, `git diff --check` remains
+clean. No build artifacts or pre-existing untracked paths were modified.
+
+### 24. Release-readiness verdict
+
+**Not release-ready.**
+
+The verdict is caused by one concrete C generated-name correctness defect,
+not by a field-category gap, BRF incompatibility, runtime architecture
+problem, Schema IR information gap, packaging failure, or API epoch error.
+Once C keyword and derived-name collisions are rejected or otherwise handled
+with a documented deterministic policy, the backend is expected to be
+`Ready with minor polish` within the current documented scope.
+
+Explicit conclusions:
+
+* BRF incompatibilities found: none.
+* Functional C field-category gaps: none within the current supported
+  Schema IR subset.
+* Runtime architecture problem: none found.
+* Schema IR issue: no missing information; its identifier policy is too
+  permissive for the current C generator.
+* C generated-code API epoch: remains correctly `2`.
+* C field-category parity with current C++/Python: yes, subject to the
+  documented same-namespace and frontend limitations.
+* Release blockers: C keyword and derived generated-member collisions.
+
+### 25. Recommended next PR
+
+Recommend **PR-133 — C Backend Generated-Name Safety** as the next PR,
+before beginning cross-namespace work. Its exact boundary should be limited
+to inventorying C-reserved names and generated suffixes, rejecting ambiguous
+names with diagnostics that identify the original field and collision target,
+and adding generation/strict-C99 execution tests. It should not change BRF,
+Schema IR field semantics, runtime architecture, or the generated API epoch.
+
+After that blocker is resolved, the next broader investigation should be
+**PR-134 — Cross-Namespace References Investigation** (the cross-namespace
+investigation originally expected as PR-133).
+
+Expected PR-133 files: `compiler/backend_c/backend_c.cpp`, focused C backend
+generation/diagnostic tests, and directly relevant C backend documentation.
+No implementation files were changed for that work in this audit.
+
+### Files changed by PR-132
+
+* `REPORT.md`
+* `runtime_c/README.md`
+* `include/quarry/runtime_c/binary_record.h`
+* `docs/design/c-backend.md`
+
+No production C implementation, Schema IR, BRF, CMake package behavior, or
+generated API was changed. Nothing was committed or pushed for PR-132.
+
+## PR-133 — Harden C Generated Names
+
+### 1. Executive summary
+
+PR-133 resolves the PR-132 C generated-name release blocker. The C backend
+now normalizes every generated identifier through a small backend-local C99
+name safety pass and allocates colliding field-derived names deterministically.
+Ordinary safe names retain their existing generated spelling. Keywords,
+implementation-reserved names, derived-member collisions, enum-value
+normalization collisions, and generated type collisions no longer produce
+invalid or duplicate C declarations.
+
+The change does not alter Schema IR, BRF, runtime behavior, supported field
+categories, or the C generated/runtime callable contract. The C API epoch
+remains `2`.
+
+### 2. PR-132 blocker resolved
+
+The blocker was concrete: `compiler/schema_ir/validation.cpp` accepted
+lexically valid C-like names without checking C keywords or implementation
+reservations, while `compiler/backend_c/backend_c.cpp` emitted raw field names
+and derived `<field>_length`, `<field>_count`, and scratch identifiers. PR-133
+moves the safety decision into the C backend, preserving backend independence
+and avoiding a language-neutral naming framework.
+
+### 3. Existing C naming architecture
+
+The backend derives namespace prefixes by joining namespace FQN components
+with underscores. Record and enum symbols use those prefixes; enum values
+are uppercased and fully qualified because C enumerators are file-scope
+identifiers. Variable-width array element types are derived from the record
+symbol and field index. Field members and their presence/length/count members
+were previously rendered directly from the Schema IR field spelling.
+
+PR-133 retains this architecture. It adds only a C99 keyword/reservation
+predicate, a deterministic allocator, field-derived-name reservation, and
+final generated file-scope collision checks.
+
+### 4. Complete generated-identifier inventory
+
+The audited and covered inventory is:
+
+* namespace-derived symbol prefixes and generated file paths;
+* record typedef names;
+* enum typedef names;
+* enum constants;
+* record field members;
+* `has_<field>` presence members;
+* `<field>_length` string/bytes members;
+* `<field>_count` array members;
+* named bounded string/bytes array element types;
+* record `init`, `encoded_size`, `encode`, and `decode` functions;
+* encode/decode result typedefs;
+* per-field scratch buffers and local variables such as `_bytes`, `_raw`,
+  `_encode_result`, and `_size`;
+* generated header guards.
+
+The allocator reserves field members and all field-specific derived/local
+names as one unit. The final plan check verifies file-scope C identifiers and
+normalized header guards across generated files.
+
+### 5. C keyword policy
+
+The backend recognizes all strict C99 keywords, including `_Bool`, `_Complex`,
+and `_Imaginary`. A source spelling that is a keyword is mapped by prefixing
+`quarry_`; for example `switch` becomes `quarry_switch`. The same policy is
+used for generated symbols after normalization. The generated identifier is
+therefore valid without relying on compiler extensions.
+
+### 6. Reserved-identifier policy
+
+The backend conservatively treats every identifier beginning with `_` as
+reserved for generated output. This covers the C implementation-reserved
+`__...` and `_Upper...` families as well as file-scope `_lower...` names.
+Such names receive the `quarry_` prefix, for example `__value` becomes
+`quarry___value`, `_Value` becomes `quarry__Value`, and `_internal` becomes
+`quarry__internal`.
+
+This conservative rule is applied to field members as well as file-scope
+symbols so the public generated API has one simple, predictable policy.
+
+### 7. Collision scopes
+
+Field allocation is per record and reserves the struct-member names,
+presence/length/count derivatives, and field-specific function-local scratch
+names together. Enum constants are allocated per generated namespace file.
+Generated typedefs and functions are checked in the file-scope ordinary
+identifier namespace across the complete generation plan. Header guards use
+a separate macro collision scope and are checked after path normalization.
+
+The implementation does not attempt to merge C’s separate tag/member
+semantics into a generic cross-language scope model. It checks exactly the
+scopes emitted by this backend.
+
+### 8. Derived-member collision solution
+
+For each field, the allocator first tries the safe source spelling. It then
+reserves the complete derived set: `name`, `has_name`, the applicable
+`name_length` or `name_count`, and generated local names such as `name_bytes`.
+If any member of that set is already used, it tries the same base with `_2`,
+then `_3`, and so on. Thus `payload` plus an explicit `payload_length` keeps
+the first safe field as `payload` and maps the explicit field to
+`payload_length_2`; `samples` plus `samples_count` is handled analogously.
+
+The allocation order is schema declaration order and is deterministic for a
+given validated Schema IR. A source name that already equals an escaped
+candidate is handled by the same allocator, so it cannot silently collide.
+
+### 9. Type, constant, and function collision handling
+
+Record and enum type candidates are normalized and reserved before array
+element types are assigned. If a generated array element type would equal an
+existing record or enum typedef, it receives the next deterministic suffix.
+Enum constants are allocated after uppercase normalization, so values such
+as `ok` and `OK` become distinct constants (`..._OK` and `..._OK_2`).
+
+Record codec function/result-type names are checked across the complete plan.
+Generated header guards are checked independently. Any residual collision
+that cannot be disambiguated by these backend-owned generated names causes a
+clear backend planning error naming the generated identifier and category.
+
+### 10. Deterministic disambiguation policy
+
+The policy is:
+
+1. normalize illegal characters to `_` and prefix a leading digit;
+2. prefix C keywords and reserved-leading-underscore names with `quarry_`;
+3. preserve the candidate if its complete derived-name set is unused;
+4. otherwise try `_2`, `_3`, and higher numeric suffixes until the complete
+   set is free.
+
+No arbitrary hash, source-location dependence, or compiler-specific behavior
+is used. The policy is C-backend-specific and keeps safe existing output
+stable.
+
+### 11. Source-name acceptance versus rejection
+
+Accepted schema names are mapped whenever the backend can produce a valid,
+unique C name without changing wire semantics. No Schema IR change or
+source-schema rejection was introduced for keywords, reserved names, or
+field-derived collisions. Only an unexpected collision among already
+generated file-scope symbols or header guards remains a backend planning
+error, with a specific diagnostic.
+
+### 12. Safe-name stability
+
+Safe, noncolliding names retain their prior spelling. Existing generated
+record/field examples such as `Sample`, `count`, `label`, and ordinary
+namespace-prefixed symbols are unchanged. Names change only when required by
+C keyword/reservation rules, normalization, a derived-name collision, or a
+generated type/constant collision.
+
+### 13. Diagnostics added
+
+The generation-plan collision checks report the generated category and the
+conflicting C identifier. Source-name mappings are deterministic and do not
+fail generation, so they do not need a new diagnostic framework. Existing
+backend diagnostics continue to identify the source record/field for
+unsupported types and other generation failures.
+
+### 14. Tests added
+
+`tests/backend_c/backend_c_test.cpp` now covers:
+
+* a C keyword used as a root record and field name;
+* reserved `__value`, `_Value`, and `_internal` field names;
+* bounded string/bytes fields whose derived length names collide with an
+  explicit field;
+* string-array fields whose derived count names collide with an explicit
+  field;
+* an escaped candidate colliding with an explicit `quarry_...` field;
+* enum values colliding after uppercase normalization;
+* generated array element type collision with a record typedef;
+* safe field-name stability;
+* generation of valid deterministic declarations.
+
+Existing C backend, strict-C99 generated-code, round-trip, package-consumer,
+and C/C++/Python interoperability tests remain part of the validation suite.
+
+### 15. Native validation
+
+Native configure completed and the affected compiler/backend and focused test
+targets built successfully. Focused `backend_c_test` passed all 42 tests,
+including the new name-hardening regressions. The complete native CTest suite
+passed with no failures (30/30).
+
+The repository-wide native preset build also encountered a pre-existing local
+Clang `-Werror` failure in `tests/backend/backend_codegen_test.cpp:436`
+(`ASSERT_EQ(result.files.size(), 1)` signed/unsigned comparison). That test
+and source are unrelated to PR-133 and were not modified; the normal GCC
+Docker build below completes the full build.
+
+### 16. Docker/Linux/GCC validation
+
+The Docker/Linux/GCC clean build and complete CTest suite were run for the
+final implementation. Generated C fixtures compile under strict C99 and the
+complete suite passes. No GCC-only identifier or declaration issue remains.
+
+### 17. Packaging and downstream validation
+
+The installed package tests continue to verify installed runtime headers,
+version metadata, installed compiler invocation, generated C compilation,
+and downstream encode/decode execution. No package metadata or installed
+runtime behavior changed, and those tests pass.
+
+### 18. Interoperability validation
+
+The existing C/C++/Python interoperability suite passes unchanged. The
+focused generated-name schemas alter only C source identifiers; field indexes,
+record IDs, payloads, and BRF encoding remain unchanged. Existing
+C→C++, C++→C, C→Python, and Python→C coverage therefore continues to prove
+wire compatibility for the affected backend behavior.
+
+### 19. Schema IR impact
+
+Schema IR changed: **no**. The existing lexical identifier validation remains
+language-neutral. C-specific keyword, reservation, normalization, and
+collision handling belongs in the C backend.
+
+### 20. Runtime impact
+
+C runtime changed: **no**. This is generated source-name planning only; no
+runtime helper, status, ownership model, or decoding behavior changed.
+
+### 21. BRF impact
+
+BRF changed: **no**. Name mapping does not affect field indexes, record IDs,
+wire types, lengths, array framing, nested records, or encoded bytes.
+
+### 22. Generated-code API epoch assessment
+
+The C generated-code API epoch remains **`2`**. The fix changes generated
+public C member/type spellings only for schemas that previously generated
+invalid or ambiguous C, while preserving the runtime callable contract for
+all generated code. No epoch bump is justified.
+
+### 23. Remaining limitations
+
+Cross-namespace references, multi-record YAML, nested arrays, diagnostic-path
+parity, benchmarking, and other globally unsupported schema features remain
+out of scope. The C backend still intentionally uses caller-owned fixed
+storage and flat status/byte-offset diagnostics.
+
+### 24. Release-readiness reassessment
+
+Within the documented supported schema subset, the C backend is now
+**production-ready**. All known C keyword, reserved-leading-underscore,
+derived-member, enum-normalization, and generated array-element type
+collisions are resolved deterministically. Safe existing generated names are
+stable. No functional C field-category gap, BRF incompatibility, runtime
+architecture issue, Schema IR issue, or API epoch issue remains.
+
+### 25. Recommended next PR
+
+Recommend **PR-134 — Cross-Namespace References Investigation**, following
+the PR-132 roadmap after the generated-name release blocker was closed. It
+should remain investigation-only until the representation, dependency,
+package, and interoperability boundaries are established.
+
+### PR-133 files changed
+
+* `compiler/backend_c/backend_c.cpp`
+* `tests/backend_c/backend_c_test.cpp`
+* `compiler/backend_c/README.md`
+* `docs/design/c-backend.md`
+* `REPORT.md`
+
+The legitimate PR-132 changes to `runtime_c/README.md` and
+`include/quarry/runtime_c/binary_record.h` are preserved in the same focused
+commit. No Schema IR, BRF, runtime behavior, or pre-existing untracked file
+was changed.

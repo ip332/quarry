@@ -1,8 +1,10 @@
 #include "compiler/backend_c/backend_c.hpp"
 #include "compiler/backend_c/generated_code_api_version_c.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <set>
@@ -95,6 +97,98 @@ using ::quarry::schema_ir::RecordIR;
     }
     return result;
 }
+
+// C99 keywords are kept here rather than in Schema IR validation because
+// this is a C-backend naming concern. Other backends may legitimately map
+// the same source spelling differently.
+[[nodiscard]] bool is_c_keyword(std::string_view identifier) {
+    static constexpr std::string_view keywords[] = {
+        "auto",     "break",    "case",      "char",      "const",     "continue",
+        "default",  "do",       "double",    "else",      "enum",      "extern",
+        "float",    "for",      "goto",      "if",        "inline",    "int",
+        "long",     "register", "restrict",  "return",    "short",     "signed",
+        "sizeof",   "static",   "struct",    "switch",    "typedef",   "union",
+        "unsigned", "void",     "volatile",  "while",     "_Bool",     "_Complex",
+        "_Imaginary"};
+    return std::find(std::begin(keywords), std::end(keywords), identifier) !=
+           std::end(keywords);
+}
+
+[[nodiscard]] bool is_c_identifier(std::string_view identifier) {
+    if (identifier.empty()) {
+        return false;
+    }
+    const auto is_start = [](char character) {
+        return std::isalpha(static_cast<unsigned char>(character)) != 0 || character == '_';
+    };
+    const auto is_continue = [](char character) {
+        return std::isalnum(static_cast<unsigned char>(character)) != 0 || character == '_';
+    };
+    if (!is_start(identifier.front())) {
+        return false;
+    }
+    return std::all_of(identifier.begin() + 1, identifier.end(), is_continue);
+}
+
+[[nodiscard]] bool is_c_reserved_identifier(std::string_view identifier) {
+    // The backend uses the conservative file-scope rule for every emitted
+    // name, including struct members: no generated identifier begins with
+    // an underscore. This covers the C implementation-reserved `__...`,
+    // `_Upper...`, and file-scope `_lower...` families uniformly.
+    return !identifier.empty() && identifier.front() == '_';
+}
+
+[[nodiscard]] std::string safe_c_identifier(std::string_view candidate) {
+    std::string normalized;
+    normalized.reserve(candidate.size());
+    for (const char character : candidate) {
+        normalized.push_back(
+            (std::isalnum(static_cast<unsigned char>(character)) != 0 || character == '_')
+                ? character
+                : '_');
+    }
+    if (normalized.empty()) {
+        return "quarry_generated";
+    }
+    if (std::isdigit(static_cast<unsigned char>(normalized.front())) != 0) {
+        normalized = "quarry_" + normalized;
+    }
+    if (is_c_keyword(normalized) || is_c_reserved_identifier(normalized) ||
+        !is_c_identifier(normalized)) {
+        normalized = "quarry_" + normalized;
+    }
+    return normalized;
+}
+
+class CIdentifierAllocator {
+  public:
+    [[nodiscard]] std::string allocate(std::string_view candidate) {
+        const std::string base = safe_c_identifier(candidate);
+        if (used_.insert(base).second) {
+            return base;
+        }
+        for (std::uint32_t suffix = 2U;; ++suffix) {
+            const std::string disambiguated = base + "_" + std::to_string(suffix);
+            if (used_.insert(disambiguated).second) {
+                return disambiguated;
+            }
+        }
+    }
+
+    [[nodiscard]] bool reserve(std::string_view identifier) {
+        return used_.insert(std::string(identifier)).second;
+    }
+
+    [[nodiscard]] bool contains(std::string_view identifier) const {
+        return used_.find(std::string(identifier)) != used_.end();
+    }
+
+  private:
+    std::set<std::string> used_;
+};
+
+struct FieldEncoding;
+[[nodiscard]] bool is_field_scratch_required(const FieldEncoding& encoding);
 
 [[nodiscard]] std::string header_guard_macro(std::string_view relative_header_path) {
     return "QUARRY_GENERATED_C_" + uppercase_alnum_or_underscore(relative_header_path) + "_";
@@ -279,6 +373,54 @@ struct FieldEncoding {
                                                 // collect_namespace_files)
 };
 
+[[nodiscard]] bool is_field_scratch_required(const FieldEncoding& encoding) {
+    return encoding.is_array || encoding.is_record ||
+           (!encoding.is_string && !encoding.is_bytes);
+}
+
+// A field name participates in more than the struct-member namespace. Its
+// generated base is also used for presence/length/count members and for
+// function-local scratch variables. Reserve all of those names together so
+// two fields cannot collide after lowering.
+[[nodiscard]] std::string allocate_field_name(CIdentifierAllocator& allocator,
+                                               std::string_view source_name,
+                                               const FieldEncoding& encoding) {
+    const std::string base = safe_c_identifier(source_name);
+    for (std::uint32_t suffix = 0U;; ++suffix) {
+        const std::string candidate = suffix == 0U
+                                          ? base
+                                          : base + "_" + std::to_string(suffix + 1U);
+        std::vector<std::string> generated_names;
+        generated_names.push_back(candidate);
+        generated_names.push_back("has_" + candidate);
+        if (encoding.is_array) {
+            generated_names.push_back(candidate + "_count");
+        } else if (encoding.is_string || encoding.is_bytes) {
+            generated_names.push_back(candidate + "_length");
+        }
+        if (is_field_scratch_required(encoding)) {
+            generated_names.push_back(candidate + "_bytes");
+        }
+        if (encoding.is_enum) {
+            generated_names.push_back(candidate + "_raw");
+        }
+        if (encoding.is_record) {
+            generated_names.push_back(candidate + "_encode_result");
+            generated_names.push_back(candidate + "_size");
+        }
+
+        if (std::all_of(generated_names.begin(), generated_names.end(),
+                        [&allocator](const std::string& name) {
+                            return !allocator.contains(name);
+                        })) {
+            for (const std::string& name : generated_names) {
+                (void)allocator.reserve(name);
+            }
+            return candidate;
+        }
+    }
+}
+
 // Builds a non-enum FieldEncoding. A plain function (not a designated
 // aggregate initializer at each call site) so every field of the struct is
 // always explicitly assigned exactly once, regardless of how many members
@@ -401,7 +543,7 @@ using EnumCatalog = std::unordered_map<std::uint64_t, EnumCatalogEntry>;
     const std::string symbol_prefix = symbol_prefix_for_namespace(ns.fqn());
     for (const EnumIR& enum_ir : ns.enums()) {
         EnumCatalogEntry entry;
-        entry.type_name = symbol_prefix + enum_ir.name() + "_t";
+        entry.type_name = safe_c_identifier(symbol_prefix + enum_ir.name()) + "_t";
         entry.value_prefix = uppercase_alnum_or_underscore(symbol_prefix + enum_ir.name());
         entry.owning_namespace_fqn = ns.fqn();
         entry.all_non_negative = true;
@@ -443,6 +585,7 @@ using EnumCatalog = std::unordered_map<std::uint64_t, EnumCatalogEntry>;
 
 struct PlannedEnumValue {
     std::string name;
+    std::string c_name;
     std::int64_t value = 0;
 };
 
@@ -453,7 +596,8 @@ struct PlannedEnum {
 };
 
 struct PlannedField {
-    std::string name;
+    std::string name;        // generated C member/local base name
+    std::string source_name; // original Schema IR field name, for diagnostics
     std::uint32_t field_index = 0U;
     FieldEncoding encoding;
 };
@@ -579,7 +723,7 @@ void collect_record_catalog(const NamespaceIR& ns, RecordCatalog& catalog) {
     const std::string symbol_prefix = symbol_prefix_for_namespace(ns.fqn());
     for (const RecordIR& record_ir : ns.records()) {
         RecordCatalogEntry entry;
-        entry.symbol_name = symbol_prefix + record_ir.name();
+        entry.symbol_name = safe_c_identifier(symbol_prefix + record_ir.name());
         entry.owning_namespace_fqn = ns.fqn();
         catalog.emplace(record_ir.ir_id(), std::move(entry));
     }
@@ -911,6 +1055,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                                            std::string& error_message) {
     if (namespace_emits_file(ns)) {
         PlannedNamespaceFile file;
+        CIdentifierAllocator enum_constants;
         const std::string stem = file_stem_for_namespace(options, ns.fqn());
         file.relative_header_path = stem + options.header_extension;
         file.relative_source_path = stem + options.source_extension;
@@ -930,14 +1075,26 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             // mixed-case quarry_<namespace>_<Record>_t struct/function/type naming.
             planned_enum.symbol_name = entry.value_prefix;
             for (const EnumValueIR& value_ir : enum_ir.values()) {
+                const std::string normalized_name = uppercase_alnum_or_underscore(value_ir.name());
                 planned_enum.values.push_back(PlannedEnumValue{
-                    .name = uppercase_alnum_or_underscore(value_ir.name()),
+                    .name = normalized_name,
+                    .c_name = enum_constants.allocate(planned_enum.symbol_name + "_" +
+                                                       normalized_name),
                     .value = value_ir.value()});
             }
             file.enums.push_back(std::move(planned_enum));
         }
 
         const std::string symbol_prefix = symbol_prefix_for_namespace(ns.fqn());
+
+        CIdentifierAllocator type_names;
+        for (const PlannedEnum& planned_enum : file.enums) {
+            (void)type_names.reserve(planned_enum.type_name);
+        }
+        for (const RecordIR& record_ir : ns.records()) {
+            (void)type_names.reserve(
+                safe_c_identifier(symbol_prefix + record_ir.name()) + "_t");
+        }
 
         // Phase 1: lower every field of every record in this namespace, in
         // original declaration order. A record-typed field's
@@ -949,6 +1106,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         planned_records.reserve(static_cast<std::size_t>(ns.records_size()));
         for (const RecordIR& record_ir : ns.records()) {
             std::vector<PlannedField> planned_fields;
+            CIdentifierAllocator field_names;
             std::vector<std::uint64_t> dependencies;
             planned_fields.reserve(static_cast<std::size_t>(record_ir.fields_size()));
             for (const FieldIR& field_ir : record_ir.fields()) {
@@ -962,23 +1120,24 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                     dependencies.push_back(encoding->record_target_ir_id);
                 }
                 PlannedField planned_field{
-                    .name = field_ir.name(),
+                    .name = allocate_field_name(field_names, field_ir.name(), *encoding),
+                    .source_name = field_ir.name(),
                     .field_index = field_ir.field_index(),
                     .encoding = std::move(*encoding),
                 };
                 if (planned_field.encoding.is_array &&
                     (planned_field.encoding.is_string || planned_field.encoding.is_bytes)) {
-                    planned_field.encoding.c_type =
-                        symbol_prefix + record_ir.name() + "_array_" +
+                    planned_field.encoding.c_type = type_names.allocate(
+                        safe_c_identifier(symbol_prefix + record_ir.name()) + "_array_" +
                         std::to_string(planned_field.field_index) +
                         (planned_field.encoding.is_string ? "_string_element_t"
-                                                          : "_bytes_element_t");
+                                                          : "_bytes_element_t"));
                 }
                 planned_fields.push_back(std::move(planned_field));
             }
             planned_records.push_back(PlannedRecord{
                 .ir_id = record_ir.ir_id(),
-                .symbol_name = symbol_prefix + record_ir.name(),
+                .symbol_name = safe_c_identifier(symbol_prefix + record_ir.name()),
                 .record_id = record_ir.record_id(),
                 .fields = std::move(planned_fields),
                 .same_namespace_dependencies = std::move(dependencies),
@@ -1065,6 +1224,17 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     }
 
     std::set<std::string> seen_paths;
+    std::set<std::string> seen_guards;
+    std::set<std::string> seen_file_scope_identifiers;
+    const auto reserve_file_scope_identifier = [&](const std::string& identifier,
+                                                   std::string_view category) {
+        if (!seen_file_scope_identifiers.insert(identifier).second) {
+            error_message = "backend_c: generated " + std::string(category) + " '" +
+                            identifier + "' collides with another generated C identifier";
+            return false;
+        }
+        return true;
+    };
     for (const PlannedNamespaceFile& file : files) {
         if (!seen_paths.insert(file.relative_header_path).second) {
             error_message = "backend_c: duplicate generated header path: " +
@@ -1075,6 +1245,44 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             error_message = "backend_c: duplicate generated source path: " +
                             file.relative_source_path;
             return false;
+        }
+        const std::string guard = header_guard_macro(file.relative_header_path);
+        if (!seen_guards.insert(guard).second) {
+            error_message = "backend_c: generated header guard '" + guard +
+                            "' collides after path normalization";
+            return false;
+        }
+        for (const PlannedEnum& planned_enum : file.enums) {
+            if (!reserve_file_scope_identifier(planned_enum.type_name, "enum type")) {
+                return false;
+            }
+            for (const PlannedEnumValue& value : planned_enum.values) {
+                if (!reserve_file_scope_identifier(value.c_name, "enum value")) {
+                    return false;
+                }
+            }
+        }
+        for (const PlannedRecord& record : file.records) {
+            const std::string type_name = record.symbol_name + "_t";
+            if (!reserve_file_scope_identifier(type_name, "record type") ||
+                !reserve_file_scope_identifier(record.symbol_name + "_init", "function") ||
+                !reserve_file_scope_identifier(record.symbol_name + "_encoded_size",
+                                               "function") ||
+                !reserve_file_scope_identifier(record.symbol_name + "_encode_result_t",
+                                               "encode result type") ||
+                !reserve_file_scope_identifier(record.symbol_name + "_encode", "function") ||
+                !reserve_file_scope_identifier(record.symbol_name + "_decode_result_t",
+                                               "decode result type") ||
+                !reserve_file_scope_identifier(record.symbol_name + "_decode", "function")) {
+                return false;
+            }
+            for (const PlannedField& field : record.fields) {
+                if (field.encoding.is_array &&
+                    (field.encoding.is_string || field.encoding.is_bytes) &&
+                    !reserve_file_scope_identifier(field.encoding.c_type, "array element type")) {
+                    return false;
+                }
+            }
         }
     }
     return true;
@@ -1113,8 +1321,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         stream << "\n";
         stream << "typedef enum {\n";
         for (const PlannedEnumValue& value : enum_ir.values) {
-            stream << "    " << enum_ir.symbol_name << "_" << value.name << " = " << value.value
-                   << ",\n";
+            stream << "    " << value.c_name << " = " << value.value << ",\n";
         }
         stream << "} " << enum_ir.type_name << ";\n";
     }

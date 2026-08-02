@@ -11,14 +11,13 @@
  * Schema-specific knowledge (record IDs, field indexes, field types, enum
  * value sets) belongs to generated code, not here.
  *
- * Scope (through PR-111): scalar fields, same-namespace enum fields, and
- * bounded (fixed-capacity) string and bytes fields. No array/nested record
- * support exists yet -- see docs/design/c-backend.md and
+ * Scope (through PR-131): scalar fields, same-namespace enum fields,
+ * bounded (fixed-capacity) string and bytes fields, bounded arrays, and
+ * same-namespace nested records -- see docs/design/c-backend.md and
  * compiler/backend_c/README.md for the current implemented subset and the
  * roadmap for later increments. This header is not a speculative framework
  * for those future features: it exposes exactly the primitives the
- * implemented slices need, and is expected to grow when more are
- * implemented, not now.
+ * implemented slices need.
  *
  * C99. No heap allocation. Caller-owned buffers only. No global state.
  * Wire format matches docs/specifications/binary-record-format.md exactly:

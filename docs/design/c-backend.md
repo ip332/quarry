@@ -130,8 +130,7 @@ array field's own writer at its current tail position -- no temporary
 buffer, no byte copy, no new runtime function, no generated-code API
 epoch bump. Decode composes the element type's own `_decode()` exactly
 like a plain nested-record field already does, needing no new runtime
-code either. Arrays of records across namespaces, and arrays of
-string/bytes elements, remain unsupported. See
+code either. Arrays of records across namespaces remain unsupported. See
 `compiler/backend_c/README.md`'s "Record array fields" section for the
 full representation rationale, the write-side investigation, and
 scratch-buffer sizing.
@@ -498,6 +497,16 @@ types, `quarry_<namespace_with_underscores>_<RecordName>_<verb>` for
 functions. C enums have no scoping at all (unlike C++'s `enum class`), so
 enum value names need the full prefix too:
 `QUARRY_<NAMESPACE>_<ENUMNAME>_<VALUE>`.
+
+The implemented backend preserves safe generated spellings, but applies a
+C-specific safety pass before rendering. C keywords and implementation-
+reserved identifiers receive a `quarry_` prefix. Derived field members and
+field-local scratch names are reserved together; collisions are resolved
+deterministically with `_2`, `_3`, and later suffixes in schema declaration
+order. Enum values after uppercase normalization and generated type names
+use the same collision checks. This keeps generated output valid strict C99
+without changing Schema IR names, field indexes, or BRF encoding. The C
+generated-code API epoch remains `2`.
 
 **File layout: `.h`/`.c` pairs, not header-only.** This is the one
 deliberate divergence from the C++ backend, which emits a single header-only
