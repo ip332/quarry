@@ -19,3 +19,17 @@ cross-namespace references remain unsupported.
 The backend does not modify Schema IR or the compiler pipeline and does not
 depend on the C or C++ backend. See [the design document](../../docs/design/python-backend.md)
 for the complete lowering, runtime, naming, testing, and packaging contract.
+
+## Local distribution validation
+
+From `runtime/python/`, install the test tooling and build standard artifacts:
+
+```sh
+python -m pip install -e '.[test]'
+python -m build --wheel --sdist
+```
+
+The wheel or a wheel rebuilt from the sdist can be installed into a clean
+virtual environment. Generated modules import `quarry.runtime.python` from
+that installation only; they do not require the Quarry source tree on
+`PYTHONPATH`. The package is not published to PyPI yet.

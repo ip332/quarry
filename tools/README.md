@@ -113,6 +113,19 @@ mismatch, mirroring the philosophy of the C/C++ compile-time epoch guards
 in an idiomatic Python (import-time, not compile-time) way. See
 `docs/design/python-backend.md` for the full scope and roadmap.
 
+For downstream use, build and install the runtime package separately:
+
+```sh
+cd runtime/python
+python -m pip install -e '.[test]'
+python -m build --wheel --sdist
+```
+
+Install the wheel into the downstream environment, then place the generated
+Python package on that project's import path. The runtime is pure Python,
+requires Python 3.9+, is not yet published to PyPI, and generated modules
+fail at import time if the runtime compatibility epoch differs.
+
 The command prints compiler diagnostics and tool errors to stderr. Successful
 compilation is quiet and returns exit code `0`.
 

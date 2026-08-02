@@ -178,6 +178,13 @@ Python generated-code API compatibility epoch
 `runtime/python/` package at import time. See `docs/design/python-backend.md`
 for the full architecture, scope, and roadmap.
 
+The Python runtime is distributed as a standard pure-Python package from
+`runtime/python/`. Build local wheel and sdist artifacts with
+`python -m build --wheel --sdist`, install a wheel into a virtual environment,
+and make generated output importable alongside it. The runtime is not yet
+published to PyPI; generated modules check the installed runtime epoch at
+import time and raise `ImportError` on mismatch.
+
 The supported downstream distribution model is defined in
 `docs/distribution-model.md`. The installed SDK currently consists of the
 header-only runtime package plus the `Quarry::schema_compiler` executable

@@ -1246,9 +1246,11 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     stream << "if QUARRY_GENERATED_CODE_API_VERSION_PYTHON != " << kGeneratedCodeApiVersionPython
            << ":\n";
     stream << "    raise ImportError(\n";
-    stream << "        \"Generated Quarry Python code is incompatible with the installed \"\n";
-    stream << "        \"Quarry Python runtime. Regenerate the code using a compatible \"\n";
-    stream << "        \"quarry-schema-compiler release.\"\n";
+    stream << "        \"Generated Quarry Python code expects runtime epoch "
+           << kGeneratedCodeApiVersionPython << ", but the installed runtime reports \"\n";
+    stream << "        + str(QUARRY_GENERATED_CODE_API_VERSION_PYTHON)\n";
+    stream << "        + \". Regenerate the code or install a compatible quarry-schema-compiler "
+              "release.\"\n";
     stream << "    )\n";
     stream << "\n";
     stream << "from dataclasses import dataclass\n";

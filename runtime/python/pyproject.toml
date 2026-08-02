@@ -7,6 +7,12 @@ name = "quarry-runtime-python"
 version = "0.1.0"
 description = "Quarry generated-code compatibility runtime for generated Python BRF codecs."
 requires-python = ">=3.9"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+authors = [{name = "Quarry contributors"}]
+
+[project.optional-dependencies]
+test = ["build>=1.2", "setuptools>=68"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

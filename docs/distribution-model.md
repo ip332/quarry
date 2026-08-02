@@ -72,7 +72,7 @@ fails configuration on mismatch.
 | Generated C++ code | Backend output under caller-selected paths | Owned by the downstream project that generated it | Downstream-owned build artifact |
 | Generated C code | C backend output under caller-selected paths (PR-107/PR-108) | Owned by the downstream project that generated it | Downstream-owned build artifact |
 | Generated Python code | Python backend output under caller-selected paths (scalar, enum, bounded string/bytes, supported arrays, nested records, and record arrays) | Owned by the downstream project that generated it | Downstream-owned build artifact |
-| Python runtime package | `runtime/python/` (`quarry-runtime-python`, importable as `quarry.runtime.python`, with schema-neutral scalar, enum, string/bytes, and array helpers) | `pip install`-based, not CMake-installed or exported -- deliberately outside this document's CMake-centric distribution boundary, since Python has its own packaging ecosystem (see "Python Runtime Packaging" below) | Supported public SDK (publication and downstream-install validation deferred) |
+| Python runtime package | `runtime/python/` (`quarry-runtime-python`, importable as `quarry.runtime.python`, with schema-neutral scalar, enum, string/bytes, and array helpers) | Standard wheel/sdist build and `pip install`; not CMake-installed or exported | Supported public SDK within documented scope; PyPI publication remains deferred |
 | Compiler libraries | `quarry_compiler_*`, `quarry_schema_ir_proto` | Internal source-tree composition and tests | Implementation detail |
 | Generated protobuf C++ | Build-tree `schema_ir.pb.*` | Compiler implementation dependency | Implementation detail |
 | Fuzz targets and corpus | `fuzz/` | Parser hardening during development | Development-only |
@@ -124,22 +124,15 @@ speculative. Downstream C consumers use the manual
 
 ### Python Runtime Packaging
 
-Since PR-118, a third, independent runtime exists: `runtime/python/`, a plain
-pip-installable package (`pyproject.toml` + `src/quarry/runtime/python/`)
-exposing only `QUARRY_GENERATED_CODE_API_VERSION_PYTHON = 1`. Unlike the C++
-and C runtimes, it is deliberately **not** part of the CMake configure/build
-graph: Python has its own packaging ecosystem (pip/PyPI), and forcing it
-through CMake's `install()`/`export()` machinery would buy nothing a
-downstream Python consumer actually wants (nobody `find_package(Quarry)`s to
-get a `.py` file). This also means the compiler-side expected epoch
-(`kGeneratedCodeApiVersionPython` in `compiler/backend_python/backend_python.cpp`)
-and the runtime package's own `QUARRY_GENERATED_CODE_API_VERSION_PYTHON`
-literal are, for now, two independently-maintained copies of the same number
-that must be kept in sync by hand -- unlike the C/C++ epochs, which
-`configure_file()` derives from one shared CMake scalar. See
-`docs/design/python-backend.md`'s "Known limitations" section; a follow-up PR
-could wire a shared source of truth if manual drift ever becomes a real
-problem.
+Since PR-118, a third, independent runtime exists: `runtime/python/`, a
+standard pure-Python package (`pyproject.toml` + `src/quarry/`) importable as
+`quarry.runtime.python`. Build it with `python -m build --wheel --sdist` and
+install the wheel with pip; PR-128 validates both wheel and sdist-derived
+installation in clean virtual environments without the repository on
+`PYTHONPATH`. The package has no runtime dependencies outside the standard
+library and is not yet published to PyPI. The compiler-side expected epoch
+and runtime package epoch remain independently maintained literals and must
+stay synchronized.
 
 ### Runtime + Compiler SDK
 

@@ -530,9 +530,9 @@ truncated, malformed, wrong-record, and trailing-byte nested payloads.
 ## Runtime boundary and compatibility epoch
 
 `runtime/python/` is a small, independently pip-installable package
-(`quarry-runtime-python` on PyPI; `pyproject.toml` + `src/quarry/runtime/
-python/`), importable as `quarry.runtime.python`. `__init__.py` exposes
-exactly one symbol:
+(`quarry-runtime-python`, not yet published to PyPI; `pyproject.toml` +
+`src/quarry/runtime/`), importable as `quarry.runtime.python`. `__init__.py`
+exposes the epoch symbol:
 
 ```python
 QUARRY_GENERATED_CODE_API_VERSION_PYTHON = 1
@@ -710,10 +710,6 @@ contract can change on its own schedule.
   on encode -- inherent to using Python's one float type for both widths,
   not a bug, and no different in effect from what any binary32 field
   does in any language. `float64` has no such narrowing.
-* **No Python-keyword escaping.** A record or field named `class`,
-  `import`, etc. would currently produce invalid Python (e.g. `class:
-  Optional[bool] = None`). Reachable now that field rendering exists;
-  not yet addressed.
 * **Simple snake_case heuristic.** `HTTPResponse` becomes
   `h_t_t_p_response`, not `http_response` -- acronym runs are not
   special-cased. Acceptable for this PR's narrow scope; revisit if

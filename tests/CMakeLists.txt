@@ -87,6 +87,27 @@ target_compile_definitions(python_runtime_test PRIVATE
     QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR="${CMAKE_SOURCE_DIR}/runtime/python/src"
     QUARRY_TEST_PYTHON_RUNTIME_TESTS_DIR="${CMAKE_SOURCE_DIR}/runtime/python/tests"
     QUARRY_TEST_PYTHON3="${QUARRY_PYTHON3_EXECUTABLE}")
+
+if(QUARRY_PYTHON3_EXECUTABLE)
+    execute_process(
+        COMMAND "${QUARRY_PYTHON3_EXECUTABLE}" -c "import build, setuptools"
+        RESULT_VARIABLE QUARRY_PYTHON_PACKAGING_AVAILABLE
+        OUTPUT_QUIET
+        ERROR_QUIET
+    )
+endif()
+
+if(QUARRY_PYTHON3_EXECUTABLE AND QUARRY_PYTHON_PACKAGING_AVAILABLE EQUAL 0)
+    add_test(NAME python_packaging_test
+        COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/../runtime/python/tests/test_packaging.py"
+            --runtime-source "${CMAKE_SOURCE_DIR}/runtime/python"
+            --compiler "$<TARGET_FILE:quarry_schema_compiler>"
+            --cmake "${CMAKE_COMMAND}"
+            --build-dir "${CMAKE_BINARY_DIR}")
+else()
+    message(STATUS "Skipping python_packaging_test: install runtime/python test dependencies first")
+endif()
 add_quarry_gtest(runtime_binary_record_test runtime/binary_record_test.cpp
                       quarry_runtime)
 target_compile_definitions(runtime_binary_record_test PRIVATE

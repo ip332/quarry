@@ -25,7 +25,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         pipx \
         protobuf-compiler \
         python3 \
+        python3-build \
+        python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+RUN python3 -m pip install --break-system-packages --no-index \
+        --find-links=/usr/share/python-wheels setuptools
 
 ENV PATH="/root/.local/bin:${PATH}"
 RUN pipx install pre-commit
