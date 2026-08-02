@@ -47,7 +47,12 @@ def install_wheel(python: Path, wheel: Path) -> None:
 
 def assert_artifacts(dist: Path) -> Tuple[Path, Path]:
     wheels = list(dist.glob("quarry_runtime_python-*.whl"))
-    sdists = list(dist.glob("quarry*_python-*.tar.gz"))
+    # Build frontends differ in whether they normalize the distribution name
+    # in sdist filenames (``quarry_runtime_python`` versus
+    # ``quarry-runtime-python``). Accept either standards-compatible spelling
+    # while still requiring exactly one source archive.
+    sdists = (list(dist.glob("quarry*_python-*.tar.gz")) +
+              list(dist.glob("quarry*-python-*.tar.gz")))
     assert len(wheels) == 1, wheels
     assert len(sdists) == 1, sdists
     wheel = wheels[0]
