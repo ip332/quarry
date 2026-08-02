@@ -314,8 +314,8 @@ public:
         const source_schema::NormalizedSourceSchemaDocument& schema,
         const semantic::SemanticModel& semantic_model, const layout::LayoutModel& layout_model,
         context::CompilerContext& context, diagnostics::DiagnosticCollection& diagnostics)
-        : schema_(schema), semantic_model_(semantic_model), layout_model_(layout_model),
-          source_manager_(context.source_manager()), diagnostics_(diagnostics) {
+        : fallback_schema_(schema), semantic_model_(semantic_model), layout_model_(layout_model),
+          context_(context), source_manager_(context.source_manager()), diagnostics_(diagnostics) {
         state_.source_manager = &source_manager_;
         state_.diagnostics = &diagnostics_;
         state_.failed = &layout_failed_;
@@ -331,48 +331,88 @@ public:
         root->set_ir_id(next_ir_id_++);
         root->set_name("");
         root->set_fqn("");
-        populate_source_origin(root->mutable_source_origin(), source_manager_, schema_.source_range);
+        populate_source_origin(root->mutable_source_origin(), source_manager_,
+                               fallback_schema_.source_range);
 
-        ::quarry::schema_ir::NamespaceIR* current_namespace = root;
-        std::string current_namespace_fqn;
-        if (schema_.namespace_name.parts.empty()) {
-            emit_internal_error(state_, "schema IR lowering encountered an empty namespace name",
-                                schema_.namespace_name.source_range);
-            return {};
-        }
-
-        for (const source_schema::SourceSchemaIdentifier& part : schema_.namespace_name.parts) {
-            ::quarry::schema_ir::NamespaceIR& child = ensure_namespace_child(
-                *current_namespace, part.text, source_manager_, part.source_range);
-            if (child.ir_id() == 0U) {
-                child.set_ir_id(next_ir_id_++);
+        std::vector<const source_schema::NormalizedSourceSchemaDocument*> schemas;
+        for (const context::SourceUnit& source_unit : context_.source_units()) {
+            if (source_unit.schema.has_value()) {
+                schemas.push_back(&*source_unit.schema);
             }
-            current_namespace = &child;
-            current_namespace_fqn = qualify_fqn(current_namespace_fqn, part.text);
+        }
+        if (schemas.empty()) {
+            schemas.push_back(&fallback_schema_);
         }
 
-        for (const source_schema::NormalizedSourceSchemaEnum& enumeration : schema_.enums) {
-            ::quarry::schema_ir::EnumIR& enum_ir = ensure_enum_child(
-                *current_namespace, enumeration.name.text, source_manager_,
-                enumeration.source_range);
-            if (enum_ir.ir_id() == 0U) {
-                enum_ir.set_ir_id(next_ir_id_++);
+        // Declare every loaded source unit before lowering fields so that
+        // resolved references to imported declarations receive IR IDs too.
+        for (const source_schema::NormalizedSourceSchemaDocument* schema : schemas) {
+            ::quarry::schema_ir::NamespaceIR* current_namespace = root;
+            std::string current_namespace_fqn;
+            if (schema == nullptr || schema->namespace_name.parts.empty()) {
+                emit_internal_error(state_, "schema IR lowering encountered an empty namespace name",
+                                    schema == nullptr ? support::SourceRange::invalid()
+                                                      : schema->namespace_name.source_range);
+                return {};
             }
-            ir_ids_by_fqn_[qualify_fqn(current_namespace_fqn, enumeration.name.text)] =
-                enum_ir.ir_id();
+
+            for (const source_schema::SourceSchemaIdentifier& part : schema->namespace_name.parts) {
+                ::quarry::schema_ir::NamespaceIR& child = ensure_namespace_child(
+                    *current_namespace, part.text, source_manager_, part.source_range);
+                if (child.ir_id() == 0U) {
+                    child.set_ir_id(next_ir_id_++);
+                }
+                current_namespace = &child;
+                current_namespace_fqn = qualify_fqn(current_namespace_fqn, part.text);
+            }
+
+            for (const source_schema::NormalizedSourceSchemaEnum& enumeration : schema->enums) {
+                ::quarry::schema_ir::EnumIR& enum_ir = ensure_enum_child(
+                    *current_namespace, enumeration.name.text, source_manager_,
+                    enumeration.source_range);
+                if (enum_ir.ir_id() == 0U) {
+                    enum_ir.set_ir_id(next_ir_id_++);
+                }
+                ir_ids_by_fqn_[qualify_fqn(current_namespace_fqn, enumeration.name.text)] =
+                    enum_ir.ir_id();
+            }
+
+            ::quarry::schema_ir::RecordIR& record = ensure_record_child(
+                *current_namespace, schema->record_name.text, source_manager_,
+                schema->record_source_range);
+            if (record.ir_id() == 0U) {
+                record.set_ir_id(next_ir_id_++);
+            }
+            ir_ids_by_fqn_[qualify_fqn(current_namespace_fqn, schema->record_name.text)] =
+                record.ir_id();
         }
 
-        ::quarry::schema_ir::RecordIR& record = ensure_record_child(
-            *current_namespace, schema_.record_name.text, source_manager_,
-            schema_.record_source_range);
-        if (record.ir_id() == 0U) {
-            record.set_ir_id(next_ir_id_++);
+        // Populate all declarations only after every declaration identity is known.
+        for (const source_schema::NormalizedSourceSchemaDocument* schema : schemas) {
+            ::quarry::schema_ir::NamespaceIR* current_namespace = root;
+            std::string current_namespace_fqn;
+            for (const source_schema::SourceSchemaIdentifier& part : schema->namespace_name.parts) {
+                current_namespace = find_namespace_child(*current_namespace, part.text);
+                if (current_namespace == nullptr) {
+                    emit_internal_error(state_, "schema IR lowering could not locate namespace '" +
+                                                    schema->namespace_name.text() + "'",
+                                        schema->namespace_name.source_range);
+                    return {};
+                }
+                current_namespace_fqn = qualify_fqn(current_namespace_fqn, part.text);
+            }
+            populate_enums(*schema, *current_namespace);
+            ::quarry::schema_ir::RecordIR* record =
+                find_record_child(*current_namespace, schema->record_name.text);
+            if (record == nullptr) {
+                emit_internal_error(state_, "schema IR lowering could not locate record '" +
+                                                schema->record_name.text + "'",
+                                    schema->record_source_range);
+                return {};
+            }
+            populate_record(*schema,
+                            qualify_fqn(current_namespace_fqn, schema->record_name.text), *record);
         }
-        const std::string record_fqn = qualify_fqn(current_namespace_fqn, schema_.record_name.text);
-        ir_ids_by_fqn_[record_fqn] = record.ir_id();
-
-        populate_enums(*current_namespace);
-        populate_record(*current_namespace, record_fqn, record);
 
         if (layout_failed_) {
             return {};
@@ -391,8 +431,9 @@ private:
         return layout_model_.find_record(record_fqn);
     }
 
-    void populate_enums(::quarry::schema_ir::NamespaceIR& namespace_ir) {
-        for (const source_schema::NormalizedSourceSchemaEnum& enumeration : schema_.enums) {
+    void populate_enums(const source_schema::NormalizedSourceSchemaDocument& schema,
+                        ::quarry::schema_ir::NamespaceIR& namespace_ir) {
+        for (const source_schema::NormalizedSourceSchemaEnum& enumeration : schema.enums) {
             ::quarry::schema_ir::EnumIR* enum_ir = find_enum_child(namespace_ir, enumeration.name.text);
             if (enum_ir == nullptr) {
                 emit_internal_error(state_, "schema IR lowering could not locate enum '" +
@@ -411,7 +452,7 @@ private:
         }
     }
 
-    void populate_record(::quarry::schema_ir::NamespaceIR& namespace_ir,
+    void populate_record(const source_schema::NormalizedSourceSchemaDocument& schema,
                          std::string_view record_fqn,
                          ::quarry::schema_ir::RecordIR& record) {
         const semantic::SemanticRecord* semantic_record = find_semantic_record(record_fqn);
@@ -420,32 +461,32 @@ private:
             emit_internal_error(state_,
                                 "schema IR lowering could not locate semantic record '" +
                                     std::string(record_fqn) + "'",
-                                schema_.record_source_range);
+                                schema.record_source_range);
             return;
         }
         if (layout_record == nullptr) {
             emit_internal_error(state_,
                                 "schema IR lowering could not locate layout record '" +
                                     std::string(record_fqn) + "'",
-                                schema_.record_source_range);
+                                schema.record_source_range);
             return;
         }
         populate_source_origin(record.mutable_source_origin(), source_manager_,
-                               schema_.record_source_range);
-        if (semantic_record->fields.size() != schema_.fields.size() ||
-            layout_record->fields.size() != schema_.fields.size()) {
+                               schema.record_source_range);
+        if (semantic_record->fields.size() != schema.fields.size() ||
+            layout_record->fields.size() != schema.fields.size()) {
             emit_internal_error(
                 state_,
                 "schema IR lowering observed inconsistent field counts for record '" +
                     std::string(record_fqn) + "'",
-                schema_.record_source_range);
+                schema.record_source_range);
             return;
         }
         if (layout_record->record_id == 0U) {
             emit_internal_error(state_,
                                 "schema IR lowering observed a zero record_id for record '" +
                                     std::string(record_fqn) + "'",
-                                schema_.record_source_range);
+                                schema.record_source_range);
             return;
         }
 
@@ -457,8 +498,8 @@ private:
             record.set_record_type(record_type_for_semantic(*semantic_record->record_type));
         }
 
-        for (std::size_t field_index = 0; field_index < schema_.fields.size(); ++field_index) {
-            const source_schema::NormalizedSourceSchemaField& field = schema_.fields[field_index];
+        for (std::size_t field_index = 0; field_index < schema.fields.size(); ++field_index) {
+            const source_schema::NormalizedSourceSchemaField& field = schema.fields[field_index];
             const semantic::SemanticField& semantic_field = semantic_record->fields[field_index];
             const layout::FieldLayout& layout_field = layout_record->fields[field_index];
             if (semantic_field.name != field.name.text) {
@@ -502,12 +543,12 @@ private:
             populate_source_origin(field_ir->mutable_source_origin(), source_manager_,
                                    field.source_range);
         }
-        (void)namespace_ir;
     }
 
-    const source_schema::NormalizedSourceSchemaDocument& schema_;
+    const source_schema::NormalizedSourceSchemaDocument& fallback_schema_;
     const semantic::SemanticModel& semantic_model_;
     const layout::LayoutModel& layout_model_;
+    const context::CompilerContext& context_;
     const support::SourceManager& source_manager_;
     diagnostics::DiagnosticCollection& diagnostics_;
     SchemaIrBuildState state_;

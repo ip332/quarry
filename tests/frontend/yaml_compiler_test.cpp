@@ -355,6 +355,74 @@ fields: {}
     std::filesystem::remove_all(directory, error);
 }
 
+TEST(YamlCompilerTest, LowersImportedDeclarationsIntoOneResolvedSchemaIr) {
+    const std::filesystem::path directory =
+        make_graph_test_directory("quarry_pr138_schema_ir_dependencies");
+    const std::filesystem::path root = directory / "root.yaml";
+    write_graph_test_file(directory / "shared.yaml", R"(namespace: quarry.shared
+record: Shared
+version: 1
+type: data
+fields:
+  value:
+    type: uint32
+enums:
+  Mode:
+    values:
+      Off: 0
+      On: 1
+)");
+    write_graph_test_file(root, R"(namespace: quarry.root
+record: Root
+version: 1
+type: data
+imports:
+  - shared.yaml
+fields:
+  child:
+    type: quarry.shared.Shared
+  mode:
+    type: quarry.shared.Mode
+  children:
+    type: quarry.shared.Shared[]
+    max_elements: 2
+  modes:
+    type: quarry.shared.Mode[]
+    max_elements: 2
+)");
+
+    CompilerContext context;
+    DiagnosticEngine diagnostics;
+    const YamlCompilationResult result = compile_graph_root(root, context, diagnostics);
+
+    ASSERT_TRUE(result.succeeded()) << diagnostics.diagnostics().size();
+    ASSERT_TRUE(diagnostics.empty());
+    ASSERT_TRUE(result.schema_ir.has_value());
+    const auto* root_namespace = find_namespace(result.schema_ir->root_namespace(), "quarry");
+    ASSERT_NE(root_namespace, nullptr);
+    const auto* shared_namespace = find_namespace(*root_namespace, "shared");
+    const auto* root_namespace_child = find_namespace(*root_namespace, "root");
+    ASSERT_NE(shared_namespace, nullptr);
+    ASSERT_NE(root_namespace_child, nullptr);
+    const auto* shared_record = find_record(*shared_namespace, "Shared");
+    const auto* shared_enum = find_enum(*shared_namespace, "Mode");
+    const auto* root_record = find_record(*root_namespace_child, "Root");
+    ASSERT_NE(shared_record, nullptr);
+    ASSERT_NE(shared_enum, nullptr);
+    ASSERT_NE(root_record, nullptr);
+    ASSERT_EQ(root_record->fields_size(), 4);
+    EXPECT_EQ(root_record->fields(0).type().record().target_record_ir_id(),
+              shared_record->ir_id());
+    EXPECT_EQ(root_record->fields(1).type().enum_type().target_enum_ir_id(), shared_enum->ir_id());
+    EXPECT_EQ(root_record->fields(2).type().array().element_type().record().target_record_ir_id(),
+              shared_record->ir_id());
+    EXPECT_EQ(root_record->fields(3).type().array().element_type().enum_type().target_enum_ir_id(),
+              shared_enum->ir_id());
+
+    std::error_code error;
+    std::filesystem::remove_all(directory, error);
+}
+
 TEST(YamlCompilerTest, RejectsImportCycleWithCycleDiagnostic) {
     const std::filesystem::path directory =
         make_graph_test_directory("quarry_pr135_source_graph_cycle");

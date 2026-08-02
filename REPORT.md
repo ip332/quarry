@@ -2801,3 +2801,112 @@ backend-specific dependencies without moving name resolution into a backend.
 ### PR-134 files changed
 
 * `REPORT.md`
+
+## PR-138 — C++ Cross-Namespace Dependency Generation
+
+### Executive summary
+
+Implemented end-to-end C++ generation for imported record and enum references,
+including arrays. The compiler now lowers every loaded source unit into the
+existing language-neutral Schema IR model. The C++ backend consumes the
+compiler's `OutputPlan` to filter root outputs and validate planned dependency
+namespaces, while existing Schema IR identity fields drive qualified C++ type
+names and generated codec calls.
+
+### Dependency architecture and workflow
+
+`SchemaIrBuilder` performs a declaration pass across all loaded source units,
+assigning stable IR IDs before a second pass lowers fields. This is an additive
+builder change; the Schema IR protobuf and its wire-neutral representation are
+unchanged. External record and enum field references therefore retain their
+existing `target_*_ir_id` fields.
+
+The C++ backend accepts an optional `OutputPlan`. When compiler-driven output
+is requested, only units marked `emits_output` are rendered. The root header
+includes each externally referenced dependency header exactly once, in the
+existing ordered set, and uses the plan's loaded namespace metadata to verify
+that the dependency is available. Direct Schema IR backend tests without an
+OutputPlan retain their existing multi-file behavior.
+
+The CLI remains one-root. A complete C++ workflow generates each imported
+source unit as a separate explicit root into the same output directory, then
+generates the root schema. The root output includes the dependency headers;
+imports do not silently produce additional root outputs.
+
+### Qualified types and supported categories
+
+Existing `cpp_qualified_name()` output is reused, producing names such as
+`::quarry::shared::Shared` and `::quarry::shared::Mode`. The same lowering
+feeds plain fields, arrays, runtime encode/decode forwarding, nested records,
+and arrays of records. Imported declarations are never duplicated in the root
+header and no forward-declaration machinery was added; by-value records require
+the complete dependency header.
+
+Import cycles remain rejected by the source-unit graph. Direct or mutual
+by-value record cycles remain rejected by the existing semantic/backend cycle
+checks. No generated-name policy changed for ordinary safe single-source
+schemas.
+
+### Diagnostics and backend contract
+
+An external type that reaches the backend without a corresponding planned
+namespace now produces a backend planning error rather than an accidental
+source-tree include. Semantic unknown-type, import, duplicate, and cycle
+diagnostics remain compiler-owned. The backend does not load files, resolve
+symbols, or scan imports.
+
+### Tests and validation
+
+Added compiler tests proving imported declarations and array targets are
+present in one validated Schema IR, plus a clean tool-level C++ workflow that
+generates a dependency root, generates the root, checks deterministic
+qualified declarations and duplicate-suppressed includes, and compiles the
+root header with the dependency header.
+
+Native focused YAML validation passed 11/11 and the native compiler target
+including the changed C++ backend linked successfully. The native AppleClang
+full build remains blocked by the pre-existing `-Werror` signed/unsigned
+comparison in the existing test suite (`tests/backend/backend_codegen_test.cpp:436`
+and the existing tool-test comparison); no new failure was introduced. Clean
+Docker/Linux/GCC configure/build and full CTest passed 30/30. The Docker suite
+also passed packaging, installed-consumer, installed-compiler, and
+interoperability validation. `git diff --check` passed after native
+restoration.
+
+### Compatibility impact
+
+Schema IR changed: no protobuf or contract change; only the existing builder
+now emits the already-defined imported declarations. BRF changed: no. C++
+runtime changed: no. C++ generated-code API epoch changed: no. C and Python
+backends changed: no. Existing safe single-source generated names and output
+remain stable.
+
+### Known limitations and next PR
+
+The one-root CLI still requires dependency source units to be generated as
+explicit roots; multi-root orchestration and richer output listing remain
+future output-planning work. C and Python cross-namespace include/import
+generation remain unsupported. Multi-record YAML, aliases, wildcard imports,
+re-exports, visibility, and recursive by-value records remain out of scope.
+
+Recommend **PR-139 — C Cross-Namespace Dependency Generation**: consume the
+same resolved Schema IR and OutputPlan metadata in the C backend, add generated
+dependency headers and qualified stable C symbols, and leave Python unchanged.
+
+### Exact files changed in PR-138
+
+* `compiler/backend/backend.cpp`
+* `compiler/backend/backend.hpp`
+* `compiler/backend/README.md`
+* `compiler/CMakeLists.txt`
+* `compiler/frontend/README.md`
+* `compiler/output_planning/README.md`
+* `compiler/schema_ir/schema_ir.cpp`
+* `docs/compiler-architecture.md`
+* `jira/backlog.md`
+* `README.md`
+* `tests/frontend/yaml_compiler_test.cpp`
+* `tests/tools/schema_compiler_tool_test.cpp`
+* `tools/README.md`
+* `tools/schema_compiler/main.cpp`
+* `REPORT.md`

@@ -53,8 +53,9 @@ import cycles fail before semantic analysis. The loaded normalized documents
 now feed one compiler-wide symbol index and semantic pass; qualified record
 and enum references resolve to canonical FQNs within that graph. The output
 planner then records the root artifact and its imported-unit dependencies in a
-deterministic generation graph. Backend dependency generation and concrete
-import/include emission remain future work.
+deterministic generation graph. The C++ backend consumes this plan for
+cross-namespace generated-header dependencies; C and Python dependency
+emission remain future work.
 
 ## Dependencies
 

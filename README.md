@@ -101,6 +101,12 @@ attachment, runtime linkage, and stale-output cleanup. The canonical pattern is
 shown in
 `examples/cpp/schema_compiler_cmake`.
 
+For C++ schemas that reference imported records or enums, generate each
+imported source unit as an explicit root into the same output directory before
+generating the root schema. The root header then includes the dependency
+headers and uses fully qualified C++ types deterministically. C and Python
+cross-namespace dependency generation remain separate follow-ups.
+
 At build time, the helper reruns `--list-outputs` before generation and fails
 before writing files if the current inventory no longer matches the inventory
 captured during CMake configuration. Reconfigure the build after schema or

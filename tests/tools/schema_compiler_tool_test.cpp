@@ -418,6 +418,76 @@ TEST(SchemaCompilerToolTest, ListOutputsKeepsImportedUnitsAsDependenciesOnly) {
     EXPECT_TRUE(result.stderr_text.empty());
 }
 
+TEST(SchemaCompilerToolTest, CppCrossNamespaceGenerationUsesPlannedDependencyHeader) {
+    const std::filesystem::path root = make_temp_directory("cpp-cross-namespace");
+    const std::filesystem::path shared = root / "shared.brd";
+    const std::filesystem::path input = root / "schema.brd";
+    const std::filesystem::path output = root / "generated";
+
+    write_text_file(shared,
+                    "namespace: quarry.shared\n"
+                    "record: Shared\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  value:\n"
+                    "    type: uint32\n"
+                    "enums:\n"
+                    "  Mode:\n"
+                    "    values:\n"
+                    "      Off: 0\n"
+                    "      On: 1\n");
+    write_text_file(input,
+                    "namespace: quarry.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "imports:\n"
+                    "  - shared.brd\n"
+                    "fields:\n"
+                    "  child:\n"
+                    "    type: quarry.shared.Shared\n"
+                    "  mode:\n"
+                    "    type: quarry.shared.Mode\n"
+                    "  children:\n"
+                    "    type: quarry.shared.Shared[]\n"
+                    "    max_elements: 2\n"
+                    "  modes:\n"
+                    "    type: quarry.shared.Mode[]\n"
+                    "    max_elements: 2\n");
+
+    const CommandResult shared_result =
+        run_tool({"--language", "cpp", "--output-directory", output.string(), shared.string()},
+                 root);
+    ASSERT_EQ(shared_result.status, 0) << shared_result.stderr_text;
+
+    const CommandResult root_result =
+        run_tool({"--language", "cpp", "--output-directory", output.string(), input.string()},
+                 root);
+    ASSERT_EQ(root_result.status, 0) << root_result.stderr_text;
+
+    const std::filesystem::path generated_header =
+        output / "quarry" / "telemetry.generated.hpp";
+    const std::string header = read_text_file(generated_header);
+    EXPECT_NE(header.find("#include \"quarry/shared.generated.hpp\""), std::string::npos);
+    EXPECT_EQ(header.find("#include \"quarry/shared.generated.hpp\""),
+              header.rfind("#include \"quarry/shared.generated.hpp\""));
+    EXPECT_NE(header.find("std::optional<::quarry::shared::Shared>"), std::string::npos);
+    EXPECT_NE(header.find("std::optional<::quarry::shared::Mode>"), std::string::npos);
+    EXPECT_NE(header.find("std::vector<::quarry::shared::Shared>"), std::string::npos);
+    EXPECT_NE(header.find("std::vector<::quarry::shared::Mode>"), std::string::npos);
+
+    const std::filesystem::path translation = root / "compile.cpp";
+    const std::filesystem::path object = root / "compile.o";
+    write_text_file(translation, "#include \"quarry/telemetry.generated.hpp\"\nint main() {}\n");
+    std::ostringstream command;
+    command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER)) << " -std=c++20 -I"
+            << std::quoted(output.string()) << " -I" << std::quoted(QUARRY_TEST_REPO_INCLUDE_DIR)
+            << " -I" << std::quoted(QUARRY_TEST_GENERATED_INCLUDE_DIR)
+            << " -c " << std::quoted(translation.string()) << " -o " << std::quoted(object.string());
+    EXPECT_EQ(std::system(command.str().c_str()), 0);
+}
+
 TEST(SchemaCompilerToolTest, ListOutputsPrintsAbsolutePathsAndDoesNotCreateOutputDirectory) {
     const std::filesystem::path root = make_temp_directory("list-outputs-absolute");
     const std::filesystem::path working_directory = root / "working directory with spaces";

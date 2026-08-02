@@ -146,6 +146,11 @@ struct RenderGenerationPlan {
     std::vector<PlannedRenderFile> files;
 };
 
+struct OutputSelection {
+    std::set<std::string> emitting_namespaces;
+    std::set<std::string> planned_namespaces;
+};
+
 [[nodiscard]] std::string indent(std::size_t level) { return std::string(level * 2, ' '); }
 
 [[nodiscard]] std::vector<std::string> namespace_parts(std::string_view fqn) {
@@ -414,7 +419,8 @@ lookup_named_type(const TypeCatalog& catalog, std::uint64_t ir_id, std::string& 
 lower_field_type(const ::quarry::schema_ir::FieldType& field_type,
                  const std::string& current_namespace_fqn,
                  const std::map<std::uint64_t, std::size_t>& local_declaration_ids,
-                 const TypeCatalog& catalog, std::string& error_message) {
+                 const TypeCatalog& catalog, const OutputSelection* output_selection,
+                 std::string& error_message) {
     TypeLoweringResult result;
 
     switch (field_type.kind_case()) {
@@ -460,6 +466,12 @@ lower_field_type(const ::quarry::schema_ir::FieldType& field_type,
             result.same_namespace_declaration_dependencies.push_back(
                 field_type.record().target_record_ir_id());
         } else {
+            if (output_selection != nullptr &&
+                !output_selection->planned_namespaces.contains(target->namespace_fqn)) {
+                error_message = "backend codegen missing planned dependency for namespace '" +
+                                target->namespace_fqn + "'";
+                return {};
+            }
             result.generated_includes.insert(target->include_path);
         }
         return result;
@@ -478,6 +490,12 @@ lower_field_type(const ::quarry::schema_ir::FieldType& field_type,
         }
         result.cpp_type = target->cpp_name;
         if (target->namespace_fqn != current_namespace_fqn) {
+            if (output_selection != nullptr &&
+                !output_selection->planned_namespaces.contains(target->namespace_fqn)) {
+                error_message = "backend codegen missing planned dependency for namespace '" +
+                                target->namespace_fqn + "'";
+                return {};
+            }
             result.generated_includes.insert(target->include_path);
         } else {
             const auto it = local_declaration_ids.find(field_type.enum_type().target_enum_ir_id());
@@ -494,7 +512,7 @@ lower_field_type(const ::quarry::schema_ir::FieldType& field_type,
     case ::quarry::schema_ir::FieldType::kArray: {
         TypeLoweringResult element =
             lower_field_type(field_type.array().element_type(), current_namespace_fqn,
-                             local_declaration_ids, catalog, error_message);
+                             local_declaration_ids, catalog, output_selection, error_message);
         if (!error_message.empty()) {
             return {};
         }
@@ -813,12 +831,16 @@ void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
 
 [[nodiscard]] bool analyze_namespace(const ::quarry::schema_ir::NamespaceIR& ns,
                                      const CodegenOptions& options, const TypeCatalog& catalog,
-                                     NamespacePlan& plan, std::string& error_message) {
+                                     const OutputSelection* output_selection, NamespacePlan& plan,
+                                     std::string& error_message) {
     plan.namespace_ir = &ns;
     plan.fqn = ns.fqn();
     plan.file_path = file_path_for_namespace(options, ns.fqn());
     plan.include_path = file_stem_for_namespace(options, ns.fqn());
     plan.emits_file = ns.records_size() > 0 || ns.enums_size() > 0;
+    if (output_selection != nullptr && plan.emits_file) {
+        plan.emits_file = output_selection->emitting_namespaces.contains(plan.fqn);
+    }
     if (ns.enums_size() > 0) {
         plan.standard_includes.insert("<cstdint>");
     }
@@ -878,7 +900,8 @@ void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
                 const ::quarry::schema_ir::FieldIR& field =
                     record_plan.record->fields(field_index);
                 const TypeLoweringResult lowered = lower_field_type(
-                    field.type(), ns.fqn(), local_declaration_ids, catalog, error_message);
+                    field.type(), ns.fqn(), local_declaration_ids, catalog, output_selection,
+                    error_message);
                 if (!error_message.empty()) {
                     return false;
                 }
@@ -908,7 +931,8 @@ void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
     plan.children.reserve(static_cast<std::size_t>(ns.namespaces_size()));
     for (int index = 0; index < ns.namespaces_size(); ++index) {
         NamespacePlan child_plan;
-        if (!analyze_namespace(ns.namespaces(index), options, catalog, child_plan, error_message)) {
+        if (!analyze_namespace(ns.namespaces(index), options, catalog, output_selection,
+                               child_plan, error_message)) {
             return false;
         }
         plan.children.push_back(std::move(child_plan));
@@ -1022,13 +1046,25 @@ void collect_planned_files(const NamespacePlan& plan, RenderGenerationPlan& gene
 
 [[nodiscard]] bool build_render_generation_plan(const schema_ir::SchemaIrModel& schema_ir,
                                                 const CodegenOptions& options,
+                                                const output_planning::OutputPlan* output_plan,
                                                 NamespacePlan& root_plan,
                                                 RenderGenerationPlan& generation_plan,
                                                 std::string& error_message) {
     TypeCatalog catalog;
     collect_named_types(schema_ir.root_namespace(), options, catalog);
 
-    if (!analyze_namespace(schema_ir.root_namespace(), options, catalog, root_plan,
+    OutputSelection selection;
+    if (output_plan != nullptr) {
+        for (const output_planning::PlannedSourceUnit& unit : output_plan->units) {
+            selection.planned_namespaces.insert(unit.namespace_fqn);
+            if (unit.emits_output) {
+                selection.emitting_namespaces.insert(unit.namespace_fqn);
+            }
+        }
+    }
+    const OutputSelection* selection_ptr = output_plan == nullptr ? nullptr : &selection;
+
+    if (!analyze_namespace(schema_ir.root_namespace(), options, catalog, selection_ptr, root_plan,
                            error_message)) {
         return false;
     }
@@ -2176,14 +2212,15 @@ std::string output_path_for_planned_file(const CodegenOptions& options,
 }
 
 PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir,
-                         const CodegenOptions& options) const {
+                         const CodegenOptions& options,
+                         const output_planning::OutputPlan* output_plan) const {
     PlanResult result;
 
     NamespacePlan root_plan;
     RenderGenerationPlan generation_plan;
     std::string error_message;
-    if (!build_render_generation_plan(schema_ir, options, root_plan, generation_plan,
-                                      error_message)) {
+    if (!build_render_generation_plan(schema_ir, options, output_plan, root_plan,
+                                      generation_plan, error_message)) {
         result.success = false;
         result.error_message = std::move(error_message);
         return result;
@@ -2194,14 +2231,15 @@ PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir,
 }
 
 CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
-                                const CodegenOptions& options) const {
+                                const CodegenOptions& options,
+                                const output_planning::OutputPlan* output_plan) const {
     CodegenResult result;
 
     NamespacePlan root_plan;
     RenderGenerationPlan generation_plan;
     std::string error_message;
-    if (!build_render_generation_plan(schema_ir, options, root_plan, generation_plan,
-                                      error_message)) {
+    if (!build_render_generation_plan(schema_ir, options, output_plan, root_plan,
+                                      generation_plan, error_message)) {
         result.success = false;
         result.error_message = std::move(error_message);
         return result;

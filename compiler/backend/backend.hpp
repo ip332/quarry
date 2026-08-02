@@ -1,6 +1,7 @@
 #pragma once
 
 #include "compiler/schema_ir/schema_ir.hpp"
+#include "compiler/output_planning/output_planning.hpp"
 
 #include <string>
 #include <string_view>
@@ -56,10 +57,12 @@ struct CodegenResult {
 class Backend {
 public:
     [[nodiscard]] PlanResult plan(const schema_ir::SchemaIrModel& schema_ir,
-                                  const CodegenOptions& options) const;
+                                  const CodegenOptions& options,
+                                  const output_planning::OutputPlan* output_plan = nullptr) const;
 
     [[nodiscard]] CodegenResult generate(const schema_ir::SchemaIrModel& schema_ir,
-                                         const CodegenOptions& options) const;
+                                         const CodegenOptions& options,
+                                         const output_planning::OutputPlan* output_plan = nullptr) const;
 };
 
 } // namespace quarry::compiler::backend

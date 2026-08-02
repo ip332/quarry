@@ -65,8 +65,10 @@ allocation), and a real BRF encode/decode codec API (`_init`,
 installed `Quarry::runtime_c` C runtime -- see
 `compiler/backend_c/README.md`, `runtime_c/README.md`, and
 `docs/design/c-backend.md` for the full scope, the generated codec API
-design, and the roadmap. **Cross-namespace references (plain enum/record
-fields, or as array elements) remain unsupported.**
+design, and the roadmap. Cross-namespace C++ record and enum references
+(including arrays) are supported when imported dependency roots are generated
+into the same output directory. C and Python cross-namespace generation
+remain unsupported.
 A record containing any such field -- even mixed with otherwise-supported
 fields -- fails generation with a diagnostic
 identifying the record and field, rather than silently emitting a struct
@@ -194,11 +196,11 @@ not rebase relative paths against the input file's parent directory.
 That input file contains one YAML document and one source schema unit. The
 current schema unit has one dotted namespace path and one primary record, with
 zero or more fields and zero or more enum declarations in that namespace.
-Multiple primary records, multiple namespace roots, YAML document streams, and
-external type resolution remain unsupported. Imports are validated and loaded
-into the compiler context, but do not yet add generated backend outputs. With the current YAML contract, successful
-compilation normally produces one generated namespace file; richer multi-file
-backend output is exercised through lower-level Schema IR inputs.
+Multiple primary records, multiple namespace roots, and YAML document streams
+remain unsupported. Imports are loaded into the compiler context and resolved
+before Schema IR lowering. C++ generation consumes imported declarations when
+each required dependency is also generated as an explicit root into the same
+output directory; C and Python dependency generation remain pending.
 
 Generated files are written from backend-provided in-memory `GeneratedFile`
 values. Compiler and backend failures do not write output files. Output writes

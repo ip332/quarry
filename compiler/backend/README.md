@@ -12,7 +12,8 @@ Responsibilities:
 Current C++ generation behavior:
 
 * exposes `CodegenOptions`, `GeneratedFile`, and `CodegenResult`
-* accepts Schema IR plus backend options only
+* accepts Schema IR, backend options, and (for compiler-driven generation) the
+  language-neutral `OutputPlan`
 * emits files only for namespaces that directly own records or enums
 * derives output file paths from the namespace FQN and configured output root
   * `GenerationPlan` (built by the internal `build_render_generation_plan`
@@ -158,6 +159,10 @@ Current C++ generation behavior:
   * generated codecs recheck string and bytes bounds so decoded external bytes
     cannot bypass builder validation
 * lowers named record and enum references to fully qualified C++ names
+* consumes output-plan dependency metadata to emit each required generated
+  dependency header exactly once in deterministic order
+* supports imported record and enum fields, including arrays, when imported
+  source units are generated as dependency roots
 * emits namespace blocks matching the Schema IR namespace hierarchy
 * includes standard headers only when required
   * `<cstddef>` for `std::byte`
