@@ -86,7 +86,8 @@ Implementation behavior that is not yet an installed-tool contract:
 * no depfile output
 * no generated-output manifest
 * no explicit backend or language selection
-* no import resolution or multi-file source graph
+* no external type resolution or multi-file backend output planning; the
+  compiler does load and validate a root's relative-import source graph
 * no automatic cross-compilation host-tool discovery
 
 `--version` prints `quarry-schema-compiler <version>` to stdout, writes

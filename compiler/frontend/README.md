@@ -1,7 +1,7 @@
 # Frontend
 
-This module owns the production-facing orchestration layer for import-free
-YAML `.brd` compilation.
+This module owns the production-facing orchestration layer for YAML `.brd`
+compilation and source-unit graph discovery.
 
 ## Responsibility
 
@@ -20,11 +20,13 @@ The frontend returns validated Schema IR on success and no Schema IR on
 failure. It stops after the first stage that reports errors or fails to
 produce its expected model. It does not invoke backend generation.
 
-Each invocation compiles one registered YAML source file containing one YAML
-document and one source schema unit. That unit has one namespace path and one
-primary record; fields and enum declarations may be repeated within that unit.
-Multiple records, multiple namespace roots, YAML document streams, and import
-resolution are outside the current frontend contract.
+Each invocation has one registered YAML root containing one YAML document and
+one source schema unit. That unit has one namespace path and one primary
+record; fields and enum declarations may be repeated within that unit. The
+frontend now loads a root's transitive relative imports into the shared
+compiler context, while semantic resolution and backend generation still use
+only the root document in this PR. Multiple records, multiple namespace roots,
+and YAML document streams remain outside the contract.
 
 The Schema IR exact-output golden suite now runs through this production YAML
 frontend against the YAML fixture tree under `tests/fixtures/schema_ir_yaml`.
@@ -44,8 +46,10 @@ frontend.
 source-schema normalization remain separately testable lower-level compiler
 APIs.
 
-Non-empty YAML imports remain unsupported and continue to fail in the existing
-source-schema normalization layer. Import resolution is not implemented here.
+Non-empty YAML imports are decoded, normalized, and loaded transitively by the
+source-unit graph loader. Missing files, duplicate source-unit identities, and
+import cycles fail before semantic analysis. External type resolution and
+backend dependency generation are not implemented here.
 
 ## Dependencies
 

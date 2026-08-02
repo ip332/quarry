@@ -6,6 +6,10 @@
 
 #include <string>
 #include <string_view>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <algorithm>
 #include <utility>
 
 #include <gtest/gtest.h>
@@ -84,6 +88,32 @@ find_enum(const quarry::schema_ir::NamespaceIR& parent, std::string_view name) {
     }
     YamlCompiler compiler;
     return compiler.compile(file_id, context, diagnostics);
+}
+
+[[nodiscard]] std::filesystem::path make_graph_test_directory(std::string_view name) {
+    const std::filesystem::path directory =
+        std::filesystem::temp_directory_path() / std::string(name);
+    std::error_code error;
+    std::filesystem::remove_all(directory, error);
+    std::filesystem::create_directories(directory, error);
+    return directory;
+}
+
+void write_graph_test_file(const std::filesystem::path& path, std::string_view text) {
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream output(path);
+    ASSERT_TRUE(output.is_open());
+    output << text;
+    ASSERT_TRUE(output.good());
+}
+
+[[nodiscard]] YamlCompilationResult compile_graph_root(const std::filesystem::path& root,
+                                                       CompilerContext& context,
+                                                       DiagnosticEngine& diagnostics) {
+    std::ifstream input(root);
+    const std::string text{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+    const SourceFileId source_file_id = context.source_manager().add_source(root.string(), text);
+    return YamlCompiler{}.compile(source_file_id, context, diagnostics);
 }
 
 } // namespace
@@ -234,7 +264,7 @@ type: data
     EXPECT_TRUE(has_diagnostic(diagnostics, "yaml-schema-decoder", "BC2303"));
 }
 
-TEST(YamlCompilerTest, StopsAfterSourceLoweringFailure) {
+TEST(YamlCompilerTest, ReportsMissingImportedSourceUnit) {
     CompilerContext context;
     DiagnosticEngine diagnostics;
 
@@ -253,7 +283,143 @@ fields:
 
     EXPECT_FALSE(result.succeeded());
     EXPECT_FALSE(diagnostics.empty());
-    EXPECT_TRUE(has_diagnostic(diagnostics, "source-schema-normalization", "BC2403"));
+    EXPECT_TRUE(has_diagnostic(diagnostics, "source-unit-graph", "BC2404"));
+}
+
+TEST(YamlCompilerTest, LoadsTransitiveDiamondOnceInDeterministicOrder) {
+    const std::filesystem::path directory =
+        make_graph_test_directory("quarry_pr135_source_graph_diamond");
+    const std::filesystem::path root = directory / "root.yaml";
+    write_graph_test_file(root, R"(namespace: quarry.root
+record: Root
+version: 1
+type: data
+imports:
+  - a.yaml
+  - b.yaml
+fields: {}
+)");
+    write_graph_test_file(directory / "a.yaml", R"(namespace: quarry.a
+record: A
+version: 1
+type: data
+imports:
+  - shared.yaml
+fields: {}
+)");
+    write_graph_test_file(directory / "b.yaml", R"(namespace: quarry.b
+record: B
+version: 1
+type: data
+imports:
+  - ./nested/../shared.yaml
+fields: {}
+)");
+    write_graph_test_file(directory / "shared.yaml", R"(namespace: quarry.shared
+record: Shared
+version: 1
+type: data
+fields: {}
+)");
+
+    CompilerContext context;
+    DiagnosticEngine diagnostics;
+    const YamlCompilationResult result = compile_graph_root(root, context, diagnostics);
+
+    ASSERT_TRUE(result.succeeded());
+    ASSERT_TRUE(diagnostics.empty());
+    ASSERT_EQ(context.source_units().size(), 4U);
+    EXPECT_EQ(context.source_units()[0].identity, "quarry.shared.Shared");
+    EXPECT_EQ(context.source_units()[1].identity, "quarry.a.A");
+    EXPECT_EQ(context.source_units()[2].identity, "quarry.b.B");
+    EXPECT_EQ(context.source_units()[3].identity, "quarry.root.Root");
+    EXPECT_TRUE(context.source_units()[3].is_root);
+    EXPECT_EQ(context.source_units()[0].source_file_id,
+              context.find_source_unit_by_identity("quarry.shared.Shared")->source_file_id);
+
+    std::error_code error;
+    std::filesystem::remove_all(directory, error);
+}
+
+TEST(YamlCompilerTest, RejectsImportCycleWithCycleDiagnostic) {
+    const std::filesystem::path directory =
+        make_graph_test_directory("quarry_pr135_source_graph_cycle");
+    const std::filesystem::path root = directory / "root.yaml";
+    write_graph_test_file(root, R"(namespace: quarry.root
+record: Root
+version: 1
+type: data
+imports:
+  - a.yaml
+fields: {}
+)");
+    write_graph_test_file(directory / "a.yaml", R"(namespace: quarry.a
+record: A
+version: 1
+type: data
+imports:
+  - b.yaml
+fields: {}
+)");
+    write_graph_test_file(directory / "b.yaml", R"(namespace: quarry.b
+record: B
+version: 1
+type: data
+imports:
+  - a.yaml
+fields: {}
+)");
+
+    CompilerContext context;
+    DiagnosticEngine diagnostics;
+    const YamlCompilationResult result = compile_graph_root(root, context, diagnostics);
+
+    EXPECT_FALSE(result.succeeded());
+    ASSERT_FALSE(diagnostics.empty());
+    EXPECT_TRUE(has_diagnostic(diagnostics, "source-unit-graph", "BC2405"));
+    const auto cycle_diagnostic = std::find_if(
+        diagnostics.diagnostics().begin(), diagnostics.diagnostics().end(), [](const auto& item) {
+            return item.compiler_pass() == "source-unit-graph" && item.id().str() == "BC2405";
+        });
+    ASSERT_NE(cycle_diagnostic, diagnostics.diagnostics().end());
+    EXPECT_NE(cycle_diagnostic->message().find("a.yaml"), std::string::npos);
+    EXPECT_NE(cycle_diagnostic->message().find("b.yaml"), std::string::npos);
+
+    std::error_code error;
+    std::filesystem::remove_all(directory, error);
+}
+
+TEST(YamlCompilerTest, RejectsDuplicateSourceUnitIdentity) {
+    const std::filesystem::path directory =
+        make_graph_test_directory("quarry_pr135_source_graph_duplicate");
+    const std::filesystem::path root = directory / "root.yaml";
+    write_graph_test_file(root, R"(namespace: quarry.root
+record: Root
+version: 1
+type: data
+imports:
+  - first.yaml
+  - second.yaml
+fields: {}
+)");
+    const std::string duplicate = R"(namespace: quarry.duplicate
+record: Same
+version: 1
+type: data
+fields: {}
+)";
+    write_graph_test_file(directory / "first.yaml", duplicate);
+    write_graph_test_file(directory / "second.yaml", duplicate);
+
+    CompilerContext context;
+    DiagnosticEngine diagnostics;
+    const YamlCompilationResult result = compile_graph_root(root, context, diagnostics);
+
+    EXPECT_FALSE(result.succeeded());
+    EXPECT_TRUE(has_diagnostic(diagnostics, "source-unit-graph", "BC2406"));
+
+    std::error_code error;
+    std::filesystem::remove_all(directory, error);
 }
 
 TEST(YamlCompilerTest, StopsAfterSemanticFailure) {

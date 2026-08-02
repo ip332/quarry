@@ -322,9 +322,11 @@ behavior, and transport protocols to separate specifications.
 
 # Implementation Status
 
-The YAML frontend (`frontend::YamlCompiler`) is the production path: it is
-import-free and feeds normalized YAML directly through symbols, semantic
-validation, layout, and Schema IR, matching this specification.
+The YAML frontend (`frontend::YamlCompiler`) is the production path: it loads
+the root and its transitive relative-import graph, then feeds the root's
+normalized source schema directly through symbols, semantic validation, layout,
+and Schema IR. External type resolution and imported backend output planning
+remain future compiler stages.
 
 A legacy declaration-syntax lexer/parser and AST (`compiler/parser`,
 `compiler/ast`) also exist, but only for parser/AST compatibility testing. They

@@ -114,13 +114,14 @@ The compiler pipeline is:
 * YAML source files flow through `YamlParser`, `YamlDocument`, source-schema
   decoding, and source-schema normalization into the neutral source-schema
   model.
-* The production-facing YAML frontend orchestrates the import-free YAML path
-  through validated Schema IR by feeding the normalized source schema directly
-  into symbol construction, semantic validation, layout computation, and
-  Schema IR lowering.
+* The production-facing YAML frontend loads a root source unit and its
+  transitive relative-import graph, then feeds the root normalized source
+  schema into symbol construction, semantic validation, layout computation,
+  and Schema IR lowering. Cross-source type resolution is a later stage.
 * Legacy declaration-syntax source files flow only through the parser-owned
-  AST compatibility surface. Import declarations remain parsed syntax only and
-  are not consumed by downstream compiler stages.
+  AST compatibility surface. YAML source-unit imports are handled by the
+  production frontend graph loader; legacy parser import declarations remain
+  compatibility-only syntax.
 
 Scalar-, enum-, and bounded-array-shaped schemas flow through the complete
 downstream pipeline today: YAML decoding, source-schema normalization,

@@ -43,6 +43,11 @@ and zero or more enum declarations in the same namespace. The decoder does not
 accept a `records` collection, multiple top-level schema units, or multiple
 namespace roots in one YAML document.
 
+The supported `imports` form is a sequence of non-empty relative path
+scalars. The YAML decoder preserves each path and source range; the frontend
+resolves and loads the paths through the compiler context. Imports do not yet
+resolve external record or enum types.
+
 The decoder performs structural YAML-to-schema decoding only. It returns
 `source_schema::SourceSchemaDecodeResult` and does not own source-schema model
 types. It does not perform semantic validation, name resolution, layout

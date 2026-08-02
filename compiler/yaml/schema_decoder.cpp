@@ -50,17 +50,44 @@ constexpr std::string_view schema_pass = "yaml-schema-decoder";
     return std::get_if<YamlMappingNode>(&node.value);
 }
 
-[[nodiscard]] bool imports_are_empty(const YamlNode& imports) {
-    if (const auto* sequence = std::get_if<YamlSequenceNode>(&imports.value)) {
-        return sequence->elements.empty();
+[[nodiscard]] std::optional<SourceSchemaImports>
+decode_imports(const YamlNode& node, diagnostics::DiagnosticEngine& diagnostics) {
+    const auto* sequence = std::get_if<YamlSequenceNode>(&node.value);
+    if (sequence == nullptr) {
+        auto builder = diagnostics::Diagnostic::create(
+                           diagnostic_id("BC2301"), diagnostics::Severity::Error,
+                           "expected a YAML sequence for top-level property 'imports'")
+                           .from_pass(std::string(schema_pass));
+        builder.at(node.source_range);
+        diagnostics.emit(builder.build());
+        return std::nullopt;
     }
-    if (const auto* mapping = std::get_if<YamlMappingNode>(&imports.value)) {
-        return mapping->entries.empty();
+
+    SourceSchemaImports imports;
+    imports.source_range = node.source_range;
+    imports.empty = sequence->elements.empty();
+    imports.entries.reserve(sequence->elements.size());
+    for (const std::unique_ptr<YamlNode>& element_ptr : sequence->elements) {
+        if (element_ptr == nullptr) {
+            return std::nullopt;
+        }
+        const YamlNode& element = *element_ptr;
+        const auto* scalar = scalar_value(element);
+        if (scalar == nullptr || scalar->value.empty()) {
+            auto builder = diagnostics::Diagnostic::create(
+                               diagnostic_id("BC2302"), diagnostics::Severity::Error,
+                               "import paths must be non-empty YAML strings")
+                               .from_pass(std::string(schema_pass));
+            builder.at(element.source_range);
+            diagnostics.emit(builder.build());
+            return std::nullopt;
+        }
+        imports.entries.push_back(SourceSchemaImports::Import{
+            .path = scalar->value,
+            .source_range = element.source_range,
+        });
     }
-    if (const auto* scalar = std::get_if<YamlScalarNode>(&imports.value)) {
-        return scalar->value.empty();
-    }
-    return false;
+    return imports;
 }
 
 [[nodiscard]] std::optional<std::int64_t> parse_integer(std::string_view text) {
@@ -663,10 +690,12 @@ decode_root_mapping(const YamlMappingNode& mapping, const YamlDocument& document
         }
 
         if (key->value == "imports") {
-            schema.imports = SourceSchemaImports{
-                .source_range = entry.value->source_range,
-                .empty = imports_are_empty(*entry.value),
-            };
+            const std::optional<SourceSchemaImports> imports =
+                decode_imports(*entry.value, diagnostics);
+            if (!imports.has_value()) {
+                return std::nullopt;
+            }
+            schema.imports = *imports;
             schema.imports_range = entry.value->source_range;
             continue;
         }

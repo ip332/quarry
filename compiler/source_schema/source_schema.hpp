@@ -53,6 +53,11 @@ struct SourceSchemaEnum {
 struct SourceSchemaImports {
     support::SourceRange source_range = support::SourceRange::invalid();
     bool empty = true;
+    struct Import {
+        std::string path;
+        support::SourceRange source_range = support::SourceRange::invalid();
+    };
+    std::vector<Import> entries;
 };
 
 struct SourceSchemaDocument {
@@ -162,6 +167,11 @@ struct NormalizedSourceSchemaEnum {
 struct NormalizedSourceSchemaImports {
     support::SourceRange source_range = support::SourceRange::invalid();
     bool empty = true;
+    struct Import {
+        std::string path;
+        support::SourceRange source_range = support::SourceRange::invalid();
+    };
+    std::vector<Import> entries;
 };
 
 struct NormalizedSourceSchemaDocument {

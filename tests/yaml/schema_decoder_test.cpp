@@ -419,6 +419,9 @@ enums:
     ASSERT_TRUE(schema.imports.has_value());
     EXPECT_FALSE(schema.imports->empty);
     EXPECT_TRUE(schema.imports->source_range.is_valid());
+    ASSERT_EQ(schema.imports->entries.size(), 2U);
+    EXPECT_EQ(schema.imports->entries[0].path, "quarry.shared");
+    EXPECT_EQ(schema.imports->entries[1].path, "quarry.motion");
 
     ASSERT_EQ(schema.annotations.size(), 2U);
     EXPECT_EQ(schema.annotations[0].name, "owner");

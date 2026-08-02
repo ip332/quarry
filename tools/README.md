@@ -180,10 +180,10 @@ Exit codes:
   write failure
 * `2`: command-line usage error
 
-The command supports exactly one input file. Import resolution, multiple input
-files, stale-output deletion, response files, configuration files, installed
-package integration, color diagnostics, and JSON diagnostics are intentionally
-out of scope.
+The command supports exactly one root input file. That root may now load a
+transitive relative-import graph; multiple explicit roots, stale-output
+deletion, response files, configuration files, installed package integration,
+color diagnostics, and JSON diagnostics remain out of scope.
 
 Relative input and output paths are resolved relative to the process working
 directory. Absolute input and output paths work from unrelated working
@@ -194,7 +194,8 @@ That input file contains one YAML document and one source schema unit. The
 current schema unit has one dotted namespace path and one primary record, with
 zero or more fields and zero or more enum declarations in that namespace.
 Multiple primary records, multiple namespace roots, YAML document streams, and
-imports remain unsupported. With the current YAML contract, successful
+external type resolution remain unsupported. Imports are validated and loaded
+into the compiler context, but do not yet add generated backend outputs. With the current YAML contract, successful
 compilation normally produces one generated namespace file; richer multi-file
 backend output is exercised through lower-level Schema IR inputs.
 

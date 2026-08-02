@@ -319,14 +319,15 @@ normalize_source_schema(const SourceSchemaDocument& schema,
         NormalizedSourceSchemaImports imports;
         imports.source_range = schema.imports->source_range;
         imports.empty = schema.imports->empty;
+        imports.entries.reserve(schema.imports->entries.size());
+        for (const SourceSchemaImports::Import& import : schema.imports->entries) {
+            imports.entries.push_back(NormalizedSourceSchemaImports::Import{
+                .path = import.path,
+                .source_range = import.source_range,
+            });
+        }
         normalized.imports = imports;
         normalized.imports_range = schema.imports->source_range;
-        if (!schema.imports->empty) {
-            emit_error(diagnostics, "BC2403", "non-empty YAML imports are not supported",
-                       schema.imports->source_range.is_valid() ? schema.imports->source_range
-                                                               : schema.source_range);
-            return result;
-        }
     }
 
     for (const SourceSchemaAnnotation& annotation : schema.annotations) {

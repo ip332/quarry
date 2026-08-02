@@ -2086,3 +2086,527 @@ The legitimate PR-132 changes to `runtime_c/README.md` and
 `include/quarry/runtime_c/binary_record.h` are preserved in the same focused
 commit. No Schema IR, BRF, runtime behavior, or pre-existing untracked file
 was changed.
+
+## PR-134 — Cross-Namespace References Investigation
+
+### 1. Executive summary
+
+Cross-namespace references are not implemented by the production YAML
+frontend, but the repository already contains most of the language-neutral
+pieces needed to implement them without a new module system. Qualified type
+syntax, namespace scopes, fully qualified symbol names, and resolved Schema
+IR record/enum IDs already exist. The missing capability is aggregation: the
+current frontend loads one YAML document, builds symbols and semantic state
+from that document, and lowers one isolated Schema IR.
+
+The recommended architecture is to extend the existing compiler context and
+pipeline to load an explicit import graph, build one deterministic symbol
+model for all loaded source units, resolve references centrally before Schema
+IR lowering, and plan outputs for the dependency closure. BRF, runtimes, and
+generated-code API epochs should remain unchanged. Multi-record YAML is not
+required and should remain a separate feature.
+
+### 2. Investigation scope
+
+Inspected source-schema, YAML decoding/normalization, compiler context,
+symbols, semantic analysis, layout, Schema IR, CLI output planning, all three
+backend planners, backend fixtures, installed-consumer tests, and current
+documentation. No production implementation, tests, runtime, or backend
+behavior were changed.
+
+Terminology follows the repository: a source schema unit is one normalized
+YAML input document; a namespace owns declarations; records and enums are
+declarations; a qualified name is a namespace/name path; an output unit is a
+generated backend file or module.
+
+### 3. Current frontend/source-unit contract
+
+`compiler/frontend/README.md` and `compiler/source_schema/README.md` match
+the implementation. One registered YAML file is one YAML document and one
+source schema unit. The unit owns one namespace path and one primary record,
+plus fields and repeated enum declarations. The decoder recognizes an
+`imports` property, but normalization preserves only its presence/emptiness
+and rejects every non-empty value with BC2403. `YamlCompiler::compile()` runs
+the complete pipeline for that one document and returns one `SchemaIR`.
+
+`tools/schema_compiler/main.cpp` registers one input path and invokes this
+single-document frontend. There is no transitive loader or multi-input
+compilation graph. This is a current language/frontend contract, not merely
+a backend limitation. The source normalizer already accepts dotted namespace
+and field type spellings, so the syntax needed for a fully qualified type is
+already present.
+
+### 4. Namespace-assumption inventory
+
+| Area | Current assumption | Evidence | Required change | Risk |
+| --- | --- | --- | --- | --- |
+| YAML | One root mapping and one primary record | `schema_decoder.cpp`; decoder tests reject plural records | None for first slice | Low |
+| Source schema | One namespace/unit; imports are an empty placeholder | `source_schema.hpp/.cpp`, BC2403 | Store import items and source-unit identity | Medium |
+| Compiler context | Filesystem, source manager, diagnostics only | `compiler_context.hpp` | Add cached source-unit graph state | Medium |
+| Symbols | Builder receives one document | `NamespaceBuilder::build()` | Build existing scope tree across units; detect duplicate FQNs | Medium |
+| Semantic model | Validator receives one document and emits one record collection | `semantic.cpp` | Validate all reachable records with owning namespaces | Medium |
+| Layout | IDs assigned from one semantic model | `layout.cpp` | Assign deterministic IDs over complete graph | Medium |
+| Schema IR | Builder registers FQNs only from one document | `schema_ir.cpp` | Register all declarations before lowering fields | Medium |
+| CLI/planning | One input, one IR, one output plan | `schema_compiler/main.cpp` | Root plus transitive imports, deduplicated outputs | Medium |
+| C++ | IR fixtures already support foreign namespace includes | `backend.cpp`, cross-namespace fixtures | Connect aggregate compiler IR | Low/medium |
+| C | Whole-IR catalogs exist, but foreign targets are rejected | `lower_*_reference()` | Foreign headers, qualified symbols, cycle checks | Medium |
+| Python | Namespace package paths exist, foreign targets are rejected | `backend_python.cpp` | Generated module imports and runtime-safe references | Medium/high |
+
+### 5. Existing import model
+
+An import concept exists only as partial infrastructure. YAML decoding
+recognizes `imports` and records a source range plus whether it is empty.
+There is no path list, path resolution, duplicate handling, cycle detection,
+or participation in symbol construction. `compiler/imports` contains only
+`.gitkeep`; it is not an implemented resolver.
+
+The implementation should complete this existing field rather than invent
+aliases, wildcard imports, manifests, or another module system. The first
+slice should define the accepted import-item shape, resolve paths through
+`CompilerContext::file_system()` relative to the importing file, normalize
+paths for cache identity, and retain source ranges. Duplicate normalized
+loads should be cached; conflicting declarations remain semantic errors.
+
+### 6. Current name syntax and resolution rules
+
+Namespace names are dot-separated identifiers. Field types are builtins,
+qualified identifiers, or one `[]` suffix. `lower_qualified_name()` validates
+each dotted segment; there is no `::` or slash syntax. Use the existing form,
+for example `vehicle.engine.EngineStatus`.
+
+Minimal deterministic rules:
+
+1. Builtin primitive spellings retain their current meaning.
+2. Unqualified user types resolve only in the current namespace (retaining
+   existing enclosing-scope behavior).
+3. Qualified names resolve by exact namespace path plus declaration name.
+4. External declarations require an explicit import; no implicit global
+   search is added.
+5. No aliases, wildcard imports, relative navigation, or re-exports.
+
+### 7. Symbol identity and semantic analysis
+
+`Symbol` already stores kind, simple name, FQN, source range, and child scope.
+`Scope` models namespace/declaration symbols and
+`SymbolTable::resolve_qualified()` walks namespace symbols. The smallest
+identity extension is to build this existing scope tree from all loaded units
+and use `(declaration kind, fully qualified name)` as source identity.
+
+`ir_id` remains the compiler-assigned identity of a lowered IR object; it is
+not the source lookup key. The existing semantic reference types already
+carry canonical target FQNs. Resolution belongs in symbols/semantic analysis
+before layout and Schema IR construction, not in backends.
+
+Required diagnostics include unknown namespace/declaration, external name
+not imported, duplicate fully qualified declaration, and an import cycle.
+BC5002’s namespace-used-as-type behavior can remain. With local-only
+unqualified lookup there is no implicit ambiguity; do not search imported
+namespaces to create one.
+
+### 8. Schema IR readiness
+
+Schema IR is structurally ready. `NamespaceIR` owns nested namespaces and
+declarations. `RecordIR` and `EnumIR` carry FQNs and source origins.
+`RecordRef.target_record_ir_id` and `EnumRef.target_enum_ir_id` already store
+resolved target identities, and the validator checks references against IR
+objects. The proto contains no backend-specific include/import data.
+
+The limitation is aggregation: `SchemaIrBuilder` currently fills its FQN
+map from one normalized document. Registering every declaration first and
+then lowering every field would support external references without changing
+the proto. Classification: **no Schema IR schema change required**.
+
+### 9. Compilation unit, output planning, and cycles
+
+Use a root-driven graph: load the command-line unit, recursively load explicit
+imports, cache by normalized path, preserve source origins, detect cycles
+with DFS states, build aggregate semantic/layout/IR models, and generate the
+reachable closure once. Shared imports must be loaded once. Traversal and
+record IDs must be deterministic, preferably by normalized source path/FQN.
+
+`--list-outputs` and generation should share one plan. Namespace-owned output
+files/modules for reachable declarations should be listed once in stable
+path/FQN order. Existing duplicate-output checks remain the right boundary;
+no build-system dependency scanner is needed.
+
+Import cycles should be rejected with the import stack. Record dependency
+cycles should also be rejected before backends because current C storage and
+all current nested-record representations are by-value. Enum references do
+not create a representation cycle. No pointer, heap, lazy loader, or
+transactional cycle-breaking design is in scope.
+
+### 10. Backend impact
+
+**C++.** The backend already catalogs all IR types, emits qualified C++ names,
+adds generated includes for foreign namespaces, and detects include cycles.
+`tests/fixtures/backend/schema_ir/cross_namespace_reference.pbtxt` and
+`cross_namespace_array_reference.pbtxt` prove this at the IR fixture level.
+The follow-up mainly needs compiler-produced aggregate IR and continued
+by-value cycle rejection.
+
+**C.** The backend already catalogs all IR records/enums and PR-133 supplies
+safe namespace-derived identifiers. `lower_record_reference()` and
+`lower_enum_reference()` deliberately reject a foreign owner. The feature PR
+must replace that rejection with dependent generated-header inclusion,
+stable qualified C symbols, complete-type ordering/includes, and namespace
+prefix collision diagnostics. No C runtime or epoch change is expected.
+
+**Python.** The backend already maps namespace FQNs to package/module paths
+and checks normalized output collisions, but rejects foreign record/enum
+targets. It needs generated package imports and qualified references. A
+focused implementation must test ordinary runtime imports separately from
+annotation-only imports; annotations cannot hide imports required by codecs.
+No reflection or package loader is needed.
+
+### 11. Generated-name implications
+
+Name mapping remains backend-specific. C++ must validate namespace-derived
+include paths and qualified components. C must apply PR-133’s allocator to
+foreign declarations and diagnose distinct namespace paths that normalize to
+one C prefix. Python must apply its existing keyword/path collision handling
+to package components and generated imports. No shared cross-language
+mangling framework is justified.
+
+### 12. Diagnostics inventory
+
+| Category | Phase | Locations/context |
+| --- | --- | --- |
+| import not found | source loading | import item; importing path |
+| duplicate import | loading/semantic | later and first normalized path |
+| import cycle | loading | current item plus cycle chain |
+| unknown namespace/declaration | semantic | qualified type; known/importing unit |
+| unimported external name | semantic | type reference; owning/importing unit |
+| duplicate FQN | symbols | declaration plus previous declaration |
+| by-value record cycle | semantic/layout | dependency field plus cycle path |
+| generated output collision | planning/backend | path plus colliding owner |
+| C prefix normalization collision | C planning | namespace plus colliding namespace |
+
+Compiler owns source and graph diagnostics. Backend-specific diagnostics
+remain limited to generated-output constraints; diagnostic-path parity is a
+later roadmap item.
+
+### 13. Multi-record YAML interaction
+
+Cross-namespace references do **not** require multi-record YAML. One primary
+record in one source schema unit can reference a record or enum in another
+imported unit. Future multi-record YAML can populate the same declaration
+collection and reuse the same FQN identity and resolution rules. Implementing
+it first would enlarge the frontend contract without materially simplifying
+external resolution, so the features should remain separate.
+
+### 14. BRF and API epoch assessment
+
+No BRF change is required. Declaration ownership changes source dependencies,
+not field indexes, record IDs, enum widths, array framing, nested-record
+framing, headers, or schema-version encoding. Existing resolved IR refs
+preserve the wire-relevant target identity.
+
+No C++, C, or Python generated-code API epoch change is expected. Runtime
+callable contracts, BRF helpers, ownership, and error/status contracts stay
+unchanged. Generated includes/imports and qualified public names require
+consumer tests, but do not justify an epoch bump. C remains at epoch `2`,
+from `compiler/backend_c/generated_code_api_version_c.hpp`; no epoch was
+changed here.
+
+### 15. Packaging and downstream impact
+
+No new package model is needed. C consumers need all dependent generated
+headers/sources and CMake helpers should consume the compiler’s output list.
+C++ consumers need dependent headers under the generated include root. Python
+consumers need the generated namespace package tree plus the installed
+runtime, without repository-root imports.
+
+Add one clean installed-consumer fixture in the implementation series with
+two namespaces and a shared dependency, covering compiler invocation,
+`--list-outputs`, strict C99/C++ compilation, Python import, and round-trip
+behavior. Existing package tests remain the baseline but do not prove this
+transitive case.
+
+### 16. Focused implementation test strategy
+
+Cover explicit import parsing/path resolution, missing and duplicate imports,
+import cycles, local and qualified resolution, imported record and enum
+references, same simple names in distinct namespaces, unknown names,
+unimported names, duplicate FQNs, and illegal record cycles. Add Schema IR
+assertions for namespace ownership, resolved IDs, deterministic ordering, and
+unchanged proto shape. Add output-plan tests for transitive closure, shared
+dependency deduplication, collision diagnostics, and installed
+`--list-outputs`.
+
+For each backend, compile/import a representative external record and enum,
+arrays of records/enums, same simple names in distinct namespaces, and
+dependent include/import output. Add round-trip/interoperability cases in
+existing C++↔C↔Python directions with strings, bytes, enums, arrays, nested
+records, empty values, and a shared dependency. Add one clean installed
+consumer rather than duplicating every existing field permutation.
+
+### 17. Architectural alternatives
+
+**Option A — centralized graph resolution before Schema IR (recommended).**
+Extend the current context, symbols, semantic model, layout, and IR builder
+over the imported closure. Backends receive resolved IDs and declarations.
+This matches the existing pipeline and resolved-ID proto.
+
+**Option B — preserve qualified names in IR and resolve in backends.** Reject:
+it duplicates semantics in three backends, weakens IR validation, and conflicts
+with existing `RecordRef`/`EnumRef` identities.
+
+**Option C — compile files independently and link generated outputs by name.**
+Reject as the primary model: it loses one global ID space, deterministic cycle
+diagnostics, shared-dependency deduplication, and a single output plan. It may
+be a later build/cache optimization.
+
+### 18. Recommended architecture and PR sequence
+
+Use Option A. Proposed sequence:
+
+1. **PR-135 — Source-unit import graph and compiler context:** define the
+   existing import item shape, resolve/cache explicit relative imports, detect
+   cycles, and return deterministic one-record source units. No backend work.
+2. **PR-136 — Qualified symbol resolution and aggregate semantic model:**
+   build the existing scope tree over units, resolve exact qualified names,
+   add semantic diagnostics, and reject by-value record cycles.
+3. **PR-137 — Aggregate Schema IR and output planning:** register all
+   declarations before lowering, retain the current proto and resolved IDs,
+   assign deterministic IDs, and make `--list-outputs` include the closure
+   once.
+4. **PR-138 — C++ dependencies:** connect existing qualified-name/include
+   behavior to compiler-produced IR and add generated consumer tests.
+5. **PR-139 — C dependencies:** remove deliberate same-namespace rejection,
+   add dependent headers and prefix-collision checks, keep epoch 2.
+6. **PR-140 — Python dependencies:** add generated package imports and a
+   tested circular-import policy without runtime redesign.
+7. **PR-141 — Cross-backend consumers/interoperability/docs:** complete clean
+   installed two-namespace validation and reassess release readiness.
+
+### 19. Exact first implementation PR
+
+The first implementation PR should be **PR-135 — Source-unit Import Graph
+and Compiler Context**. Its exact boundary is: define the current YAML import
+item shape and source ranges; load explicit relative imports through the
+existing filesystem/source manager; cache normalized paths; detect missing
+files and cycles; and return deterministic parsed/normalized one-record units.
+It may add only interfaces needed by PR-136. It must not add aliases,
+wildcards, output generation, backend includes/imports, multi-record YAML, or
+runtime/API changes. Focused source-loading tests are sufficient for PR-135;
+the first external field reference should follow aggregate semantic/IR work.
+
+### 20. Explicit non-goals
+
+No implementation of cross-namespace references, multi-record YAML, aliases,
+wildcard imports, re-exports, visibility, manifests, remote registries,
+dynamic linking, reflection, generic compiler module frameworks, incremental
+build databases, Rust/Go backends, BRF changes, diagnostic-path parity,
+benchmarking, or unrelated Clang warning cleanup.
+
+### 21. Risks and open questions
+
+The exact non-empty import item shape must be fixed before PR-135 because the
+current code recognizes only property presence/emptiness. Path normalization
+and output roots must be specified together. Shared imports require one
+global IR/layout assignment. C by-value cycles must be rejected. Python
+circular imports need runtime tests because annotations alone cannot hide
+codec dependencies. C++ IR-fixture support is not proof that the YAML
+frontend supports the feature.
+
+### 22. Validation results
+
+Focused tests completed successfully: `symbols_smoke_test`,
+`semantic_smoke_test`, `yaml_parser_test`, `yaml_schema_decoder_test`,
+`normalized_source_schema_pipeline_test`, and `schema_ir_validation_test`.
+The full native `ctest --preset debug --output-on-failure` run reached
+`backend_codegen_test` after earlier tests passed, but did not complete in
+the available window and was interrupted; no source/test change from this
+investigation caused that behavior. The preceding PR-133 baseline recorded
+native and Docker CTest 30/30, packaging/downstream validation, and
+C/C++/Python interoperability passing.
+
+`git diff --check` passed. Docker was not rerun for this documentation-only
+investigation; PR-133’s Docker baseline was 30/30. The unrelated native
+Clang signed/unsigned `-Werror` warning at
+`tests/backend/backend_codegen_test.cpp:436` remains a baseline issue and
+was not modified. Pre-existing untracked `.vscode/`, `quarry-main.tgz`, and
+`runtime/python/src/quarry_runtime_python.egg-info/` remain untouched.
+
+### 23. Final recommendation
+
+Cross-namespace references can be implemented by extending the existing
+compiler context, source-unit loading, symbol resolution, semantic analysis,
+Schema IR aggregation, and output planning. Resolve references before Schema
+IR reaches the backends. Reuse the existing import field; do not add a new
+module system. BRF and runtimes should remain unchanged, and API epochs
+should remain unchanged. Multi-record YAML is independent and later.
+
+No production changes were made in PR-134. No commit was created and nothing
+was pushed.
+
+## PR-135 — Source-Unit Import Graph and Compiler Context
+
+### Executive summary
+
+Implemented the first cross-namespace foundation slice without implementing
+cross-namespace type resolution or backend dependency generation. A compiler
+invocation now loads the root YAML source unit and its transitive relative
+imports into a shared CompilerContext. Canonical paths suppress duplicate
+loads, source-unit identity conflicts are diagnosed, import cycles are
+rejected with a cycle path, and the source-unit collection is deterministic.
+
+The no-import path continues to produce the same root Schema IR and backend
+output. Imported units are discovered, parsed, normalized, and retained as
+context metadata only; they are not yet merged into symbols, semantic
+analysis, Schema IR, or backend output planning.
+
+### Scope and identity
+
+Implemented:
+
+* YAML imports as a sequence of non-empty scalar relative paths;
+* canonical source-file loading through the existing FileSystem;
+* one SourceManager buffer per canonical source file;
+* CompilerContext source-unit records and import edges;
+* root versus transitive-import metadata;
+* transitive graph traversal and duplicate-load suppression;
+* source-unit identity based on declared namespace plus primary record;
+* duplicate source-unit identity diagnostics;
+* import-cycle diagnostics with a path and related import edges;
+* deterministic dependency-first depth-first ordering.
+
+Filesystem identity is the FileSystem normalize_path result. The same file
+reached through ./dep.yaml and sub/../dep.yaml is loaded once. This is
+distinct from declared namespace identity. Two different canonical files with
+the same namespace/primary-record identity are rejected with BC2406 and a
+related previous declaration location. Repeated imports of the same file are
+valid. Different primary records in one namespace are not rejected by the
+graph layer; declaration policy remains a later semantic concern.
+
+CompilerContext owns SourceUnit records containing canonical path, identity,
+namespace FQN, SourceFileId, source range, root marker, and ordered
+SourceUnitImport edges. It stores graph metadata only, not symbols, semantic
+models, Schema IR, or backend dependencies.
+
+### Import resolution and graph behavior
+
+The supported import form is:
+
+    imports:
+      - ../shared/shared.brd
+      - ./local.brd
+
+Each path is resolved relative to the importing source file's canonical
+parent directory and normalized through the existing filesystem abstraction.
+No include search paths, environment lookup, registries, or namespace-to-file
+discovery were added.
+
+Graph construction uses dependency-first DFS in declared import order. A
+diamond visits the shared dependency once, then its first parent, second
+parent, and finally the root. Each edge retains requested path, resolved path,
+and source range.
+
+Missing imports produce BC2404. Imported YAML parse/decode/normalization
+errors use existing lower-level passes and the imported file's SourceFileId.
+Cycles produce BC2405 at the closing import and include a path such as
+a.yaml -> b.yaml -> a.yaml, with related cycle-edge locations. Duplicate
+source-unit identities produce BC2406. An invalid root SourceFileId produces
+BC2407. Failures return no compilation result and prevent backend generation.
+
+### Entry-point and boundary
+
+YamlCompiler::compile() invokes graph loading before the existing root
+pipeline. The root normalized document then follows the unchanged
+NamespaceBuilder, SemanticValidator, LayoutComputer, SchemaIrBuilder, and
+SchemaIrValidator sequence.
+
+The CLI still accepts one explicit root input. --list-outputs does not add
+imported outputs in this PR; graph metadata remains available to the later
+output-planning PR. No cross-namespace symbol lookup or external semantic
+resolution is performed.
+
+### Tests and documentation
+
+Added frontend execution coverage for a root with no imports, a transitive
+diamond, normalized repeated paths, deterministic ordering, root metadata,
+cycle rejection, duplicate identity rejection, and missing imports. The YAML
+decoder test verifies path preservation; the old non-empty-import failure test
+now verifies the graph-level missing-file diagnostic.
+
+Updated compiler context, frontend, source-schema, YAML, tool, schema-language,
+compiler-architecture, and installed-tool documentation. The documentation
+states that imports are loaded and validated while external type resolution
+and imported backend output generation remain future work.
+
+### Compatibility impact
+
+Schema IR changed: no. Imported declarations are not merged into IR.
+
+BRF changed: no.
+
+Runtime changed: no.
+
+Generated-code API epochs changed: no. C remains at epoch 2 and C++/Python
+runtime callable contracts are unchanged. No backend production code changed
+and no cross-namespace generated code is emitted.
+
+### Validation
+
+Focused validation passed:
+
+* yaml_schema_decoder_test;
+* yaml_compiler_test, including the graph tests;
+* git diff --check.
+
+Native validation passed `cmake --preset debug`, the native full CTest suite
+30/30 before Docker validation, and restored native focused validation 9/9.
+The restored native full rebuild is blocked only by pre-existing Clang
+`-Werror` signed/unsigned warnings at
+`tests/backend/backend_codegen_test.cpp:436` and
+`tests/tools/schema_compiler_tool_test.cpp:513`; no PR-135 source warning or
+error was reported.
+
+Docker/Linux/GCC clean configure and build passed, followed by full Docker
+CTest 30/30. Those suites included installed package, downstream consumer,
+Python packaging, schema compiler, and C/C++/Python interoperability tests.
+Pre-existing `.vscode/`, `quarry-main.tgz`, and Python packaging artifacts
+remain untouched.
+
+### Known limitations and next PR
+
+Imported units are not yet entered into global symbols or semantic analysis.
+They do not generate backend files, and --list-outputs remains root-only.
+Qualified references, aggregate Schema IR, backend dependencies, record-cycle
+policy, aliases, wildcard imports, re-exports, and multi-record YAML remain
+out of scope.
+
+Recommend PR-136 — Global Symbol Index and Qualified Type Resolution. It
+should consume the context-owned graph, build globally unique record/enum
+identities, resolve local and fully qualified references before Schema IR
+construction, and add semantic diagnostics without changing BRF, runtimes, or
+generated-code epochs.
+
+### PR-135 files changed
+
+* compiler/context/compiler_context.cpp
+* compiler/context/compiler_context.hpp
+* compiler/context/README.md
+* compiler/frontend/yaml_compiler.cpp
+* compiler/frontend/README.md
+* compiler/source_schema/source_schema.cpp
+* compiler/source_schema/source_schema.hpp
+* compiler/source_schema/README.md
+* compiler/yaml/README.md
+* compiler/yaml/schema_decoder.cpp
+* docs/compiler-architecture.md
+* docs/schema-compiler-tool-distribution.md
+* docs/specifications/schema-language.md
+* tests/frontend/yaml_compiler_test.cpp
+* tests/yaml/schema_decoder_test.cpp
+* tools/README.md
+* REPORT.md
+
+Final assessment: PR-135 establishes the source-unit loading and context
+foundation requested by PR-134 while preserving current single-source
+compilation and the explicit backend boundary. No commit or push has been
+performed yet.
+
+### PR-134 files changed
+
+* `REPORT.md`
