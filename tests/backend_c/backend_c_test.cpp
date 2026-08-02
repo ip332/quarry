@@ -185,15 +185,7 @@ TEST(BackendCTest, EnumValueOutsideInt32RangeFailsGenerationWithClearDiagnostic)
     EXPECT_TRUE(result.files.empty());
 }
 
-TEST(BackendCTest, UnsupportedFieldTypeFailsGenerationWithClearDiagnosticNamingFieldAndRecord) {
-    // Arrays of string/bytes elements, and cross-namespace or
-    // negative-valued enum/record references (plain or array-element),
-    // remain unsupported after PR-108 through PR-114 (scalars,
-    // same-namespace enums, bounded strings/bytes, bounded arrays of
-    // scalar/enum/same-namespace-record elements, and same-namespace
-    // nested records are all supported as of PR-114). Uses `array<string>`
-    // as a representative still-unsupported type (explicitly out of scope
-    // for every PR to date: arrays of string/bytes elements).
+TEST(BackendCTest, ArrayOfStringGeneratesNamedElementType) {
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
@@ -211,15 +203,17 @@ TEST(BackendCTest, UnsupportedFieldTypeFailsGenerationWithClearDiagnosticNamingF
 
     Backend backend;
     const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
-    ASSERT_FALSE(result.success);
-    EXPECT_NE(result.error_message.find("telemetry.Sample.label"), std::string::npos);
-    EXPECT_TRUE(result.files.empty());
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 2U);
+    EXPECT_NE(result.files[0].content.find(
+                  "} telemetry_Sample_array_0_string_element_t;"), std::string::npos);
+    EXPECT_NE(result.files[0].content.find(
+                  "telemetry_Sample_array_0_string_element_t label[4];"), std::string::npos);
 
     // plan() must fail the same way generate() does -- the two must never
     // diverge (see compiler/backend_c/README.md).
     const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
-    ASSERT_FALSE(plan_result.success);
-    EXPECT_EQ(plan_result.error_message, result.error_message);
+    ASSERT_TRUE(plan_result.success) << plan_result.error_message;
 }
 
 TEST(BackendCTest, MixedSupportedAndUnsupportedFieldsFailsRecordAsAWhole) {
@@ -247,9 +241,9 @@ TEST(BackendCTest, MixedSupportedAndUnsupportedFieldsFailsRecordAsAWhole) {
 
     Backend backend;
     const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
-    ASSERT_FALSE(result.success);
-    EXPECT_NE(result.error_message.find("telemetry.Sample.label"), std::string::npos);
-    EXPECT_TRUE(result.files.empty());
+    ASSERT_TRUE(result.success) << result.error_message;
+    EXPECT_NE(result.files[0].content.find("telemetry_Sample_array_1_string_element_t label[4];"),
+              std::string::npos);
 }
 
 TEST(BackendCTest, GeneratesScalarStructFieldsAndCodecDeclarations) {
@@ -853,7 +847,7 @@ TEST(BackendCTest, ArrayFieldEncodedSizeDoesNotValidateBoundsOrMembership) {
     EXPECT_EQ(encoded_size_body.find("BOUNDS_EXCEEDED"), std::string::npos);
 }
 
-TEST(BackendCTest, ArrayOfUnsupportedElementTypeFailsWithClearDiagnostic) {
+TEST(BackendCTest, ArrayOfBytesGeneratesNamedElementType) {
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
@@ -865,16 +859,17 @@ TEST(BackendCTest, ArrayOfUnsupportedElementTypeFailsWithClearDiagnostic) {
     field->set_name("labels");
     field->set_field_index(0);
     field->mutable_type()->mutable_array()->set_max_elements(4);
-    field->mutable_type()->mutable_array()->mutable_element_type()->mutable_string()->
-        set_max_bytes(8);
+    field->mutable_type()->mutable_array()->mutable_element_type()->mutable_bytes()->set_max_bytes(
+        8);
     assert_valid(schema_ir);
 
     Backend backend;
     const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
-    ASSERT_FALSE(result.success);
-    EXPECT_NE(result.error_message.find("telemetry.Sample.labels"), std::string::npos);
-    EXPECT_NE(result.error_message.find("array"), std::string::npos);
-    EXPECT_TRUE(result.files.empty());
+    ASSERT_TRUE(result.success) << result.error_message;
+    EXPECT_NE(result.files[0].content.find(
+                  "} telemetry_Sample_array_0_bytes_element_t;"), std::string::npos);
+    EXPECT_NE(result.files[0].content.find(
+                  "telemetry_Sample_array_0_bytes_element_t labels[4];"), std::string::npos);
 }
 
 TEST(BackendCTest, ArrayOfCrossNamespaceEnumFailsWithClearDiagnostic) {

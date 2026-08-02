@@ -126,10 +126,10 @@ C is the second supported backend language (`--language c`), currently
 covering **only** records whose fields are `bool`, fixed-width signed/unsigned
 integers, `f32`/`f64`, bounded `string`/`bytes` fields, enum references
 declared in the *same namespace* as the referencing record, bounded arrays
-of those scalar/same-namespace-enum/same-namespace-record element kinds,
+of those scalar/same-namespace-enum/string/bytes/record element kinds,
 or a record reference to another record declared in the *same namespace*
-(embedded by value, no pointer or heap allocation -- no arrays of
-string/bytes elements, or cross-namespace enum/record references, yet),
+(embedded by value, no pointer or heap allocation -- cross-namespace
+enum/record references remain unsupported),
 with real BRF encode/decode backed by the installed `Quarry::runtime_c` C
 runtime and verified byte-for-byte wire-compatible with the C++ backend,
 including identical unknown-enum-value rejection (plain field or array

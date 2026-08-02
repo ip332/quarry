@@ -43,6 +43,9 @@
 #ifndef QUARRY_TEST_CXX_COMPILER
 #error "QUARRY_TEST_CXX_COMPILER must be defined"
 #endif
+#ifndef QUARRY_TEST_C_COMPILER
+#error "QUARRY_TEST_C_COMPILER must be defined"
+#endif
 #ifndef QUARRY_TEST_REPO_INCLUDE_DIR
 #error "QUARRY_TEST_REPO_INCLUDE_DIR must be defined"
 #endif
@@ -633,7 +636,7 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
         << "Python did not reject malformed UTF-8 in the label field";
 }
 
-TEST(PythonCppCCodecInteropTest, VariableWidthArraysAreCompatibleWithCpp) {
+TEST(PythonCppCCodecInteropTest, VariableWidthArraysAreCompatibleAcrossAllBackends) {
     const std::string python3_executable = QUARRY_TEST_PYTHON3;
     if (python3_executable.empty()) {
         GTEST_SKIP() << "python3 interpreter not found; skipping Python/C++ interop test";
@@ -641,6 +644,7 @@ TEST(PythonCppCCodecInteropTest, VariableWidthArraysAreCompatibleWithCpp) {
 
     const std::filesystem::path root = make_temp_directory("variable-arrays");
     const std::filesystem::path generated_cpp = root / "generated_cpp";
+    const std::filesystem::path generated_c = root / "generated_c";
     const std::filesystem::path generated_python = root / "generated_python";
 
     quarry::compiler::schema_ir::SchemaIrModel schema_ir;
@@ -684,6 +688,20 @@ TEST(PythonCppCCodecInteropTest, VariableWidthArraysAreCompatibleWithCpp) {
         write_text_file(generated_cpp / file.path, file.content);
     }
 
+    quarry::compiler::backend_c::Backend c_backend;
+    quarry::compiler::backend_c::CodegenOptions c_options;
+    c_options.output_directory = generated_c.string();
+    const auto c_result = c_backend.generate(schema_ir, c_options);
+    ASSERT_TRUE(c_result.success) << c_result.error_message;
+    std::filesystem::path generated_c_source;
+    for (const auto& file : c_result.files) {
+        write_text_file(generated_c / file.path, file.content);
+        if (std::filesystem::path(file.path).extension() == ".c") {
+            generated_c_source = generated_c / file.path;
+        }
+    }
+    ASSERT_FALSE(generated_c_source.empty());
+
     quarry::compiler::backend_python::Backend python_backend;
     quarry::compiler::backend_python::CodegenOptions python_options;
     python_options.output_directory = generated_python.string();
@@ -704,10 +722,10 @@ TEST(PythonCppCCodecInteropTest, VariableWidthArraysAreCompatibleWithCpp) {
 
 static acme::telemetry::Sample make_sample() {
   acme::telemetry::SampleBuilder builder;
-  if (!builder.set_labels(std::vector<std::string>{"", std::string("caf\xC3\xA9"), "world"}))
+  if (!builder.set_labels(std::vector<std::string>{"", std::string("caf\xC3\xA9"), "12345678"}))
     return {};
   if (!builder.set_blobs(std::vector<std::vector<std::byte>>{
-          {}, {std::byte{0x00U}, std::byte{0xFFU}, std::byte{0x80U}}}))
+          {}, {std::byte{0x00U}, std::byte{0xFFU}, std::byte{0x80U}, std::byte{0x7FU}}}))
     return {};
   return builder.build();
 }
@@ -716,12 +734,13 @@ static bool check_sample(const acme::telemetry::Sample& sample) {
   if (!sample.has_labels() || sample.labels()->size() != 3 ||
       (*sample.labels())[0] != "" ||
       (*sample.labels())[1] != std::string("caf\xC3\xA9") ||
-      (*sample.labels())[2] != "world") return false;
+      (*sample.labels())[2] != "12345678") return false;
   if (!sample.has_blobs() || sample.blobs()->size() != 2 ||
-      !(*sample.blobs())[0].empty() || (*sample.blobs())[1].size() != 3 ||
+      !(*sample.blobs())[0].empty() || (*sample.blobs())[1].size() != 4 ||
       (*sample.blobs())[1][0] != std::byte{0x00U} ||
       (*sample.blobs())[1][1] != std::byte{0xFFU} ||
-      (*sample.blobs())[1][2] != std::byte{0x80U}) return false;
+      (*sample.blobs())[1][2] != std::byte{0x80U} ||
+      (*sample.blobs())[1][3] != std::byte{0x7FU}) return false;
   return true;
 }
 
@@ -762,13 +781,94 @@ int main(int argc, char** argv) {
         shell_quote(cpp_source.string()) + " -o " + shell_quote(cpp_binary.string());
     ASSERT_EQ(run_and_get_exit_code(compile_cpp), 0) << compile_cpp;
 
+    constexpr std::string_view c_harness = R"c(
+#include "acme/telemetry.generated.h"
+#include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
+
+static void make_sample(acme_telemetry_Sample_t* sample) {
+  acme_telemetry_Sample_init(sample);
+  sample->has_labels = true;
+  sample->labels_count = 3U;
+  memcpy(sample->labels[0].value, "", 1U);
+  sample->labels[0].length = 0U;
+  memcpy(sample->labels[1].value, "caf\xC3\xA9", 5U);
+  sample->labels[1].length = 5U;
+  memcpy(sample->labels[2].value, "12345678", 8U);
+  sample->labels[2].length = 8U;
+  sample->has_blobs = true;
+  sample->blobs_count = 2U;
+  sample->blobs[0].length = 0U;
+  sample->blobs[1].value[0] = 0x00U;
+  sample->blobs[1].value[1] = 0xFFU;
+  sample->blobs[1].value[2] = 0x80U;
+  sample->blobs[1].value[3] = 0x7FU;
+  sample->blobs[1].length = 4U;
+}
+
+static int check_sample(const acme_telemetry_Sample_t* sample) {
+  return sample->has_labels && sample->labels_count == 3U &&
+         sample->labels[0].length == 0U && sample->labels[1].length == 5U &&
+         memcmp(sample->labels[1].value, "caf\xC3\xA9", 5U) == 0 &&
+         sample->labels[2].length == 8U &&
+         memcmp(sample->labels[2].value, "12345678", 8U) == 0 &&
+         sample->has_blobs && sample->blobs_count == 2U &&
+         sample->blobs[0].length == 0U && sample->blobs[1].length == 4U &&
+         sample->blobs[1].value[0] == 0x00U && sample->blobs[1].value[1] == 0xFFU &&
+         sample->blobs[1].value[2] == 0x80U && sample->blobs[1].value[3] == 0x7FU;
+}
+
+int main(int argc, char** argv) {
+  if (argc < 3) return 20;
+  if (strcmp(argv[1], "encode") == 0) {
+    acme_telemetry_Sample_t sample;
+    uint8_t encoded[256];
+    make_sample(&sample);
+    const acme_telemetry_Sample_encode_result_t result =
+        acme_telemetry_Sample_encode(&sample, encoded, sizeof(encoded));
+    if (result.status != QUARRY_C_STATUS_OK) return 1;
+    FILE* output = fopen(argv[2], "wb");
+    if (output == NULL) return 2;
+    const size_t written = fwrite(encoded, 1U, result.bytes_written, output);
+    fclose(output);
+    return written == result.bytes_written ? 0 : 3;
+  }
+  FILE* input = fopen(argv[2], "rb");
+  if (input == NULL) return 4;
+  uint8_t data[512];
+  const size_t length = fread(data, 1U, sizeof(data), input);
+  fclose(input);
+  if (strcmp(argv[1], "decode") == 0) {
+    const acme_telemetry_Sample_decode_result_t result =
+        acme_telemetry_Sample_decode(data, length);
+    return result.status == QUARRY_C_STATUS_OK && check_sample(&result.value) ? 0 : 1;
+  }
+  if (strcmp(argv[1], "decode_expect_failure") == 0) {
+    return acme_telemetry_Sample_decode(data, length).status == QUARRY_C_STATUS_OK ? 1 : 0;
+  }
+  return 20;
+}
+)c";
+    const std::filesystem::path c_source = root / "c_harness.c";
+    const std::filesystem::path c_binary = root / "c_harness";
+    write_text_file(c_source, c_harness);
+    const std::string compile_c =
+        shell_quote(QUARRY_TEST_C_COMPILER) +
+        " -std=c99 -Wall -Wextra -Wpedantic -Werror -I" +
+        shell_quote(generated_c.string()) + " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) +
+        " -I" + shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
+        shell_quote(c_source.string()) + " " + shell_quote(generated_c_source.string()) +
+        " -o " + shell_quote(c_binary.string());
+    ASSERT_EQ(run_and_get_exit_code(compile_c), 0) << compile_c;
+
     constexpr std::string_view python_harness = R"py(
 import sys
 from acme.telemetry.schema import Sample
 
 def make_sample():
-    return Sample(labels=["", "café", "world"],
-                  blobs=[b"", bytes([0, 255, 128])])
+    return Sample(labels=["", "café", "12345678"],
+                  blobs=[b"", bytes([0, 255, 128, 127])])
 
 mode, path = sys.argv[1], sys.argv[2]
 if mode == "encode":
@@ -802,15 +902,23 @@ else:
 
     const std::filesystem::path cpp_encoded = root / "cpp_encoded.bin";
     const std::filesystem::path python_encoded = root / "python_encoded.bin";
+    const std::filesystem::path c_encoded = root / "c_encoded.bin";
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) + " encode " +
+                                    shell_quote(c_encoded.string())), 0);
     ASSERT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " encode " +
                                     shell_quote(cpp_encoded.string())),
              0);
     ASSERT_EQ(run_python("encode", python_encoded), 0);
+    EXPECT_EQ(read_binary_file(c_encoded), read_binary_file(cpp_encoded));
     EXPECT_EQ(read_binary_file(cpp_encoded), read_binary_file(python_encoded));
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) + " decode " +
+                                    shell_quote(cpp_encoded.string())), 0);
     EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " decode " +
                                     shell_quote(python_encoded.string())),
              0);
     EXPECT_EQ(run_python("decode", cpp_encoded), 0);
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) + " decode " +
+                                    shell_quote(python_encoded.string())), 0);
 
     const std::filesystem::path trailing = root / "trailing.bin";
     std::string trailing_bytes = read_binary_file(cpp_encoded);
@@ -822,7 +930,40 @@ else:
     EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) +
                                     " decode_expect_failure " + shell_quote(trailing.string())),
              0);
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) +
+                                    " decode_expect_failure " + shell_quote(trailing.string())),
+             0);
     EXPECT_EQ(run_python("decode_expect_failure", trailing), 0);
+
+    const std::string valid_array_prefix =
+        std::string("\x03\x00\x05", 3) + "caf" + std::string("\xC3\xA9", 2);
+    const std::string valid_encoded = read_binary_file(cpp_encoded);
+    const std::size_t array_prefix = valid_encoded.find(valid_array_prefix);
+    ASSERT_NE(array_prefix, std::string::npos);
+
+    std::string oversized_count = valid_encoded;
+    oversized_count[array_prefix] = '\x04';
+    const std::filesystem::path oversized_count_file = root / "oversized_count.bin";
+    write_text_file(oversized_count_file, oversized_count);
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) +
+                                    " decode_expect_failure " + shell_quote(oversized_count_file.string())),
+             0);
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) +
+                                    " decode_expect_failure " + shell_quote(oversized_count_file.string())),
+             0);
+    EXPECT_EQ(run_python("decode_expect_failure", oversized_count_file), 0);
+
+    std::string oversized_element = valid_encoded;
+    oversized_element[array_prefix + 1U] = '\x09';
+    const std::filesystem::path oversized_element_file = root / "oversized_element.bin";
+    write_text_file(oversized_element_file, oversized_element);
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) +
+                                    " decode_expect_failure " + shell_quote(oversized_element_file.string())),
+             0);
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) +
+                                    " decode_expect_failure " + shell_quote(oversized_element_file.string())),
+             0);
+    EXPECT_EQ(run_python("decode_expect_failure", oversized_element_file), 0);
 }
 
 TEST(PythonCppCCodecInteropTest, NestedRecordsAreByteForByteCompatibleAcrossAllBackends) {

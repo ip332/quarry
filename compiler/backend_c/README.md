@@ -1,9 +1,10 @@
 # Backend (C)
 
 **Status: scalar, enum, bounded string, bounded bytes, bounded array (of
-scalar, same-namespace-enum, or same-namespace-record elements), and
-same-namespace nested record field codec (PR-108/PR-109/PR-110/PR-111/
-PR-112/PR-113/PR-114). Arrays of string/bytes elements remain unsupported,
+scalar, same-namespace-enum, bounded string, bounded bytes, or
+same-namespace-record elements), and same-namespace nested record field
+codec (PR-108/PR-109/PR-110/PR-111/PR-112/PR-113/PR-114/PR-131).
+Arrays of string/bytes elements are now supported,
 and cross-namespace references (plain enum/record fields, or as array
 elements) remain unsupported.** See `docs/design/c-backend.md` for the
 full proposed design this is an increment of, and `jira/backlog.md`'s
@@ -50,14 +51,14 @@ Current C generation behavior:
   "String fields" below.
 * **bounded bytes fields are supported** -- see "Supported field types" and
   "Bytes fields" below.
-* **bounded arrays of scalar or same-namespace-enum elements are
+* **bounded arrays of scalar, same-namespace-enum, bounded string, or
+  bounded bytes elements are
   supported** -- see "Supported field types" and "Array fields" below.
 * **same-namespace nested record fields are supported** -- see "Supported
   field types" and "Nested record fields" below.
 * **bounded arrays of same-namespace record elements are supported** --
-  see "Supported field types" and "Record array fields" below. Arrays of
-  string/bytes elements and cross-namespace record references (plain or
-  array-element) remain unsupported.
+  see "Supported field types" and "Record array fields" below. Cross-
+  namespace record references (plain or array-element) remain unsupported.
 
 ## Supported field types (PR-108/PR-109/PR-110/PR-111/PR-112/PR-113/PR-114)
 
@@ -77,8 +78,9 @@ Record fields are supported when their Schema IR type is one of:
 * `bytes` (see "Bytes fields" below) -- the same schema-validator-enforced
   positive `max_bytes` guarantee applies identically
 * an array (see "Array fields" and "Record array fields" below) whose
-  element type is a scalar primitive, a same-namespace non-negative-valued
-  enum reference, or a same-namespace record reference -- exactly the
+  element type is a scalar primitive, bounded string/bytes, a
+  same-namespace non-negative-valued enum reference, or a same-namespace
+  record reference -- exactly the
   plain-field element kinds this backend already supports, applied
   element-wise; every array field has a schema-validator-enforced positive
   `max_elements` bound by the time backend_c sees it (the same
@@ -89,7 +91,7 @@ Record fields are supported when their Schema IR type is one of:
 
 No new schema types were invented to support any of these.
 
-**Any other field -- including arrays of string/bytes elements, a
+**Any other field -- including a
 cross-namespace nested record reference (plain or array-element), or a
 cross-namespace/negative-valued enum reference (either as a plain field or
 as an array element type) -- fails generation with a diagnostic naming the
@@ -98,9 +100,8 @@ record and field** (e.g. `backend_c: field
 yet`). **A record with a mix of supported and unsupported fields fails as
 a whole** -- there is no partial generation
 that silently drops the unsupported field. Deferred to later increments:
-arrays of records, arrays of string/bytes elements, cross-namespace nested
-record fields, and cross-namespace/negative-valued enum fields (plain or
-array-element).
+  cross-namespace nested record fields and cross-namespace/negative-valued
+  enum fields (plain or array-element).
 
 ## Generated public data model
 
@@ -474,17 +475,13 @@ type, and no generated per-element wrapper. `<field>_count` is never a
 compile-time constant (presence and length vary per record instance), the
 same reasoning already applied to string/bytes `<field>_length`.
 
-**Supported element types (as of PR-112) were exactly this backend's
-existing plain-field element kinds, applied element-wise:** `bool`,
-fixed-width signed/unsigned integers, `f32`/`f64`, and same-namespace
-non-negative-valued enums. This is not a coincidence -- `lower_field_
-encoding`'s array branch reuses `lower_scalar_field_type` and (via a small
-refactor extracting the enum-lookup logic into `lower_enum_reference`,
-shared between plain enum fields and array-of-enum element resolution) the
-exact same `collect_enum_catalog`-backed same-namespace/non-negative-values
-check a plain enum field already enforces. Arrays of string or bytes
-elements, and nested arrays, remain unsupported and fail generation with a
-diagnostic naming the field -- the diagnostic specifically says "array
+**Supported element types:** `bool`, fixed-width signed/unsigned integers,
+`f32`/`f64`, bounded strings, bounded bytes, and same-namespace
+non-negative-valued enums. Scalar and enum elements reuse the existing
+plain-field lowering and codecs. String/bytes elements use named,
+fixed-capacity element structs and the existing varuint and bounded-copy
+runtime primitives. Nested arrays remain unsupported and fail generation
+with a diagnostic naming the field -- the diagnostic specifically says "array
 whose element type..." rather than reusing the generic plain-field "has a
 type the C backend does not support yet" message, since an unsupported
 array element is a materially different situation (the array construct

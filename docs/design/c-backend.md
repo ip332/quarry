@@ -61,10 +61,10 @@ for bytes decode, back to the "no bump needed" pattern PR-109 established.
 See `compiler/backend_c/README.md`'s "Bytes fields" section for the full
 rationale.
 
-PR-112 implemented bounded (fixed-capacity) array field support, restricted
-to arrays whose element type is a scalar primitive or a same-namespace,
-non-negative-valued enum (arrays of string, bytes, or record-reference
-elements, and nested arrays, remain unsupported). Section 1's struct-based
+PR-112 implemented bounded (fixed-capacity) array field support, initially
+restricted to scalar and same-namespace enum elements. PR-131 extends it to
+bounded string and bytes elements using named fixed-capacity element structs;
+only nested arrays remain unsupported. Section 1's struct-based
 recommendation extends directly: a generated array field is a
 fixed-capacity array of the element's own C type (exactly what a plain
 field of that element type would use), sized from `max_elements`, plus an
@@ -79,8 +79,7 @@ the Field Directory itself) plus the existing per-width scalar
 back to the "no bump needed" pattern PR-109 and PR-111 established. See
 `compiler/backend_c/README.md`'s "Array fields" section for the full
 rationale (representation decision, encode/decode ordering, scratch-buffer
-sizing, and why arrays of string/bytes/record elements and nested arrays
-remain out of scope).
+sizing, and why nested arrays remain out of scope).
 
 PR-113 implemented same-namespace nested record field support: a record
 embedding another record declared in the same namespace, by value. Section
@@ -145,8 +144,7 @@ design proposal for later PRs; the rest of this document is unchanged from
 PR-106 and should be read as forward-looking design, not a description of
 current behavior -- in particular, cross-namespace enum/nested-record
 field support (via an include-dependency mechanism this backend does not
-have yet) and arrays of string/bytes elements remain proposed, not
-implemented.
+have yet) remain proposed, not implemented.
 
 ## Purpose
 
@@ -316,8 +314,9 @@ has it for reasons unrelated to any C backend.
 * **Bytes.** Fixed-capacity `uint8_t` array member sized `max_bytes` plus a
   `uint32_t <field>_len` member. No NUL terminator concern (arbitrary bytes).
 * **Arrays.** Fixed-capacity array of the element type, `[max_elements]`,
-  plus a `uint32_t <field>_count` member. Arrays of `string`/`bytes` are
-  arrays of the fixed-capacity string/bytes shape above. Arrays of records
+  plus a `uint32_t <field>_count` member. Arrays of `string`/`bytes` use
+  named fixed-capacity element structs with inline storage and a per-element
+  `uint32_t length`. Arrays of records
   are arrays of the nested record struct, by value.
 * **Nested records.** Embedded inline, by value, as a normal (possibly
   large) struct member — not a pointer, not heap-allocated. A `has_<field>`
@@ -705,9 +704,8 @@ here are a summary pointer to it, not a replacement for it.**
    `[DONE — PR-111]`
 6. **Arrays** (of the scalar/enum/string/bytes kinds above) — proves the
    `[max_elements]` fixed-capacity-array-plus-count shape once each element
-   kind it can contain already exists. `[PARTIAL — PR-112 shipped arrays of
-   scalar/enum elements; arrays of string/bytes elements remain
-   unimplemented, tracked as the next feature PR]`
+   kind it can contain already exists. `[DONE — PR-112 and PR-131 shipped
+   scalar/enum/string/bytes elements and same-namespace record elements]`
 7. **Nested records** — proves by-value embedding and the recursive
    worst-case-size property (Section 2), and first exercises the codec
    path/offset propagation across a nesting boundary (Section 4).
@@ -750,7 +748,7 @@ three separate same-namespace-only restrictions -- enum fields, nested
 record fields, record-array elements -- all sharing the identical "no
 cross-generated-file include-dependency mechanism" root cause). See the
 PR-115 audit's recommendation for how remaining work should be sequenced
-relative to arrays of string/bytes elements.
+relative to cross-namespace references.
 
 ---
 

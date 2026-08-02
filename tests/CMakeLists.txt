@@ -177,6 +177,7 @@ target_link_libraries(python_cpp_c_codec_interop_test PRIVATE quarry_schema_ir_w
 add_dependencies(python_cpp_c_codec_interop_test quarry_schema_compiler)
 target_compile_definitions(python_cpp_c_codec_interop_test PRIVATE
     QUARRY_SCHEMA_COMPILER_TOOL="$<TARGET_FILE:quarry_schema_compiler>"
+    QUARRY_TEST_C_COMPILER="${CMAKE_C_COMPILER}"
     QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
     QUARRY_TEST_REPO_INCLUDE_DIR="${CMAKE_SOURCE_DIR}/include"
     QUARRY_TEST_GENERATED_INCLUDE_DIR="${QUARRY_GENERATED_INCLUDE_DIR}"
