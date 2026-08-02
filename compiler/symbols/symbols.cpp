@@ -149,6 +149,26 @@ const Symbol* SymbolTable::resolve_unqualified(std::string_view name, const Scop
     return scope.find_enclosing(name);
 }
 
+const Scope* SymbolTable::resolve_namespace(
+    const source_schema::SourceSchemaQualifiedName& name, const Scope& scope) const {
+    if (name.parts.empty()) {
+        return nullptr;
+    }
+
+    const Symbol* symbol = resolve_unqualified(name.parts.front().text, scope);
+    if (!is_namespace_symbol(symbol)) {
+        return nullptr;
+    }
+
+    for (std::size_t index = 1; index < name.parts.size(); ++index) {
+        symbol = symbol->child_scope->find_local(name.parts[index].text);
+        if (!is_namespace_symbol(symbol)) {
+            return nullptr;
+        }
+    }
+    return symbol->child_scope;
+}
+
 const Symbol* SymbolTable::resolve_qualified(const source_schema::SourceSchemaQualifiedName& name,
                                              const Scope& scope) const {
     if (name.parts.empty()) {
@@ -204,8 +224,19 @@ SymbolTable::lookup_or_diagnostic(const source_schema::SourceSchemaQualifiedName
 
 SymbolTable NamespaceBuilder::build(const source_schema::NormalizedSourceSchemaDocument& schema,
                                     diagnostics::DiagnosticEngine& diagnostics) const {
+    const std::vector<const source_schema::NormalizedSourceSchemaDocument*> schemas{&schema};
+    return build(schemas, diagnostics);
+}
+
+SymbolTable NamespaceBuilder::build(
+    const std::vector<const source_schema::NormalizedSourceSchemaDocument*>& schemas,
+    diagnostics::DiagnosticEngine& diagnostics) const {
     SymbolTable model;
-    collect_source_schema(schema, model.global_scope(), diagnostics);
+    for (const source_schema::NormalizedSourceSchemaDocument* schema : schemas) {
+        if (schema != nullptr) {
+            collect_source_schema(*schema, model.global_scope(), diagnostics);
+        }
+    }
     return model;
 }
 
@@ -232,7 +263,6 @@ Scope& NamespaceBuilder::ensure_namespace_path(
 
     for (std::size_t index = 0; index < declaration.parts.size(); ++index) {
         const source_schema::SourceSchemaIdentifier& part = declaration.parts[index];
-        const bool is_last = index + 1 == declaration.parts.size();
         const Symbol* existing = current_scope->find_local(part.text);
 
         if (existing == nullptr) {
@@ -259,11 +289,6 @@ Scope& NamespaceBuilder::ensure_namespace_path(
             emit_duplicate(diagnostics, SymbolKind::Namespace, part.text, declaration_range,
                            existing->source_range);
             return *current_scope;
-        }
-
-        if (is_last) {
-            emit_duplicate(diagnostics, SymbolKind::Namespace, part.text, declaration_range,
-                           existing->source_range);
         }
 
         current_scope = const_cast<Scope*>(existing->child_scope);

@@ -19,7 +19,8 @@ It:
   type when the source model provides it
 * carries validated `max_elements` for bounded variable-length arrays
 * validates type-bearing normalized source-schema fields
-* reports unresolved type references
+* reports unresolved type references, including unknown qualified namespaces
+  and declarations
 * reports declarations that resolve successfully but are invalid in type
   position
 * reports unsupported nested arrays in the normalized source-schema path
@@ -50,12 +51,14 @@ remain layout responsibilities.
 The normative `.brd` YAML contract is defined in
 `docs/specifications/schema-language.md`.
 
-The semantic implementation consumes the normalized source-schema model. The
+The semantic implementation consumes one or more normalized source-schema
+documents. The
 legacy declaration-parser AST overload was removed in PR-049 after the
 remaining AST-derived semantic tests were migrated or retired.
 
-The production YAML frontend now passes normalized YAML source schema directly
-into symbol construction and semantic validation. The production YAML frontend
+The production YAML frontend now passes all normalized documents retained by
+the CompilerContext into compiler-wide symbol construction and semantic
+validation. The production YAML frontend
 also passes the normalized source schema directly into `SchemaIrBuilder`, so
 the YAML pipeline no longer uses a source-schema-to-AST compatibility
 projection.

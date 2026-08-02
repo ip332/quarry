@@ -2607,6 +2607,107 @@ foundation requested by PR-134 while preserving current single-source
 compilation and the explicit backend boundary. No commit or push has been
 performed yet.
 
+## PR-136 — Global Symbol Index and Qualified Type Resolution
+
+### Executive summary
+
+Implemented the compiler-side semantic-resolution slice of the cross-namespace
+architecture. `CompilerContext` now retains the normalized document for every
+source unit loaded by PR-135. The existing hierarchical `SymbolTable` and
+`NamespaceBuilder` consume that collection, and `SemanticValidator` validates
+all loaded documents against the resulting compiler-wide declaration index.
+Record and enum references are represented by canonical fully qualified names
+before layout and Schema IR lowering.
+
+### Scope and resolution policy
+
+The implementation adds global record/enum symbol construction, stable FQN
+identity, qualified lookup across the loaded import graph, local lookup
+preservation, same-namespace declarations across source units, and duplicate
+declaration diagnostics. Qualified names use the existing dotted syntax.
+
+Unqualified names retain current/enclosing-scope lookup; there is no implicit
+global search. Since the compiler context contains only the root and its
+transitive imports, qualified lookup cannot see an unimported source file.
+Duplicate declarations with the same FQN retain `BC4001`. Unknown qualified
+references now distinguish an unknown namespace/qualified type from a missing
+declaration in a known namespace in the existing `BC5001` message. Ambiguous
+unqualified lookup is not reachable under the explicit local-only rule and is
+not silently resolved.
+
+### Pipeline and boundaries
+
+The flow is now: load the source-unit graph; build one symbol index; validate
+all loaded normalized documents; then continue with the existing root-oriented
+layout and Schema IR path. No semantic resolution was moved into Schema IR or
+any backend.
+
+Imported declarations are indexed and semantically validated, but backend
+dependency generation, imported-output planning, and aggregate Schema IR
+emission are intentionally deferred. A root field that resolves to an external
+declaration still awaits PR-137's output/IR aggregation work; this is a
+deliberate boundary, not a second lookup path.
+
+### Tests
+
+Added semantic coverage for qualified record and enum references across source
+units, arrays of imported records, compiler-wide model collection, multiple
+declarations in one namespace, and duplicate global declaration diagnostics.
+Existing local-reference, unresolved-type, array, and single-source frontend
+tests remain covered.
+
+### Impact
+
+Schema IR changed: no. BRF changed: no. Runtimes changed: no. Generated-code
+API epochs changed: no (C remains epoch 2). Backend generation and dependency
+output changed: no.
+
+### Validation and limitations
+
+The focused semantic and YAML compiler tests passed: 25/25 and 9/9. The
+modified targets compile successfully. The native full build remains blocked
+by the pre-existing Clang `-Werror` signed/unsigned comparison at
+`tests/backend/backend_codegen_test.cpp:436`; no PR-136 source error was
+reported. The native CTest run executed 27 available tests successfully; two
+dependent binaries were unavailable because that baseline build stopped at
+the known warning. A clean Docker/Linux/GCC configure and build passed, and
+Docker CTest passed 30/30. The Docker suite also passed packaging,
+downstream, installed-compiler, and interoperability tests.
+
+`git diff --check` passed after native restoration.
+
+Pre-existing `.vscode/`, `quarry-main.tgz`, and Python packaging artifacts are
+untouched.
+
+Cross-namespace generated output remains incomplete: Schema IR aggregation,
+dependency-aware output planning, and C++/C/Python generated include/import
+relationships are not part of this PR. Multi-record YAML, aliases, wildcard
+imports, re-exports, visibility, BRF, runtimes, API epochs, diagnostic-path
+parity, and benchmarking remain out of scope.
+
+### Recommended next PR
+
+**PR-137 — Output Planning and Backend Dependency Generation** should consume
+the resolved compiler context and semantic model, aggregate the existing Schema
+IR representation as needed, plan imported outputs deterministically, and add
+backend-specific dependencies without moving name resolution into a backend.
+
+### Exact files changed in PR-136
+
+* `compiler/context/compiler_context.hpp`
+* `compiler/frontend/yaml_compiler.cpp`
+* `compiler/frontend/README.md`
+* `compiler/semantic/semantic.cpp`
+* `compiler/semantic/semantic.hpp`
+* `compiler/semantic/README.md`
+* `compiler/symbols/symbols.cpp`
+* `compiler/symbols/symbols.hpp`
+* `compiler/symbols/README.md`
+* `docs/compiler-architecture.md`
+* `jira/backlog.md`
+* `tests/semantic/semantic_smoke_test.cpp`
+* `REPORT.md`
+
 ### PR-134 files changed
 
 * `REPORT.md`

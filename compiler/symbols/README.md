@@ -25,8 +25,10 @@ scopes, but they no longer retain AST declaration pointers.
 
 Scopes own symbol records and nested child scopes.
 
-`NamespaceBuilder::build` consumes the normalized source-schema model. The
-legacy AST overload was removed in PR-049 after the remaining AST-derived
+`NamespaceBuilder::build` consumes one or more normalized source-schema
+documents. The YAML frontend supplies every document retained by the
+CompilerContext, so one invocation has one compiler-wide declaration index.
+The legacy AST overload was removed in PR-049 after the remaining AST-derived
 symbols tests were migrated or retired. Schema IR no longer consumes
 `SymbolTable` directly; the normalized source-schema path feeds Schema IR
 construction without a symbol-table input.
@@ -40,7 +42,9 @@ canonical FQN on each symbol.
 
 Unqualified lookup walks the current scope and enclosing scopes. Qualified
 lookup resolves the first component with unqualified lookup and then walks
-child namespace scopes component by component.
+child namespace scopes component by component. The frontend only loads the
+root and its transitive imports, so the table does not perform implicit lookup
+outside the imported source-unit graph.
 
 ## Diagnostics
 

@@ -72,6 +72,9 @@ public:
 
     [[nodiscard]] const Symbol* resolve_unqualified(std::string_view name,
                                                     const Scope& scope) const;
+    [[nodiscard]] const Scope*
+    resolve_namespace(const source_schema::SourceSchemaQualifiedName& name,
+                      const Scope& scope) const;
     [[nodiscard]] const Symbol*
     resolve_qualified(const source_schema::SourceSchemaQualifiedName& name,
                       const Scope& scope) const;
@@ -102,6 +105,10 @@ public:
     [[nodiscard]] SymbolTable
     build(const source_schema::NormalizedSourceSchemaDocument& schema,
           diagnostics::DiagnosticEngine& diagnostics) const;
+
+    [[nodiscard]] SymbolTable build(
+        const std::vector<const source_schema::NormalizedSourceSchemaDocument*>& schemas,
+        diagnostics::DiagnosticEngine& diagnostics) const;
 
 private:
     void collect_source_schema(const source_schema::NormalizedSourceSchemaDocument& schema,

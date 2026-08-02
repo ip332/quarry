@@ -115,9 +115,10 @@ The compiler pipeline is:
   decoding, and source-schema normalization into the neutral source-schema
   model.
 * The production-facing YAML frontend loads a root source unit and its
-  transitive relative-import graph, then feeds the root normalized source
-  schema into symbol construction, semantic validation, layout computation,
-  and Schema IR lowering. Cross-source type resolution is a later stage.
+  transitive relative-import graph, builds one compiler-wide symbol index, and
+  resolves record and enum references against that graph before layout
+  computation and Schema IR lowering. Backend dependency generation and
+  imported-output planning are later stages.
 * Legacy declaration-syntax source files flow only through the parser-owned
   AST compatibility surface. YAML source-unit imports are handled by the
   production frontend graph loader; legacy parser import declarations remain

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "compiler/diagnostics/diagnostic.hpp"
+#include "compiler/source_schema/source_schema.hpp"
 #include "compiler/support/file_system.hpp"
 #include "compiler/support/source_manager.hpp"
 
@@ -25,6 +26,7 @@ struct SourceUnit {
     support::SourceRange source_range = support::SourceRange::invalid();
     bool is_root = false;
     std::vector<SourceUnitImport> imports;
+    std::optional<source_schema::NormalizedSourceSchemaDocument> schema;
 };
 
 class CompilerContext {

@@ -128,6 +128,7 @@ private:
         source_unit.source_file_id = source_file_id;
         source_unit.source_range = document->source_range;
         source_unit.is_root = is_root;
+        source_unit.schema = *document;
 
         const auto previous_identity = identities_.find(source_unit.identity);
         if (previous_identity != identities_.end() &&
@@ -287,16 +288,23 @@ YamlCompilationResult YamlCompiler::compile(support::SourceFileId source_file_id
         return result;
     }
 
+    std::vector<const source_schema::NormalizedSourceSchemaDocument*> schemas;
+    schemas.reserve(context.source_units().size());
+    for (const context::SourceUnit& source_unit : context.source_units()) {
+        if (source_unit.schema.has_value()) {
+            schemas.push_back(&*source_unit.schema);
+        }
+    }
+
     symbols::NamespaceBuilder namespace_builder;
-    const symbols::SymbolTable symbol_table =
-        namespace_builder.build(*normalization_result, diagnostics);
+    const symbols::SymbolTable symbol_table = namespace_builder.build(schemas, diagnostics);
     if (has_fatal_diagnostics(diagnostics)) {
         return result;
     }
 
     semantic::SemanticValidator semantic_validator;
     const semantic::SemanticModel semantic_model =
-        semantic_validator.validate(*normalization_result, symbol_table, diagnostics);
+        semantic_validator.validate(schemas, symbol_table, diagnostics);
     if (has_fatal_diagnostics(diagnostics)) {
         return result;
     }

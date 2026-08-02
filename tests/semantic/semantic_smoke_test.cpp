@@ -156,6 +156,16 @@ struct NormalizedAnalysisOutput {
     return output;
 }
 
+[[nodiscard]] SemanticModel analyze_normalized_graph(
+    const std::vector<const NormalizedSourceSchemaDocument*>& schemas,
+    SymbolTable* symbol_table, DiagnosticEngine* symbol_diagnostics,
+    DiagnosticEngine* semantic_diagnostics) {
+    NamespaceBuilder namespace_builder;
+    *symbol_table = namespace_builder.build(schemas, *symbol_diagnostics);
+    SemanticValidator validator;
+    return validator.validate(schemas, *symbol_table, *semantic_diagnostics);
+}
+
 [[nodiscard]] std::string diagnostics_summary(const DiagnosticEngine& diagnostics) {
     std::ostringstream stream;
     for (const auto& diagnostic : diagnostics.diagnostics()) {
@@ -245,6 +255,77 @@ TEST(SemanticSmokeTest, AcceptsBuiltinFieldTypes) {
     expect_primitive_type(record->fields[3], SemanticPrimitiveType::F64);
     EXPECT_TRUE(output.semantic_diagnostics.empty())
         << diagnostics_summary(output.semantic_diagnostics);
+}
+
+TEST(SemanticSmokeTest, ResolvesQualifiedReferencesAcrossSourceUnits) {
+    auto imported = normalized_schema("vehicle.engine", "EngineConfig");
+    imported.enums.push_back(normalized_enum("EngineStatus", 0, 12));
+
+    auto root = normalized_schema("vehicle", "Telemetry");
+    root.fields = {
+        normalized_field("config", "vehicle.engine.EngineConfig"),
+        normalized_field("status", "vehicle.engine.EngineStatus"),
+        normalized_field("configs", "vehicle.engine.EngineConfig[]"),
+    };
+    root.fields[2].max_elements = 4;
+    root.fields[2].max_elements_range = root.fields[2].source_range;
+
+    const std::vector<const NormalizedSourceSchemaDocument*> schemas{&imported, &root};
+    SymbolTable symbol_table;
+    DiagnosticEngine symbol_diagnostics;
+    DiagnosticEngine semantic_diagnostics;
+    const SemanticModel model = analyze_normalized_graph(
+        schemas, &symbol_table, &symbol_diagnostics, &semantic_diagnostics);
+
+    ASSERT_TRUE(symbol_diagnostics.empty());
+    ASSERT_TRUE(semantic_diagnostics.empty());
+    const SemanticRecord* record = find_record(model, "vehicle.Telemetry");
+    ASSERT_NE(record, nullptr);
+    ASSERT_EQ(record->fields.size(), 3U);
+    expect_record_reference_type(record->fields[0], "vehicle.engine.EngineConfig");
+    expect_enum_reference_type(record->fields[1], "vehicle.engine.EngineStatus");
+    ASSERT_TRUE(record->fields[2].type.is_array());
+    ASSERT_NE(record->fields[2].type.array().element_type, nullptr);
+    ASSERT_TRUE(record->fields[2].type.array().element_type->is_record_reference());
+    EXPECT_EQ(record->fields[2].type.array().element_type->record_reference().canonical_target_fqn,
+              "vehicle.engine.EngineConfig");
+    EXPECT_NE(find_record(model, "vehicle.engine.EngineConfig"), nullptr);
+}
+
+TEST(SemanticSmokeTest, AllowsSameNamespaceDeclarationsAcrossSourceUnits) {
+    auto first = normalized_schema("vehicle", "Telemetry");
+    auto second = normalized_schema("vehicle", "Configuration");
+    const std::vector<const NormalizedSourceSchemaDocument*> schemas{&first, &second};
+    SymbolTable symbol_table;
+    DiagnosticEngine symbol_diagnostics;
+    DiagnosticEngine semantic_diagnostics;
+
+    const SemanticModel model = analyze_normalized_graph(
+        schemas, &symbol_table, &symbol_diagnostics, &semantic_diagnostics);
+
+    EXPECT_TRUE(symbol_diagnostics.empty());
+    EXPECT_TRUE(semantic_diagnostics.empty());
+    EXPECT_NE(symbol_table.lookup(normalized_qualified_name("vehicle.Configuration", 0, 21),
+                                  symbol_table.global_scope()),
+              nullptr);
+    EXPECT_EQ(model.records.size(), 2U);
+}
+
+TEST(SemanticSmokeTest, ReportsDuplicateGlobalDeclarationIdentity) {
+    auto first = normalized_schema("vehicle", "Telemetry");
+    auto second = normalized_schema("vehicle", "Telemetry");
+    const std::vector<const NormalizedSourceSchemaDocument*> schemas{&first, &second};
+    SymbolTable symbol_table;
+    DiagnosticEngine symbol_diagnostics;
+    DiagnosticEngine semantic_diagnostics;
+
+    (void)analyze_normalized_graph(schemas, &symbol_table, &symbol_diagnostics,
+                                   &semantic_diagnostics);
+
+    ASSERT_FALSE(symbol_diagnostics.empty());
+    EXPECT_EQ(symbol_diagnostics.diagnostics().front().id().str(), "BC4001");
+    EXPECT_NE(symbol_diagnostics.diagnostics().front().message().find("Telemetry"),
+              std::string::npos);
 }
 
 TEST(SemanticSmokeTest, NormalizesPrimitiveAliasesToCanonicalKinds) {

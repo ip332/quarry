@@ -106,10 +106,10 @@ constexpr std::string_view semantic_pass = "semantic";
 }
 
 void emit_unresolved_type(diagnostics::DiagnosticEngine& diagnostics, std::string_view name,
-                          support::SourceRange source_range) {
+                          support::SourceRange source_range, std::string_view reason) {
     diagnostics.emit(
         diagnostics::Diagnostic::create(diagnostic_id("BC5001"), diagnostics::Severity::Error,
-                                        "unresolved type '" + std::string(name) + "'")
+                                        std::string(reason) + " '" + std::string(name) + "'")
             .at(source_range)
             .from_pass(std::string(semantic_pass))
             .build());
@@ -210,7 +210,18 @@ resolve_named_type(const source_schema::NormalizedSourceSchemaTypeReference& typ
 
     const symbols::Symbol* symbol = symbol_model.resolve(type_reference.name, scope);
     if (symbol == nullptr) {
-        emit_unresolved_type(diagnostics, type_reference.name.text(), type_reference.source_range);
+        std::string_view reason = "unresolved type";
+        if (type_reference.name.parts.size() > 1U) {
+            source_schema::SourceSchemaQualifiedName namespace_name;
+            namespace_name.source_range = type_reference.name.source_range;
+            namespace_name.parts.assign(type_reference.name.parts.begin(),
+                                         type_reference.name.parts.end() - 1);
+            reason = symbol_model.resolve_namespace(namespace_name, scope) != nullptr
+                         ? "unknown declaration in namespace"
+                         : "unknown namespace or qualified type";
+        }
+        emit_unresolved_type(diagnostics, type_reference.name.text(), type_reference.source_range,
+                             reason);
         return std::nullopt;
     }
 
@@ -445,7 +456,25 @@ SemanticModel SemanticValidator::validate(
     const source_schema::NormalizedSourceSchemaDocument& schema,
     const symbols::SymbolTable& symbol_model,
     diagnostics::DiagnosticEngine& diagnostics) const {
-    return validate_source_schema(schema, symbol_model, diagnostics);
+    const std::vector<const source_schema::NormalizedSourceSchemaDocument*> schemas{&schema};
+    return validate(schemas, symbol_model, diagnostics);
+}
+
+SemanticModel SemanticValidator::validate(
+    const std::vector<const source_schema::NormalizedSourceSchemaDocument*>& schemas,
+    const symbols::SymbolTable& symbol_model,
+    diagnostics::DiagnosticEngine& diagnostics) const {
+    SemanticModel model;
+    for (const source_schema::NormalizedSourceSchemaDocument* schema : schemas) {
+        if (schema == nullptr) {
+            continue;
+        }
+        SemanticModel source_model = validate_source_schema(*schema, symbol_model, diagnostics);
+        for (SemanticRecord& record : source_model.records) {
+            model.records.push_back(std::move(record));
+        }
+    }
+    return model;
 }
 
 SemanticArrayType::SemanticArrayType() = default;

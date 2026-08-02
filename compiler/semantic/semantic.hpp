@@ -120,6 +120,11 @@ public:
     validate(const source_schema::NormalizedSourceSchemaDocument& schema,
              const symbols::SymbolTable& symbol_model,
              diagnostics::DiagnosticEngine& diagnostics) const;
+
+    [[nodiscard]] SemanticModel validate(
+        const std::vector<const source_schema::NormalizedSourceSchemaDocument*>& schemas,
+        const symbols::SymbolTable& symbol_model,
+        diagnostics::DiagnosticEngine& diagnostics) const;
 };
 
 } // namespace quarry::compiler::semantic
