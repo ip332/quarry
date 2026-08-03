@@ -280,6 +280,7 @@ target_include_directories(quarry_compiler_backend_c
 target_link_libraries(quarry_compiler_backend_c
     PUBLIC
         quarry_compiler_schema_ir
+        quarry_compiler_output_planning
         quarry_project_options
     PRIVATE
         quarry_schema_ir_warning_tweaks

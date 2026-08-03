@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -263,7 +264,7 @@ struct FieldEncoding;
 // in schema_ir.proto), and Schema IR itself never contains a nested array or
 // array-of-record for this backend to encounter (schema-language.md: "Nested
 // arrays... SHALL be rejected"). This PR supports arrays whose element type
-// is a scalar primitive, bounded string/bytes, or a same-namespace,
+// is a scalar primitive, bounded string/bytes, or an enum/record reference,
 // non-negative-valued enum -- exactly the plain-field element kinds this
 // backend already supports, applied element-wise. Variable-width string/bytes elements use the same
 // FieldEncoding flags as their plain fields and are rendered as named,
@@ -285,11 +286,8 @@ struct FieldEncoding;
 //
 // --- Nested record fields ---
 //
-// A record field references another record declared in the *same*
-// namespace (cross-namespace nested record fields are not yet supported,
-// for exactly the same reason cross-namespace enum field references
-// aren't -- see collect_record_catalog below and PR-109's identical
-// restriction). Per the BRF spec's "Nested Records" section, a nested
+// A record field references another record declared in the current or an
+// imported namespace. Per the BRF spec's "Nested Records" section, a nested
 // record field's wire payload is simply a *complete*, independently
 // decodable embedded BRF record (its own 16-byte Record Header, Field
 // Directory, and Payload) -- exactly what the referenced record's own
@@ -617,12 +615,25 @@ struct PlannedRecord {
 };
 
 struct PlannedNamespaceFile {
+    std::string namespace_fqn;
+    bool emits_output = true;
     std::string relative_header_path;
     std::string relative_source_path;
     std::string generated_include_path;
+    std::set<std::string> generated_includes;
     std::vector<PlannedEnum> enums;
     std::vector<PlannedRecord> records;
 };
+
+struct OutputSelection {
+    std::set<std::string> planned_namespaces;
+    std::set<std::string> emitting_namespaces;
+};
+
+[[nodiscard]] std::string generated_include_path_for_namespace(const CodegenOptions& options,
+                                                               std::string_view namespace_fqn) {
+    return file_stem_for_namespace(options, namespace_fqn) + options.header_extension;
+}
 
 [[nodiscard]] bool namespace_emits_file(const NamespaceIR& ns) {
     return ns.records_size() > 0 || ns.enums_size() > 0;
@@ -664,20 +675,13 @@ constexpr std::uint64_t kMaxVaruintBytesForUint64 = 10U;
 lower_enum_reference(std::uint64_t target_enum_ir_id, std::string_view current_namespace_fqn,
                      const EnumCatalog& catalog, std::string_view context_description,
                      std::string& error_message) {
+    (void)current_namespace_fqn;
+    (void)context_description;
     const auto catalog_it = catalog.find(target_enum_ir_id);
     if (catalog_it == catalog.end()) {
         return std::nullopt;
     }
     const EnumCatalogEntry& entry = catalog_it->second;
-    if (entry.owning_namespace_fqn != current_namespace_fqn) {
-        std::ostringstream stream;
-        stream << "backend_c: " << context_description << " references enum '" << entry.type_name
-               << "' declared in a different namespace ('" << entry.owning_namespace_fqn
-               << "'); cross-namespace enum field references are not yet supported "
-                  "(see docs/design/c-backend.md)";
-        error_message = stream.str();
-        return std::nullopt;
-    }
     if (!entry.all_non_negative) {
         std::ostringstream stream;
         stream << "backend_c: " << context_description
@@ -737,9 +741,9 @@ void collect_record_catalog(const NamespaceIR& ns, RecordCatalog& catalog) {
 // record catalog and the FQN of the namespace the reference occurs in.
 // Mirrors lower_enum_reference's shape exactly, and for the same reason
 // (PR-112 extracted lower_enum_reference so plain enum fields and
-// array-of-enum elements share one same-namespace check; this does the
-// same for records so plain nested-record fields (PR-113) and
-// array-of-record elements (PR-114) share one same-namespace check).
+// array-of-enum elements share one ownership lookup; this does the same for
+// records so plain nested-record fields (PR-113) and array-of-record elements
+// (PR-114) share one resolution path).
 // `context_description` is used only in diagnostic text (e.g. "field
 // 'X.Y'" or "field 'X.Y' array element type"). Returns std::nullopt with
 // `error_message` set for a cross-namespace reference; returns
@@ -753,21 +757,14 @@ void collect_record_catalog(const NamespaceIR& ns, RecordCatalog& catalog) {
 lower_record_reference(std::uint64_t target_record_ir_id, std::string_view current_namespace_fqn,
                        const RecordCatalog& record_catalog, std::string_view context_description,
                        std::string& error_message) {
+    (void)current_namespace_fqn;
+    (void)context_description;
+    (void)error_message;
     const auto catalog_it = record_catalog.find(target_record_ir_id);
     if (catalog_it == record_catalog.end()) {
         return std::nullopt;
     }
     const RecordCatalogEntry& entry = catalog_it->second;
-    if (entry.owning_namespace_fqn != current_namespace_fqn) {
-        std::ostringstream stream;
-        stream << "backend_c: " << context_description << " references record '"
-               << entry.symbol_name << "' declared in a different namespace ('"
-               << entry.owning_namespace_fqn
-               << "'); cross-namespace nested record fields are not yet supported "
-                  "(see docs/design/c-backend.md)";
-        error_message = stream.str();
-        return std::nullopt;
-    }
     FieldEncoding encoding;
     encoding.record_target_ir_id = target_record_ir_id;
     encoding.record_symbol_name = entry.symbol_name;
@@ -889,10 +886,8 @@ compute_record_max_encoded_size(const std::vector<PlannedField>& fields) {
 // FQN of the namespace the referencing record belongs to. Returns
 // std::nullopt (with error_message set) for every unsupported case: a
 // non-scalar, non-enum, non-string, non-bytes, non-supported-array,
-// non-same-namespace-record type; an enum declared in a different namespace
-// (either as a plain field or as an array element type); an enum with a
-// negative declared value (ditto); or a record reference declared in a
-// different namespace. Does *not* resolve a record-typed field's
+// unsupported type; an enum with a negative declared value; or a missing
+// declaration id. Does *not* resolve a record-typed field's
 // `record_max_encoded_size` (left at 0) -- see collect_namespace_files for
 // why that is necessarily a separate, later step.
 [[nodiscard]] std::optional<FieldEncoding>
@@ -972,11 +967,11 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                 stream << "backend_c: field '" << record_ir.fqn() << "." << field_ir.name()
                        << "' is an array whose element type the C backend does not support yet "
                           "-- only arrays of bool, fixed-width signed/unsigned integer, f32/f64 "
-                          "scalar elements, same-namespace non-negative-valued enum elements, "
-                          "bounded string/bytes elements, and same-namespace record elements "
+                          "scalar elements, non-negative-valued enum elements, bounded "
+                          "string/bytes elements, and record elements "
                           "are supported (see "
-                          "docs/design/c-backend.md); nested arrays and cross-namespace "
-                          "record elements remain unsupported";
+                          "docs/design/c-backend.md); nested arrays and recursive record "
+                          "elements remain unsupported";
                 error_message = stream.str();
             }
             return std::nullopt;
@@ -1033,12 +1028,11 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     std::ostringstream stream;
     stream << "backend_c: field '" << record_ir.fqn() << "." << field_ir.name()
            << "' has a type the C backend does not support yet -- only bool, fixed-width "
-              "signed/unsigned integer, f32/f64 scalar fields, same-namespace enum fields "
+              "signed/unsigned integer, f32/f64 scalar fields, non-negative enum fields "
               "with only non-negative declared values, bounded string/bytes fields, bounded "
-              "arrays of those scalar/enum/string/bytes/record kinds, and same-namespace "
-              "nested record fields are supported (see docs/design/c-backend.md); nested "
-              "arrays and cross-namespace nested record fields (plain or array-element) "
-              "remain unsupported";
+              "arrays of those scalar/enum/string/bytes/record kinds, and nested record "
+              "fields are supported (see docs/design/c-backend.md); nested arrays and "
+              "recursive record fields remain unsupported";
     error_message = stream.str();
     return std::nullopt;
 }
@@ -1051,10 +1045,21 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 [[nodiscard]] bool collect_namespace_files(const NamespaceIR& ns, const CodegenOptions& options,
                                            const EnumCatalog& catalog,
                                            RecordCatalog& record_catalog,
+                                           const OutputSelection* output_selection,
                                            std::vector<PlannedNamespaceFile>& files,
                                            std::string& error_message) {
     if (namespace_emits_file(ns)) {
         PlannedNamespaceFile file;
+        file.namespace_fqn = ns.fqn();
+        if (output_selection != nullptr) {
+            file.emits_output = output_selection->emitting_namespaces.contains(ns.fqn());
+        }
+        if (output_selection != nullptr &&
+            !output_selection->planned_namespaces.contains(ns.fqn())) {
+            error_message = "backend_c: namespace '" + ns.fqn() +
+                            "' is missing from the compiler output plan";
+            return false;
+        }
         CIdentifierAllocator enum_constants;
         const std::string stem = file_stem_for_namespace(options, ns.fqn());
         file.relative_header_path = stem + options.header_extension;
@@ -1117,7 +1122,10 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                 }
                 if (encoding->is_record ||
                     (encoding->is_array && encoding->array_element_is_record)) {
-                    dependencies.push_back(encoding->record_target_ir_id);
+                    const std::uint64_t target_id = encoding->record_target_ir_id;
+                    if (record_catalog.at(target_id).owning_namespace_fqn == ns.fqn()) {
+                        dependencies.push_back(target_id);
+                    }
                 }
                 PlannedField planned_field{
                     .name = allocate_field_name(field_names, field_ir.name(), *encoding),
@@ -1125,6 +1133,33 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                     .field_index = field_ir.field_index(),
                     .encoding = std::move(*encoding),
                 };
+                const bool references_record =
+                    planned_field.encoding.is_record ||
+                    planned_field.encoding.array_element_is_record;
+                const bool references_enum = planned_field.encoding.is_enum;
+                if (references_record || references_enum) {
+                    const std::uint64_t target_id =
+                        references_record
+                            ? planned_field.encoding.record_target_ir_id
+                            : (field_ir.type().kind_case() == FieldType::kArray
+                                   ? field_ir.type().array().element_type().enum_type()
+                                         .target_enum_ir_id()
+                                   : field_ir.type().enum_type().target_enum_ir_id());
+                    const std::string& owner = references_record
+                                                   ? record_catalog.at(target_id).owning_namespace_fqn
+                                                   : catalog.at(target_id).owning_namespace_fqn;
+                    if (owner != ns.fqn()) {
+                        if (output_selection != nullptr &&
+                            !output_selection->planned_namespaces.contains(owner)) {
+                            error_message = "backend_c: missing planned dependency namespace '" +
+                                            owner + "' for field '" + record_ir.fqn() + "." +
+                                            field_ir.name() + "'";
+                            return false;
+                        }
+                        file.generated_includes.insert(
+                            generated_include_path_for_namespace(options, owner));
+                    }
+                }
                 if (planned_field.encoding.is_array &&
                     (planned_field.encoding.is_string || planned_field.encoding.is_bytes)) {
                     planned_field.encoding.c_type = type_names.allocate(
@@ -1197,11 +1232,66 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     }
 
     for (const NamespaceIR& child : ns.namespaces()) {
-        if (!collect_namespace_files(child, options, catalog, record_catalog, files,
+        if (!collect_namespace_files(child, options, catalog, record_catalog, output_selection,
+                                     files,
                                      error_message)) {
             return false;
         }
     }
+    return true;
+}
+
+// Resolve nested-record scratch sizes after every namespace has been lowered.
+// The old same-namespace path happened to resolve these while recursively
+// collecting a namespace. Cross-namespace fields can point to a namespace
+// collected later, so use the already compiler-resolved record ids and a
+// small deterministic DFS over the generated record plans. This is sizing
+// metadata only; declaration and codec lowering remain unchanged.
+[[nodiscard]] bool resolve_record_sizes(
+    std::uint64_t record_id, const std::map<std::uint64_t, PlannedRecord*>& records,
+    RecordCatalog& record_catalog, std::map<std::uint64_t, unsigned char>& state,
+    std::string& error_message) {
+    const auto record_it = records.find(record_id);
+    if (record_it == records.end()) {
+        error_message = "backend_c: could not resolve record sizing dependency " +
+                        std::to_string(record_id);
+        return false;
+    }
+    const unsigned char current_state = state[record_id];
+    if (current_state == 2U) {
+        return true;
+    }
+    if (current_state == 1U) {
+        error_message = "backend_c: detected a recursive record dependency while sizing " +
+                        std::to_string(record_id) +
+                        "; recursive by-value record graphs are unsupported";
+        return false;
+    }
+    state[record_id] = 1U;
+    PlannedRecord& record = *record_it->second;
+    for (PlannedField& field : record.fields) {
+        const bool nested_record = field.encoding.is_record ||
+                                   field.encoding.array_element_is_record;
+        if (!nested_record) {
+            continue;
+        }
+        const std::uint64_t target_id = field.encoding.record_target_ir_id;
+        if (!resolve_record_sizes(target_id, records, record_catalog, state, error_message)) {
+            return false;
+        }
+        const std::uint64_t target_size = record_catalog.at(target_id).max_encoded_size;
+        if (field.encoding.is_record) {
+            field.encoding.record_max_encoded_size = target_size;
+        } else {
+            field.encoding.array_scratch_capacity =
+                static_cast<std::uint64_t>(kMaxVaruintBytesForUint32) +
+                static_cast<std::uint64_t>(field.encoding.array_max_elements) *
+                    (kMaxVaruintBytesForUint64 + target_size);
+        }
+    }
+    record_catalog.at(record_id).max_encoded_size =
+        compute_record_max_encoded_size(record.fields);
+    state[record_id] = 2U;
     return true;
 }
 
@@ -1210,8 +1300,19 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 // compiler/backend/backend.cpp already documents for the C++ backend.
 [[nodiscard]] bool build_generation_plan(const schema_ir::SchemaIrModel& schema_ir,
                                          const CodegenOptions& options,
+                                         const output_planning::OutputPlan* output_plan,
                                          std::vector<PlannedNamespaceFile>& files,
                                          std::string& error_message) {
+    OutputSelection output_selection;
+    if (output_plan != nullptr) {
+        for (const output_planning::PlannedSourceUnit& unit : output_plan->units) {
+            output_selection.planned_namespaces.insert(unit.namespace_fqn);
+            if (unit.emits_output) {
+                output_selection.emitting_namespaces.insert(unit.namespace_fqn);
+            }
+        }
+    }
+    const OutputSelection* output_selection_ptr = output_plan == nullptr ? nullptr : &output_selection;
     EnumCatalog catalog;
     if (!collect_enum_catalog(schema_ir.root_namespace(), catalog, error_message)) {
         return false;
@@ -1219,8 +1320,23 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     RecordCatalog record_catalog;
     collect_record_catalog(schema_ir.root_namespace(), record_catalog);
     if (!collect_namespace_files(schema_ir.root_namespace(), options, catalog, record_catalog,
-                                 files, error_message)) {
+                                 output_selection_ptr, files, error_message)) {
         return false;
+    }
+
+    std::map<std::uint64_t, PlannedRecord*> planned_records;
+    for (PlannedNamespaceFile& file : files) {
+        for (PlannedRecord& record : file.records) {
+            planned_records.emplace(record.ir_id, &record);
+        }
+    }
+    std::map<std::uint64_t, unsigned char> states;
+    for (const auto& [record_id, record] : planned_records) {
+        (void)record;
+        if (!resolve_record_sizes(record_id, planned_records, record_catalog, states,
+                                  error_message)) {
+            return false;
+        }
     }
 
     std::set<std::string> seen_paths;
@@ -1299,6 +1415,9 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     stream << "#define " << guard << "\n";
     stream << "\n";
     stream << "#include <stdint.h>\n";
+    for (const std::string& include_path : file.generated_includes) {
+        stream << "#include \"" << include_path << "\"\n";
+    }
     if (!file.records.empty()) {
         stream << "#include <stdbool.h>\n";
         stream << "#include <stddef.h>\n";
@@ -2335,12 +2454,13 @@ std::string output_path_for_planned_file(const CodegenOptions& options,
 }
 
 PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir,
-                         const CodegenOptions& options) const {
+                         const CodegenOptions& options,
+                         const output_planning::OutputPlan* output_plan) const {
     PlanResult result;
 
     std::vector<PlannedNamespaceFile> files;
     std::string error_message;
-    if (!build_generation_plan(schema_ir, options, files, error_message)) {
+    if (!build_generation_plan(schema_ir, options, output_plan, files, error_message)) {
         result.success = false;
         result.error_message = std::move(error_message);
         return result;
@@ -2348,6 +2468,9 @@ PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir,
 
     result.plan.files.reserve(files.size());
     for (const PlannedNamespaceFile& file : files) {
+        if (!file.emits_output) {
+            continue;
+        }
         result.plan.files.push_back(PlannedGeneratedFile{
             .relative_header_path = file.relative_header_path,
             .relative_source_path = file.relative_source_path,
@@ -2358,12 +2481,13 @@ PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir,
 }
 
 CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
-                                const CodegenOptions& options) const {
+                                const CodegenOptions& options,
+                                const output_planning::OutputPlan* output_plan) const {
     CodegenResult result;
 
     std::vector<PlannedNamespaceFile> files;
     std::string error_message;
-    if (!build_generation_plan(schema_ir, options, files, error_message)) {
+    if (!build_generation_plan(schema_ir, options, output_plan, files, error_message)) {
         result.success = false;
         result.error_message = std::move(error_message);
         return result;
@@ -2371,6 +2495,9 @@ CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
 
     result.files.reserve(files.size() * 2U);
     for (const PlannedNamespaceFile& file : files) {
+        if (!file.emits_output) {
+            continue;
+        }
         result.files.push_back(GeneratedFile{
             .path = output_path_for_planned_file(options, file.relative_header_path),
             .content = render_header(file),

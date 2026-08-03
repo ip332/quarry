@@ -10,6 +10,11 @@ remain private implementation details.
 
 ## quarry-schema-compiler
 
+The C backend supports compiler-resolved cross-namespace record and enum
+references, including arrays, when imported dependency roots are generated
+separately into the same output directory. Python cross-namespace generation
+remains unsupported.
+
 `quarry-schema-compiler` is the first end-to-end schema compiler command.
 It compiles one YAML `.brd` source file through the production YAML frontend,
 generates C++ backend files, and writes those generated files to disk.
@@ -67,8 +72,8 @@ installed `Quarry::runtime_c` C runtime -- see
 `docs/design/c-backend.md` for the full scope, the generated codec API
 design, and the roadmap. Cross-namespace C++ record and enum references
 (including arrays) are supported when imported dependency roots are generated
-into the same output directory. C and Python cross-namespace generation
-remain unsupported.
+into the same output directory. C follows the same explicit dependency-root
+workflow; Python cross-namespace generation remains unsupported.
 A record containing any such field -- even mixed with otherwise-supported
 fields -- fails generation with a diagnostic
 identifying the record and field, rather than silently emitting a struct

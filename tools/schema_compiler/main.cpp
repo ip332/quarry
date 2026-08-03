@@ -371,7 +371,8 @@ template <typename CodegenResultT>
         backend_c::Backend backend;
         if (command_line.list_outputs) {
             const backend_c::PlanResult plan_result =
-                backend.plan(*compilation_result.schema_ir, c_options);
+                backend.plan(*compilation_result.schema_ir, c_options,
+                             &*compilation_result.output_plan);
             if (!plan_result.success) {
                 errors << "backend error: " << plan_result.error_message << '\n';
                 return exit_failure;
@@ -389,7 +390,8 @@ template <typename CodegenResultT>
         }
 
         const backend_c::CodegenResult codegen_result =
-            backend.generate(*compilation_result.schema_ir, c_options);
+            backend.generate(*compilation_result.schema_ir, c_options,
+                             &*compilation_result.output_plan);
         if (!codegen_result.success) {
             errors << "backend error: " << codegen_result.error_message << '\n';
             return exit_failure;

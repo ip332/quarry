@@ -1,12 +1,10 @@
 # Backend (C)
 
 **Status: scalar, enum, bounded string, bounded bytes, bounded array (of
-scalar, same-namespace-enum, bounded string, bounded bytes, or
-same-namespace-record elements), and same-namespace nested record field
-codec (PR-108/PR-109/PR-110/PR-111/PR-112/PR-113/PR-114/PR-131).
-Arrays of string/bytes elements are now supported,
-and cross-namespace references (plain enum/record fields, or as array
-elements) remain unsupported.** See `docs/design/c-backend.md` for the
+scalar, enum, bounded string, bounded bytes, or record elements), and nested
+record field codec (PR-108/PR-109/PR-110/PR-111/PR-112/PR-113/PR-114/PR-131/PR-139).
+Arrays of string/bytes elements and compiler-resolved cross-namespace enum and
+record references are supported.** See `docs/design/c-backend.md` for the
 full proposed design this is an increment of, and `jira/backlog.md`'s
 PR-107/PR-108/PR-109/PR-110/PR-111/PR-112/PR-113/PR-114 entries for what
 was built when and why.
@@ -42,34 +40,31 @@ Current C generation behavior:
   diagnostic) any enum value outside the 32-bit signed integer range, since
   a plain C `enum`'s underlying type is implementation-defined and this
   backend does not commit to a wider, guaranteed-width representation
-* **enum-typed record fields are supported when the referenced enum is
-  declared in the same namespace as the record and every one of its
-  declared values is non-negative** -- see "Supported field types" and
-  "Enum fields" below. Cross-namespace enum field references and
-  negative-valued enum fields still fail generation with a diagnostic.
+* **enum-typed record fields are supported when every one of its declared
+  values is non-negative** -- local and imported enums use the same generated
+  C type and codec path. See "Supported field types" and "Enum fields" below.
+  Negative-valued enum fields still fail generation with a diagnostic.
 * **bounded string fields are supported** -- see "Supported field types" and
   "String fields" below.
 * **bounded bytes fields are supported** -- see "Supported field types" and
   "Bytes fields" below.
-* **bounded arrays of scalar, same-namespace-enum, bounded string, or
+* **bounded arrays of scalar, enum, bounded string, or
   bounded bytes elements are
   supported** -- see "Supported field types" and "Array fields" below.
-* **same-namespace nested record fields are supported** -- see "Supported
+* **nested record fields are supported** -- see "Supported
   field types" and "Nested record fields" below.
-* **bounded arrays of same-namespace record elements are supported** --
-  see "Supported field types" and "Record array fields" below. Cross-
-  namespace record references (plain or array-element) remain unsupported.
+* **bounded arrays of record elements are supported** -- see "Supported
+  field types" and "Record array fields" below.
 
-## Supported field types (PR-108/PR-109/PR-110/PR-111/PR-112/PR-113/PR-114)
+## Supported field types (PR-108/PR-109/PR-110/PR-111/PR-112/PR-113/PR-114/PR-131/PR-139)
 
 Record fields are supported when their Schema IR type is one of:
 
 * a primitive scalar: `bool`, `i8`/`u8`/`i16`/`u16`/`i32`/`u32`/`i64`/`u64`,
   `f32`, `f64` -- exactly the scalar set Schema IR's `PrimitiveType`
   enumerates and the C++ backend already supports
-* an enum reference, **if and only if** the target enum is declared in the
-  same namespace as the referencing record, and every one of its declared
-  values is non-negative (see "Enum fields" below)
+* an enum reference whose declared values are all non-negative (see "Enum
+  fields" below); the target may be local or imported
 * a `string` (see "String fields" below) -- every string field has a
   schema-validator-enforced positive `max_bytes` bound by the time
   backend_c sees it (`compiler/semantic/semantic.cpp`'s
@@ -79,29 +74,26 @@ Record fields are supported when their Schema IR type is one of:
   positive `max_bytes` guarantee applies identically
 * an array (see "Array fields" and "Record array fields" below) whose
   element type is a scalar primitive, bounded string/bytes, a
-  same-namespace non-negative-valued enum reference, or a same-namespace
-  record reference -- exactly the
+  non-negative-valued enum reference, or a record reference -- exactly the
   plain-field element kinds this backend already supports, applied
   element-wise; every array field has a schema-validator-enforced positive
   `max_elements` bound by the time backend_c sees it (the same
   `validate_positive_u32` call used for `max_bytes`)
-* a record reference (see "Nested record fields" below), **if and only if**
-  the referenced record is declared in the same namespace as the embedding
-  record
+* a record reference (see "Nested record fields" below), including an
+  imported record
 
 No new schema types were invented to support any of these.
 
 **Any other field -- including a
-cross-namespace nested record reference (plain or array-element), or a
-cross-namespace/negative-valued enum reference (either as a plain field or
-as an array element type) -- fails generation with a diagnostic naming the
+negative-valued enum reference (either as a plain field or as an array
+element type) -- fails generation with a diagnostic naming the
 record and field** (e.g. `backend_c: field
 'quarry.telemetry.Sample.items' has a type the C backend does not support
 yet`). **A record with a mix of supported and unsupported fields fails as
 a whole** -- there is no partial generation
 that silently drops the unsupported field. Deferred to later increments:
-  cross-namespace nested record fields and cross-namespace/negative-valued
-  enum fields (plain or array-element).
+  nested arrays, recursive by-value records, and Python cross-namespace
+  dependency generation.
 
 ## Generated public data model
 
@@ -261,16 +253,11 @@ these itself... generated code reuses this one status type rather than
 inventing a second, parallel enum") -- see "Generated-code API version (C)"
 below for why this means no epoch bump was needed.
 
-**Cross-namespace enum fields are not supported yet.** A field whose enum
-is declared in a *different* namespace than the record fails generation
-with a diagnostic naming the field and the enum's owning namespace.
-backend_c has no cross-generated-file include-dependency mechanism (each
-generated `.h` is self-contained today); building one to support this
-would be exactly the "framework code for future features" this backend has
-consistently avoided building ahead of a concrete need. The C++ backend
-does support this (via its `TypeCatalog`'s cross-namespace `#include`
-tracking) -- this is a real, deliberate narrowing relative to C++, not an
-oversight.
+**Cross-namespace enum fields use the imported generated type directly.**
+The backend consumes compiler-provided `OutputPlan` dependency metadata,
+adds each referenced generated header once in deterministic order, and keeps
+enum validation and wire encoding identical to local enum fields. Imported
+source units must still be generated as separate explicit roots.
 
 ### String fields
 
@@ -651,17 +638,11 @@ initialization, field layout, and deterministic ordering.
   must, and does, detect it independently, exactly like the C++ backend
   already does for its own equivalent case.
 
-**Same-namespace-only restriction, matching PR-109's enum precedent
-exactly.** A field referencing a record declared in a *different*
-namespace than the embedding record fails generation with a diagnostic
-naming the field and the referenced record's owning namespace, for the
-same reason cross-namespace enum fields are unsupported: backend_c has no
-cross-generated-file include-dependency mechanism (each generated `.h` is
-self-contained today), and building one purely to support this would be
-speculative "framework code for future features" this backend has
-consistently avoided. The C++ backend does support cross-namespace nested
-records (via its `TypeCatalog`'s `#include` tracking) -- this is a real,
-deliberate narrowing relative to C++, not an oversight.
+**Cross-namespace nested records use the imported generated type directly.**
+The generated root header includes the referenced dependency header and the
+existing by-value representation and generated codec calls are reused. The
+same explicit-root workflow applies; recursive by-value record graphs remain
+unsupported.
 
 **Encoding and decoding are pure composition of the referenced record's own
 already-generated `_encode()`/`_decode()`/`_encoded_size()` -- no new
@@ -752,16 +733,12 @@ pointers -- identical to every other field kind. `_init()`'s existing
 array slot's embedded child completely, for free, exactly as it already
 does for a single embedded nested record.
 
-**Same-namespace-only, matching the plain nested-record field restriction
-exactly.** A record-typed array element from a *different* namespace fails
-generation with a diagnostic naming the field and the referenced record's
-owning namespace -- the same "no cross-generated-file include-dependency
-mechanism" reason a plain cross-namespace nested-record field is
-unsupported. `lower_record_reference` (extracted from what was previously
+**Cross-namespace record array elements use the imported generated type
+directly.** `lower_record_reference` (extracted from what was previously
 the plain `kRecord` branch's inline logic, mirroring how PR-112 extracted
 `lower_enum_reference` for the identical plain-enum-field/array-of-enum
-reuse) performs this same-namespace check once, shared by both a plain
-record-typed field and a record-typed array element.
+reuse) resolves both a plain record-typed field and a record-typed array
+element, while the generated header includes the owning dependency.
 
 **Cycle detection generalizes to array-element dependencies, with zero
 changes to the topological sort itself.** A record containing an array of

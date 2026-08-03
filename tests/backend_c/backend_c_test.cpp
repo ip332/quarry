@@ -517,7 +517,7 @@ TEST(BackendCTest, EnumFieldWidthMatchesMaxDeclaredValue) {
              std::string::npos);
 }
 
-TEST(BackendCTest, CrossNamespaceEnumFieldFailsWithClearDiagnostic) {
+TEST(BackendCTest, CrossNamespaceEnumFieldGeneratesDependencyInclude) {
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
@@ -535,10 +535,11 @@ TEST(BackendCTest, CrossNamespaceEnumFieldFailsWithClearDiagnostic) {
 
     Backend backend;
     const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
-    ASSERT_FALSE(result.success);
-    EXPECT_NE(result.error_message.find("beta.Sample.status"), std::string::npos);
-    EXPECT_NE(result.error_message.find("different namespace"), std::string::npos);
-    EXPECT_TRUE(result.files.empty());
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 4U);
+    EXPECT_NE(result.files[2].content.find("#include \"alpha.generated.h\""),
+             std::string::npos);
+    EXPECT_NE(result.files[2].content.find("alpha_Status_t status;"), std::string::npos);
 }
 
 TEST(BackendCTest, NegativeValueEnumFieldFailsWithClearDiagnostic) {
@@ -1028,7 +1029,7 @@ TEST(BackendCTest, ArrayOfBytesGeneratesNamedElementType) {
                   "telemetry_Sample_array_0_bytes_element_t labels[4];"), std::string::npos);
 }
 
-TEST(BackendCTest, ArrayOfCrossNamespaceEnumFailsWithClearDiagnostic) {
+TEST(BackendCTest, ArrayOfCrossNamespaceEnumGeneratesDependencyInclude) {
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
@@ -1048,11 +1049,11 @@ TEST(BackendCTest, ArrayOfCrossNamespaceEnumFailsWithClearDiagnostic) {
 
     Backend backend;
     const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
-    ASSERT_FALSE(result.success);
-    EXPECT_NE(result.error_message.find("beta.Sample.statuses"), std::string::npos);
-    EXPECT_NE(result.error_message.find("array element type"), std::string::npos);
-    EXPECT_NE(result.error_message.find("different namespace"), std::string::npos);
-    EXPECT_TRUE(result.files.empty());
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 4U);
+    EXPECT_NE(result.files[2].content.find("#include \"alpha.generated.h\""),
+             std::string::npos);
+    EXPECT_NE(result.files[2].content.find("alpha_Status_t statuses[4];"), std::string::npos);
 }
 
 TEST(BackendCTest, ArrayOfNegativeValueEnumFailsWithClearDiagnostic) {
@@ -1180,7 +1181,7 @@ TEST(BackendCTest, NestedRecordFieldEncodedSizeUsesChildEncodedSizeWithoutEncodi
     EXPECT_EQ(encoded_size_body.find("telemetry_Inner_encode("), std::string::npos);
 }
 
-TEST(BackendCTest, CrossNamespaceNestedRecordFieldFailsWithClearDiagnostic) {
+TEST(BackendCTest, CrossNamespaceNestedRecordFieldGeneratesDependencyInclude) {
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
@@ -1197,10 +1198,11 @@ TEST(BackendCTest, CrossNamespaceNestedRecordFieldFailsWithClearDiagnostic) {
 
     Backend backend;
     const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
-    ASSERT_FALSE(result.success);
-    EXPECT_NE(result.error_message.find("beta.Outer.inner"), std::string::npos);
-    EXPECT_NE(result.error_message.find("different namespace"), std::string::npos);
-    EXPECT_TRUE(result.files.empty());
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 4U);
+    EXPECT_NE(result.files[2].content.find("#include \"alpha.generated.h\""),
+             std::string::npos);
+    EXPECT_NE(result.files[2].content.find("alpha_Inner_t inner;"), std::string::npos);
 }
 
 TEST(BackendCTest, SelfReferentialNestedRecordFailsWithCycleDiagnostic) {
@@ -1264,7 +1266,7 @@ TEST(BackendCTest, ForwardDeclaredNestedRecordIsReorderedBeforeDependent) {
     EXPECT_NE(header.find("B_t value;"), std::string::npos);
 }
 
-TEST(BackendCTest, ArrayOfCrossNamespaceRecordElementTypeFailsWithClearDiagnostic) {
+TEST(BackendCTest, ArrayOfCrossNamespaceRecordElementTypeGeneratesDependencyInclude) {
     // Same-namespace array-of-record elements are supported (PR-114); a
     // cross-namespace record element remains unsupported, mirroring the
     // identical restriction on a plain nested-record field (PR-113) and on
@@ -1288,11 +1290,11 @@ TEST(BackendCTest, ArrayOfCrossNamespaceRecordElementTypeFailsWithClearDiagnosti
 
     Backend backend;
     const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
-    ASSERT_FALSE(result.success);
-    EXPECT_NE(result.error_message.find("beta.Outer.items"), std::string::npos);
-    EXPECT_NE(result.error_message.find("array element type"), std::string::npos);
-    EXPECT_NE(result.error_message.find("different namespace"), std::string::npos);
-    EXPECT_TRUE(result.files.empty());
+    ASSERT_TRUE(result.success) << result.error_message;
+    ASSERT_EQ(result.files.size(), 4U);
+    EXPECT_NE(result.files[2].content.find("#include \"alpha.generated.h\""),
+             std::string::npos);
+    EXPECT_NE(result.files[2].content.find("alpha_Item_t items[2];"), std::string::npos);
 }
 
 TEST(BackendCTest, ArrayOfRecordFieldGeneratesFixedCapacityStructFieldAndCodec) {

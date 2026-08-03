@@ -1809,6 +1809,94 @@ No implementation files were changed for that work in this audit.
 
 * `REPORT.md`
 
+## PR-139 — C Cross-Namespace Dependency Generation
+
+### Implementation summary
+
+The C backend now accepts compiler-resolved record and enum references whose
+declarations belong to imported namespaces. It consumes the existing
+language-neutral `OutputPlan` through the C backend plan/generate entry points;
+it does not reload source files, parse YAML, or perform symbol lookup.
+
+### Dependency and naming policy
+
+The existing C namespace flattening remains authoritative: for example,
+`quarry.shared.Shared` is emitted as `quarry_shared_Shared_t`, and its header
+is `quarry/shared.generated.h`. A root file records only the headers required
+by its lowered external enum/record fields, in a sorted set, so repeated
+references are emitted once and include order is deterministic. The compiler
+output plan verifies that every referenced namespace is loaded. Imported units
+remain non-emitting dependency nodes; callers generate them as separate
+explicit roots in the same output directory, preserving the one-input CLI
+contract.
+
+### Lowering and codec behavior
+
+The deliberate same-namespace checks in `lower_enum_reference` and
+`lower_record_reference` were removed. Existing C field lowering, fixed
+caller-owned representations, generated encode/decode functions, enum
+validation, nested-record composition, array framing, and scratch sizing are
+reused unchanged. Record scratch sizes are resolved after all namespace files
+are lowered with a small compiler-resolved record-id DFS, so an external
+record declared later in Schema IR is sized correctly. Recursive by-value
+graphs remain rejected.
+
+### Tests
+
+Updated focused C backend tests for plain and array cross-namespace enum and
+record references, including generated dependency includes. Added a
+compiler-tool test using real imported `.brd` files that generates dependency
+and root C outputs, checks duplicate-suppressed includes and imported C types,
+and compiles both generated sources as strict C99. Existing negative enum,
+recursive-record, malformed-input, package, downstream, and interoperability
+coverage remains in place.
+
+### Compatibility and scope
+
+Schema IR changed: no. BRF changed: no. C runtime changed: no. C generated-code
+API epoch changed: no; it remains `2`. C++ and Python behavior did not change.
+Existing safe single-namespace generated names and codec behavior remain
+stable. The C backend now has field-category cross-namespace parity with C++
+for the supported enum/record categories, while Python cross-namespace
+generation remains pending.
+
+### Files changed
+
+* `compiler/backend_c/backend_c.cpp`
+* `compiler/backend_c/backend_c.hpp`
+* `compiler/CMakeLists.txt`
+* `compiler/backend_c/README.md`
+* `docs/design/c-backend.md`
+* `docs/compiler-architecture.md`
+* `compiler/output_planning/README.md`
+* `README.md`
+* `tools/README.md`
+* `tools/schema_compiler/main.cpp`
+* `jira/backlog.md`
+* `tests/backend_c/backend_c_test.cpp`
+* `tests/tools/schema_compiler_tool_test.cpp`
+* `REPORT.md`
+
+### Validation
+
+The focused C backend cross-namespace tests passed 4/4. Docker/GCC built the
+complete tree and its compiler-tool cross-namespace tests passed 2/2. The full
+Docker/Linux/GCC CTest suite passed 30/30, including packaging, downstream,
+installed compiler, strict-C99 generated compilation, and interoperability
+tests. Native configuration succeeded and the changed C backend plus focused
+tests built and passed. The native full build remains blocked only by the
+pre-existing AppleClang `-Werror` sign-compare baseline in
+`tests/backend/backend_codegen_test.cpp:436` and the same existing warning
+class in `tests/tools/schema_compiler_tool_test.cpp:682`; Docker confirms the
+new tool test itself is warning-clean under GCC. `git diff --check` passed.
+
+### Remaining limitations and next PR
+
+No Python cross-namespace imports, nested arrays, recursive by-value records,
+multi-record YAML, or automatic recursive generation of imported roots were
+added. Recommend **PR-140 — Python Cross-Namespace Dependency Generation** as
+the next backend-specific step after this PR.
+
 ## PR-137 — Dependency-Aware Output Planning
 
 ### Executive summary

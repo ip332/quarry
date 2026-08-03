@@ -1,5 +1,12 @@
 # C Backend
 
+> Current status (PR-139): the C backend supports compiler-resolved
+> cross-namespace enum and record fields, including arrays, by consuming
+> `OutputPlan` dependency metadata and emitting deterministic generated-header
+> includes. Imported source units remain separate explicit generation roots.
+> Python cross-namespace generation, nested arrays, and recursive by-value
+> records remain out of scope.
+
 ## Implementation Status
 
 PR-107 implemented the first roadmap milestone below (Section 9,
@@ -103,8 +110,8 @@ the child's own `_decode()` already enforces every BRF "Nested Records"
 structural requirement (header validation, exact payload length, matching
 record id) via its own existing `quarry_c_parse_record` call, so the
 parent needs no new validation code whatsoever. Cross-namespace nested
-record fields remain unsupported (the same "no cross-generated-file
-include mechanism" limitation as cross-namespace enum fields). See
+record fields use the imported generated type and deterministic dependency
+include in PR-139. See
 `compiler/backend_c/README.md`'s "Nested record fields" section for the
 full representation rationale, topological-sort details, and
 scratch-buffer sizing.
@@ -130,7 +137,8 @@ array field's own writer at its current tail position -- no temporary
 buffer, no byte copy, no new runtime function, no generated-code API
 epoch bump. Decode composes the element type's own `_decode()` exactly
 like a plain nested-record field already does, needing no new runtime
-code either. Arrays of records across namespaces remain unsupported. See
+code either. Arrays of records across namespaces are supported by PR-139
+when their dependency headers are generated as explicit roots. See
 `compiler/backend_c/README.md`'s "Record array fields" section for the
 full representation rationale, the write-side investigation, and
 scratch-buffer sizing.
@@ -751,13 +759,9 @@ itself was actually built in (per `jira/backlog.md`'s PR history): prove the
 narrowest possible slice (skeleton, scalars) before compounding
 complexity (arrays of records), and land diagnostics and packaging/examples
 only once there is a real, multi-feature generator to diagnose and package.
-**Also remaining, not itself numbered above since it was not anticipated
-by this document's original roadmap: cross-namespace support** (currently
-three separate same-namespace-only restrictions -- enum fields, nested
-record fields, record-array elements -- all sharing the identical "no
-cross-generated-file include-dependency mechanism" root cause). See the
-PR-115 audit's recommendation for how remaining work should be sequenced
-relative to cross-namespace references.
+**Also remaining:** Python cross-namespace dependency generation, nested
+arrays, and recursive by-value records. C cross-namespace enum and record
+references are implemented by PR-139.
 
 ---
 

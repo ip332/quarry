@@ -136,8 +136,9 @@ Scalar-, enum-, and bounded-array-shaped schemas flow through the complete
 downstream pipeline today: YAML decoding, source-schema normalization,
 semantic validation, layout computation, Schema IR, and backend code
 generation support them, including arrays of records. The C++ backend now
-supports cross-namespace array element references; C and Python remain
-same-namespace for those references. Nested arrays (an array whose element type is
+supports cross-namespace array element references; C now consumes compiler
+resolved dependency metadata, while Python remains same-namespace for those
+references. Nested arrays (an array whose element type is
 itself an array) remain rejected by semantic validation as an unsupported
 v0.1 construct. The normalized YAML pipeline no longer routes through a
 source-schema-to-AST compatibility projection; AST remains owned by the
