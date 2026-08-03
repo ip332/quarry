@@ -2,7 +2,10 @@ namespace: quarry.telemetry
 record: Sample
 version: 1
 type: data
+imports:
+  - shared.brd
 fields:
   count:
     type: uint32
-
+  child:
+    type: quarry.shared.Child

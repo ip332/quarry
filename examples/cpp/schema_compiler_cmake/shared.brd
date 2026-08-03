@@ -1,0 +1,7 @@
+namespace: quarry.shared
+record: Child
+version: 1
+type: data
+fields:
+  value:
+    type: uint32

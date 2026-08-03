@@ -1,0 +1,10 @@
+namespace: demo.interop
+record: Sample
+version: 1
+type: data
+fields:
+  count:
+    type: uint32
+  label:
+    type: string
+    max_bytes: 16

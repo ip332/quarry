@@ -1,0 +1,13 @@
+namespace: demo.c
+record: Sample
+version: 1
+type: data
+fields:
+  count:
+    type: uint32
+  label:
+    type: string
+    max_bytes: 16
+  blob:
+    type: bytes
+    max_bytes: 4
