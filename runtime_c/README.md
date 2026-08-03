@@ -88,8 +88,6 @@ Current support:
 
 Out of scope for this slice (all deferred, not rejected):
 
-* cross-namespace references (plain enum/record fields, or as array
-  elements)
 * diagnostic path support (`path`-equivalent locating a failure inside a
   nested record or array element) -- a flat byte offset alone is always
   sufficient to locate a failure deterministically, so this remains

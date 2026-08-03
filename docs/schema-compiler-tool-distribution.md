@@ -540,10 +540,10 @@ Current version and compatibility surfaces:
 | --- | --- | --- | --- | --- |
 | Quarry package version | Top-level CMake project | `0.1.0` | Release identity and CMake package version | `QuarryConfigVersion.cmake`, compiler `--version` |
 | Compiler `--version` | `quarry-schema-compiler` | `quarry-schema-compiler 0.1.0` | Human/script release identity | CLI stdout |
-| Generated-code API version | Top-level CMake scalar `QUARRY_GENERATED_CODE_API_VERSION` | `1` | Generated source/runtime header compatibility epoch | Configured runtime header, configured backend header, installed package metadata |
-| Runtime generated-code API constant | Configured runtime header | `1` | Public C++ runtime representation of the generated-code API epoch | `quarry::runtime::kGeneratedCodeApiVersion` |
-| Generated expected API version | Configured backend header | `1U` | Compiler-known value embedded in generated header `static_assert` | Generated C++ source |
-| Package generated-code API metadata | `QuarryConfig.cmake` | `1` | Target runtime generated-code API epoch for CMake consumers | `Quarry_GENERATED_CODE_API_VERSION` |
+| Generated-code API version | Top-level CMake scalar `QUARRY_GENERATED_CODE_API_VERSION` | `3` | Generated source/runtime header compatibility epoch | Configured runtime header, configured backend header, installed package metadata |
+| Runtime generated-code API constant | Configured runtime header | `3` | Public C++ runtime representation of the generated-code API epoch | `quarry::runtime::kGeneratedCodeApiVersion` |
+| Generated expected API version | Configured backend header | `3U` | Compiler-known value embedded in generated header `static_assert` | Generated C++ source |
+| Package generated-code API metadata | `QuarryConfig.cmake` | `3` | Target runtime generated-code API epoch for CMake consumers | `Quarry_GENERATED_CODE_API_VERSION` |
 | BRF wire-format version | Runtime parser/emitter | v0.1 record header version | Encoded-byte format compatibility | BRF bytes and parser errors |
 | Schema record version | User schema and Schema IR | schema-provided positive integer | Application schema identity | YAML source, Schema IR, generated record IDs/versions |
 | Schema IR version | Generated protobuf model | `schema_ir_version: 1` in fixtures | Internal compiler IR serialization version | Source-tree protobuf data |

@@ -1,33 +1,27 @@
 # Quarry
 
-Quarry is an open-source, schema-driven platform for secure edge-to-cloud
-systems, with asset tracking as the first reference application.
-
-The platform is intended to support many domains without requiring changes to
-its core architecture.
-
-## Goals
-
-* Device identity and provisioning
-* Secure communication (TLS-first)
-* Event-driven telemetry
-* Serialized-first data model
-* Remote command execution
-* OTA software updates
-* Fleet management and diagnostics
-
-## Design Principles
-
-* TLS-first
-* Serialized-first
-* schema-driven
-* Event-driven
-* OTA-capable
-* Diagnostics by design
+Quarry is an open-source, language-neutral schema compiler and binary
+serialization system. It consumes YAML schema units and generates BRF-compatible
+C++, strict-C99 C, and Python code for embedded and general-purpose consumers.
 
 ## Status
 
-Project planning and architecture phase.
+Quarry is preparing its v0.1 release. The three production backends support
+the current Schema IR field categories and are covered by installed-consumer,
+deterministic-generation, strict-C99, packaging, and C/C++/Python
+interoperability validation.
+
+Current intentional limitations are:
+
+* imported dependency roots must be generated separately into the same output
+  directory as the root schema;
+* source-unit import cycles are rejected;
+* recursive by-value records and nested arrays are unsupported;
+* release publication automation is not yet part of the repository workflow.
+
+The generated-code compatibility epochs are backend-specific: C++ `3`, C `2`,
+and Python `1`. These epochs are distinct from the Quarry package version,
+Schema IR version, and BRF version.
 
 > This project was formerly called Breadcrumbs. It was renamed to Quarry to
 > reflect the current focus on schema-driven binary records rather than the
@@ -163,8 +157,8 @@ PR-119 made it functional for scalar fields: `bool` and every fixed-width
 signed/unsigned integer and `f32`/`f64` field, encoded/decoded via a new
 `quarry.runtime.python.binary_record` runtime module built entirely on the
 standard library's `struct` module. PR-120 added enum fields: a
-same-namespace, non-negative-valued enum renders as a real `enum.IntEnum`
-subclass, with two small `binary_record.py` additions
+non-negative-valued enum renders as a real `enum.IntEnum` subclass, with two
+small `binary_record.py` additions
 (`pack_enum`/`unpack_enum`) validating membership and delegating to the
 existing scalar pack/unpack for the enum's wire width. PR-121 added
 bounded `string`/`bytes` fields, using the BRF spec's existing

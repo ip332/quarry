@@ -124,9 +124,8 @@ The compiler pipeline is:
 * The production-facing YAML frontend loads a root source unit and its
   transitive relative-import graph, builds one compiler-wide symbol index, and
   resolves record and enum references against that graph before layout
-  computation and Schema IR lowering. The C++ backend consumes the output plan
-  for generated dependency headers; C and Python dependency generation remain
-  later stages.
+  computation and Schema IR lowering. The C++, C, and Python backends consume
+  the output plan for deterministic generated dependency headers or modules.
 * Legacy declaration-syntax source files flow only through the parser-owned
   AST compatibility surface. YAML source-unit imports are handled by the
   production frontend graph loader; legacy parser import declarations remain

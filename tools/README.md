@@ -74,10 +74,10 @@ design, and the roadmap. Cross-namespace C++ record and enum references
 into the same output directory. C and Python follow the same explicit
 dependency-root workflow; Python generated modules import dependencies through
 deterministic full-module aliases.
-A record containing any such field -- even mixed with otherwise-supported
-fields -- fails generation with a diagnostic
-identifying the record and field, rather than silently emitting a struct
-that drops that field. Generated C code that contains records checks a C
+Any record containing an unsupported field -- even mixed with otherwise-
+supported fields -- fails generation with a diagnostic identifying the record
+and field, rather than silently emitting a struct that drops that field.
+Generated C code that contains records checks a C
 generated-code API compatibility epoch
 (`QUARRY_C_GENERATED_CODE_API_VERSION`, currently epoch `2`), independent
 from the C++ epoch described below.
@@ -93,7 +93,7 @@ attribute per declared field) whose `encode`/`decode`/`encoded_size`
 methods delegate to private `_quarry_` codec helpers -- the public/internal split
 PR-118A's investigation recommended, wired end to end. Those helpers
 perform real BRF encode/decode for `bool` and every fixed-width
-signed/unsigned integer and `f32`/`f64` field, for a same-namespace,
+signed/unsigned integer and `f32`/`f64` field, for a local or imported,
 non-negative-valued `enum` field (rendered as a real `enum.IntEnum`
 subclass, always emitted before any record referencing it in the same
 module), and for a bounded `string`/`bytes` field (UTF-8 validation for
