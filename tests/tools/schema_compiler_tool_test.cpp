@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <iterator>
 #include <sstream>
@@ -10,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <utility>
 
 #include <gtest/gtest.h>
 
@@ -679,7 +681,7 @@ TEST(SchemaCompilerToolTest, ValidYamlWritesGeneratedFiles) {
     EXPECT_TRUE(result.stderr_text.empty());
 
     const std::vector<std::filesystem::path> files = regular_files_under(output);
-    ASSERT_EQ(files.size(), 1);
+    ASSERT_EQ(files.size(), 1u);
     EXPECT_EQ(files.front().filename(), "telemetry.generated.hpp");
     const std::string generated = read_text_file(files.front());
     EXPECT_NE(generated.find("struct Sample"), std::string::npos);
@@ -922,6 +924,109 @@ TEST(SchemaCompilerToolTest, ListOutputsForPythonBackendIsDeterministic) {
     EXPECT_EQ(first.status, 0) << first.stderr_text;
     EXPECT_EQ(second.status, 0) << second.stderr_text;
     EXPECT_EQ(first.stdout_text, second.stdout_text);
+}
+
+TEST(SchemaCompilerToolTest, CrossNamespaceGenerationIsByteForByteDeterministicForAllBackends) {
+    const std::filesystem::path root = make_temp_directory("cross-namespace-deterministic");
+    const std::filesystem::path shared = root / "shared.brd";
+    const std::filesystem::path input = root / "root.brd";
+    write_text_file(shared,
+                    "namespace: acme.shared\n"
+                    "record: Child\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  value:\n"
+                    "    type: uint32\n"
+                    "enums:\n"
+                    "  Status:\n"
+                    "    values:\n"
+                    "      READY: 0\n"
+                    "      BUSY: 1\n");
+    write_text_file(input,
+                    "namespace: acme.root\n"
+                    "record: Envelope\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "imports:\n"
+                    "  - shared.brd\n"
+                    "fields:\n"
+                    "  child:\n"
+                    "    type: acme.shared.Child\n"
+                    "  status:\n"
+                    "    type: acme.shared.Status\n"
+                    "  children:\n"
+                    "    type: acme.shared.Child[]\n"
+                    "    max_elements: 2\n"
+                    "  statuses:\n"
+                    "    type: acme.shared.Status[]\n"
+                    "    max_elements: 2\n");
+
+    const std::vector<std::string> languages = {"cpp", "c", "python"};
+    for (const std::string& language : languages) {
+        const std::filesystem::path first_output = root / (language + "-first");
+        const std::filesystem::path second_output = root / (language + "-second");
+        std::vector<std::string> first_list;
+        std::vector<std::string> second_list;
+        for (const auto& [output, list] :
+             {std::pair{first_output, std::ref(first_list)},
+              std::pair{second_output, std::ref(second_list)}}) {
+            const CommandResult shared_list = run_tool(
+                {"--list-outputs", "--language", language, "--output-directory",
+                 output.string(), shared.string()},
+                root);
+            const CommandResult root_list = run_tool(
+                {"--list-outputs", "--language", language, "--output-directory",
+                 output.string(), input.string()},
+                root);
+            ASSERT_EQ(shared_list.status, 0) << shared_list.stderr_text;
+            ASSERT_EQ(root_list.status, 0) << root_list.stderr_text;
+            for (const std::string& line : non_empty_lines(shared_list.stdout_text)) {
+                list.get().push_back(line);
+            }
+            for (const std::string& line : non_empty_lines(root_list.stdout_text)) {
+                list.get().push_back(line);
+            }
+        }
+
+        const CommandResult first_shared = run_tool(
+            {"--language", language, "--output-directory", first_output.string(), shared.string()},
+            root);
+        const CommandResult first_root = run_tool(
+            {"--language", language, "--output-directory", first_output.string(), input.string()},
+            root);
+        const CommandResult second_root = run_tool(
+            {"--language", language, "--output-directory", second_output.string(), input.string()},
+            root);
+        const CommandResult second_shared = run_tool(
+            {"--language", language, "--output-directory", second_output.string(), shared.string()},
+            root);
+        ASSERT_EQ(first_shared.status, 0) << first_shared.stderr_text;
+        ASSERT_EQ(first_root.status, 0) << first_root.stderr_text;
+        ASSERT_EQ(second_root.status, 0) << second_root.stderr_text;
+        ASSERT_EQ(second_shared.status, 0) << second_shared.stderr_text;
+
+        auto relative_files = [](const std::filesystem::path& directory) {
+            std::vector<std::string> paths;
+            for (const auto& file : regular_files_under(directory)) {
+                paths.push_back(std::filesystem::relative(file, directory).generic_string());
+            }
+            return paths;
+        };
+        const std::vector<std::string> first_files = relative_files(first_output);
+        const std::vector<std::string> second_files = relative_files(second_output);
+        ASSERT_EQ(first_files, second_files) << language;
+        std::sort(first_list.begin(), first_list.end());
+        first_list.erase(std::unique(first_list.begin(), first_list.end()), first_list.end());
+        std::sort(second_list.begin(), second_list.end());
+        second_list.erase(std::unique(second_list.begin(), second_list.end()), second_list.end());
+        ASSERT_EQ(first_list.size(), first_files.size()) << language;
+        ASSERT_EQ(second_list.size(), second_files.size()) << language;
+        for (const std::string& relative : first_files) {
+            EXPECT_EQ(read_text_file(first_output / relative), read_text_file(second_output / relative))
+                << language << ": " << relative;
+        }
+    }
 }
 
 TEST(SchemaCompilerToolTest, FileExtensionIsRejectedWithLanguagePython) {

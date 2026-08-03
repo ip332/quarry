@@ -92,8 +92,7 @@ record and field** (e.g. `backend_c: field
 yet`). **A record with a mix of supported and unsupported fields fails as
 a whole** -- there is no partial generation
 that silently drops the unsupported field. Deferred to later increments:
-  nested arrays, recursive by-value records, and Python cross-namespace
-  dependency generation.
+  nested arrays and recursive by-value records.
 
 ## Generated public data model
 

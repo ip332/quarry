@@ -1,3 +1,80 @@
+# PR-141: Cross-Backend Release Readiness Audit
+
+## Scope and findings
+
+PR-141 audits installed compiler consumption, cross-namespace interoperability,
+deterministic generation, and release-facing documentation for the C++, C, and
+Python backends. The repository already had installed C++/C consumer tests,
+Python wheel/sdist tests, same-namespace three-way BRF tests, and backend-level
+output-order checks. The audit added end-to-end cross-namespace coverage to the
+existing tool, package, Python packaging, and three-way interoperability tests.
+
+The installed compiler now has a compiler-driven C++/strict-C99 consumer test:
+it installs Quarry into a temporary prefix, invokes the installed
+`quarry-schema-compiler` separately for the imported and root schemas, places
+both outputs in one tree, and compiles the generated headers/source without
+source-tree include paths. The Python packaging consumer follows the same
+explicit-root workflow in a clean virtual environment using the installed
+compiler and installed wheel runtime.
+
+The three-way interoperability fixture generates both source roots through the
+compiler for every backend and validates byte identity plus cross-decoding for
+imported enums, imported records, imported enum/record arrays, strings, and
+bytes. The deterministic tool test repeats dependency/root generation in
+different explicit-root orders for C++, C, and Python, compares file sets and
+contents, and reconciles deduplicated `--list-outputs` results with actual
+files.
+
+## Defects fixed
+
+- The installed C++/C consumer gap for imported generated dependencies was
+  covered and verified; no compiler or runtime defect was found.
+- The Python installed-package consumer previously exercised only a local
+  schema. It now generates imported and root schemas separately and executes a
+  cross-namespace package using only the installed runtime and generated tree.
+- Current-facing C runtime, C backend design, distribution, and tool guidance
+  no longer claims that C cross-namespace generation is unsupported. Historical
+  milestone notes remain historical.
+
+## Release assessment
+
+Verdict: **ready with minor documented limitations**.
+
+The supported release scope is demonstrated for installed C++/C consumers,
+installed Python runtime consumers, compiler-generated cross-namespace
+dependencies, strict C99 generated C, Python package execution, and existing
+BRF interoperability. Remaining limitations are intentional: one explicit
+root per compiler invocation, separately generated dependencies in one output
+tree, rejected source import cycles, unsupported recursive by-value records,
+unsupported nested arrays, and deferred publication automation.
+
+No Schema IR, BRF, runtime public API, or generated-code API epoch changed.
+
+## PR-141 validation record
+
+- Native configure/build and full CTest: passed, 29/29. The Python packaging
+  test is intentionally skipped on this host because its local `build` module
+  is malformed; the Docker environment supplies the required dependencies.
+- Docker/Linux/GCC clean configure/build and full CTest: passed, 30/30,
+  including Python wheel/sdist creation, clean installation, and the installed
+  cross-namespace Python consumer.
+- Focused native tool, installed C++/C consumer, and three-way interop tests:
+  passed. The Docker run also passed those tests.
+- `git diff --check`: passed.
+- The native AppleClang build emitted the known third-party Protobuf/Abseil
+  nullability warnings; no PR-141 error or unrelated warning cleanup was
+  introduced.
+
+## Files changed for PR-141
+
+The implementation changes are limited to existing tests and current-facing
+documentation: `tests/tools/schema_compiler_tool_test.cpp`,
+`tests/interop/python_cpp_c_codec_interop_test.cpp`,
+`tests/consumer/schema_compiler_package_test.cpp`,
+`runtime/python/tests/test_packaging.py`, `runtime_c/README.md`,
+`docs/distribution-model.md`, `compiler/backend_c/README.md`,
+`docs/design/c-backend.md`, and this report.
+
 # PR-140: Python Cross-Namespace Dependency Generation
 
 ## Executive summary

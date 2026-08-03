@@ -7,13 +7,11 @@ installed under its own canonical path (`include/quarry/runtime/` for C++,
 `include/quarry/runtime_c/` for C -- see "CMake Package" below).
 
 **Status: scalar, enum, bounded string, bounded bytes, bounded array (of
-scalar, same-namespace-enum, bounded string, bounded bytes, or
-same-namespace-record elements), and same-namespace nested record field
-codec (PR-108/PR-109/PR-110/PR-111/PR-112/PR-113/PR-114/PR-131); enum
-fields and record references (plain, or as array elements) same-namespace
-only.** Cross-namespace references remain unsupported --
-see `compiler/backend_c/README.md` and `docs/design/c-backend.md` for the
-current implemented subset and the roadmap for later increments.
+scalar, enum, bounded string, bounded bytes, or record elements), nested
+record fields, and compiler-resolved cross-namespace enum/record fields and
+arrays (PR-108 through PR-139).** Imported source units remain separate
+explicit generation roots and must be generated into the same output tree.
+Recursive by-value records and nested arrays remain unsupported.
 `include/quarry/runtime_c/binary_record.h` is not a speculative framework
 for those future features: it exposes exactly the primitives these slices
 need. PR-109 (enum fields) added **no new runtime code at all** -- enum

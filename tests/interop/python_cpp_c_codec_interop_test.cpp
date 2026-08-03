@@ -25,6 +25,8 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include "compiler/backend/backend.hpp"
 #include "compiler/backend_c/backend_c.hpp"
@@ -1126,6 +1128,7 @@ int main(int argc, char** argv) {
 #include <cstddef>
 #include <fstream>
 #include <iterator>
+#include <string>
 #include <vector>
 
 static Parent make_parent() {
@@ -1274,6 +1277,248 @@ else:
                                     " decode_expect_failure " + shell_quote(malformed_path.string())),
              0);
     EXPECT_EQ(run_python("decode_expect_failure", malformed_path), 0);
+}
+
+TEST(PythonCppCCodecInteropTest, CrossNamespaceSchemasAreByteForByteCompatibleAcrossAllBackends) {
+    const std::string python3_executable = QUARRY_TEST_PYTHON3;
+    if (python3_executable.empty()) {
+        GTEST_SKIP() << "python3 interpreter not found; skipping cross-namespace interop test";
+    }
+
+    const std::filesystem::path root = make_temp_directory("cross-namespace");
+    const std::filesystem::path shared = root / "shared.brd";
+    const std::filesystem::path input = root / "root.brd";
+    write_text_file(shared,
+                    "namespace: acme.shared\n"
+                    "record: Child\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  value:\n"
+                    "    type: uint32\n"
+                    "enums:\n"
+                    "  Status:\n"
+                    "    values:\n"
+                    "      READY: 0\n"
+                    "      BUSY: 1\n");
+    write_text_file(input,
+                    "namespace: acme.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "imports:\n"
+                    "  - shared.brd\n"
+                    "fields:\n"
+                    "  status:\n"
+                    "    type: acme.shared.Status\n"
+                    "  child:\n"
+                    "    type: acme.shared.Child\n"
+                    "  statuses:\n"
+                    "    type: acme.shared.Status[]\n"
+                    "    max_elements: 2\n"
+                    "  children:\n"
+                    "    type: acme.shared.Child[]\n"
+                    "    max_elements: 2\n"
+                    "  label:\n"
+                    "    type: string\n"
+                    "    max_bytes: 16\n"
+                    "  blob:\n"
+                    "    type: bytes\n"
+                    "    max_bytes: 8\n");
+
+    const std::filesystem::path generated_c = root / "generated_c";
+    const std::filesystem::path generated_cpp = root / "generated_cpp";
+    const std::filesystem::path generated_python = root / "generated_python";
+    for (const auto& [language, output] :
+         {std::pair<std::string, std::filesystem::path>{"c", generated_c},
+          {"cpp", generated_cpp}, {"python", generated_python}}) {
+        for (const auto& source : {shared, input}) {
+            ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_SCHEMA_COMPILER_TOOL) +
+                                            " --language " + language + " -o " +
+                                            shell_quote(output.string()) + " " +
+                                            shell_quote(source.string())),
+                      0)
+                << language << " generation failed for " << source;
+        }
+    }
+
+    constexpr std::string_view c_harness = R"c(
+#include "acme/telemetry.generated.h"
+#include <stdio.h>
+#include <string.h>
+
+static void make_sample(acme_telemetry_Sample_t* value) {
+  acme_telemetry_Sample_init(value);
+  value->has_status = true; value->status = ACME_SHARED_STATUS_BUSY;
+  value->has_child = true; acme_shared_Child_init(&value->child);
+  value->child.has_value = true; value->child.value = 42U;
+  value->has_statuses = true; value->statuses_count = 2U;
+  value->statuses[0] = ACME_SHARED_STATUS_READY;
+  value->statuses[1] = ACME_SHARED_STATUS_BUSY;
+  value->has_children = true; value->children_count = 2U;
+  acme_shared_Child_init(&value->children[0]);
+  acme_shared_Child_init(&value->children[1]);
+  value->children[0].has_value = true; value->children[0].value = 1U;
+  value->children[1].has_value = true; value->children[1].value = 2U;
+  value->has_label = true; memcpy(value->label, "café", 5U); value->label_length = 5U;
+  value->has_blob = true; value->blob[0] = 0U; value->blob[1] = 0xFFU; value->blob_length = 2U;
+}
+
+static int check_sample(const acme_telemetry_Sample_t* value) {
+  return value->has_status && value->status == ACME_SHARED_STATUS_BUSY &&
+         value->has_child && value->child.has_value && value->child.value == 42U &&
+         value->has_statuses && value->statuses_count == 2U &&
+         value->statuses[0] == ACME_SHARED_STATUS_READY &&
+         value->statuses[1] == ACME_SHARED_STATUS_BUSY && value->has_children &&
+         value->children_count == 2U && value->children[0].value == 1U &&
+         value->children[1].value == 2U && value->has_label && value->label_length == 5U &&
+         memcmp(value->label, "café", 5U) == 0 && value->has_blob &&
+         value->blob_length == 2U && value->blob[0] == 0U && value->blob[1] == 0xFFU ? 0 : 1;
+}
+
+int main(int argc, char** argv) {
+  if (argc < 3) return 20;
+  if (strcmp(argv[1], "encode") == 0) {
+    acme_telemetry_Sample_t value; make_sample(&value); uint8_t data[512];
+    acme_telemetry_Sample_encode_result_t result =
+        acme_telemetry_Sample_encode(&value, data, sizeof(data));
+    if (result.status != QUARRY_C_STATUS_OK) return 1;
+    FILE* output = fopen(argv[2], "wb"); if (!output) return 2;
+    fwrite(data, 1U, result.bytes_written, output); fclose(output); return 0;
+  }
+  FILE* input = fopen(argv[2], "rb"); if (!input) return 3;
+  uint8_t data[512]; size_t length = fread(data, 1U, sizeof(data), input); fclose(input);
+  acme_telemetry_Sample_decode_result_t result = acme_telemetry_Sample_decode(data, length);
+  if (strcmp(argv[1], "decode") == 0)
+    return result.status == QUARRY_C_STATUS_OK ? check_sample(&result.value) : 1;
+  return strcmp(argv[1], "decode_expect_failure") == 0 &&
+                 result.status != QUARRY_C_STATUS_OK ? 0 : 1;
+}
+)c";
+
+    constexpr std::string_view cpp_harness = R"cpp(
+#include "acme/telemetry.generated.hpp"
+#include <fstream>
+#include <iterator>
+#include <vector>
+static acme::telemetry::Sample make_sample() {
+  acme::shared::ChildBuilder child; child.set_value(42U);
+  acme::shared::ChildBuilder first; first.set_value(1U);
+  acme::shared::ChildBuilder second; second.set_value(2U);
+  acme::telemetry::SampleBuilder value;
+  value.set_status(acme::shared::Status::BUSY);
+  value.set_child(child.build());
+  value.set_statuses(std::vector<acme::shared::Status>{
+      acme::shared::Status::READY, acme::shared::Status::BUSY});
+  value.set_children(std::vector<acme::shared::Child>{first.build(), second.build()});
+  value.set_label("café");
+  value.set_blob(std::vector<std::byte>{std::byte{0U}, std::byte{0xFFU}});
+  return value.build();
+}
+static bool check_sample(const acme::telemetry::Sample& value) {
+  return value.has_status() && *value.status() == acme::shared::Status::BUSY &&
+         value.has_child() && value.child()->has_value() && *value.child()->value() == 42U &&
+         value.has_statuses() && value.statuses()->size() == 2U &&
+         (*value.statuses())[0] == acme::shared::Status::READY &&
+         value.has_children() && value.children()->size() == 2U &&
+         (*value.children())[1].has_value() && *(*value.children())[1].value() == 2U &&
+         value.has_label() && *value.label() == "café" && value.has_blob() &&
+         value.blob()->size() == 2U;
+}
+int main(int argc, char** argv) {
+  if (argc < 3) return 20;
+  if (std::string(argv[1]) == "encode") {
+    auto bytes = acme::telemetry::encode(make_sample()); if (!bytes) return 1;
+    std::ofstream output(argv[2], std::ios::binary); output.write(
+        reinterpret_cast<const char*>(bytes->data()), static_cast<std::streamsize>(bytes->size()));
+    return output ? 0 : 2;
+  }
+  std::ifstream input(argv[2], std::ios::binary);
+  const std::string raw((std::istreambuf_iterator<char>(input)), {});
+  std::vector<std::byte> bytes;
+  for (unsigned char byte : raw) bytes.push_back(static_cast<std::byte>(byte));
+  auto decoded = acme::telemetry::decode_Sample(bytes);
+  if (std::string(argv[1]) == "decode") return decoded && check_sample(*decoded) ? 0 : 1;
+  return std::string(argv[1]) == "decode_expect_failure" && !decoded ? 0 : 1;
+}
+)cpp";
+
+    constexpr std::string_view python_harness = R"py(
+import sys
+from acme.shared.schema import Child, Status
+from acme.telemetry.schema import Sample
+def make_sample():
+    return Sample(status=Status.BUSY, child=Child(value=42),
+                  statuses=[Status.READY, Status.BUSY],
+                  children=[Child(value=1), Child(value=2)],
+                  label="café", blob=bytes([0, 255]))
+mode, path = sys.argv[1], sys.argv[2]
+if mode == "encode":
+    open(path, "wb").write(make_sample().encode())
+elif mode == "decode":
+    sys.exit(0 if Sample.decode(open(path, "rb").read()) == make_sample() else 1)
+else:
+    try: Sample.decode(open(path, "rb").read())
+    except Exception: sys.exit(0)
+    sys.exit(1)
+)py";
+
+    const std::filesystem::path c_source = root / "cross_namespace.c";
+    const std::filesystem::path cpp_source = root / "cross_namespace.cpp";
+    const std::filesystem::path python_source = root / "cross_namespace.py";
+    write_text_file(c_source, c_harness);
+    write_text_file(cpp_source, cpp_harness);
+    write_text_file(python_source, python_harness);
+    const std::filesystem::path c_binary = root / "cross_namespace_c";
+    const std::filesystem::path cpp_binary = root / "cross_namespace_cpp";
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_TEST_C_COMPILER) +
+                                    " -std=c99 -Wall -Wextra -Wpedantic -Werror -I" +
+                                    shell_quote(generated_c.string()) + " -I" +
+                                    shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
+                                    shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
+                                    shell_quote(c_source.string()) + " " +
+                                    shell_quote((generated_c / "acme/telemetry.generated.c").string()) +
+                                    " " +
+                                    shell_quote((generated_c / "acme/shared.generated.c").string()) +
+                                    " -o " + shell_quote(c_binary.string())),
+             0);
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_TEST_CXX_COMPILER) +
+                                    " -std=c++20 -Wall -Wextra -Wpedantic -Werror "
+                                    "-Wno-unused-parameter -Wno-unused-variable -I" +
+                                    shell_quote(generated_cpp.string()) + " -I" +
+                                    shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
+                                    shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
+                                    shell_quote(cpp_source.string()) + " -o " +
+                                    shell_quote(cpp_binary.string())),
+             0);
+    const std::filesystem::path c_encoded = root / "c.bin";
+    const std::filesystem::path cpp_encoded = root / "cpp.bin";
+    const std::filesystem::path python_encoded = root / "python.bin";
+    const std::string python_path = generated_python.string() + ":" +
+                                    std::string(QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR);
+    const auto run_python = [&](const std::filesystem::path& data, std::string_view mode) {
+        return run_and_get_exit_code("PYTHONPATH=" + shell_quote(python_path) + " " +
+                                     shell_quote(python3_executable) + " " +
+                                     shell_quote(python_source.string()) + " " + std::string(mode) +
+                                     " " + shell_quote(data.string()));
+    };
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) + " encode " +
+                                    shell_quote(c_encoded.string())), 0);
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " encode " +
+                                    shell_quote(cpp_encoded.string())), 0);
+    ASSERT_EQ(run_python(python_encoded, "encode"), 0);
+    EXPECT_EQ(read_binary_file(c_encoded), read_binary_file(cpp_encoded));
+    EXPECT_EQ(read_binary_file(c_encoded), read_binary_file(python_encoded));
+    for (const auto& [binary, data] : {std::pair{c_binary, c_encoded},
+                                       std::pair{cpp_binary, cpp_encoded}}) {
+        EXPECT_EQ(run_and_get_exit_code(shell_quote(binary.string()) + " decode " +
+                                        shell_quote(c_encoded.string())), 0);
+        EXPECT_EQ(run_and_get_exit_code(shell_quote(binary.string()) + " decode " +
+                                        shell_quote(python_encoded.string())), 0);
+        (void)data;
+    }
+    EXPECT_EQ(run_python(c_encoded, "decode"), 0);
+    EXPECT_EQ(run_python(cpp_encoded, "decode"), 0);
 }
 
 } // namespace

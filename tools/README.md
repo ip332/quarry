@@ -46,26 +46,25 @@ usage error, since neither backend's fixed extension
 (`.generated.h`/`.generated.c` for C; `.py` for Python) is yet independently
 configurable from the command line.
 
-**`--language c` supports scalar, same-namespace-enum, bounded
-string/bytes, bounded array (of scalar, same-namespace-enum, bounded
-string/bytes, or same-namespace-record elements), and same-namespace nested
-record records (PR-108/PR-109/PR-110/PR-111/PR-112/PR-113/PR-114/PR-131).**
+**`--language c` supports scalar, enum, bounded string/bytes, bounded arrays,
+nested records, and compiler-resolved cross-namespace enum/record references
+(including arrays).**
 It emits one
 `.h`/`.c` pair per namespace that owns records or enums: generated C enum
 declarations, real C structs for records whose fields are `bool`,
 fixed-width signed/unsigned integers, `f32`/`f64`, enum references
-declared in the *same namespace* as the referencing record (with only
-non-negative declared values), bounded `string` fields (fixed-capacity,
+declared locally or in an imported namespace (with only non-negative declared
+values), bounded `string` fields (fixed-capacity,
 NUL-terminated buffer storage sized from the schema's `max_bytes` bound),
 bounded `bytes` fields (the same fixed-capacity strategy without the NUL
 terminator, since arbitrary binary data has no such convenience), bounded
-arrays of those scalar/same-namespace-enum/string/bytes/same-namespace-record element
+arrays of those scalar/enum/string/bytes/record element
 kinds (fixed-capacity array of the element's own C type, sized from
 `max_elements`, plus an explicit element count -- record elements compose
 that element record's own generated encode/decode functions directly,
 with no new runtime code needed), or a record reference to another record
-declared in the *same namespace* (embedded by value, no pointer or heap
-allocation), and a real BRF encode/decode codec API (`_init`,
+declared locally or in an imported namespace (embedded by value, no pointer or
+heap allocation), and a real BRF encode/decode codec API (`_init`,
 `_encoded_size`, `_encode`, `_decode`) for every record, backed by the
 installed `Quarry::runtime_c` C runtime -- see
 `compiler/backend_c/README.md`, `runtime_c/README.md`, and

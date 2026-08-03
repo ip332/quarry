@@ -4,8 +4,7 @@
 > cross-namespace enum and record fields, including arrays, by consuming
 > `OutputPlan` dependency metadata and emitting deterministic generated-header
 > includes. Imported source units remain separate explicit generation roots.
-> Python cross-namespace generation, nested arrays, and recursive by-value
-> records remain out of scope.
+> Nested arrays and recursive by-value records remain out of scope.
 
 ## Implementation Status
 
@@ -759,9 +758,9 @@ itself was actually built in (per `jira/backlog.md`'s PR history): prove the
 narrowest possible slice (skeleton, scalars) before compounding
 complexity (arrays of records), and land diagnostics and packaging/examples
 only once there is a real, multi-feature generator to diagnose and package.
-**Also remaining:** Python cross-namespace dependency generation, nested
-arrays, and recursive by-value records. C cross-namespace enum and record
-references are implemented by PR-139.
+**Also remaining:** nested arrays and recursive by-value records. C,
+C++, and Python cross-namespace enum and record references are implemented;
+all imported source units still require separate explicit generation roots.
 
 ---
 

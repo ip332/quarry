@@ -298,6 +298,92 @@ TEST(SchemaCompilerPackageTest, ImportedExecutableTargetGeneratesDownstreamCode)
     EXPECT_EQ(targets.find("quarry_yaml"), std::string::npos);
 }
 
+TEST(SchemaCompilerPackageTest, InstalledCompilerGeneratesCrossNamespaceCAndCppConsumers) {
+#ifdef _WIN32
+    GTEST_SKIP() << "installed compiler cross-namespace consumer test is not implemented on Windows";
+#endif
+
+    const std::filesystem::path root = make_temp_directory("cross-namespace-installed");
+    const std::filesystem::path install_prefix = root / "install";
+    const std::filesystem::path input = root / "root.brd";
+    const std::filesystem::path dependency = root / "shared.brd";
+    const std::filesystem::path output = root / "generated";
+    write_text_file(dependency,
+                    "namespace: shared\n"
+                    "record: Child\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  value:\n"
+                    "    type: uint32\n"
+                    "enums:\n"
+                    "  Status:\n"
+                    "    values:\n"
+                    "      OK: 0\n"
+                    "      READY: 1\n");
+    write_text_file(input,
+                    "namespace: downstream\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "imports:\n"
+                    "  - shared.brd\n"
+                    "fields:\n"
+                    "  child:\n"
+                    "    type: shared.Child\n"
+                    "  status:\n"
+                    "    type: shared.Status\n"
+                    "  children:\n"
+                    "    type: shared.Child[]\n"
+                    "    max_elements: 2\n");
+
+    expect_success(run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                                  {"--install", QUARRY_TEST_BUILD_DIR, "--prefix",
+                                   install_prefix.string()},
+                                  root, "install-cross-namespace"),
+                   "install Quarry package");
+    const std::filesystem::path compiler = installed_schema_compiler(install_prefix);
+    ASSERT_TRUE(std::filesystem::exists(compiler));
+
+    for (const std::string language : {"cpp", "c"}) {
+        const std::filesystem::path language_output = output / language;
+        for (const auto& source : {dependency, input}) {
+            const CommandResult result = run_executable(
+                compiler,
+                {"--language", language, "--output-directory", language_output.string(),
+                 source.string()},
+                root, language + "-" + source.stem().string());
+            expect_success(result, "installed compiler cross-namespace " + language);
+        }
+    }
+
+    const std::filesystem::path cpp_header = output / "cpp" / "downstream.generated.hpp";
+    const std::filesystem::path c_header = output / "c" / "downstream.generated.h";
+    const std::filesystem::path c_source = output / "c" / "downstream.generated.c";
+    ASSERT_TRUE(std::filesystem::exists(cpp_header));
+    ASSERT_TRUE(std::filesystem::exists(c_header));
+    ASSERT_TRUE(std::filesystem::exists(c_source));
+    EXPECT_NE(read_text_file(cpp_header).find("shared.generated.hpp"), std::string::npos);
+    EXPECT_NE(read_text_file(c_header).find("shared.generated.h"), std::string::npos);
+
+    expect_success(run_executable(
+                       std::filesystem::path(QUARRY_TEST_CXX_COMPILER),
+                       {"-std=c++20", "-Wall", "-Wextra", "-Wpedantic", "-Werror",
+                        "-Wno-unused-parameter", "-Wno-unused-variable",
+                        "-fsyntax-only", "-I" + (output / "cpp").string(),
+                        "-I" + (install_prefix / "include").string(), cpp_header.string()},
+                       root, "compile-installed-cpp-cross-namespace"),
+                   "compile installed C++ cross-namespace output");
+    expect_success(run_executable(
+                       std::filesystem::path(QUARRY_TEST_C_COMPILER),
+                       {"-std=c99", "-Wall", "-Wextra", "-Wpedantic", "-Werror", "-c",
+                        "-I" + (output / "c").string(),
+                        "-I" + (install_prefix / "include").string(), c_source.string(),
+                        "-o", (root / "root.generated.o").string()},
+                       root, "compile-installed-c-cross-namespace"),
+                   "compile installed C cross-namespace output");
+}
+
 TEST(SchemaCompilerPackageTest, ManualCustomCommandStillGeneratesDownstreamCode) {
 #ifdef _WIN32
     GTEST_SKIP() << "schema compiler package subprocess test is not implemented on Windows";

@@ -99,32 +99,48 @@ def install_from_sdist(python: Path, sdist: Path, root: Path) -> None:
 
 
 def generated_consumer(python: Path, compiler: Path, install_prefix: Path, root: Path) -> None:
+    dependency = root / "shared.brd"
     schema = root / "downstream.brd"
+    dependency.write_text(
+        "namespace: shared\n"
+        "record: Child\n"
+        "version: 1\n"
+        "type: data\n"
+        "fields:\n"
+        "  value:\n    type: uint32\n"
+        "enums:\n  Status:\n    values:\n      OK: 0\n      READY: 1\n",
+        encoding="utf-8",
+    )
     schema.write_text(
         "namespace: downstream\n"
         "record: Sample\n"
         "version: 1\n"
         "type: data\n"
+        "imports:\n  - shared.brd\n"
         "fields:\n"
         "  count:\n    type: uint32\n"
-        "  status:\n    type: Status\n"
+        "  status:\n    type: shared.Status\n"
+        "  child:\n    type: shared.Child\n"
+        "  children:\n    type: shared.Child[]\n    max_elements: 2\n"
         "  label:\n    type: string\n    max_bytes: 16\n"
-        "  blob:\n    type: bytes\n    max_bytes: 16\n"
-        "  readings:\n    type: uint32[]\n    max_elements: 3\n"
-        "enums:\n  Status:\n    values:\n      OK: 0\n      READY: 1\n",
+        "  blob:\n    type: bytes\n    max_bytes: 16\n",
         encoding="utf-8",
     )
     generated = root / "generated"
-    run([str(compiler), "--language", "python", "-o", str(generated), str(schema)],
-        env=clean_env())
+    for source in (dependency, schema):
+        run([str(compiler), "--language", "python", "-o", str(generated), str(source)],
+            env=clean_env())
     script = root / "consumer.py"
     script.write_text(
-        "from downstream.schema import Sample, Status\n"
-        "value = Sample(count=7, status=Status.READY, label='café', blob=b'\\x00\\xff', readings=[1, 2])\n"
+        "from shared.schema import Child, Status\n"
+        "from downstream.schema import Sample\n"
+        "child = Child(value=42)\n"
+        "value = Sample(count=7, status=Status.READY, child=child, children=[child], "
+        "label='café', blob=b'\\x00\\xff')\n"
         "encoded = value.encode()\n"
         "assert Sample.decode(encoded) == value\n"
         "assert value.encoded_size() == len(encoded)\n"
-        "assert Sample().readings is None\n",
+        "assert Sample().children is None\n",
         encoding="utf-8",
     )
     environment = clean_env()
