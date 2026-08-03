@@ -640,7 +640,7 @@ TEST(BackendPythonTest, EnumWidthMatchesSmallestUnsignedTypeForMaxDeclaredValue)
     EXPECT_NE(content.find("_brf.unpack_enum(Big, \"uint16\", fields[0])"), std::string::npos);
 }
 
-TEST(BackendPythonTest, CrossNamespaceEnumFieldFailsGenerationNamingRecordAndField) {
+TEST(BackendPythonTest, CrossNamespaceEnumAndRecordFieldsUseDependencyModuleAliases) {
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
     NamespaceIR* root = schema_ir.mutable_root_namespace();
@@ -654,16 +654,53 @@ TEST(BackendPythonTest, CrossNamespaceEnumFieldFailsGenerationNamingRecordAndFie
     field->set_name("status");
     field->set_field_index(0);
     field->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(3);
+    FieldIR* child = record->add_fields();
+    child->set_name("child");
+    child->set_field_index(1);
+    child->mutable_type()->mutable_record()->set_target_record_ir_id(6);
+    FieldIR* modes = record->add_fields();
+    modes->set_name("modes");
+    modes->set_field_index(2);
+    modes->mutable_type()->mutable_array()->set_max_elements(2);
+    modes->mutable_type()->mutable_array()->mutable_element_type()->mutable_enum_type()->set_target_enum_ir_id(3);
+    FieldIR* children = record->add_fields();
+    children->set_name("children");
+    children->set_field_index(3);
+    children->mutable_type()->mutable_array()->set_max_elements(2);
+    children->mutable_type()->mutable_array()->mutable_element_type()->mutable_record()->set_target_record_ir_id(6);
+    RecordIR* imported_record = add_zero_field_record(*enums_ns, 6, 2U, "Child", "enums.Child");
+    (void)imported_record;
     assert_valid(schema_ir);
 
     Backend backend;
     const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
-    EXPECT_FALSE(result.success);
-    EXPECT_NE(result.error_message.find("records.Sample.status"), std::string::npos);
-    EXPECT_NE(result.error_message.find("cross-namespace"), std::string::npos);
+    ASSERT_TRUE(result.success) << result.error_message;
+    const GeneratedFile* module = find_file(result, "generated/records/schema.py");
+    ASSERT_NE(module, nullptr);
+    EXPECT_NE(module->content.find("import enums.schema as _quarry_dep_enums_schema"),
+              std::string::npos);
+    EXPECT_NE(module->content.find("status: Optional[_quarry_dep_enums_schema.Status]"),
+              std::string::npos);
+    EXPECT_NE(module->content.find("child: Optional[_quarry_dep_enums_schema.Child]"),
+              std::string::npos);
+    EXPECT_NE(module->content.find("modes: Optional[list[_quarry_dep_enums_schema.Status]]"),
+              std::string::npos);
+    EXPECT_NE(module->content.find("children: Optional[list[_quarry_dep_enums_schema.Child]]"),
+              std::string::npos);
 
-    const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
-    EXPECT_FALSE(plan_result.success);
+    quarry::compiler::output_planning::OutputPlan output_plan;
+    quarry::compiler::output_planning::PlannedSourceUnit dependency_unit;
+    dependency_unit.namespace_fqn = "enums";
+    dependency_unit.emits_output = false;
+    output_plan.units.push_back(dependency_unit);
+    quarry::compiler::output_planning::PlannedSourceUnit root_unit;
+    root_unit.namespace_fqn = "records";
+    root_unit.emits_output = true;
+    output_plan.units.push_back(root_unit);
+    const CodegenResult root_only = backend.generate(schema_ir, CodegenOptions{}, &output_plan);
+    ASSERT_TRUE(root_only.success) << root_only.error_message;
+    ASSERT_NE(find_file(root_only, "generated/records/schema.py"), nullptr);
+    EXPECT_EQ(find_file(root_only, "generated/enums/schema.py"), nullptr);
 }
 
 TEST(BackendPythonTest, NegativeEnumValueFieldFailsGenerationNamingRecordAndField) {

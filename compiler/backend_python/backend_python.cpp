@@ -425,6 +425,7 @@ using EnumCatalog = std::unordered_map<std::uint64_t, EnumCatalogEntry>;
 struct EnumFieldEncoding {
     std::string class_name;
     std::string width_type_name;
+    std::string owning_namespace_fqn;
 };
 
 struct RecordCatalogEntry {
@@ -453,7 +454,12 @@ using RecordCatalog = std::unordered_map<std::uint64_t, RecordCatalogEntry>;
     return true;
 }
 
-[[nodiscard]] std::optional<std::string> lower_record_reference(
+struct RecordFieldEncoding {
+    std::string class_name;
+    std::string owning_namespace_fqn;
+};
+
+[[nodiscard]] std::optional<RecordFieldEncoding> lower_record_reference(
     std::uint64_t target_record_ir_id, std::string_view current_namespace_fqn,
     const RecordCatalog& catalog, std::string_view context_description,
     std::string& error_message) {
@@ -461,25 +467,18 @@ using RecordCatalog = std::unordered_map<std::uint64_t, RecordCatalogEntry>;
     if (catalog_it == catalog.end()) {
         return std::nullopt;
     }
+    (void)error_message;
     const RecordCatalogEntry& entry = catalog_it->second;
-    if (entry.owning_namespace_fqn != current_namespace_fqn) {
-        std::ostringstream stream;
-        stream << "backend_python: " << context_description << " references record '"
-               << entry.class_name << "' declared in a different namespace ('"
-               << entry.owning_namespace_fqn
-               << "'); cross-namespace nested record fields are not yet supported "
-                  "(see docs/design/python-backend.md)";
-        error_message = stream.str();
-        return std::nullopt;
-    }
-    return entry.class_name;
+    (void)current_namespace_fqn;
+    (void)context_description;
+    return RecordFieldEncoding{entry.class_name, entry.owning_namespace_fqn};
 }
 
 // Resolves an enum-typed field reference by ir_id, given the whole-schema
 // enum catalog and the FQN of the namespace the reference occurs in.
 // `context_description` is used only in diagnostic text (e.g. "field
 // 'X.Y'"). Returns std::nullopt with `error_message` set for a
-// cross-namespace or negative-valued enum; returns std::nullopt with
+// negative-valued enum; returns std::nullopt with
 // `error_message` left untouched if `target_enum_ir_id` is not in the
 // catalog at all -- Schema IR guarantees a resolvable reference, so callers
 // treat a catalog miss as an internal-consistency fallback, not a normal
@@ -493,16 +492,7 @@ lower_enum_reference(std::uint64_t target_enum_ir_id, std::string_view current_n
         return std::nullopt;
     }
     const EnumCatalogEntry& entry = catalog_it->second;
-    if (entry.owning_namespace_fqn != current_namespace_fqn) {
-        std::ostringstream stream;
-        stream << "backend_python: " << context_description << " references enum '"
-               << entry.class_name << "' declared in a different namespace ('"
-               << entry.owning_namespace_fqn
-               << "'); cross-namespace enum field references are not yet supported "
-                  "(see docs/design/python-backend.md)";
-        error_message = stream.str();
-        return std::nullopt;
-    }
+    (void)current_namespace_fqn;
     if (!entry.all_non_negative) {
         std::ostringstream stream;
         stream << "backend_python: " << context_description
@@ -512,7 +502,8 @@ lower_enum_reference(std::uint64_t target_enum_ir_id, std::string_view current_n
         error_message = stream.str();
         return std::nullopt;
     }
-    return EnumFieldEncoding{entry.class_name, entry.width_type_name};
+    return EnumFieldEncoding{entry.class_name, entry.width_type_name,
+                             entry.owning_namespace_fqn};
 }
 
 // --- Planning -------------------------------------------------------------
@@ -538,6 +529,13 @@ struct PlannedField {
     // this is the *element* type hint (wrapped in list[...] at render
     // time) -- see runtime_type_name's comment above.
     std::string python_type_hint;
+    // Filled with an absolute generated-module expression for external enum
+    // and record declarations (for example _quarry_dep_acme_shared.Status).
+    // Local declarations retain the historical bare class name.
+    std::string python_type_expression;
+    std::string record_encode_expression;
+    std::string record_decode_expression;
+    std::string target_namespace_fqn;
     bool is_enum = false;
     bool is_string = false;
     std::uint32_t string_max_bytes = 0U; // meaningful only when is_string
@@ -572,6 +570,11 @@ struct PlannedNamespaceFile {
     std::string relative_module_path;
     std::vector<PlannedEnum> enums;
     std::vector<PlannedRecord> records;
+    struct DependencyImport {
+        std::string module_name;
+        std::string alias;
+    };
+    std::vector<DependencyImport> dependency_imports;
 };
 
 // A namespace emits a module if it directly owns one or more records or
@@ -580,13 +583,12 @@ struct PlannedNamespaceFile {
     return ns.records_size() > 0 || ns.enums_size() > 0;
 }
 
-// Resolves one field's type: a scalar primitive, a same-namespace
-// non-negative-valued enum reference, a bounded string/bytes field, a
-// same-namespace nested record reference, or a bounded array of one of the
+// Resolves one field's type: a scalar primitive, a non-negative-valued enum
+// reference, a bounded string/bytes field, a nested record reference, or a bounded array of one of the
 // supported non-record element kinds.
 // Returns std::nullopt (with error_message set) for every unsupported
 // case: a non-scalar/non-enum/non-string/non-bytes type; an enum declared
-// in a different namespace; or an enum with a negative declared value.
+// with a negative declared value.
 [[nodiscard]] std::optional<PlannedField>
 lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                     std::string_view current_namespace_fqn, const EnumCatalog& enum_catalog,
@@ -616,6 +618,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             field.field_index = field_ir.field_index();
             field.runtime_type_name = encoding->width_type_name;
             field.python_type_hint = encoding->class_name;
+            field.target_namespace_fqn = encoding->owning_namespace_fqn;
             field.is_enum = true;
             return field;
         }
@@ -648,14 +651,15 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         return field;
     } else if (type.kind_case() == FieldType::kRecord) {
         const std::string context = "field '" + record_ir.fqn() + "." + field_ir.name() + "'";
-        const std::optional<std::string> record_name = lower_record_reference(
+        const std::optional<RecordFieldEncoding> record_encoding = lower_record_reference(
             type.record().target_record_ir_id(), current_namespace_fqn, record_catalog, context,
             error_message);
-        if (record_name.has_value()) {
+        if (record_encoding.has_value()) {
             PlannedField field;
             field.name = field_ir.name();
             field.field_index = field_ir.field_index();
-            field.python_type_hint = *record_name;
+            field.python_type_hint = record_encoding->class_name;
+            field.target_namespace_fqn = record_encoding->owning_namespace_fqn;
             field.is_record = true;
             field.record_target_ir_id = type.record().target_record_ir_id();
             return field;
@@ -664,13 +668,13 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             return std::nullopt;
         }
     } else if (type.kind_case() == FieldType::kArray) {
-        // PR-122/PR-123/PR-125 scope: arrays of scalar primitives, same-namespace
-        // non-negative-valued enums only -- reusing lower_scalar_field_type
+        // PR-122/PR-123/PR-125/PR-140 scope: arrays of scalar primitives,
+        // non-negative-valued enums -- reusing lower_scalar_field_type
         // and lower_enum_reference unchanged so cross-namespace and
         // negative-enum-value checks apply identically to array elements,
         // matching backend_c.cpp's own array-element resolution structure.
-        // and PR-123's bounded string/bytes elements. PR-125 adds
-        // same-namespace record elements; nested arrays remain unsupported.
+        // PR-123's bounded string/bytes elements and record elements; nested
+        // arrays remain unsupported.
         const ArrayType& array_type = type.array();
         const FieldType& element_type = array_type.element_type();
         std::optional<ScalarEncoding> scalar_encoding;
@@ -705,6 +709,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             field.field_index = field_ir.field_index();
             field.runtime_type_name = enum_encoding->width_type_name;
             field.python_type_hint = enum_encoding->class_name;
+            field.target_namespace_fqn = enum_encoding->owning_namespace_fqn;
             field.is_enum = true;
             field.is_array = true;
             field.array_max_elements = array_type.max_elements();
@@ -735,14 +740,15 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         if (element_type.kind_case() == FieldType::kRecord) {
             const std::string context =
                 "field '" + record_ir.fqn() + "." + field_ir.name() + "' array element type";
-            const std::optional<std::string> record_name = lower_record_reference(
+            const std::optional<RecordFieldEncoding> record_encoding = lower_record_reference(
                 element_type.record().target_record_ir_id(), current_namespace_fqn,
                 record_catalog, context, error_message);
-            if (record_name.has_value()) {
+            if (record_encoding.has_value()) {
                 PlannedField field;
                 field.name = field_ir.name();
                 field.field_index = field_ir.field_index();
-                field.python_type_hint = *record_name;
+                field.python_type_hint = record_encoding->class_name;
+                field.target_namespace_fqn = record_encoding->owning_namespace_fqn;
                 field.is_record = true;
                 field.record_target_ir_id = element_type.record().target_record_ir_id();
                 field.is_array = true;
@@ -763,8 +769,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         stream << "backend_python: field '" << record_ir.fqn() << "." << field_ir.name()
                << "' is an array whose element type the Python backend does not support yet -- "
                   "only arrays of bool, fixed-width signed/unsigned integer, f32/f64 scalar "
-                  "elements, same-namespace non-negative-valued enum elements, bounded string "
-                  "elements, bounded bytes elements, and same-namespace record elements are "
+                  "elements, non-negative-valued enum elements, bounded string elements, "
+                  "bounded bytes elements, and record elements are "
                   "supported (see docs/design/python-backend.md); nested arrays remain "
                   "unsupported";
         error_message = stream.str();
@@ -784,9 +790,9 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     std::ostringstream stream;
     stream << "backend_python: field '" << record_ir.fqn() << "." << field_ir.name()
            << "' has a type the Python backend does not support yet -- only bool, fixed-width "
-              "signed/unsigned integer, f32/f64 scalar fields, same-namespace "
-              "non-negative-valued enum fields, bounded string/bytes fields, and bounded arrays "
-              "of scalar, enum, string, bytes, or same-namespace record elements are supported "
+              "signed/unsigned integer, f32/f64 scalar fields, non-negative-valued enum fields, "
+              "bounded string/bytes fields, and bounded arrays of scalar, enum, string, bytes, "
+              "or record elements are supported "
               "(see docs/design/python-backend.md); nested arrays remain unsupported";
     error_message = stream.str();
     return std::nullopt;
@@ -838,7 +844,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     }
 
     if (ordered.size() != records.size()) {
-        error_message = "backend_python: detected a cycle in same-namespace nested record "
+        error_message = "backend_python: detected a cycle in nested record "
                         "declaration dependencies in namespace '" + std::string(namespace_fqn) +
                         "' -- a record cannot embed itself, directly or transitively, by value";
         return false;
@@ -941,7 +947,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                     return false;
                 }
                 planned_field->name = *python_field_name;
-                if (planned_field->is_record) {
+                if (planned_field->is_record &&
+                    planned_field->target_namespace_fqn == ns.fqn()) {
                     dependencies.push_back(planned_field->record_target_ir_id);
                 }
                 planned_fields.push_back(std::move(*planned_field));
@@ -977,6 +984,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 // document for C++ and C respectively.
 [[nodiscard]] bool build_generation_plan(const schema_ir::SchemaIrModel& schema_ir,
                                         const CodegenOptions& options,
+                                        const output_planning::OutputPlan* output_plan,
                                         std::vector<std::string>& init_file_paths,
                                         std::vector<PlannedNamespaceFile>& module_files,
                                         std::string& error_message) {
@@ -994,6 +1002,108 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     if (!collect_namespace_files(schema_ir.root_namespace(), options, enum_catalog, record_catalog,
                                  module_files, ancestor_init_paths, error_message)) {
         return false;
+    }
+
+    std::map<std::string, std::string> module_name_by_namespace;
+    for (const PlannedNamespaceFile& file : module_files) {
+        std::string module_name = file.relative_module_path;
+        if (module_name.ends_with(".py")) {
+            module_name.resize(module_name.size() - 3U);
+        }
+        std::replace(module_name.begin(), module_name.end(), '/', '.');
+        module_name_by_namespace.emplace(file.source_namespace_fqn, std::move(module_name));
+    }
+
+    std::set<std::string> planned_namespaces;
+    std::set<std::string> emitting_namespaces;
+    if (output_plan != nullptr) {
+        for (const output_planning::PlannedSourceUnit& unit : output_plan->units) {
+            planned_namespaces.insert(unit.namespace_fqn);
+            if (unit.emits_output) {
+                emitting_namespaces.insert(unit.namespace_fqn);
+            }
+        }
+    }
+
+    // Resolve every external field to a generated module alias here, once,
+    // from compiler-resolved IR identities. The renderer remains a pure
+    // formatting step and never searches imports or source text.
+    for (PlannedNamespaceFile& file : module_files) {
+        std::map<std::string, std::string> aliases_by_namespace;
+        for (PlannedRecord& record : file.records) {
+            for (PlannedField& field : record.fields) {
+                if (field.target_namespace_fqn.empty() ||
+                    field.target_namespace_fqn == file.source_namespace_fqn) {
+                    field.python_type_expression = field.python_type_hint;
+                    if (field.is_record) {
+                        field.record_encode_expression =
+                            record_helper_name(field.python_type_hint, "encode");
+                        field.record_decode_expression =
+                            record_helper_name(field.python_type_hint, "decode");
+                    }
+                    continue;
+                }
+
+                const auto module_it = module_name_by_namespace.find(field.target_namespace_fqn);
+                if (module_it == module_name_by_namespace.end() ||
+                    (output_plan != nullptr &&
+                     !planned_namespaces.contains(field.target_namespace_fqn))) {
+                    error_message = "backend_python: field '" + file.source_namespace_fqn +
+                                    "." + record.name + "." + field.name +
+                                    " references external namespace '" +
+                                    field.target_namespace_fqn +
+                                    "' whose generated module is not in the compiler output plan";
+                    return false;
+                }
+
+                std::string& alias = aliases_by_namespace[field.target_namespace_fqn];
+                if (alias.empty()) {
+                    alias = "_quarry_dep_";
+                    for (const char ch : module_it->second) {
+                        alias.push_back((std::isalnum(static_cast<unsigned char>(ch)) != 0 ||
+                                         ch == '_')
+                                            ? ch
+                                            : '_');
+                    }
+                }
+                const std::string type_expression = alias + "." + field.python_type_hint;
+                field.python_type_expression = type_expression;
+                if (field.is_record) {
+                    field.record_encode_expression =
+                        alias + "." + record_helper_name(field.python_type_hint, "encode");
+                    field.record_decode_expression =
+                        alias + "." + record_helper_name(field.python_type_hint, "decode");
+                }
+            }
+        }
+        for (const auto& [namespace_fqn, alias] : aliases_by_namespace) {
+            const auto module_it = module_name_by_namespace.find(namespace_fqn);
+            file.dependency_imports.push_back(
+                PlannedNamespaceFile::DependencyImport{module_it->second, alias});
+        }
+    }
+
+    // With compiler-driven generation, only explicit roots emit modules.
+    // Dependencies are generated by separate explicit-root invocations and
+    // remain available through the same output tree. Direct backend use
+    // (without an OutputPlan) retains its historical all-modules behavior.
+    if (output_plan != nullptr) {
+        module_files.erase(
+            std::remove_if(module_files.begin(), module_files.end(),
+                           [&emitting_namespaces](const PlannedNamespaceFile& file) {
+                               return !emitting_namespaces.contains(file.source_namespace_fqn);
+                           }),
+            module_files.end());
+        ancestor_init_paths.clear();
+        for (const PlannedNamespaceFile& file : module_files) {
+            std::string safe_error;
+            const auto safe_namespace = sanitize_namespace_parts(file.source_namespace_fqn, safe_error);
+            if (!safe_namespace.has_value()) {
+                error_message = std::move(safe_error);
+                return false;
+            }
+            collect_ancestor_init_paths(*safe_namespace, ancestor_init_paths);
+        }
     }
 
     // Every generated path, including package markers, must be unique after
@@ -1048,8 +1158,11 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     for (const PlannedField& field : record.fields) {
         // Bare PEP 585 list[...] subscription -- no new import needed
         // beyond the already-emitted `from typing import Optional`.
+        const std::string type_expression = field.python_type_expression.empty()
+                                                 ? field.python_type_hint
+                                                 : field.python_type_expression;
         const std::string hint =
-            field.is_array ? "list[" + field.python_type_hint + "]" : field.python_type_hint;
+            field.is_array ? "list[" + type_expression + "]" : type_expression;
         stream << "    " << field.name << ": Optional[" << hint << "] = None\n";
     }
     stream << "\n";
@@ -1077,7 +1190,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             stream << "        _array_payload = bytearray()\n";
             stream << "        _brf.append_varuint(_array_payload, len(_items))\n";
             stream << "        for _item in _items:\n";
-            stream << "            _encoded_item = " << record_helper_name(field.python_type_hint, "encode")
+            stream << "            _encoded_item = " << field.record_encode_expression
                    << "(_item)\n";
             stream << "            _brf.append_varuint(_array_payload, len(_encoded_item))\n";
             stream << "            _array_payload.extend(_encoded_item)\n";
@@ -1092,8 +1205,11 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                    << ", _brf.pack_array_of_bytes(value." << field.name << ", "
                    << field.array_max_elements << ", " << field.bytes_max_bytes << ")))\n";
         } else if (field.is_array && field.is_enum) {
+            const std::string type_expression = field.python_type_expression.empty()
+                                                     ? field.python_type_hint
+                                                     : field.python_type_expression;
             stream << "        fields.append((" << field.field_index
-                   << ", _brf.pack_array_of_enum(" << field.python_type_hint << ", \""
+                   << ", _brf.pack_array_of_enum(" << type_expression << ", \""
                    << field.runtime_type_name << "\", value." << field.name << ", "
                    << field.array_max_elements << ")))\n";
         } else if (field.is_array) {
@@ -1102,8 +1218,11 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                    << "\", value." << field.name << ", " << field.array_max_elements
                    << ")))\n";
         } else if (field.is_enum) {
+            const std::string type_expression = field.python_type_expression.empty()
+                                                     ? field.python_type_hint
+                                                     : field.python_type_expression;
             stream << "        fields.append((" << field.field_index << ", _brf.pack_enum("
-                   << field.python_type_hint << ", value." << field.name << ", \""
+                   << type_expression << ", value." << field.name << ", \""
                    << field.runtime_type_name << "\")))\n";
         } else if (field.is_string) {
             stream << "        fields.append((" << field.field_index << ", _brf.pack_string("
@@ -1113,7 +1232,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                    << "value." << field.name << ", " << field.bytes_max_bytes << ")))\n";
         } else if (field.is_record) {
             stream << "        fields.append((" << field.field_index << ", "
-                   << record_helper_name(field.python_type_hint, "encode") << "(value."
+                   << field.record_encode_expression << "(value."
                    << field.name << ")))\n";
         } else {
             stream << "        fields.append((" << field.field_index << ", _brf.pack_scalar(\""
@@ -1155,7 +1274,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             stream << "            _element_end = _offset + _element_length\n";
             stream << "            try:\n";
             stream << "                " << field.name << ".append("
-                   << record_helper_name(field.python_type_hint, "decode")
+                   << field.record_decode_expression
                    << "(_array_data[_offset:_element_end]))\n";
             stream << "            except _brf.DecodeError as _error:\n";
             stream << "                raise _brf.DecodeError('array element ' + str(_index) + ' at byte offset ' + str(_offset) + ': ' + str(_error)) from _error\n";
@@ -1172,8 +1291,11 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                    << field.field_index << "], " << field.array_max_elements << ", "
                    << field.bytes_max_bytes << ")\n";
         } else if (field.is_array && field.is_enum) {
+            const std::string type_expression = field.python_type_expression.empty()
+                                                     ? field.python_type_hint
+                                                     : field.python_type_expression;
             stream << "        " << field.name << " = _brf.unpack_array_of_enum("
-                   << field.python_type_hint << ", \"" << field.runtime_type_name
+                   << type_expression << ", \"" << field.runtime_type_name
                    << "\", fields[" << field.field_index << "], " << field.array_max_elements
                    << ")\n";
         } else if (field.is_array) {
@@ -1181,7 +1303,10 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                    << field.runtime_type_name << "\", fields[" << field.field_index << "], "
                    << field.array_max_elements << ")\n";
         } else if (field.is_enum) {
-            stream << "        " << field.name << " = _brf.unpack_enum(" << field.python_type_hint
+            const std::string type_expression = field.python_type_expression.empty()
+                                                     ? field.python_type_hint
+                                                     : field.python_type_expression;
+            stream << "        " << field.name << " = _brf.unpack_enum(" << type_expression
                    << ", \"" << field.runtime_type_name << "\", fields[" << field.field_index
                    << "])\n";
         } else if (field.is_string) {
@@ -1192,7 +1317,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                    << field.field_index << "], " << field.bytes_max_bytes << ")\n";
         } else if (field.is_record) {
             stream << "        " << field.name << " = "
-                   << record_helper_name(field.python_type_hint, "decode") << "(fields["
+                   << field.record_decode_expression << "(fields["
                    << field.field_index << "])\n";
         } else {
             stream << "        " << field.name << " = _brf.unpack_scalar(\""
@@ -1240,6 +1365,10 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     std::ostringstream stream;
     stream << "\"\"\"Generated by Quarry (Python backend). Do not edit by hand.\"\"\"\n";
     stream << "\n";
+    // Python 3.9-compatible postponed annotations keep external module
+    // references readable while avoiding eager evaluation of record types.
+    stream << "from __future__ import annotations\n";
+    stream << "\n";
     stream << "from quarry.runtime.python import QUARRY_GENERATED_CODE_API_VERSION_PYTHON\n";
     stream << "from quarry.runtime.python import binary_record as _brf\n";
     stream << "\n";
@@ -1258,6 +1387,9 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         stream << "from enum import IntEnum\n";
     }
     stream << "from typing import Optional\n";
+    for (const PlannedNamespaceFile::DependencyImport& dependency : file.dependency_imports) {
+        stream << "import " << dependency.module_name << " as " << dependency.alias << "\n";
+    }
 
     bool first_block = true;
     for (const PlannedEnum& enum_ir : file.enums) {
@@ -1291,13 +1423,14 @@ std::string output_path_for_planned_file(const CodegenOptions& options,
 }
 
 PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir,
-                        const CodegenOptions& options) const {
+                        const CodegenOptions& options,
+                        const output_planning::OutputPlan* output_plan) const {
     PlanResult result;
 
     std::vector<std::string> init_file_paths;
     std::vector<PlannedNamespaceFile> module_files;
     std::string error_message;
-    if (!build_generation_plan(schema_ir, options, init_file_paths, module_files,
+    if (!build_generation_plan(schema_ir, options, output_plan, init_file_paths, module_files,
                               error_message)) {
         result.success = false;
         result.error_message = std::move(error_message);
@@ -1316,13 +1449,14 @@ PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir,
 }
 
 CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
-                               const CodegenOptions& options) const {
+                               const CodegenOptions& options,
+                               const output_planning::OutputPlan* output_plan) const {
     CodegenResult result;
 
     std::vector<std::string> init_file_paths;
     std::vector<PlannedNamespaceFile> module_files;
     std::string error_message;
-    if (!build_generation_plan(schema_ir, options, init_file_paths, module_files,
+    if (!build_generation_plan(schema_ir, options, output_plan, init_file_paths, module_files,
                               error_message)) {
         result.success = false;
         result.error_message = std::move(error_message);

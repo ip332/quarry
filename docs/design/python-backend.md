@@ -29,9 +29,9 @@ renders as a real `enum.IntEnum` subclass, and `pack_enum`/`unpack_enum`
 delegate to the existing scalar pack/unpack for the enum's wire width.
 An enum-only namespace (no records) now emits a file too, resolving a
 limitation PR-118/PR-119 had documented. String, bytes, nested-record, and
-supported array fields are implemented; nested arrays and cross-namespace
-enum/record references remain unsupported and fail generation with a
-diagnostic.
+supported array fields are implemented, including compiler-resolved
+cross-namespace enum and record references. Nested arrays and recursive
+by-value records remain unsupported and fail generation with a diagnostic.
 
 PR-121 added string and bytes field support, using the BRF spec's
 existing "Variable-Length Data Encoding" rules unchanged: bounded
@@ -55,8 +55,10 @@ PR-124 added same-namespace nested record fields. Generated dataclasses use
 the referenced generated record type, and generated record helpers compose
 the child's existing encode/decode helpers. Records are rendered in
 dependency order; same-namespace record arrays use the existing variable-width
-array framing and child helpers. Nested arrays and cross-namespace record
-references remain unsupported. No runtime helper was needed.
+array framing and child helpers. PR-140 extends the same composition to
+compiler-resolved cross-namespace enum and record references. Nested arrays
+and recursive by-value record graphs remain unsupported. No runtime helper was
+needed.
 
 This document supersedes, for implementation purposes, the investigation
 notes captured in this repository's PR-117 (native Python backend
@@ -156,10 +158,9 @@ an incidental implementation detail:
 
 `namespace_emits_file()` for Python is `ns.records_size() > 0 ||
 ns.enums_size() > 0`: a namespace emits a module if it owns records,
-enums, or both. Bounded arrays of scalar, same-namespace non-negative-valued
-enum, bounded string, bounded bytes, and same-namespace record elements are
-supported, as are same-namespace nested record fields; nested arrays remain
-unsupported.
+enums, or both. Bounded arrays of scalar, non-negative-valued enum, bounded
+string, bounded bytes, and record elements are supported, as are nested record
+fields; nested arrays remain unsupported.
 
 ### Scalar field lowering
 
@@ -177,11 +178,10 @@ record and field:
 ```
 backend_python: field '<record-fqn>.<field-name>' has a type the Python
 backend does not support yet -- only bool, fixed-width signed/unsigned
-integer, f32/f64 scalar fields, same-namespace non-negative-valued enum
-fields, bounded string/bytes fields, bounded arrays of scalar, enum, string,
-or bytes elements, same-namespace nested record fields, and same-namespace
-record arrays are supported (see docs/design/python-backend.md); nested arrays
-remain unsupported
+integer, f32/f64 scalar fields, non-negative-valued enum fields, bounded
+string/bytes fields, bounded arrays of scalar, enum, string, bytes, or record
+elements, and nested record fields are supported (see
+docs/design/python-backend.md); nested arrays remain unsupported
 ```
 
 A record/class that silently dropped an unsupported field would be
@@ -212,14 +212,9 @@ since Python's own package/module structure already disambiguates) and
 its wire width type name (`"uint8"`/`"uint16"`/`"uint32"`/`"uint64"`,
 passed to `pack_enum`/`unpack_enum`).
 
-A cross-namespace enum reference fails generation:
-
-```
-backend_python: field '<record-fqn>.<field-name>' references enum
-'<EnumName>' declared in a different namespace ('<other-namespace>');
-cross-namespace enum field references are not yet supported (see
-docs/design/python-backend.md)
-```
+External enum references use the declaring namespace's generated module and
+are rendered through a deterministic module alias; the enum class is never
+duplicated in the consuming module.
 
 An enum with any negative declared value fails generation for any field
 referencing it:
@@ -693,15 +688,18 @@ contract can change on its own schedule.
   the same trick doesn't directly apply. A follow-up PR could introduce a
   small shared source of truth (e.g. a generated `_version.py` the
   packaging step copies in) if manual drift becomes a real problem.
-* **Limited array support.** Arrays of fixed-width scalar,
-  same-namespace non-negative-valued enum, bounded string, and bounded bytes
-  elements and same-namespace records are supported. The current source
+* **Limited array support.** Arrays of fixed-width scalar, non-negative-valued
+  enum, bounded string, bounded bytes, and imported or local record elements
+  are supported. The current source
   schema frontend does not expose per-element `max_bytes` for array fields;
   PR-123 therefore consumes that already-defined constraint at the validated
   Schema IR/backend boundary without changing the frontend pipeline.
-* **No cross-namespace enum or record references.** Only same-namespace
-  references are supported; a field referencing a type declared elsewhere
-  fails generation with a diagnostic.
+* **Explicit dependency generation.** Imported source units must be invoked
+  as explicit roots so their generated modules are present in the same output
+  package tree. Python modules use absolute imports with full deterministic
+  aliases. Source-unit import cycles are rejected by the compiler before
+  backend generation, so generated module imports do not rely on partially
+  initialized modules. Recursive by-value record graphs remain unsupported.
 * **`float32` round-trips through Python's only floating-point type.**
   Python has no native single-precision float; `pack_scalar("float32",
   value)` always narrows a Python `float` (always double-precision) to

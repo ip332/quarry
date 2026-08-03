@@ -10,10 +10,10 @@ remain private implementation details.
 
 ## quarry-schema-compiler
 
-The C backend supports compiler-resolved cross-namespace record and enum
-references, including arrays, when imported dependency roots are generated
-separately into the same output directory. Python cross-namespace generation
-remains unsupported.
+The C and Python backends support compiler-resolved cross-namespace record and
+enum references, including arrays, when imported dependency roots are generated
+separately into the same output directory. Python emits deterministic absolute
+module imports with generated aliases.
 
 `quarry-schema-compiler` is the first end-to-end schema compiler command.
 It compiles one YAML `.brd` source file through the production YAML frontend,
@@ -72,8 +72,9 @@ installed `Quarry::runtime_c` C runtime -- see
 `docs/design/c-backend.md` for the full scope, the generated codec API
 design, and the roadmap. Cross-namespace C++ record and enum references
 (including arrays) are supported when imported dependency roots are generated
-into the same output directory. C follows the same explicit dependency-root
-workflow; Python cross-namespace generation remains unsupported.
+into the same output directory. C and Python follow the same explicit
+dependency-root workflow; Python generated modules import dependencies through
+deterministic full-module aliases.
 A record containing any such field -- even mixed with otherwise-supported
 fields -- fails generation with a diagnostic
 identifying the record and field, rather than silently emitting a struct
@@ -103,11 +104,10 @@ module), and for a bounded `string`/`bytes` field (UTF-8 validation for
 standard library's `struct` module), verified byte-for-byte
 wire-compatible with the C and C++ backends
 (`tests/interop/python_cpp_c_codec_interop_test.cpp`). Bounded arrays of
-fixed-width scalar or same-namespace enum elements and bounded arrays of
-string or bytes elements are supported; same-namespace nested record fields
-are supported by composing generated record helpers; same-namespace arrays of
-records are also supported using the existing array framing. Nested arrays and
-cross-namespace enum/record references fail
+fixed-width scalar or non-negative enum elements and bounded arrays of string,
+bytes, or record elements are supported; nested record fields and
+compiler-resolved cross-namespace enum/record references are supported by
+composing generated record helpers. Nested arrays and recursive records fail
 generation with a diagnostic naming
 the record and field, mirroring
 the same "do not emit partial code" rule established for the C backend.
@@ -203,9 +203,9 @@ current schema unit has one dotted namespace path and one primary record, with
 zero or more fields and zero or more enum declarations in that namespace.
 Multiple primary records, multiple namespace roots, and YAML document streams
 remain unsupported. Imports are loaded into the compiler context and resolved
-before Schema IR lowering. C++ generation consumes imported declarations when
-each required dependency is also generated as an explicit root into the same
-output directory; C and Python dependency generation remain pending.
+before Schema IR lowering. C++, C, and Python generation consume imported
+declarations when each required dependency is also generated as an explicit
+root into the same output directory.
 
 Generated files are written from backend-provided in-memory `GeneratedFile`
 values. Compiler and backend failures do not write output files. Output writes

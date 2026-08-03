@@ -1,3 +1,104 @@
+# PR-140: Python Cross-Namespace Dependency Generation
+
+## Executive summary
+
+PR-140 enables Python generated modules to consume compiler-resolved enum and
+record declarations owned by imported namespaces. The backend uses existing
+Schema IR target IDs and `OutputPlan` metadata; it does not reparse YAML or
+perform semantic lookup. Imported declarations remain owned by their generated
+dependency modules and are never duplicated.
+
+## Import model and policy
+
+Each namespace continues to map to a nested package and `schema.py` module
+(for example `acme.shared` maps to `acme/shared/schema.py`). External
+dependencies are emitted as deterministic absolute module imports:
+
+```python
+import acme.shared.schema as _quarry_dep_acme_shared_schema
+```
+
+The alias is derived from the complete generated module path, so equal record
+or enum class names in different namespaces cannot shadow one another. Imports
+are deduplicated by owning namespace and sorted by namespace identity. Type
+annotations and codec calls use the alias-qualified class/helper expression.
+`from __future__ import annotations` is emitted, which is supported by Python
+3.9 and prevents eager annotation evaluation without changing the public
+dataclass API.
+
+Compiler-driven generation remains root-only. A dependency must be generated
+by invoking the compiler on that source unit as an explicit root into the same
+output tree. The backend validates that every referenced dependency is present
+in the compiler's `OutputPlan`; no automatic recursive generation was added.
+
+Source-unit import cycles are rejected before backend generation by the
+compiler, so generated module cycles cannot arise from valid imported schemas.
+Diamond dependencies are safe because each module import is emitted once.
+Recursive by-value records remain unsupported and retain the existing backend
+diagnostic boundary.
+
+## Implementation and compatibility impact
+
+- Supported: imported enum fields, imported record fields, arrays of imported
+  enums, and arrays of imported records.
+- Same-namespace lowering and generated public class names remain unchanged.
+- `Schema IR`: unchanged; existing resolved `ir_id` references are sufficient.
+- `BRF`: unchanged; nested and array framing reuse the existing Python runtime.
+- Runtime: unchanged; no schema-specific or import helper was added.
+- Python generated-code API epoch: remains `1`; callable runtime contracts did
+  not change.
+- C and C++ backends: unchanged.
+
+## Tests and validation
+
+Added backend-generation coverage for alias-qualified enum/record fields and
+arrays, and a real-interpreter compiler-driven test that generates dependency
+and root packages separately, imports both from a clean generated tree, and
+round-trips imported records and enums. Existing same-namespace tests remain
+covered.
+
+Focused validation passed:
+
+- `backend_python_test`
+- `python_execution_test`
+- backend and compiler targets rebuilt successfully
+
+The full native/Docker/package/interoperability suite is required before the
+focused commit is finalized. The known native AppleClang sign-compare warning
+in `tests/backend/backend_codegen_test.cpp:436` remains unrelated and is not
+being changed.
+
+## Files changed
+
+- `compiler/backend_python/backend_python.hpp`
+- `compiler/backend_python/backend_python.cpp`
+- `compiler/CMakeLists.txt`
+- `tools/schema_compiler/main.cpp`
+- `tests/backend_python/backend_python_test.cpp`
+- `tests/backend_python/python_execution_test.cpp`
+- `compiler/backend_python/README.md`
+- `docs/design/python-backend.md`
+- `docs/compiler-architecture.md`
+- `README.md`
+- `tools/README.md`
+- `jira/backlog.md`
+- `REPORT.md`
+
+## Remaining limitations and next PR
+
+Nested arrays, recursive by-value records, automatic dependency generation,
+and Python package publication remain out of scope. The recommended next PR is
+the cross-language interoperability and release-readiness audit for the
+completed C++/C/Python cross-namespace feature set.
+
+## Historical reports
+
+The earlier PR-126 through PR-139 audit and implementation notes below are
+retained as historical evidence; this PR-140 section is authoritative for the
+current Python cross-namespace status.
+
+---
+
 # PR-126: Python Backend Release-Readiness Audit
 
 ## 1. Executive summary

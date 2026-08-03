@@ -433,7 +433,7 @@ TEST(BackendCodegenTest, GenerationPlanPreservesMultiFileOrderingAndIncludePaths
 TEST(BackendCodegenTest, GeneratedRecordsAssertRuntimeGeneratedCodeApiVersion) {
     const CodegenResult result = run_backend_fixture("single_record", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
-    ASSERT_EQ(result.files.size(), 1);
+    ASSERT_EQ(result.files.size(), 1u);
 
     const std::string expected_assertion =
         "static_assert(::quarry::runtime::kGeneratedCodeApiVersion == " +

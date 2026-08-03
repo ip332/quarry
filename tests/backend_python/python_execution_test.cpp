@@ -183,6 +183,62 @@ constexpr std::string_view kKeywordSchema = "namespace: class\n"
     return run_and_get_exit_code(run_command);
 }
 
+[[nodiscard]] int run_python_cross_namespace_harness(std::string_view stem,
+                                                     std::string_view harness_body) {
+    const std::filesystem::path root = make_temp_directory(stem);
+    const std::filesystem::path shared = root / "shared.brd";
+    const std::filesystem::path schema = root / "schema.brd";
+    const std::filesystem::path generated = root / "generated";
+    write_text_file(shared,
+                    "namespace: acme.shared\n"
+                    "record: Child\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "fields:\n"
+                    "  value:\n"
+                    "    type: uint32\n"
+                    "enums:\n"
+                    "  Status:\n"
+                    "    values:\n"
+                    "      OK: 0\n"
+                    "      ERROR: 1\n");
+    write_text_file(schema,
+                    "namespace: acme.telemetry\n"
+                    "record: Sample\n"
+                    "version: 1\n"
+                    "type: data\n"
+                    "imports:\n"
+                    "  - shared.brd\n"
+                    "fields:\n"
+                    "  status:\n"
+                    "    type: acme.shared.Status\n"
+                    "  child:\n"
+                    "    type: acme.shared.Child\n"
+                    "  statuses:\n"
+                    "    type: acme.shared.Status[]\n"
+                    "    max_elements: 3\n"
+                    "  children:\n"
+                    "    type: acme.shared.Child[]\n"
+                    "    max_elements: 3\n");
+
+    for (const std::filesystem::path& input : {shared, schema}) {
+        const std::string command = shell_quote(QUARRY_SCHEMA_COMPILER_TOOL) +
+                                    " --language python -o " + shell_quote(generated.string()) +
+                                    " " + shell_quote(input.string());
+        if (run_and_get_exit_code(command) != 0) {
+            ADD_FAILURE() << "cross-namespace generation failed: " << command;
+            return 1;
+        }
+    }
+    const std::filesystem::path harness_script = root / "harness.py";
+    write_text_file(harness_script, std::string(harness_body));
+    const std::string python_path =
+        generated.string() + ":" + std::string(QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR);
+    return run_and_get_exit_code("PYTHONPATH=" + shell_quote(python_path) + " " +
+                                shell_quote(QUARRY_TEST_PYTHON3) + " " +
+                                shell_quote(harness_script.string()));
+}
+
 // The source-schema frontend currently has no property spelling for the
 // per-element max_bytes carried by a string/bytes array's Schema IR element.
 // Exercise the validated backend boundary directly so generated code still
@@ -317,6 +373,28 @@ TEST(PythonExecutionTest, GeneratedZeroFieldRecordRoundTripsThroughEncodeDecode)
                                 "assert sample.encoded_size() == len(data)\n"
                                 "print('OK')\n"),
              0);
+}
+
+TEST(PythonExecutionTest, CrossNamespaceGeneratedPackageImportsAndRoundTrips) {
+    if (std::string_view(QUARRY_TEST_PYTHON3).empty()) {
+        GTEST_SKIP() << "python3 interpreter not found; skipping Python execution test";
+    }
+
+    EXPECT_EQ(run_python_cross_namespace_harness(
+                  "cross-namespace",
+                  "from acme.shared.schema import Child, Status\n"
+                  "from acme.telemetry.schema import Sample\n"
+                  "\n"
+                  "sample = Sample(status=Status.OK, child=Child(value=7),\n"
+                  "                statuses=[Status.OK, Status.ERROR],\n"
+                  "                children=[Child(value=7), Child(value=9)])\n"
+                  "data = sample.encode()\n"
+                  "decoded = Sample.decode(data)\n"
+                  "assert decoded == sample, (decoded, sample)\n"
+                  "assert sample.encoded_size() == len(data)\n"
+                  "assert decoded.children[1].value == 9\n"
+                  "print('OK')\n"),
+              0);
 }
 
 TEST(PythonExecutionTest, ScalarRecordEncodeDecodeRoundTripsWithRealValues) {

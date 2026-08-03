@@ -105,7 +105,8 @@ For C++ schemas that reference imported records or enums, generate each
 imported source unit as an explicit root into the same output directory before
 generating the root schema. The root header then includes the dependency
 headers and uses fully qualified C++ types deterministically. C and Python
-cross-namespace dependency generation remain separate follow-ups.
+cross-namespace dependency generation are also supported; generate each
+imported source unit as an explicit root into the same output tree.
 
 At build time, the helper reruns `--list-outputs` before generation and fails
 before writing files if the current inventory no longer matches the inventory
@@ -171,13 +172,15 @@ variable-length encoding rules unchanged and deliberately reusing Python's
 own `str.encode`/`bytes.decode("utf-8")` for UTF-8 validation rather than
 hand-rolling a validator. All are verified byte-for-byte wire-compatible
 with the C and C++ backends for the same field values. Bounded arrays of
-fixed-width scalar and same-namespace non-negative-valued enum elements, plus
+fixed-width scalar and non-negative-valued enum elements, plus
 bounded arrays of string and bytes elements, are supported using the BRF
-count-prefix encoding. Same-namespace nested record fields and arrays of
-records are also supported by composing the existing generated record helpers
-and BRF array framing. Nested arrays and cross-namespace enum/record references remain
-unsupported and fail generation with a diagnostic
-naming the record and field. Generated modules check a
+count-prefix encoding. Nested record fields and arrays of records, including
+compiler-resolved cross-namespace enum/record references, are supported by
+composing the existing generated record helpers and BRF array framing.
+Imported schemas must be generated as separate explicit roots into the same
+output tree. Nested arrays and recursive by-value record graphs remain
+unsupported and fail generation with a diagnostic naming the record and field.
+Generated modules check a
 Python generated-code API compatibility epoch
 (`QUARRY_GENERATED_CODE_API_VERSION_PYTHON`) against the small pip-installed
 `runtime/python/` package at import time. See `docs/design/python-backend.md`

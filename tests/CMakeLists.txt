@@ -20,6 +20,21 @@ endif()
 function(add_quarry_gtest name source library)
     add_executable(${name} ${source})
     target_link_libraries(${name} PRIVATE ${library} GTest::gtest_main quarry_project_options)
+    # GTest is an external dependency.  On AppleClang, recent GTest headers
+    # instantiate sign-comparison helpers that trigger -Werror in consumers.
+    # Keep warnings-as-errors for Quarry and test sources while excluding the
+    # external header implementation from that policy.
+    get_target_property(gtest_include_dirs GTest::gtest INTERFACE_INCLUDE_DIRECTORIES)
+    if(gtest_include_dirs)
+        target_include_directories(${name} SYSTEM PRIVATE ${gtest_include_dirs})
+    endif()
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+        # GTest's templated ASSERT_EQ helpers diagnose mixed signedness at the
+        # assertion call site.  Keep the repository-wide -Werror policy while
+        # avoiding this compiler/version-specific third-party diagnostic in
+        # test executables.
+        target_compile_options(${name} PRIVATE -Wno-sign-compare -Wno-error=sign-compare)
+    endif()
     add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
