@@ -165,7 +165,35 @@ inputs, so recreating a bundle from the same runs is byte-identical. Bundles
 are intended to be attached to GitHub Releases; upload and regression analysis
 are intentionally deferred.
 
-Future work is PR-158 for reporting automation and PR-159 for comparison
-tooling. RSS, stack usage,
+Future work is PR-159 for baseline comparison and PR-160 for advisory
+reporting automation. RSS, stack usage,
 cache behavior, CPU cycles, perf counters, and allocator profilers remain
 intentionally deferred.
+
+## Release reports
+
+Generate a complete release-quality bundle, including aggregate JSON, a
+Markdown report, deterministic SVG charts, and preserved raw runs:
+
+```sh
+python3 benchmarks/scripts/generate_benchmark_report.py \
+  --input benchmark-results/run-001 benchmark-results/run-002 \
+          benchmark-results/run-003 benchmark-results/run-004 \
+          benchmark-results/run-005 \
+  --output benchmark-baseline
+```
+
+The report tool requires at least five compatible runs. It validates
+methodology, suite/schema/dataset versions, cases, operations, implementations,
+provenance, and deterministic resource values before publishing the bundle.
+`--validation-only` performs those checks without writing output. The focused
+`--bundle-only`, `--report-only`, and `--charts-only` modes allow an existing
+bundle to be rebuilt in stages.
+
+Charts are dependency-free SVG files with fixed colors and stable ordering;
+they contain no timestamps or absolute paths. `summary.md` is suitable for
+attachment to a GitHub Release beside `manifest.json` and `results.json`.
+Tables and charts show measurements only: timing is advisory, deterministic
+resource metrics are validated across runs, and BRF/protobuf encoded sizes are
+separate wire-format series. The tool does not compare baselines, upload
+assets, rank implementations, or create CI performance gates.
