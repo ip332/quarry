@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 \
         python3-build \
         python3-coverage \
+        python3-protobuf \
         python3-pip \
         gcovr \
     && rm -rf /var/lib/apt/lists/*

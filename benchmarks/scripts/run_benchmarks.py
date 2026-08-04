@@ -14,7 +14,9 @@ import sys
 import tempfile
 
 
-BACKENDS = ("cpp", "c", "python")
+QUARRY_BACKENDS = ("cpp", "c", "python")
+PROTOBUF_BACKENDS = ("protobuf-cpp", "protobuf-cpp-arena", "protobuf-python")
+BACKENDS = QUARRY_BACKENDS + PROTOBUF_BACKENDS
 CASES = ("telemetry", "configuration", "nested", "large", "stress")
 EPOCHS = {"cpp": 3, "c": 2, "python": 1}
 
@@ -36,6 +38,9 @@ def generated_file_metrics(root: Path, backend: str) -> tuple[int, int]:
         "c": (root / "benchmark/workload.generated.h", root / "benchmark/workload.generated.c",
               root / "benchmark/workload/shared.generated.h", root / "benchmark/workload/shared.generated.c"),
         "python": (root / "benchmark/workload/schema.py", root / "benchmark/workload/shared/schema.py"),
+        "protobuf-cpp": (root / "workload.pb.h", root / "workload.pb.cc"),
+        "protobuf-cpp-arena": (root / "workload.pb.h", root / "workload.pb.cc"),
+        "protobuf-python": (root / "workload_pb2.py",),
     }[backend]
     existing = [path for path in paths if path.exists()]
     return len(existing), sum(path.stat().st_size for path in existing)
@@ -52,7 +57,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--source-dir", type=Path, default=Path(__file__).resolve().parents[2])
-    parser.add_argument("--backend", choices=BACKENDS + ("all",), default="all")
+    parser.add_argument("--backend", choices=BACKENDS + ("protobuf", "all"), default="all")
     parser.add_argument("--case", choices=CASES + ("all",), default="all")
     parser.add_argument("--operation", choices=("encode", "decode", "round_trip", "all"), default="round_trip")
     parser.add_argument("--output-dir", type=Path, default=Path("benchmark-results"))
@@ -74,14 +79,41 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="quarry-benchmark-") as temporary:
         cases = CASES if args.case == "all" else (args.case,)
         operations = ("encode", "decode", "round_trip") if args.operation == "all" else (args.operation,)
-        run(["cmake", "--build", str(build), "--target", "quarry_benchmark_cpp",
-             "quarry_benchmark_c", "--parallel"])
-        executable = {
-            "cpp": find_file(build, "quarry_benchmark_cpp"),
-            "c": find_file(build, "quarry_benchmark_c"),
-        }
+        build_targets = []
+        if args.backend in ("all", "cpp", "c", "python"):
+            build_targets += ["quarry_benchmark_cpp", "quarry_benchmark_c"]
+        if args.backend in ("all", "protobuf", "protobuf-cpp", "protobuf-cpp-arena", "protobuf-python"):
+            build_targets += ["quarry_benchmark_protobuf_cpp", "quarry_benchmark_protobuf_cpp_arena"]
+        run(["cmake", "--build", str(build), "--target", *dict.fromkeys(build_targets), "--parallel"])
+        executable = {}
+        if args.backend in ("all", "cpp", "c", "python"):
+            executable.update({"cpp": find_file(build, "quarry_benchmark_cpp"),
+                               "c": find_file(build, "quarry_benchmark_c")})
+        if args.backend in ("all", "protobuf", "protobuf-cpp", "protobuf-cpp-arena", "protobuf-python"):
+            executable.update({"protobuf-cpp": find_file(build, "quarry_benchmark_protobuf_cpp"),
+                               "protobuf-cpp-arena": find_file(build, "quarry_benchmark_protobuf_cpp_arena")})
         generated = build / "benchmarks/generated"
-        selected = BACKENDS if args.backend == "all" else (args.backend,)
+        protobuf_generated = build / "benchmarks/protobuf_generated"
+        if args.backend == "all":
+            selected = BACKENDS
+        elif args.backend == "protobuf":
+            selected = PROTOBUF_BACKENDS
+        else:
+            selected = (args.backend,)
+        manifest = {
+            "manifest_version": 1, "benchmark_version": "0.1.0", "suite_version": "153",
+            "dataset_version": 2, "schema_version": 1, "dataset_seed": args.seed,
+            "benchmark_date": datetime.now(timezone.utc).date().isoformat(),
+            "quarry_commit": version(["git", "rev-parse", "HEAD"]),
+            "protobuf_version": version(["protoc", "--version"]),
+            "protoc_version": version(["protoc", "--version"]),
+            "compiler_version": version(["c++", "--version"]),
+            "build_mode": "Release", "optimization_flags": "CMAKE_BUILD_TYPE=Release",
+            "cpu_model": platform.processor() or "unknown", "architecture": platform.machine(),
+            "operating_system": platform.system(),
+            "implementations": list(selected), "cases": list(cases), "operations": list(operations),
+        }
+        (output / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         for case in cases:
             dataset = Path(temporary) / f"{case}.dataset"
             command = [sys.executable, str(source / "benchmarks/scripts/generate_dataset.py"),
@@ -93,26 +125,42 @@ def main() -> None:
                 result_paths = []
                 for backend in selected:
                     result_path = output / f"{case}-{backend}-{operation}.json"
-                    command = [str(executable[backend])] if backend != "python" else [sys.executable, str(source / "benchmarks/python/proof_benchmark.py")]
+                    python_backend = backend in ("python", "protobuf-python")
+                    if backend == "python":
+                        command = [sys.executable, str(source / "benchmarks/python/proof_benchmark.py")]
+                    elif backend == "protobuf-python":
+                        command = [sys.executable, str(source / "benchmarks/protobuf/proof_benchmark.py")]
+                    else:
+                        command = [str(executable[backend])]
                     command += ["--dataset", str(dataset), "--case", case, "--operation", operation,
                                 "--output", str(result_path), "--warmup", str(args.warmup),
                                 "--iterations", str(args.iterations), "--samples", str(args.samples)]
                     environment = None
-                    if backend == "python":
+                    if python_backend:
                         environment = dict(os.environ)
-                        environment["PYTHONPATH"] = str(generated) + ":" + str(source / "runtime/python/src")
+                        python_generated = protobuf_generated if backend == "protobuf-python" else generated
+                        python_path = str(python_generated)
+                        if backend == "python": python_path += ":" + str(source / "runtime/python/src")
+                        environment["PYTHONPATH"] = python_path
                     run(command, env=environment)
                     value = json.loads(result_path.read_text(encoding="utf-8"))
-                    source_file_count, source_bytes = generated_file_metrics(generated, backend)
+                    metrics_root = protobuf_generated if backend.startswith("protobuf-") else generated
+                    source_file_count, source_bytes = generated_file_metrics(metrics_root, backend)
                     value.update({
-                        "quarry_version": "0.1.0", "generated_code_api_epoch": EPOCHS[backend],
-                        "compiler_or_interpreter_version": version([sys.executable, "--version"] if backend == "python" else ["c++", "--version"]),
+                        "quarry_version": "0.1.0", "generated_code_api_epoch": EPOCHS.get(backend),
+                        "compiler_or_interpreter_version": version([sys.executable, "--version"] if python_backend else ["c++", "--version"]),
+                        "wire_format": "protobuf" if backend.startswith("protobuf-") else "brf",
+                        "protobuf_version": version(["protoc", "--version"]) if backend.startswith("protobuf-") else None,
+                        "protoc_version": version(["protoc", "--version"]) if backend.startswith("protobuf-") else None,
+                        "benchmark_harness_version": 3, "benchmark_suite_version": "153",
+                        "dataset_version": 2, "schema_version": 1,
+                        "arena_mode": backend == "protobuf-cpp-arena",
                         "build_mode": "Release", "operating_system": platform.system(),
                         "architecture": platform.machine(), "cpu_model": platform.processor() or "unknown",
                         "execution_timestamp_utc": datetime.now(timezone.utc).isoformat(),
                         "git_commit": version(["git", "rev-parse", "HEAD"]),
                         "generated_source_bytes": source_bytes,
-                        "benchmark_binary_bytes": executable[backend].stat().st_size if backend != "python" else None,
+                        "benchmark_binary_bytes": executable[backend].stat().st_size if not python_backend else None,
                         "buffer_reuse_policy": "prepared dataset and reusable decode input; backend object policy is documented",
                         "validation_mode": "round-trip and generated-code validation before timing",
                     })

@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 REQUIRED = {
-    "format_version", "benchmark_case", "backend", "language", "operation",
+    "format_version", "benchmark_case", "backend", "language", "wire_format", "operation",
     "schema_identity", "dataset_seed", "record_count", "warmup_iterations",
     "measured_iterations", "sample_count", "sample_durations_ns",
     "operation_count", "latency_ns_per_operation",
@@ -61,11 +61,18 @@ def main() -> None:
     values = [validate(path) for path in args.results]
     first = values[0]
     for value in values[1:]:
-        for key in ("benchmark_case", "operation", "schema_identity", "dataset_seed", "record_count", "encoded_byte_size"):
+        for key in ("benchmark_case", "operation", "schema_identity", "dataset_seed", "record_count"):
             if value[key] != first[key]:
                 raise ValueError(f"result identity mismatch for {key}")
     if len({value["backend"] for value in values}) != len(values):
         raise ValueError("duplicate backend result")
+    by_wire_format = {}
+    for value in values:
+        encoded_sizes = by_wire_format.setdefault(value["wire_format"], set())
+        encoded_sizes.add(value["encoded_byte_size"])
+    for wire_format, encoded_sizes in by_wire_format.items():
+        if len(encoded_sizes) != 1:
+            raise ValueError(f"encoded size mismatch for wire format {wire_format}")
     print(f"validated {len(values)} result files for {first['benchmark_case']} / {first['operation']}")
 
 

@@ -1,8 +1,8 @@
 # Quarry benchmark workload suite
 
-PR-153 extends the PR-152 harness with five representative Quarry workloads.
-It produces a reproducible Quarry baseline only; it does not rank backends,
-set performance thresholds, publish claims, or compare Protocol Buffers.
+PR-155 extends the PR-152/153 harness with a separately labeled Protocol
+Buffers comparison. It reports measurements only; it does not rank backends,
+set performance thresholds, or make wire-compatibility claims.
 
 ## Workloads
 
@@ -31,8 +31,14 @@ debug, test, and coverage builds:
 
 ```sh
 cmake --preset benchmark
-cmake --build --preset benchmark --target quarry_benchmark_cpp quarry_benchmark_c --parallel
+cmake --build --preset benchmark --target quarry_benchmark_cpp quarry_benchmark_c \
+  quarry_benchmark_protobuf_cpp quarry_benchmark_protobuf_cpp_arena --parallel
 ```
+
+The Protocol Buffers targets use the repository's configured `protoc` and
+`libprotobuf`. The Python comparison additionally requires the matching Python
+`protobuf` runtime; the Docker development image installs it as
+`python3-protobuf`.
 
 For Linux/GCC use a clean container build tree:
 
@@ -45,9 +51,11 @@ docker compose run --rm dev cmake --build --preset docker-benchmark \
 ## Run and summarize
 
 The runner accepts one case or all cases, one backend or all backends, and one
-operation or all operations. It generates datasets, runs validation before
-timing, writes one JSON result per case/backend/operation, and enforces encoded
-size parity within each result group.
+operation or all operations. Use `--backend protobuf` for the three protobuf
+implementations, or `--backend all` for Quarry C++, C, Python, protobuf C++,
+protobuf C++ Arena, and protobuf Python. It generates the same datasets, runs
+validation before timing, writes one JSON result per case/backend/operation,
+and enforces encoded-size parity only within one wire format.
 
 ```sh
 python3 benchmarks/scripts/run_benchmarks.py \
@@ -63,9 +71,15 @@ python3 benchmarks/scripts/summarize_results.py \
 
 Use `--operation encode` or `decode` for a single operation. The runner also
 supports `--case telemetry`, `configuration`, `nested`, `large`, or `stress`,
-and `--backend cpp`, `c`, or `python`. `--warmup`, `--iterations`, `--samples`,
-and `--seed` are configurable; generated datasets remain deterministic for a
-given seed and case.
+and `--backend cpp`, `c`, `python`, `protobuf-cpp`, `protobuf-cpp-arena`, or
+`protobuf-python`. `--warmup`, `--iterations`, `--samples`, and `--seed` are
+configurable; generated datasets remain deterministic for a given seed and
+case.
+
+Each result directory also contains a machine-readable `manifest.json` with
+toolchain, compiler, machine, seed, schema, and implementation provenance.
+Absolute paths are intentionally omitted. The manifest date identifies the
+execution day; timing and resource results remain local measurements.
 
 ## Measurement contract
 
@@ -102,6 +116,16 @@ sources. Timing values are not. Binary sizes depend on the selected release
 toolchain and platform, so they are build measurements rather than universal
 claims.
 
+BRF and protobuf encoded sizes are reported independently. They are different
+wire formats and must not be compared for byte equality. The logical records,
+field presence, dataset seed, and validation rules are shared. Protobuf C++
+normal allocation and Arena allocation are separate implementations and are
+never merged into one result.
+
+The comparison includes Quarry C++/C/Python, protobuf C++/C++ Arena/Python,
+and no protobuf C row: Protocol Buffers has no official strict-C99 runtime with
+the same fixed-capacity/no-heap contract as Quarry C.
+
 ## Validation
 
 ```sh
@@ -114,7 +138,6 @@ selection, result structure, summary generation, and encoded-size parity. They
 do not assert latency or throughput values. Full benchmark execution remains
 manual/release-oriented and outside normal CTest and coverage.
 
-Future work is PR-155 for a separately labeled Protocol Buffers comparison and
-PR-156 for performance reporting and regression analysis. RSS, stack usage,
+Future work is PR-156 for performance reporting and regression analysis. RSS, stack usage,
 cache behavior, CPU cycles, perf counters, and allocator profilers remain
 intentionally deferred.

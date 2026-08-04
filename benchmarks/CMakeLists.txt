@@ -64,3 +64,48 @@ set_target_properties(quarry_benchmark_c PROPERTIES C_STANDARD 99 C_STANDARD_REQ
                       C_EXTENSIONS OFF)
 
 add_custom_target(quarry_benchmark_python DEPENDS quarry_benchmark_generated)
+
+find_package(Protobuf REQUIRED)
+set(QUARRY_BENCHMARK_PROTOBUF_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/protobuf_generated)
+set(QUARRY_BENCHMARK_PROTOBUF_SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/schemas/workload.proto)
+set(QUARRY_BENCHMARK_PROTOBUF_CPP_HEADER
+    ${QUARRY_BENCHMARK_PROTOBUF_GENERATED_DIR}/workload.pb.h)
+set(QUARRY_BENCHMARK_PROTOBUF_CPP_SOURCE
+    ${QUARRY_BENCHMARK_PROTOBUF_GENERATED_DIR}/workload.pb.cc)
+set(QUARRY_BENCHMARK_PROTOBUF_PYTHON_MODULE
+    ${QUARRY_BENCHMARK_PROTOBUF_GENERATED_DIR}/workload_pb2.py)
+
+add_custom_command(
+    OUTPUT ${QUARRY_BENCHMARK_PROTOBUF_CPP_HEADER} ${QUARRY_BENCHMARK_PROTOBUF_CPP_SOURCE}
+           ${QUARRY_BENCHMARK_PROTOBUF_PYTHON_MODULE}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${QUARRY_BENCHMARK_PROTOBUF_GENERATED_DIR}
+    COMMAND ${Protobuf_PROTOC_EXECUTABLE}
+            --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/schemas
+            --cpp_out=${QUARRY_BENCHMARK_PROTOBUF_GENERATED_DIR}
+            --python_out=${QUARRY_BENCHMARK_PROTOBUF_GENERATED_DIR}
+            ${QUARRY_BENCHMARK_PROTOBUF_SCHEMA}
+    DEPENDS ${QUARRY_BENCHMARK_PROTOBUF_SCHEMA} ${Protobuf_PROTOC_EXECUTABLE}
+    VERBATIM
+)
+add_custom_target(quarry_benchmark_protobuf_generated
+    DEPENDS ${QUARRY_BENCHMARK_PROTOBUF_CPP_HEADER}
+            ${QUARRY_BENCHMARK_PROTOBUF_CPP_SOURCE}
+            ${QUARRY_BENCHMARK_PROTOBUF_PYTHON_MODULE})
+
+add_executable(quarry_benchmark_protobuf_cpp protobuf/proof_benchmark.cpp
+               ${QUARRY_BENCHMARK_PROTOBUF_CPP_SOURCE})
+add_dependencies(quarry_benchmark_protobuf_cpp quarry_benchmark_protobuf_generated)
+target_include_directories(quarry_benchmark_protobuf_cpp PRIVATE
+    ${QUARRY_BENCHMARK_PROTOBUF_GENERATED_DIR} ${Protobuf_INCLUDE_DIRS})
+target_link_libraries(quarry_benchmark_protobuf_cpp PRIVATE protobuf::libprotobuf quarry_project_options)
+
+add_executable(quarry_benchmark_protobuf_cpp_arena protobuf/proof_benchmark.cpp
+               ${QUARRY_BENCHMARK_PROTOBUF_CPP_SOURCE})
+add_dependencies(quarry_benchmark_protobuf_cpp_arena quarry_benchmark_protobuf_generated)
+target_compile_definitions(quarry_benchmark_protobuf_cpp_arena PRIVATE QUARRY_PROTOBUF_ARENA_DEFAULT=1)
+target_include_directories(quarry_benchmark_protobuf_cpp_arena PRIVATE
+    ${QUARRY_BENCHMARK_PROTOBUF_GENERATED_DIR} ${Protobuf_INCLUDE_DIRS})
+target_link_libraries(quarry_benchmark_protobuf_cpp_arena PRIVATE protobuf::libprotobuf quarry_project_options)
+
+add_custom_target(quarry_benchmark_protobuf_python
+    DEPENDS quarry_benchmark_protobuf_generated)

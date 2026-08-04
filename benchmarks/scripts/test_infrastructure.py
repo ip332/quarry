@@ -29,7 +29,7 @@ def main() -> None:
                 raise AssertionError(f"dataset generation is not deterministic for {case}")
         result = root / "telemetry-cpp-round_trip.json"
         result.write_text(json.dumps({
-            "format_version": 2, "benchmark_case": "telemetry", "backend": "cpp", "language": "C++",
+            "format_version": 2, "benchmark_case": "telemetry", "backend": "cpp", "language": "C++", "wire_format": "brf",
             "operation": "round_trip", "schema_identity": "benchmark.workload.Workload", "dataset_seed": 153,
             "record_count": 2, "warmup_iterations": 1, "measured_iterations": 2, "sample_count": 1,
             "sample_durations_ns": [10], "operation_count": 4, "latency_ns_per_operation": 2.5,
@@ -40,11 +40,20 @@ def main() -> None:
             "validation_status": "passed",
         }) + "\n", encoding="utf-8")
         validate(result)
+        protobuf_result = json.loads(result.read_text(encoding="utf-8"))
+        protobuf_result.update({"backend": "protobuf-cpp", "wire_format": "protobuf", "encoded_byte_size": 11})
+        protobuf_result["resources"]["encoded_bytes"] = 11
+        (root / "telemetry-protobuf-cpp-round_trip.json").write_text(
+            json.dumps(protobuf_result) + "\n", encoding="utf-8")
+        manifest = {"manifest_version": 1, "benchmark_version": "0.1.0",
+                    "protobuf_version": "libprotoc 35.1", "dataset_seed": 153}
+        (root / "manifest.json").write_text(json.dumps(manifest) + "\n", encoding="utf-8")
         subprocess.run([sys.executable, str(ROOT / "benchmarks/scripts/summarize_results.py"),
                          "--result-dir", str(root), "--json", str(root / "summary.json"),
                          "--markdown", str(root / "summary.md")], check=True,
                        stdout=subprocess.DEVNULL)
         result.unlink()
+        (root / "telemetry-protobuf-cpp-round_trip.json").unlink()
         try:
             subprocess.run([sys.executable, str(ROOT / "benchmarks/scripts/run_benchmarks.py"),
                             "--build-dir", str(root / "missing"), "--case", "unknown"],

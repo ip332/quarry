@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package benchmark.workload;
+
+enum Status {
+  STATUS_IDLE = 0;
+  STATUS_ACTIVE = 1;
+  STATUS_FAULT = 2;
+}
+
+message Child {
+  uint32 id = 1;
+  string label = 2;
+  bytes payload = 3;
+}
+
+message Workload {
+  uint32 sequence = 1;
+  uint64 timestamp = 2;
+  uint64 counter = 3;
+  float ratio = 4;
+  bool enabled = 5;
+  Status status = 6;
+  string name = 7;
+  bytes payload = 8;
+  repeated uint32 values = 9;
+  Child child = 10;
+  repeated Child children = 11;
+}
