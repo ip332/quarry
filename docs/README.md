@@ -3,6 +3,9 @@
 This directory contains the architecture, design, specification, and
 distribution documentation for Quarry v0.1.
 
+Version resolution and release cleanliness are documented in
+[`versioning.md`](versioning.md).
+
 Quarry is a language-neutral schema compiler and BRF serialization system with
 production C++, strict-C99 C, and Python backends. The documentation records
 current behavior and stable architecture decisions separately from deferred

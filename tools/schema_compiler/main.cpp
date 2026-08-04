@@ -6,6 +6,7 @@
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/frontend/yaml_compiler.hpp"
 #include "compiler/support/source_location.hpp"
+#include "quarry/version.hpp"
 
 #include <algorithm>
 #include <exception>
@@ -28,10 +29,6 @@ namespace backend_python = quarry::compiler::backend_python;
 namespace context = quarry::compiler::context;
 namespace diagnostics = quarry::compiler::diagnostics;
 namespace frontend = quarry::compiler::frontend;
-
-#ifndef QUARRY_VERSION
-#define QUARRY_VERSION "0.0.0"
-#endif
 
 constexpr int exit_success = 0;
 constexpr int exit_failure = 1;
@@ -73,7 +70,8 @@ struct CommandLine {
 void print_usage(std::ostream& output) { output << usage_text(); }
 
 void print_version(std::ostream& output) {
-    output << "quarry-schema-compiler " << QUARRY_VERSION << '\n';
+    output << "quarry-schema-compiler " << QUARRY_VERSION_DISPLAY
+            << " (" << QUARRY_GIT_SHA << ")\n";
 }
 
 void print_generated_code_api_version(std::ostream& output) {

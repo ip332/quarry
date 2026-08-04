@@ -450,6 +450,9 @@ TEST(ProtobufTranslationTest, RejectsUnsupportedReachableConstructs) {
 #ifndef QUARRY_SCHEMA_COMPILER
 #define QUARRY_SCHEMA_COMPILER ""
 #endif
+#ifndef QUARRY_TEST_VERSION_DISPLAY
+#define QUARRY_TEST_VERSION_DISPLAY ""
+#endif
 
 [[nodiscard]] std::string shell_quote(const std::string& value) {
     std::string result = "'";
@@ -461,6 +464,20 @@ TEST(ProtobufTranslationTest, RejectsUnsupportedReachableConstructs) {
     }
     result += "'";
     return result;
+}
+
+TEST(ProtobufTranslationTest, TranslatorVersionUsesQuarryVersion) {
+    if (std::string_view(QUARRY_PROTOBUF_TRANSLATOR).empty()) {
+        GTEST_SKIP() << "translator integration path is unavailable";
+    }
+    const auto root = temporary_directory("version");
+    const auto output = root / "version.txt";
+    const std::string command = shell_quote(QUARRY_PROTOBUF_TRANSLATOR) +
+                                " --version > " + shell_quote(output.string());
+    ASSERT_EQ(std::system(command.c_str()), 0);
+    const std::string version = read_text(output);
+    EXPECT_NE(version.find("quarry-protobuf-translator " QUARRY_TEST_VERSION_DISPLAY),
+              std::string::npos);
 }
 
 TEST(ProtobufTranslationTest, ProtocTranslationAndCompilerFollowThrough) {

@@ -48,6 +48,7 @@ add_library(quarry_protobuf_descriptor_loader
 target_include_directories(quarry_protobuf_descriptor_loader PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${QUARRY_PROTOBUF_OPTIONS_DIR}
+    ${QUARRY_GENERATED_INCLUDE_DIR}
 )
 target_include_directories(quarry_protobuf_descriptor_loader SYSTEM PUBLIC
     ${Protobuf_INCLUDE_DIRS}

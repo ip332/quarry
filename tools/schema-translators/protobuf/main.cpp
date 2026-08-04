@@ -1,4 +1,5 @@
 #include "descriptor_model.hpp"
+#include "quarry/version.hpp"
 #include "translation.hpp"
 
 #include <iostream>
@@ -18,8 +19,14 @@ void print_help() {
                  "  --options-format FMT   quarry (default) or nanopb\n"
                  "  --bounds PATH          compatibility alias for --options\n"
                  "  --output-dir PATH      output directory for translated BRD files\n"
+                 "  --version              show version information\n"
                  "  --help                 show this help\n\n"
                  "Listing is deterministic. Translation emits BRD and manifest.json.\n";
+}
+
+void print_version() {
+    std::cout << "quarry-protobuf-translator " << QUARRY_VERSION_DISPLAY
+              << " (" << QUARRY_GIT_SHA << ")\n";
 }
 
 } // namespace
@@ -33,11 +40,16 @@ int main(int argc, char** argv) {
     std::string options_format = "quarry";
     bool options_format_set = false;
     bool list = false;
+    bool show_version = false;
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument = argv[index];
         if (argument == "--help") {
             print_help();
             return 0;
+        }
+        if (argument == "--version") {
+            show_version = true;
+            continue;
         }
         if (argument == "--list") {
             list = true;
@@ -74,6 +86,15 @@ int main(int argc, char** argv) {
         }
         std::cerr << "quarry-protobuf-translator: error: unknown option '" << argument << "'\n";
         return 2;
+    }
+
+    if (show_version) {
+        if (argc != 2) {
+            std::cerr << "quarry-protobuf-translator: error: --version cannot be combined with other options\n";
+            return 2;
+        }
+        print_version();
+        return 0;
     }
 
     if (descriptor_set.empty()) {

@@ -104,6 +104,9 @@ def main() -> None:
         if args.backend in ("all", "protobuf", "protobuf-cpp", "protobuf-cpp-arena", "protobuf-python"):
             build_targets += ["quarry_benchmark_protobuf_cpp", "quarry_benchmark_protobuf_cpp_arena"]
         run(["cmake", "--build", str(build), "--target", *dict.fromkeys(build_targets), "--parallel"])
+        compiler = find_file(build, "quarry-schema-compiler")
+        compiler_version = version([str(compiler), "--version"])
+        quarry_version = compiler_version.split()[1] if len(compiler_version.split()) > 1 else compiler_version
         executable = {}
         if args.backend in ("all", "cpp", "c", "python"):
             executable.update({"cpp": find_file(build, "quarry_benchmark_cpp"),
@@ -121,6 +124,7 @@ def main() -> None:
             selected = (args.backend,)
         manifest = {
             "manifest_version": 1, "benchmark_version": "0.1.0", "suite_version": "153",
+            "quarry_version": quarry_version,
             "dataset_version": 2, "schema_version": 1, "dataset_seed": args.seed,
             "benchmark_date": datetime.now(timezone.utc).date().isoformat(),
             "quarry_commit": version(["git", "rev-parse", "HEAD"]),
@@ -166,7 +170,7 @@ def main() -> None:
                     metrics_root = protobuf_generated if backend.startswith("protobuf-") else generated
                     source_file_count, source_bytes = generated_file_metrics(metrics_root, backend)
                     value.update({
-                        "quarry_version": "0.1.0", "generated_code_api_epoch": EPOCHS.get(backend),
+                        "quarry_version": quarry_version, "generated_code_api_epoch": EPOCHS.get(backend),
                         "compiler_or_interpreter_version": version([sys.executable, "--version"] if python_backend else ["c++", "--version"]),
                         "wire_format": "protobuf" if backend.startswith("protobuf-") else "brf",
                         "protobuf_version": version(["protoc", "--version"]) if backend.startswith("protobuf-") else None,

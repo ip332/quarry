@@ -70,13 +70,15 @@ def assert_artifacts(dist: Path) -> Tuple[Path, Path]:
     return wheel, sdist
 
 
-def install_and_check_runtime(python: Path, wheel: Path) -> None:
+def install_and_check_runtime(python: Path, wheel: Path, expected_version: str) -> None:
     install_wheel(python, wheel)
     script = (
         "import importlib.metadata as m\n"
+        "import quarry\n"
         "import quarry.runtime.python as rt\n"
         "from quarry.runtime.python import binary_record\n"
-        "assert m.version('quarry-runtime-python') == '0.1.0'\n"
+        f"assert m.version('quarry-runtime-python') == '{expected_version}'\n"
+        f"assert quarry.__version__ == '{expected_version}'\n"
         "assert rt.QUARRY_GENERATED_CODE_API_VERSION_PYTHON == 1\n"
         "assert binary_record.EncodeError and binary_record.DecodeError\n"
         "assert binary_record.pack_scalar('uint32', 7) == b'\\x00\\x00\\x00\\x07'\n"
@@ -186,6 +188,7 @@ def main() -> None:
     parser.add_argument("--compiler", type=Path, required=True)
     parser.add_argument("--cmake", type=Path, required=True)
     parser.add_argument("--build-dir", type=Path, required=True)
+    parser.add_argument("--expected-version", required=True)
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="quarry-python-package-") as temporary:
         root = Path(temporary)
@@ -197,7 +200,7 @@ def main() -> None:
         run([str(args.cmake), "--install", str(args.build_dir), "--prefix", str(install_prefix)],
             env=clean_env())
         first_python = make_venv(root / "wheel-env")
-        install_and_check_runtime(first_python, wheel)
+        install_and_check_runtime(first_python, wheel, args.expected_version)
         generated_consumer(first_python, install_prefix / "bin/quarry-schema-compiler",
                            install_prefix, root)
         # The consumer's generated files are retained under root/generated for the

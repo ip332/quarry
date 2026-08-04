@@ -22,10 +22,6 @@ target_include_directories(quarry_schema_compiler
     PRIVATE
         ${QUARRY_GENERATED_INCLUDE_DIR}
 )
-target_compile_definitions(quarry_schema_compiler
-    PRIVATE
-        QUARRY_VERSION="${PROJECT_VERSION}"
-)
 
 install(TARGETS quarry_schema_compiler
     EXPORT QuarryTargets

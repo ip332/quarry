@@ -31,6 +31,10 @@
 #error "QUARRY_TEST_GENERATED_INCLUDE_DIR must be defined"
 #endif
 
+#ifndef QUARRY_TEST_VERSION_DISPLAY
+#error "QUARRY_TEST_VERSION_DISPLAY must be defined"
+#endif
+
 #ifndef _WIN32
 #include <fcntl.h>
 #include <sys/wait.h>
@@ -217,7 +221,8 @@ TEST(SchemaCompilerToolTest, VersionReturnsSuccessWithoutInput) {
     const CommandResult result = run_tool({"--version"}, root);
 
     EXPECT_EQ(result.status, 0);
-    EXPECT_EQ(result.stdout_text, "quarry-schema-compiler 0.1.0\n");
+    EXPECT_NE(result.stdout_text.find("quarry-schema-compiler " QUARRY_TEST_VERSION_DISPLAY),
+              std::string::npos);
     EXPECT_TRUE(result.stderr_text.empty());
 }
 
@@ -238,7 +243,8 @@ TEST(SchemaCompilerToolTest, VersionIsTerminalWhenCombinedWithInputAndOptions) {
         run_tool({"--version", "--output-directory", output.string(), input.string()}, root);
 
     EXPECT_EQ(result.status, 0);
-    EXPECT_EQ(result.stdout_text, "quarry-schema-compiler 0.1.0\n");
+    EXPECT_NE(result.stdout_text.find("quarry-schema-compiler " QUARRY_TEST_VERSION_DISPLAY),
+              std::string::npos);
     EXPECT_TRUE(result.stderr_text.empty());
     EXPECT_FALSE(std::filesystem::exists(output));
 }
@@ -258,7 +264,8 @@ TEST(SchemaCompilerToolTest, VersionIsTerminalBeforeListOutputs) {
     const CommandResult result = run_tool({"--version", "--list-outputs", input.string()}, root);
 
     EXPECT_EQ(result.status, 0);
-    EXPECT_EQ(result.stdout_text, "quarry-schema-compiler 0.1.0\n");
+    EXPECT_NE(result.stdout_text.find("quarry-schema-compiler " QUARRY_TEST_VERSION_DISPLAY),
+              std::string::npos);
     EXPECT_TRUE(result.stderr_text.empty());
 }
 

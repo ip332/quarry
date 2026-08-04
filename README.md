@@ -4,6 +4,9 @@ Quarry is an open-source, language-neutral schema compiler and binary
 serialization system. It consumes YAML schema units and generates BRF-compatible
 C++, strict-C99 C, and Python code for embedded and general-purpose consumers.
 
+The development version is derived from the tracked [`git_version`](git_version)
+file and Git history; see [`docs/versioning.md`](docs/versioning.md).
+
 ## Status
 
 Quarry is preparing the `v0.1.0-rc1` release candidate. The three production backends support

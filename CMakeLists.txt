@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(quarry VERSION 0.1.0 LANGUAGES CXX C)
+include(cmake/QuarryVersion.cmake)
+quarry_resolve_version()
+project(quarry VERSION ${QUARRY_VERSION} LANGUAGES CXX C)
+
+# Keep a path-free fallback beside the build artifacts for source-package
+# staging. Git remains authoritative in ordinary checkouts.
+quarry_write_resolved_version_fallback(
+    "${CMAKE_CURRENT_BINARY_DIR}/QuarryResolvedVersion.cmake")
 
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
@@ -48,6 +55,11 @@ if(QUARRY_GENERATED_CODE_API_VERSION_C GREATER 4294967295)
 endif()
 
 set(QUARRY_GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+configure_file(
+    include/quarry/version.hpp.in
+    ${QUARRY_GENERATED_INCLUDE_DIR}/quarry/version.hpp
+    @ONLY
+)
 configure_file(
     include/quarry/runtime/version.hpp.in
     ${QUARRY_GENERATED_INCLUDE_DIR}/quarry/runtime/version.hpp
@@ -120,6 +132,10 @@ install(TARGETS quarry_runtime
 )
 install(TARGETS quarry_runtime_c
     EXPORT QuarryTargets
+)
+install(FILES
+    ${QUARRY_GENERATED_INCLUDE_DIR}/quarry/version.hpp
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/quarry
 )
 install(FILES
     ${QUARRY_GENERATED_INCLUDE_DIR}/quarry/runtime/version.hpp

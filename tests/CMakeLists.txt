@@ -86,6 +86,13 @@ target_link_libraries(backend_python_test PRIVATE quarry_compiler_schema_ir)
 target_link_libraries(backend_python_test PRIVATE quarry_schema_ir_warning_tweaks)
 
 find_program(QUARRY_PYTHON3_EXECUTABLE python3)
+if(QUARRY_PYTHON3_EXECUTABLE)
+    add_test(NAME version_resolution_test
+        COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/version/version_resolution_test.py"
+            --cmake "${CMAKE_COMMAND}"
+            --resolver "${CMAKE_SOURCE_DIR}/cmake/QuarryVersion.cmake")
+endif()
 add_quarry_gtest(python_execution_test backend_python/python_execution_test.cpp
                       quarry_compiler_support)
 target_link_libraries(python_execution_test PRIVATE quarry_compiler_backend_python)
@@ -119,7 +126,8 @@ if(QUARRY_PYTHON3_EXECUTABLE AND QUARRY_PYTHON_PACKAGING_AVAILABLE EQUAL 0)
             --runtime-source "${CMAKE_SOURCE_DIR}/runtime/python"
             --compiler "$<TARGET_FILE:quarry_schema_compiler>"
             --cmake "${CMAKE_COMMAND}"
-            --build-dir "${CMAKE_BINARY_DIR}")
+            --build-dir "${CMAKE_BINARY_DIR}"
+            --expected-version "${QUARRY_VERSION}")
     add_test(NAME public_examples_test
         COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/examples/example_validation.py"
@@ -166,6 +174,7 @@ add_quarry_gtest(schema_compiler_tool_test tools/schema_compiler_tool_test.cpp
 add_dependencies(schema_compiler_tool_test quarry_schema_compiler)
 target_compile_definitions(schema_compiler_tool_test PRIVATE
     QUARRY_SCHEMA_COMPILER_TOOL="$<TARGET_FILE:quarry_schema_compiler>"
+    QUARRY_TEST_VERSION_DISPLAY="${QUARRY_VERSION_DISPLAY}"
     QUARRY_TEST_GENERATED_CODE_API_VERSION=${QUARRY_GENERATED_CODE_API_VERSION}
     QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
     QUARRY_TEST_REPO_INCLUDE_DIR="${CMAKE_SOURCE_DIR}/include"
@@ -189,7 +198,8 @@ target_compile_definitions(protobuf_translation_test PRIVATE
     QUARRY_PROTOC_EXECUTABLE="${Protobuf_PROTOC_EXECUTABLE}"
     QUARRY_PROTOBUF_OPTIONS_PROTO="${CMAKE_SOURCE_DIR}/tools/schema-translators/protobuf/quarry_options.proto"
     QUARRY_PROTOBUF_TRANSLATOR="$<TARGET_FILE:quarry_protobuf_translator>"
-    QUARRY_SCHEMA_COMPILER="$<TARGET_FILE:quarry_schema_compiler>")
+    QUARRY_SCHEMA_COMPILER="$<TARGET_FILE:quarry_schema_compiler>"
+    QUARRY_TEST_VERSION_DISPLAY="${QUARRY_VERSION_DISPLAY}")
 add_quarry_gtest(c_cpp_codec_interop_test interop/c_cpp_codec_interop_test.cpp
                       quarry_compiler_support)
 add_dependencies(c_cpp_codec_interop_test quarry_schema_compiler)
