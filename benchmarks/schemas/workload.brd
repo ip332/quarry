@@ -1,0 +1,39 @@
+namespace: benchmark.workload
+record: Workload
+version: 1
+type: data
+imports:
+  - workload_shared.brd
+enums:
+  Status:
+    values:
+      idle: 0
+      active: 1
+      fault: 2
+fields:
+  sequence:
+    type: uint32
+  timestamp:
+    type: uint64
+  counter:
+    type: uint64
+  ratio:
+    type: float32
+  enabled:
+    type: bool
+  status:
+    type: Status
+  name:
+    type: string
+    max_bytes: 256
+  payload:
+    type: bytes
+    max_bytes: 1024
+  values:
+    type: uint32[]
+    max_elements: 64
+  child:
+    type: benchmark.workload.shared.Child
+  children:
+    type: benchmark.workload.shared.Child[]
+    max_elements: 8

@@ -1,17 +1,35 @@
 cmake_minimum_required(VERSION 3.20)
 
 set(QUARRY_BENCHMARK_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
-set(QUARRY_BENCHMARK_SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/schemas/proof.brd)
+set(QUARRY_BENCHMARK_SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/schemas/workload.brd)
+set(QUARRY_BENCHMARK_DEPENDENCY_SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/schemas/workload_shared.brd)
 set(QUARRY_BENCHMARK_CPP_HEADER
-    ${QUARRY_BENCHMARK_GENERATED_DIR}/benchmark/proof.generated.hpp)
+    ${QUARRY_BENCHMARK_GENERATED_DIR}/benchmark/workload.generated.hpp)
 set(QUARRY_BENCHMARK_C_HEADER
-    ${QUARRY_BENCHMARK_GENERATED_DIR}/benchmark/proof.generated.h)
+    ${QUARRY_BENCHMARK_GENERATED_DIR}/benchmark/workload.generated.h)
 set(QUARRY_BENCHMARK_C_SOURCE
-    ${QUARRY_BENCHMARK_GENERATED_DIR}/benchmark/proof.generated.c)
+    ${QUARRY_BENCHMARK_GENERATED_DIR}/benchmark/workload.generated.c)
 set(QUARRY_BENCHMARK_PYTHON_MODULE
-    ${QUARRY_BENCHMARK_GENERATED_DIR}/benchmark/proof/schema.py)
+    ${QUARRY_BENCHMARK_GENERATED_DIR}/benchmark/workload/schema.py)
+set(QUARRY_BENCHMARK_DEPENDENCY_CPP_HEADER
+    ${QUARRY_BENCHMARK_GENERATED_DIR}/benchmark/workload/shared.generated.hpp)
+set(QUARRY_BENCHMARK_DEPENDENCY_C_HEADER
+    ${QUARRY_BENCHMARK_GENERATED_DIR}/benchmark/workload/shared.generated.h)
+set(QUARRY_BENCHMARK_DEPENDENCY_C_SOURCE
+    ${QUARRY_BENCHMARK_GENERATED_DIR}/benchmark/workload/shared.generated.c)
+set(QUARRY_BENCHMARK_DEPENDENCY_PYTHON_MODULE
+    ${QUARRY_BENCHMARK_GENERATED_DIR}/benchmark/workload/shared/schema.py)
 
 add_custom_target(quarry_benchmark_generated
+    COMMAND $<TARGET_FILE:quarry_schema_compiler>
+            --language cpp --output-directory ${QUARRY_BENCHMARK_GENERATED_DIR}
+            ${QUARRY_BENCHMARK_DEPENDENCY_SCHEMA}
+    COMMAND $<TARGET_FILE:quarry_schema_compiler>
+            --language c --output-directory ${QUARRY_BENCHMARK_GENERATED_DIR}
+            ${QUARRY_BENCHMARK_DEPENDENCY_SCHEMA}
+    COMMAND $<TARGET_FILE:quarry_schema_compiler>
+            --language python --output-directory ${QUARRY_BENCHMARK_GENERATED_DIR}
+            ${QUARRY_BENCHMARK_DEPENDENCY_SCHEMA}
     COMMAND $<TARGET_FILE:quarry_schema_compiler>
             --language cpp --output-directory ${QUARRY_BENCHMARK_GENERATED_DIR}
             ${QUARRY_BENCHMARK_SCHEMA}
@@ -22,9 +40,13 @@ add_custom_target(quarry_benchmark_generated
             --language python --output-directory ${QUARRY_BENCHMARK_GENERATED_DIR}
             ${QUARRY_BENCHMARK_SCHEMA}
     BYPRODUCTS ${QUARRY_BENCHMARK_CPP_HEADER} ${QUARRY_BENCHMARK_C_HEADER}
-                ${QUARRY_BENCHMARK_C_SOURCE}
-                ${QUARRY_BENCHMARK_PYTHON_MODULE}
+                ${QUARRY_BENCHMARK_C_SOURCE} ${QUARRY_BENCHMARK_PYTHON_MODULE}
+                ${QUARRY_BENCHMARK_DEPENDENCY_CPP_HEADER}
+                ${QUARRY_BENCHMARK_DEPENDENCY_C_HEADER}
+                ${QUARRY_BENCHMARK_DEPENDENCY_C_SOURCE}
+                ${QUARRY_BENCHMARK_DEPENDENCY_PYTHON_MODULE}
     DEPENDS quarry_schema_compiler ${QUARRY_BENCHMARK_SCHEMA}
+            ${QUARRY_BENCHMARK_DEPENDENCY_SCHEMA}
     VERBATIM
 )
 
@@ -33,7 +55,8 @@ add_dependencies(quarry_benchmark_cpp quarry_benchmark_generated)
 target_include_directories(quarry_benchmark_cpp PRIVATE ${QUARRY_BENCHMARK_GENERATED_DIR})
 target_link_libraries(quarry_benchmark_cpp PRIVATE quarry_runtime quarry_project_options)
 
-add_executable(quarry_benchmark_c c/proof_benchmark.c ${QUARRY_BENCHMARK_C_SOURCE})
+add_executable(quarry_benchmark_c c/proof_benchmark.c ${QUARRY_BENCHMARK_C_SOURCE}
+               ${QUARRY_BENCHMARK_DEPENDENCY_C_SOURCE})
 add_dependencies(quarry_benchmark_c quarry_benchmark_generated)
 target_include_directories(quarry_benchmark_c PRIVATE ${QUARRY_BENCHMARK_GENERATED_DIR})
 target_link_libraries(quarry_benchmark_c PRIVATE quarry_runtime_c quarry_project_options)

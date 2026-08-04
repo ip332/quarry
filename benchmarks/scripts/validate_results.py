@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate structural parity of PR-152 benchmark result JSON files."""
+"""Validate structural parity of Quarry benchmark result JSON files."""
 
 from __future__ import annotations
 

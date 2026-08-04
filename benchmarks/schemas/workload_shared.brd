@@ -1,0 +1,13 @@
+namespace: benchmark.workload.shared
+record: Child
+version: 1
+type: data
+fields:
+  id:
+    type: uint32
+  label:
+    type: string
+    max_bytes: 64
+  payload:
+    type: bytes
+    max_bytes: 128

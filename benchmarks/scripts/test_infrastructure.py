@@ -1,45 +1,55 @@
 #!/usr/bin/env python3
-"""Small non-performance checks for the benchmark infrastructure."""
+"""Small structural smoke tests for benchmark registration and reporting."""
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
+
+from generate_dataset import CASES
+from validate_results import validate
+
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def main() -> None:
-    root = Path(__file__).resolve().parents[2]
-    generator = root / "benchmarks/scripts/generate_dataset.py"
-    validator = root / "benchmarks/scripts/validate_results.py"
     with tempfile.TemporaryDirectory(prefix="quarry-benchmark-test-") as directory:
-        first = Path(directory) / "first.dataset"
-        second = Path(directory) / "second.dataset"
-        subprocess.run([sys.executable, str(generator), "--output", str(first)], check=True)
-        subprocess.run([sys.executable, str(generator), "--output", str(second)], check=True)
-        if first.read_bytes() != second.read_bytes():
-            raise AssertionError("dataset generation is not deterministic")
-
-        valid = Path(directory) / "valid.json"
-        value = {
-            "format_version": 1, "benchmark_case": "proof", "backend": "test",
-            "language": "test", "operation": "round_trip", "schema_identity": "benchmark.proof.Sample",
-            "dataset_seed": 152, "record_count": 1, "warmup_iterations": 0,
-            "measured_iterations": 1, "sample_count": 1, "sample_durations_ns": [1],
-            "operation_count": 1, "latency_ns_per_operation": 1.0,
-            "throughput_operations_per_second": 1.0, "encoded_byte_size": 1,
+        root = Path(directory)
+        for case in CASES:
+            first = root / f"{case}-a.dataset"
+            second = root / f"{case}-b.dataset"
+            command = [sys.executable, str(ROOT / "benchmarks/scripts/generate_dataset.py"), "--case", case, "--output"]
+            subprocess.run(command + [str(first)], check=True)
+            subprocess.run(command + [str(second)], check=True)
+            if first.read_bytes() != second.read_bytes():
+                raise AssertionError(f"dataset generation is not deterministic for {case}")
+        result = root / "telemetry-cpp-round_trip.json"
+        result.write_text(json.dumps({
+            "format_version": 1, "benchmark_case": "telemetry", "backend": "cpp", "language": "C++",
+            "operation": "round_trip", "schema_identity": "benchmark.workload.Workload", "dataset_seed": 153,
+            "record_count": 2, "warmup_iterations": 1, "measured_iterations": 2, "sample_count": 1,
+            "sample_durations_ns": [10], "operation_count": 4, "latency_ns_per_operation": 2.5,
+            "throughput_operations_per_second": 400000000, "encoded_byte_size": 10,
             "validation_status": "passed",
-        }
-        valid.write_text(json.dumps(value), encoding="utf-8")
-        subprocess.run([sys.executable, str(validator), str(valid)], check=True)
-        invalid = Path(directory) / "invalid.json"
-        value.pop("encoded_byte_size")
-        invalid.write_text(json.dumps(value), encoding="utf-8")
-        rejected = subprocess.run([sys.executable, str(validator), str(invalid)], stderr=subprocess.DEVNULL)
-        if rejected.returncode == 0:
-            raise AssertionError("invalid result was accepted")
+        }) + "\n", encoding="utf-8")
+        validate(result)
+        subprocess.run([sys.executable, str(ROOT / "benchmarks/scripts/summarize_results.py"),
+                         "--result-dir", str(root), "--json", str(root / "summary.json"),
+                         "--markdown", str(root / "summary.md")], check=True,
+                       stdout=subprocess.DEVNULL)
+        result.unlink()
+        try:
+            subprocess.run([sys.executable, str(ROOT / "benchmarks/scripts/run_benchmarks.py"),
+                            "--build-dir", str(root / "missing"), "--case", "unknown"],
+                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError:
+            pass
+        else:
+            raise AssertionError("invalid benchmark case was accepted")
     print("benchmark infrastructure checks passed")
 
 

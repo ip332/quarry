@@ -1,200 +1,134 @@
-#include "benchmark/proof.generated.hpp"
+#include "benchmark/workload.generated.hpp"
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <fstream>
-#include <functional>
+#include <iomanip>
 #include <iostream>
-#include <numeric>
-#include <optional>
-#include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
-#include <stdexcept>
 #include <vector>
 
 namespace {
-
-using Sample = benchmark::proof::Sample;
-using Builder = benchmark::proof::SampleBuilder;
-using Bytes = std::vector<std::byte>;
-using Clock = std::chrono::steady_clock;
-
-struct Row {
-    std::uint32_t sequence;
-    bool enabled;
-    float ratio;
-    std::string label;
-    Bytes payload;
-    std::vector<std::uint32_t> readings;
-};
-
-struct Options {
-    std::string dataset;
-    std::string operation = "round_trip";
-    std::string output;
-    std::uint32_t warmup = 2;
-    std::uint32_t iterations = 10;
-    std::uint32_t samples = 5;
-};
-
-std::vector<std::string> split(std::string_view value, char separator) {
+struct Row { std::string fields[11]; };
+std::vector<std::string> split(std::string_view text, char delimiter) {
     std::vector<std::string> result;
     std::size_t start = 0;
-    while (start <= value.size()) {
-        const std::size_t end = value.find(separator, start);
-        result.emplace_back(value.substr(start, end == std::string_view::npos ? end : end - start));
+    while (start <= text.size()) {
+        const auto end = text.find(delimiter, start);
+        result.emplace_back(text.substr(start, end == std::string_view::npos ? end : end - start));
         if (end == std::string_view::npos) break;
         start = end + 1;
     }
     return result;
 }
-
-Bytes parse_hex(std::string_view value) {
-    Bytes result;
-    for (std::size_t index = 0; index < value.size(); index += 2) {
-        const auto nibble = [](char ch) -> unsigned int {
-            if (ch >= '0' && ch <= '9') return static_cast<unsigned int>(ch - '0');
-            if (ch >= 'a' && ch <= 'f') return static_cast<unsigned int>(ch - 'a' + 10);
-            return static_cast<unsigned int>(ch - 'A' + 10);
-        };
-        result.push_back(static_cast<std::byte>((nibble(value[index]) << 4U) +
-                                                 nibble(value[index + 1])));
-    }
+bool present(const std::string& value) { return value != "-"; }
+std::uint32_t number(const std::string& value) { return static_cast<std::uint32_t>(std::stoul(value)); }
+std::uint64_t number64(const std::string& value) { return static_cast<std::uint64_t>(std::stoull(value)); }
+std::vector<std::byte> bytes(const std::string& value) {
+    std::vector<std::byte> result;
+    if (!present(value)) return result;
+    for (std::size_t index = 0; index < value.size(); index += 2)
+        result.push_back(static_cast<std::byte>(std::stoul(value.substr(index, 2), nullptr, 16)));
     return result;
 }
-
-std::vector<Row> load_dataset(const std::string& path) {
+std::vector<Row> load(const std::string& path) {
     std::ifstream input(path);
-    if (!input) throw std::runtime_error("cannot open dataset");
-    std::vector<Row> rows;
-    std::string line;
+    if (!input) throw std::runtime_error("unable to open dataset");
+    std::vector<Row> rows; std::string line;
     while (std::getline(input, line)) {
-        if (line.empty() || line.front() == '#' || line.rfind("sequence|", 0) == 0) continue;
-        const auto columns = split(line, '|');
-        if (columns.size() != 6) throw std::runtime_error("invalid dataset row");
-        Row row{static_cast<std::uint32_t>(std::stoul(columns[0])), columns[1] == "1",
-                std::stof(columns[2]), columns[3], parse_hex(columns[4]), {}};
-        if (!columns[5].empty()) {
-            for (const std::string& value : split(columns[5], ',')) {
-                row.readings.push_back(static_cast<std::uint32_t>(std::stoul(value)));
-            }
-        }
-        rows.push_back(std::move(row));
+        if (line.empty() || line[0] == '#' || line.rfind("sequence|", 0) == 0) continue;
+        const auto values = split(line, '|');
+        if (values.size() != 11U) throw std::runtime_error("invalid workload dataset row");
+        Row row; std::copy(values.begin(), values.end(), row.fields); rows.push_back(std::move(row));
     }
-    if (rows.empty()) throw std::runtime_error("dataset is empty");
+    if (rows.empty()) throw std::runtime_error("empty workload dataset");
     return rows;
 }
-
-std::vector<Sample> make_samples(const std::vector<Row>& rows) {
-    std::vector<Sample> samples;
-    for (const Row& row : rows) {
-        Builder builder;
-        if (!builder.set_sequence(row.sequence) || !builder.set_enabled(row.enabled) ||
-            !builder.set_ratio(row.ratio) || !builder.set_label(row.label) ||
-            !builder.set_payload(row.payload) || !builder.set_readings(row.readings)) {
-            throw std::runtime_error("dataset value rejected by generated API");
-        }
-        samples.push_back(builder.build());
-    }
-    return samples;
+benchmark::workload::shared::Child make_child(const std::string& value) {
+    const auto values = split(value, ',');
+    if (values.size() != 3U) throw std::runtime_error("invalid child value");
+    benchmark::workload::shared::ChildBuilder builder;
+    builder.set_id(number(values[0])); builder.set_label(values[1]); builder.set_payload(bytes(values[2]));
+    return builder.build();
 }
-
-std::vector<Bytes> encode_all(const std::vector<Sample>& samples) {
-    std::vector<Bytes> encoded;
-    for (const Sample& sample : samples) {
-        const auto value = benchmark::proof::encode(sample);
-        if (!value.has_value()) throw std::runtime_error("generated encode failed");
-        encoded.push_back(*value);
-    }
-    return encoded;
+benchmark::workload::Workload make_record(const Row& row) {
+    const auto& f = row.fields; benchmark::workload::WorkloadBuilder builder;
+    if (present(f[0])) builder.set_sequence(number(f[0]));
+    if (present(f[1])) builder.set_timestamp(number64(f[1]));
+    if (present(f[2])) builder.set_counter(number64(f[2]));
+    if (present(f[3])) builder.set_ratio(std::stof(f[3]));
+    if (present(f[4])) builder.set_enabled(f[4] == "1");
+    if (present(f[5])) builder.set_status(static_cast<benchmark::workload::Status>(number(f[5])));
+    if (present(f[6])) builder.set_name(f[6]);
+    if (present(f[7])) builder.set_payload(bytes(f[7]));
+    if (present(f[8])) { std::vector<std::uint32_t> values; for (const auto& v : split(f[8], ',')) values.push_back(number(v)); builder.set_values(values); }
+    if (present(f[9])) builder.set_child(make_child(f[9]));
+    if (present(f[10])) { std::vector<benchmark::workload::shared::Child> values; for (const auto& v : split(f[10], ';')) values.push_back(make_child(v)); builder.set_children(values); }
+    return builder.build();
 }
-
-std::uint64_t consume_decode(const std::vector<Bytes>& encoded) {
-    std::uint64_t checksum = 0;
-    for (const Bytes& bytes : encoded) {
-        const auto decoded = benchmark::proof::decode_Sample(bytes);
-        if (!decoded.has_value()) throw std::runtime_error("generated decode failed");
-        checksum ^= decoded->sequence() == nullptr ? 0U : *decoded->sequence();
-    }
-    return checksum;
+std::vector<std::byte> encode_value(const benchmark::workload::Workload& value) {
+    const auto result = benchmark::workload::encode(value);
+    if (!result.has_value()) throw std::runtime_error("workload encode failed");
+    return result.value();
 }
-
-Options parse_options(int argc, char** argv) {
-    Options options;
-    for (int index = 1; index < argc; ++index) {
-        const std::string argument = argv[index];
-        auto value = [&](const char* name) {
-            if (index + 1 >= argc) throw std::runtime_error(std::string("missing value for ") + name);
-            return std::string(argv[++index]);
-        };
-        if (argument == "--dataset") options.dataset = value("--dataset");
-        else if (argument == "--operation") options.operation = value("--operation");
-        else if (argument == "--output") options.output = value("--output");
-        else if (argument == "--warmup") options.warmup = static_cast<std::uint32_t>(std::stoul(value("--warmup")));
-        else if (argument == "--iterations") options.iterations = static_cast<std::uint32_t>(std::stoul(value("--iterations")));
-        else if (argument == "--samples") options.samples = static_cast<std::uint32_t>(std::stoul(value("--samples")));
-        else throw std::runtime_error("unknown option: " + argument);
-    }
-    if (options.dataset.empty() || options.output.empty() || options.iterations == 0 || options.samples == 0) {
-        throw std::runtime_error("--dataset, --output, positive --iterations, and positive --samples are required");
-    }
-    if (options.operation != "encode" && options.operation != "decode" && options.operation != "round_trip") {
-        throw std::runtime_error("operation must be encode, decode, or round_trip");
-    }
-    return options;
+double median(std::vector<double> values) { std::sort(values.begin(), values.end()); return values[values.size() / 2U]; }
 }
-
-int run(const Options& options) {
-    const auto rows = load_dataset(options.dataset);
-    const auto samples = make_samples(rows);
-    const auto encoded = encode_all(samples);
-    std::uint64_t checksum = consume_decode(encoded);
-    const std::function<void()> operation = [&] {
-        if (options.operation == "encode") checksum ^= encode_all(samples).front().size();
-        else if (options.operation == "decode") checksum ^= consume_decode(encoded);
-        else checksum ^= consume_decode(encode_all(samples));
-    };
-    for (std::uint32_t iteration = 0; iteration < options.warmup; ++iteration) operation();
-
-    std::vector<double> durations;
-    for (std::uint32_t sample = 0; sample < options.samples; ++sample) {
-        const auto start = Clock::now();
-        for (std::uint32_t iteration = 0; iteration < options.iterations; ++iteration) operation();
-        const auto end = Clock::now();
-        durations.push_back(static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count()));
-    }
-    std::sort(durations.begin(), durations.end());
-    const double median = durations[durations.size() / 2];
-    const double operations = static_cast<double>(rows.size()) * options.iterations;
-    std::ofstream output(options.output);
-    if (!output) throw std::runtime_error("cannot open result output");
-    output << "{\n  \"format_version\": 1,\n  \"benchmark_case\": \"proof\",\n"
-           << "  \"backend\": \"cpp\",\n  \"language\": \"C++\",\n"
-           << "  \"operation\": \"" << options.operation << "\",\n"
-           << "  \"schema_identity\": \"benchmark.proof.Sample\",\n"
-           << "  \"dataset_seed\": 152,\n  \"record_count\": " << rows.size() << ",\n"
-           << "  \"warmup_iterations\": " << options.warmup << ",\n"
-           << "  \"measured_iterations\": " << options.iterations << ",\n"
-           << "  \"sample_count\": " << durations.size() << ",\n"
-           << "  \"sample_durations_ns\": [";
-    for (std::size_t index = 0; index < durations.size(); ++index) output << (index ? ", " : "") << durations[index];
-    output << "],\n  \"operation_count\": " << static_cast<std::uint64_t>(operations * durations.size())
-           << ",\n  \"latency_ns_per_operation\": " << median / operations
-           << ",\n  \"throughput_operations_per_second\": " << (operations * 1e9 / median)
-           << ",\n  \"encoded_byte_size\": " << encoded.front().size()
-           << ",\n  \"validation_status\": \"passed\",\n  \"validation_checksum\": " << checksum << "\n}\n";
-    return output.good() ? 0 : 1;
-}
-
-} // namespace
 
 int main(int argc, char** argv) {
-    try {
-        return run(parse_options(argc, argv));
-    } catch (const std::exception& error) {
-        std::cerr << "benchmark C++ error: " << error.what() << '\n';
-        return 1;
+    std::string dataset, operation = "round_trip", output, benchmark_case = "telemetry";
+    std::uint32_t warmup = 2U, iterations = 10U, samples = 5U;
+    for (int index = 1; index < argc; ++index) {
+        if (index + 1 >= argc) return 1;
+        const std::string option = argv[index];
+        if (option == "--dataset") dataset = argv[++index];
+        else if (option == "--operation") operation = argv[++index];
+        else if (option == "--output") output = argv[++index];
+        else if (option == "--case") benchmark_case = argv[++index];
+        else if (option == "--warmup") warmup = static_cast<std::uint32_t>(std::stoul(argv[++index]));
+        else if (option == "--iterations") iterations = static_cast<std::uint32_t>(std::stoul(argv[++index]));
+        else if (option == "--samples") samples = static_cast<std::uint32_t>(std::stoul(argv[++index]));
+        else return 1;
     }
+    if (dataset.empty() || output.empty() || iterations == 0U || samples == 0U || samples > 5U ||
+        (operation != "encode" && operation != "decode" && operation != "round_trip")) return 1;
+    try {
+        const auto rows = load(dataset); std::vector<benchmark::workload::Workload> records;
+        for (const auto& row : rows) records.push_back(make_record(row));
+        std::vector<std::vector<std::byte>> encoded; for (const auto& record : records) encoded.push_back(encode_value(record));
+        for (std::size_t index = 0; index < records.size(); ++index) {
+            const auto decoded = benchmark::workload::decode_Workload(encoded[index]);
+            if (!decoded.has_value() || !decoded->has_sequence() || *decoded->sequence() != *records[index].sequence())
+                throw std::runtime_error("workload validation failed");
+        }
+        std::uint64_t checksum = 0; std::vector<double> durations;
+        const auto run_operation = [&] {
+            if (operation == "encode" || operation == "round_trip") for (const auto& record : records) checksum ^= encode_value(record).size();
+            if (operation == "decode" || operation == "round_trip") for (const auto& value : encoded) {
+                const auto decoded = benchmark::workload::decode_Workload(value);
+                checksum ^= decoded->has_sequence() ? *decoded->sequence() : 0U;
+            }
+        };
+        for (std::uint32_t index = 0; index < warmup; ++index) run_operation();
+        for (std::uint32_t sample = 0; sample < samples; ++sample) {
+            const auto start = std::chrono::steady_clock::now();
+            for (std::uint32_t index = 0; index < iterations; ++index) run_operation();
+            durations.push_back(static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count()));
+        }
+        const double operations = static_cast<double>(records.size()) * iterations;
+        const double latency = median(durations) / operations;
+        std::ofstream result(output); result << std::setprecision(17)
+            << "{\n  \"format_version\": 1,\n  \"benchmark_case\": \"" << benchmark_case
+            << "\",\n  \"backend\": \"cpp\",\n  \"language\": \"C++\",\n  \"operation\": \"" << operation
+            << "\",\n  \"schema_identity\": \"benchmark.workload.Workload\",\n  \"dataset_seed\": 153,\n  \"record_count\": " << records.size()
+            << ",\n  \"warmup_iterations\": " << warmup << ",\n  \"measured_iterations\": " << iterations
+            << ",\n  \"sample_count\": " << samples << ",\n  \"sample_durations_ns\": [";
+        for (std::size_t index = 0; index < durations.size(); ++index) result << (index ? ", " : "") << durations[index];
+        result << "],\n  \"operation_count\": " << static_cast<std::uint64_t>(operations * samples)
+            << ",\n  \"latency_ns_per_operation\": " << latency << ",\n  \"throughput_operations_per_second\": " << 1e9 / latency
+            << ",\n  \"encoded_byte_size\": " << encoded.front().size() << ",\n  \"validation_status\": \"passed\",\n  \"checksum\": " << checksum << "\n}\n";
+    } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }
