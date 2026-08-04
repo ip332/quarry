@@ -17,7 +17,8 @@ def main() -> None:
     parser.add_argument("--json", type=Path, required=True)
     parser.add_argument("--markdown", type=Path, required=True)
     args = parser.parse_args()
-    values = [validate(path) for path in sorted(args.result_dir.glob("*.json"))]
+    values = [validate(path) for path in sorted(args.result_dir.glob("*.json"))
+              if path.name != args.json.name]
     if not values:
         raise SystemExit("no benchmark result files found")
     values.sort(key=lambda value: (value["benchmark_case"], value["backend"], value["operation"]))
@@ -28,7 +29,7 @@ def main() -> None:
         if len({value["encoded_byte_size"] for value in group}) != 1:
             raise SystemExit(f"encoded-size mismatch for {identity[0]} / {identity[1]}")
     summary = {
-        "format_version": 1,
+        "format_version": 2,
         "result_count": len(values),
         "results": [{
             "benchmark_case": value["benchmark_case"], "backend": value["backend"],
@@ -37,8 +38,13 @@ def main() -> None:
             "encoded_bytes_per_record": value["encoded_byte_size"] / value["record_count"],
             "latency_ns_per_operation": value["latency_ns_per_operation"],
             "throughput_operations_per_second": value["throughput_operations_per_second"],
-            "generated_source_bytes": value.get("generated_source_bytes", 0),
-            "benchmark_binary_bytes": value.get("benchmark_binary_bytes", 0),
+            "generated_source_bytes": value["resources"]["generated_source_bytes"],
+            "generated_files": value["resources"]["generated_files"],
+            "object_size": value["resources"]["object_size"],
+            "binary_size": value["resources"]["binary_size"] if value["resources"]["binary_size"] is not None else "n/a",
+            "runtime_size": value["resources"]["runtime_size"],
+            "allocations": value["resources"]["allocations"],
+            "allocated_bytes": value["resources"]["allocated_bytes"],
         } for value in values],
     }
     args.json.parent.mkdir(parents=True, exist_ok=True)
@@ -46,11 +52,15 @@ def main() -> None:
     lines = [
         "# Quarry benchmark measurements", "",
         "These measurements are reported without ranking backends or applying timing thresholds.", "",
-        "| Case | Backend | Operation | Encoded bytes/record | Median ns/op | Throughput op/s | Generated source bytes | Binary bytes |",
-        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        "| Case | Backend | Operation | Encoded bytes/record | Median ns/op | Throughput op/s | Source bytes/files | Object bytes | Binary bytes | Allocations |",
+        "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for value in summary["results"]:
-        lines.append("| {benchmark_case} | {backend} | {operation} | {encoded_bytes_per_record:.2f} | {latency_ns_per_operation:.2f} | {throughput_operations_per_second:.2f} | {generated_source_bytes} | {benchmark_binary_bytes} |".format(**value))
+        object_size = value["object_size"] if value["object_size"] is not None else "n/a"
+        allocations = value["allocations"] if value["allocations"] is not None else "n/a"
+        row = dict(value)
+        row.update(object_size=object_size, allocations=allocations)
+        lines.append("| {benchmark_case} | {backend} | {operation} | {encoded_bytes_per_record:.2f} | {latency_ns_per_operation:.2f} | {throughput_operations_per_second:.2f} | {generated_source_bytes}/{generated_files} | {object_size} | {binary_size} | {allocations} |".format(**row))
     args.markdown.parent.mkdir(parents=True, exist_ok=True)
     args.markdown.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"summarized {len(values)} benchmark result files")

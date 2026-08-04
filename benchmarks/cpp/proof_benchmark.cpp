@@ -121,7 +121,7 @@ int main(int argc, char** argv) {
         const double operations = static_cast<double>(records.size()) * iterations;
         const double latency = median(durations) / operations;
         std::ofstream result(output); result << std::setprecision(17)
-            << "{\n  \"format_version\": 1,\n  \"benchmark_case\": \"" << benchmark_case
+            << "{\n  \"format_version\": 2,\n  \"benchmark_case\": \"" << benchmark_case
             << "\",\n  \"backend\": \"cpp\",\n  \"language\": \"C++\",\n  \"operation\": \"" << operation
             << "\",\n  \"schema_identity\": \"benchmark.workload.Workload\",\n  \"dataset_seed\": 153,\n  \"record_count\": " << records.size()
             << ",\n  \"warmup_iterations\": " << warmup << ",\n  \"measured_iterations\": " << iterations
@@ -129,6 +129,10 @@ int main(int argc, char** argv) {
         for (std::size_t index = 0; index < durations.size(); ++index) result << (index ? ", " : "") << durations[index];
         result << "],\n  \"operation_count\": " << static_cast<std::uint64_t>(operations * samples)
             << ",\n  \"latency_ns_per_operation\": " << latency << ",\n  \"throughput_operations_per_second\": " << 1e9 / latency
-            << ",\n  \"encoded_byte_size\": " << encoded.front().size() << ",\n  \"validation_status\": \"passed\",\n  \"checksum\": " << checksum << "\n}\n";
+            << ",\n  \"encoded_byte_size\": " << encoded.front().size()
+            << ",\n  \"resources\": {\"encoded_bytes\": " << encoded.front().size()
+            << ", \"object_size\": " << sizeof(benchmark::workload::Workload)
+            << ", \"allocations\": null, \"allocated_bytes\": null},"
+            << "\n  \"validation_status\": \"passed\",\n  \"checksum\": " << checksum << "\n}\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

@@ -16,6 +16,10 @@ REQUIRED = {
     "operation_count", "latency_ns_per_operation",
     "throughput_operations_per_second", "encoded_byte_size", "validation_status",
 }
+RESOURCE_KEYS = {
+    "encoded_bytes", "generated_source_bytes", "generated_files", "object_size",
+    "binary_size", "runtime_size", "allocations", "allocated_bytes",
+}
 
 
 def validate(path: Path) -> dict[str, object]:
@@ -23,7 +27,7 @@ def validate(path: Path) -> dict[str, object]:
     missing = REQUIRED - value.keys()
     if missing:
         raise ValueError(f"{path}: missing keys: {', '.join(sorted(missing))}")
-    if value["format_version"] != 1 or value["validation_status"] != "passed":
+    if value["format_version"] != 2 or value["validation_status"] != "passed":
         raise ValueError(f"{path}: unsupported format or failed validation status")
     for key in ("record_count", "warmup_iterations", "measured_iterations", "sample_count", "operation_count", "encoded_byte_size"):
         if not isinstance(value[key], int) or value[key] < 0:
@@ -39,6 +43,14 @@ def validate(path: Path) -> dict[str, object]:
     expected_operations = value["record_count"] * value["measured_iterations"] * value["sample_count"]
     if value["operation_count"] != expected_operations:
         raise ValueError(f"{path}: operation_count does not match configured iterations")
+    resources = value.get("resources")
+    if not isinstance(resources, dict) or set(resources) != RESOURCE_KEYS:
+        raise ValueError(f"{path}: resources must contain exactly the documented keys")
+    for key, resource in resources.items():
+        if resource is not None and (not isinstance(resource, int) or resource < 0):
+            raise ValueError(f"{path}: resource {key} must be a non-negative integer or null")
+    if resources["encoded_bytes"] != value["encoded_byte_size"]:
+        raise ValueError(f"{path}: encoded resource does not match encoded_byte_size")
     return value
 
 

@@ -94,12 +94,14 @@ def main() -> None:
     operations = len(records) * args.iterations
     latency = statistics.median(durations) / operations
     args.output.write_text(json.dumps({
-        "format_version": 1, "benchmark_case": args.case, "backend": "python", "language": "Python",
+        "format_version": 2, "benchmark_case": args.case, "backend": "python", "language": "Python",
         "operation": args.operation, "schema_identity": "benchmark.workload.Workload", "dataset_seed": 153,
         "record_count": len(records), "warmup_iterations": args.warmup, "measured_iterations": args.iterations,
         "sample_count": args.samples, "sample_durations_ns": durations,
         "operation_count": operations * args.samples, "latency_ns_per_operation": latency,
         "throughput_operations_per_second": 1e9 / latency, "encoded_byte_size": len(encoded[0]),
+        "resources": {"encoded_bytes": len(encoded[0]), "object_size": None,
+                       "allocations": None, "allocated_bytes": None},
         "validation_status": "passed", "checksum": checksum,
     }, indent=2) + "\n", encoding="utf-8")
 

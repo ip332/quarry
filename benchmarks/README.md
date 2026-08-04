@@ -85,9 +85,22 @@ overhead. These are intentional runtime-model differences, not timing claims
 about language or backend quality. Run on an otherwise idle, stable machine
 when measurements are intended to be compared.
 
-The JSON format retains the PR-152 identity and timing fields and adds workload,
-generated-source-size, and benchmark-binary-size metadata. The Markdown summary
-is a measurement table and deliberately does not rank backends.
+The version 2 JSON format retains the PR-152 identity and timing fields and adds workload,
+generated-source-size, generated-file-count, object-size, binary-size,
+runtime-size, and allocation metadata. The `resources` object uses `null` for
+metrics that do not have an equivalent portable measurement. Native C++ and C
+object sizes use `sizeof`; Python object size and allocation counters are not
+treated as equivalent values. Quarry's native runtime is header-only, so its
+runtime library size is reported as deterministic zero; generated executable
+size is reported separately. C allocation count and bytes are zero for this
+harness because its path uses static/caller-owned storage without allocation.
+The Markdown summary presents measurements only and deliberately does not rank
+backends.
+
+Resource values are expected to be stable for the same build and generated
+sources. Timing values are not. Binary sizes depend on the selected release
+toolchain and platform, so they are build measurements rather than universal
+claims.
 
 ## Validation
 
@@ -101,6 +114,7 @@ selection, result structure, summary generation, and encoded-size parity. They
 do not assert latency or throughput values. Full benchmark execution remains
 manual/release-oriented and outside normal CTest and coverage.
 
-Future work is PR-154 for resource measurements, PR-155 for a separately
-labeled Protocol Buffers comparison, and PR-156 for performance reporting and
-regression analysis.
+Future work is PR-155 for a separately labeled Protocol Buffers comparison and
+PR-156 for performance reporting and regression analysis. RSS, stack usage,
+cache behavior, CPU cycles, perf counters, and allocator profilers remain
+intentionally deferred.
