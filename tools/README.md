@@ -317,3 +317,18 @@ tool binary. It may still depend on system or package-manager-provided dynamic
 libraries such as libyaml, Protobuf, and absl according to the platform and
 build configuration. Those third-party libraries are not bundled by
 Quarry.
+## Protobuf translator toolchain
+
+The isolated `quarry-protobuf-translator` uses the protobuf descriptor-set
+toolchain found by CMake. The compiler verifies that `protoc` and the selected
+protobuf headers/library agree on their major and minor version during
+configuration. Generated Schema IR protobuf sources are always produced in
+the active build tree by that same `protoc`; they are not source-tree
+artifacts.
+
+Use separate build directories for native and Docker builds. The repository
+provides `debug`/`coverage` presets for native builds and
+`docker-debug`/`docker-coverage` presets for the Docker image. If a mismatch is
+reported, remove or abandon the contaminated build directory and reconfigure
+with the matching preset; do not reuse host-generated protobuf files inside a
+container.

@@ -19,13 +19,13 @@ jobs:
         run: docker compose build
 
       - name: Configure
-        run: docker compose run --rm dev cmake --preset debug
+        run: docker compose run --rm dev cmake --preset docker-debug
 
       - name: Build
-        run: docker compose run --rm dev cmake --build --preset debug --parallel
+        run: docker compose run --rm dev cmake --build --preset docker-debug --parallel
 
       - name: Test
-        run: docker compose run --rm dev ctest --preset debug --output-on-failure
+        run: docker compose run --rm dev ctest --preset docker-debug --output-on-failure
 
   clang-tidy:
     name: clang-tidy
@@ -39,10 +39,10 @@ jobs:
         run: docker compose build
 
       - name: Configure
-        run: docker compose run --rm dev cmake --preset debug-clang-tidy
+        run: docker compose run --rm dev cmake --preset docker-debug-clang-tidy
 
       - name: Build
-        run: docker compose run --rm dev cmake --build --preset debug-clang-tidy --parallel
+        run: docker compose run --rm dev cmake --build --preset docker-debug-clang-tidy --parallel
 
   coverage:
     name: Coverage baseline
@@ -56,23 +56,24 @@ jobs:
         run: docker compose build
 
       - name: Configure coverage build
-        run: docker compose run --rm dev cmake --preset coverage
+        run: docker compose run --rm dev cmake --preset docker-coverage
 
       - name: Build coverage targets
-        run: docker compose run --rm dev cmake --build --preset coverage --parallel
+        run: docker compose run --rm dev cmake --build --preset docker-coverage --parallel
 
       - name: Run coverage test suite
         run: >-
-          docker compose run --rm dev ctest --preset coverage
+          docker compose run --rm dev ctest --preset docker-coverage
           -E "backend_codegen_test|runtime_package_consumer_test|schema_compiler_install_test|schema_compiler_package_test|public_examples_test"
           --output-on-failure
 
       - name: Collect native coverage
         run: >-
           docker compose run --rm dev sh -c
-          'mkdir -p coverage && gcovr --root . --object-directory build/coverage
+          'mkdir -p coverage && gcovr --root . --object-directory build/docker-coverage
           --filter "^(compiler|include|tools/schema-translators/protobuf)/.*"
           --exclude ".*tests.*" --exclude ".*generated.*" --exclude ".*_deps.*"
+          --merge-mode-functions merge-use-line-min
           --json-summary-pretty --json-summary coverage/native.json
           --html-details coverage/native.html --txt coverage/native.txt'
 

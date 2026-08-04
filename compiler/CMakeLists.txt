@@ -122,6 +122,65 @@ target_link_libraries(quarry_compiler_semantic
 find_package(Protobuf REQUIRED)
 find_package(absl CONFIG REQUIRED)
 
+# Generated protobuf C++ sources must be produced by a protoc compatible with
+# the headers and library selected by FindProtobuf. Comparing the stable
+# major.minor API version catches mixed host/container toolchains during
+# configuration instead of failing later in generated source compilation.
+if(NOT Protobuf_PROTOC_EXECUTABLE)
+    message(FATAL_ERROR "Protobuf was found without a protoc executable")
+endif()
+execute_process(
+    COMMAND ${Protobuf_PROTOC_EXECUTABLE} --version
+    OUTPUT_VARIABLE QUARRY_PROTOC_VERSION_OUTPUT
+    ERROR_VARIABLE QUARRY_PROTOC_VERSION_ERROR
+    RESULT_VARIABLE QUARRY_PROTOC_VERSION_RESULT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+if(NOT QUARRY_PROTOC_VERSION_RESULT EQUAL 0)
+    message(FATAL_ERROR
+        "Unable to query protoc version from '${Protobuf_PROTOC_EXECUTABLE}': "
+        "${QUARRY_PROTOC_VERSION_ERROR}")
+endif()
+string(REGEX REPLACE "^.*libprotoc ([0-9]+)\\.([0-9]+).*$" "\\1" QUARRY_PROTOC_MAJOR
+       "${QUARRY_PROTOC_VERSION_OUTPUT}")
+string(REGEX REPLACE "^.*libprotoc ([0-9]+)\\.([0-9]+).*$" "\\2" QUARRY_PROTOC_MINOR
+       "${QUARRY_PROTOC_VERSION_OUTPUT}")
+string(REGEX REPLACE "^([0-9]+)\\.([0-9]+)(\\.([0-9]+))?.*$" "\\1" QUARRY_PROTOBUF_MAJOR
+       "${Protobuf_VERSION}")
+string(REGEX REPLACE "^([0-9]+)\\.([0-9]+)(\\.([0-9]+))?.*$" "\\2" QUARRY_PROTOBUF_MINOR
+       "${Protobuf_VERSION}")
+string(REGEX REPLACE "^([0-9]+)\\.([0-9]+)(\\.([0-9]+))?.*$" "\\4" QUARRY_PROTOBUF_PATCH
+       "${Protobuf_VERSION}")
+if(NOT QUARRY_PROTOC_MAJOR MATCHES "^[0-9]+$" OR
+   NOT QUARRY_PROTOC_MINOR MATCHES "^[0-9]+$" OR
+   NOT QUARRY_PROTOBUF_MAJOR MATCHES "^[0-9]+$" OR
+   NOT QUARRY_PROTOBUF_MINOR MATCHES "^[0-9]+$")
+    message(FATAL_ERROR
+        "Could not determine compatible protobuf versions; protoc reported "
+        "'${QUARRY_PROTOC_VERSION_OUTPUT}', headers/library reported "
+        "'${Protobuf_VERSION}'")
+endif()
+set(QUARRY_PROTOBUF_TOOLCHAIN_COMPATIBLE OFF)
+if(QUARRY_PROTOC_MAJOR STREQUAL QUARRY_PROTOBUF_MAJOR AND
+   QUARRY_PROTOC_MINOR STREQUAL QUARRY_PROTOBUF_MINOR)
+    set(QUARRY_PROTOBUF_TOOLCHAIN_COMPATIBLE ON)
+elseif(QUARRY_PROTOBUF_MAJOR STREQUAL "7" AND
+       QUARRY_PROTOBUF_MINOR STREQUAL QUARRY_PROTOC_MAJOR AND
+       QUARRY_PROTOBUF_PATCH STREQUAL QUARRY_PROTOC_MINOR)
+    # Protobuf 7.x C++ packages retain the protoc release as runtime
+    # minor.patch (for example runtime 7.35.1 and protoc 35.1).
+    set(QUARRY_PROTOBUF_TOOLCHAIN_COMPATIBLE ON)
+endif()
+if(NOT QUARRY_PROTOBUF_TOOLCHAIN_COMPATIBLE)
+    message(FATAL_ERROR
+        "Incompatible protobuf toolchain: protoc reports "
+        "${QUARRY_PROTOC_VERSION_OUTPUT}, but protobuf headers/library report "
+        "${Protobuf_VERSION}. Use protoc and protobuf headers/library "
+        "from the same installation.")
+endif()
+message(STATUS "Using compatible protobuf toolchain: protoc ${QUARRY_PROTOC_VERSION_OUTPUT}, "
+               "headers/library ${Protobuf_VERSION}")
+
 set(QUARRY_ABSL_LINK_LIBS "")
 foreach(QUARRY_ABSL_CANDIDATE
     absl::log_internal_check_op
@@ -156,6 +215,13 @@ endif()
 
 set(QUARRY_SCHEMA_IR_PROTO_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/schema_ir)
 set(QUARRY_SCHEMA_IR_PROTO_FILE ${CMAKE_CURRENT_SOURCE_DIR}/../proto/quarry/schema_ir.proto)
+set(QUARRY_SCHEMA_IR_PROTOBUF_STAMP ${QUARRY_SCHEMA_IR_PROTO_DIR}/protobuf-toolchain.stamp)
+file(MAKE_DIRECTORY ${QUARRY_SCHEMA_IR_PROTO_DIR})
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/schema_ir/protobuf_toolchain_stamp.txt.in
+    ${QUARRY_SCHEMA_IR_PROTOBUF_STAMP}
+    @ONLY
+)
 
 add_custom_command(
     OUTPUT
@@ -167,7 +233,7 @@ add_custom_command(
         --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/../proto
         --cpp_out=${QUARRY_SCHEMA_IR_PROTO_DIR}
         ${QUARRY_SCHEMA_IR_PROTO_FILE}
-    DEPENDS ${QUARRY_SCHEMA_IR_PROTO_FILE}
+    DEPENDS ${QUARRY_SCHEMA_IR_PROTO_FILE} ${QUARRY_SCHEMA_IR_PROTOBUF_STAMP}
     VERBATIM
 )
 

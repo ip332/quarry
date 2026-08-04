@@ -22,6 +22,18 @@
       }
     },
     {
+      "name": "docker-debug",
+      "displayName": "Docker Debug",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/docker-debug"
+    },
+    {
+      "name": "docker-debug-clang-tidy",
+      "displayName": "Docker Debug with clang-tidy",
+      "inherits": "debug-clang-tidy",
+      "binaryDir": "${sourceDir}/build/docker-debug-clang-tidy"
+    },
+    {
       "name": "debug-fuzz",
       "displayName": "Debug fuzzers",
       "inherits": "debug",
@@ -42,6 +54,12 @@
         "QUARRY_ENABLE_COVERAGE": "ON",
         "QUARRY_WARNINGS_AS_ERRORS": "OFF"
       }
+    },
+    {
+      "name": "docker-coverage",
+      "displayName": "Docker Coverage",
+      "inherits": "coverage",
+      "binaryDir": "${sourceDir}/build/docker-coverage"
     }
   ],
   "buildPresets": [
@@ -54,12 +72,24 @@
       "configurePreset": "debug-clang-tidy"
     },
     {
+      "name": "docker-debug",
+      "configurePreset": "docker-debug"
+    },
+    {
+      "name": "docker-debug-clang-tidy",
+      "configurePreset": "docker-debug-clang-tidy"
+    },
+    {
       "name": "debug-fuzz",
       "configurePreset": "debug-fuzz"
     },
     {
       "name": "coverage",
       "configurePreset": "coverage"
+    },
+    {
+      "name": "docker-coverage",
+      "configurePreset": "docker-coverage"
     }
   ],
   "testPresets": [
@@ -78,8 +108,29 @@
       }
     },
     {
+      "name": "docker-debug",
+      "configurePreset": "docker-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "docker-debug-clang-tidy",
+      "configurePreset": "docker-debug-clang-tidy",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
       "name": "coverage",
       "configurePreset": "coverage",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "docker-coverage",
+      "configurePreset": "docker-coverage",
       "output": {
         "outputOnFailure": true
       }

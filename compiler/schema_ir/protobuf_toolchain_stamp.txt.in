@@ -1,0 +1,2 @@
+protoc=@QUARRY_PROTOC_VERSION_OUTPUT@
+protobuf=@Protobuf_VERSION@
