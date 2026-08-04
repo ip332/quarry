@@ -118,6 +118,26 @@ def resource_table(results: list[dict[str, object]], case: str, metric: str) -> 
     return "\n".join(lines)
 
 
+def raw_provenance(output: Path) -> list[str]:
+    paths = sorted((output / "raw" / "run-001").glob("*.json"))
+    values = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+    compilers = sorted({str(value.get("compiler_or_interpreter_version")) for value in values})
+    protobuf_runtimes = sorted({str(value.get("protobuf_runtime_version")) for value in values
+                                if value.get("protobuf_runtime_version") is not None})
+    epochs = sorted({f"{value['backend']}={value['generated_code_api_epoch']}"
+                     for value in values if value.get("generated_code_api_epoch") is not None})
+    arena_modes = sorted({str(value.get("arena_mode")) for value in values
+                          if value["backend"] == "protobuf-cpp-arena"})
+    lines = [f"- Compiler/interpreter versions: `{'; '.join(compilers)}`"]
+    if protobuf_runtimes:
+        lines.append(f"- Protobuf runtime versions: `{'; '.join(protobuf_runtimes)}`")
+    if epochs:
+        lines.append(f"- Quarry generated-code epochs: `{'; '.join(epochs)}`")
+    if arena_modes:
+        lines.append(f"- Protobuf C++ Arena mode: `{'; '.join(arena_modes)}`")
+    return lines
+
+
 def write_report(output: Path, manifest: dict[str, object], aggregate_result: dict[str, object], chart_names: list[str]) -> None:
     results = aggregate_result["results"]
     cases = sorted({result["benchmark_case"] for result in results})
@@ -127,13 +147,16 @@ def write_report(output: Path, manifest: dict[str, object], aggregate_result: di
              f"- CPU: `{manifest['cpu_model']}`",
              f"- Compiler: `{manifest['compiler_version']}`",
              f"- Protobuf: `{manifest['protobuf_version']}` / protoc `{manifest['protoc_version']}`", "",
+             *raw_provenance(output), "",
              "## Methodology", "",
              f"- Methodology version: `{manifest['benchmark_methodology_version']}`",
              f"- Suite version: `{manifest['suite_version']}`",
              f"- Dataset/schema versions: `{manifest['dataset_version']}` / `{manifest['schema_version']}`",
              f"- Executions: `{manifest['execution_count']}`",
-             "- Timing values are advisory measurements; no implementations are ranked.",
-             "- BRF and protobuf sizes are separate wire-format measurements.", "",
+            "- Timing values are advisory measurements; no implementations are ranked.",
+             "- BRF and protobuf sizes are separate wire-format measurements; they are not byte-compatible.",
+             "- C++/C/Python have different runtime and ownership models; timing is not a backend-quality ranking.",
+             "- Quarry C has no official strict-C99 protobuf counterpart.", "",
              "## Benchmark Suite", "",
              "The suite uses deterministic datasets for telemetry, configuration, nested device state, large payload, and small-message stress workloads.", "",
              "## Backend Summary", ""]
@@ -146,8 +169,10 @@ def write_report(output: Path, manifest: dict[str, object], aggregate_result: di
                       "### Round-trip throughput", "", table(results, case, "round_trip"), "",
                       "### Resource measurements", ""])
         for metric, title in (("encoded_byte_size", "Encoded size"), ("generated_source_bytes", "Generated source size"),
+                              ("generated_files", "Generated file count"),
                               ("binary_size", "Binary size"), ("runtime_size", "Runtime size"),
-                              ("object_size", "Object size"), ("allocations", "Allocations")):
+                              ("object_size", "Object size"), ("allocations", "Allocations"),
+                              ("allocated_bytes", "Allocated bytes")):
             lines.extend([f"#### {title}", "", resource_table(results, case, metric), ""])
     lines.extend(["## Resource Measurements", "",
                   "Deterministic resource values are expected to match across repeated executions. N/A means that a portable equivalent is unavailable.", "",

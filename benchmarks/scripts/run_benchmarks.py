@@ -53,6 +53,25 @@ def version(command: list[str]) -> str:
         return "unknown"
 
 
+def cpu_model() -> str:
+    try:
+        for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+            if line.lower().startswith(("model name", "hardware")) and ":" in line:
+                value = line.split(":", 1)[1].strip()
+                if value:
+                    return value
+    except (OSError, UnicodeError):
+        pass
+    try:
+        value = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"],
+                               check=True, capture_output=True, text=True).stdout.strip()
+        if value:
+            return value
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    return platform.processor() or "unknown"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", type=Path, required=True)
@@ -109,7 +128,7 @@ def main() -> None:
             "protoc_version": version(["protoc", "--version"]),
             "compiler_version": version(["c++", "--version"]),
             "build_mode": "Release", "optimization_flags": "CMAKE_BUILD_TYPE=Release",
-            "cpu_model": platform.processor() or "unknown", "architecture": platform.machine(),
+            "cpu_model": cpu_model(), "architecture": platform.machine(),
             "operating_system": platform.system(),
             "implementations": list(selected), "cases": list(cases), "operations": list(operations),
         }
@@ -156,7 +175,7 @@ def main() -> None:
                         "dataset_version": 2, "schema_version": 1,
                         "arena_mode": backend == "protobuf-cpp-arena",
                         "build_mode": "Release", "operating_system": platform.system(),
-                        "architecture": platform.machine(), "cpu_model": platform.processor() or "unknown",
+                        "architecture": platform.machine(), "cpu_model": cpu_model(),
                         "execution_timestamp_utc": datetime.now(timezone.utc).isoformat(),
                         "git_commit": version(["git", "rev-parse", "HEAD"]),
                         "generated_source_bytes": source_bytes,
