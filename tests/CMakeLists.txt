@@ -158,6 +158,7 @@ add_quarry_gtest(schema_compiler_install_test consumer/schema_compiler_install_t
 target_compile_definitions(schema_compiler_install_test PRIVATE
     QUARRY_TEST_CMAKE_COMMAND="${CMAKE_COMMAND}"
     QUARRY_TEST_BUILD_DIR="${CMAKE_BINARY_DIR}"
+    QUARRY_TEST_VERSION_DISPLAY="${QUARRY_VERSION_DISPLAY}"
     QUARRY_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
     QUARRY_TEST_INSTALL_BINDIR="${CMAKE_INSTALL_BINDIR}")
 add_quarry_gtest(schema_compiler_package_test consumer/schema_compiler_package_test.cpp

@@ -169,7 +169,8 @@ TEST(SchemaCompilerInstallTest, InstalledExecutableRunsFromCleanPrefix) {
     const CommandResult version = run_executable(executable, {"--version"}, working_directory,
                                                  "installed-version");
     EXPECT_EQ(version.status, 0);
-    EXPECT_EQ(version.stdout_text, "quarry-schema-compiler 0.1.0\n");
+    EXPECT_NE(version.stdout_text.find("quarry-schema-compiler " QUARRY_TEST_VERSION_DISPLAY),
+              std::string::npos);
     EXPECT_TRUE(version.stderr_text.empty());
 
     const CommandResult help = run_executable(executable, {"--help"}, working_directory,
