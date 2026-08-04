@@ -83,6 +83,18 @@ execution day; timing and resource results remain local measurements.
 
 ## Measurement contract
 
+The benchmark series is identified as **Public API Benchmark** with measurement
+model `public-api-v1`. It measures the current public APIs, including their
+ownership and allocation behavior; it is not an isolated codec-kernel test.
+
+Quarry C uses caller-owned records and fixed-capacity output buffers. Quarry C++
+uses owning vector encode output and owning decoded values, so allocation and
+ownership costs are included. Quarry Python includes interpreter and Python
+object overhead. Protobuf C++ uses its standard owning API, Protobuf Arena is
+reported separately, and Protobuf Python uses its Python object model. These
+are different runtime models and the results must not be interpreted as an
+intrinsic language or backend ranking.
+
 Datasets use a fixed integer transition function, stable field presence, stable
 strings and bytes, and stable record order. No wall clock or platform random
 source contributes to logical input data.
@@ -115,6 +127,10 @@ Resource values are expected to be stable for the same build and generated
 sources. Timing values are not. Binary sizes depend on the selected release
 toolchain and platform, so they are build measurements rather than universal
 claims.
+
+A future caller-buffer / codec benchmark may measure non-owning serialization
+APIs if a supported C++ API becomes available. It must use a different
+measurement model and must not be aggregated with `public-api-v1` results.
 
 BRF and protobuf encoded sizes are reported independently. They are different
 wire formats and must not be compared for byte equality. The logical records,

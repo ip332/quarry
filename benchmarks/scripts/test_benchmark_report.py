@@ -38,9 +38,14 @@ def main() -> None:
         assert (output / "charts" / "telemetry-round_trip-throughput.svg").is_file()
         summary = (output / "summary.md").read_text(encoding="utf-8")
         for heading in ("# Benchmark Report", "## Environment", "## Methodology",
+                        "## Benchmark Scope", "## How to Interpret These Results",
                         "## Backend Summary", "## Telemetry", "## Resource Measurements",
                         "## Charts", "## Appendix"):
             assert heading in summary
+        assert "Public API Benchmark" in summary
+        report_manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+        assert report_manifest["measurement_model"] == "public-api-v1"
+        assert "owning" in report_manifest["ownership_models"]["cpp"]
         assert "no ranking" in " ".join(path.read_text(encoding="utf-8") for path in (output / "charts").glob("*.svg"))
         assert "timestamp" not in summary.lower()
 

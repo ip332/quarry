@@ -8,7 +8,8 @@ import html
 import json
 from pathlib import Path
 
-from create_baseline_bundle import BundleError, aggregate, collect, write_bundle
+from create_baseline_bundle import (BundleError, MEASUREMENT_MODEL, OWNERSHIP_MODELS,
+                                    aggregate, collect, write_bundle)
 
 
 COLORS = {
@@ -85,7 +86,8 @@ def write_charts(output: Path, aggregate_result: dict[str, object]) -> list[str]
             values = [(result["backend"], result["timing"]["throughput_operations_per_second"]["median"])
                       for result in grouped(results, case, operation)]
             filename = f"{case}-{operation}-throughput.svg"
-            (charts / filename).write_text(chart_svg(f"{case}: {operation} throughput", values, "operations/second"), encoding="utf-8")
+            title = f"Public API {operation.replace('_', '-').title()} Throughput"
+            (charts / filename).write_text(chart_svg(f"{case}: {title}", values, "operations/second"), encoding="utf-8")
             names.append(filename)
         for wire_format in sorted({result["wire_format"] for result in resource_results(results, case)}):
             values = [(result["backend"], result["deterministic_metrics"]["encoded_byte_size"])
@@ -161,10 +163,16 @@ def write_report(output: Path, manifest: dict[str, object], aggregate_result: di
              f"- Suite version: `{manifest['suite_version']}`",
              f"- Dataset/schema versions: `{manifest['dataset_version']}` / `{manifest['schema_version']}`",
              f"- Executions: `{manifest['execution_count']}`",
+             f"- Measurement model: `{manifest.get('measurement_model', MEASUREMENT_MODEL)}`",
             "- Timing values are advisory measurements; no implementations are ranked.",
              "- BRF and protobuf sizes are separate wire-format measurements; they are not byte-compatible.",
              "- C++/C/Python have different runtime and ownership models; timing is not a backend-quality ranking.",
              "- Quarry C has no official strict-C99 protobuf counterpart.", "",
+             "## Benchmark Scope", "",
+             "This is a **Public API Benchmark**. Timings measure the current public encode and decode APIs, including their ownership and allocation behavior. Quarry C writes into caller-owned fixed-capacity buffers; Quarry C++ returns owning vectors and decoded objects; Python and protobuf runtimes have their own object and allocation models. These results are not a pure codec-kernel comparison.", "",
+             "## How to Interpret These Results", "",
+             "Quarry C measures caller-owned records and buffers with no heap allocation in the measured path. Quarry C++ measures owning vector output and owning decoded values, so allocation and ownership costs are included. Quarry Python includes interpreter and Python-object overhead. Protobuf C++ measures its standard owning API, Protobuf Arena measures arena-backed ownership separately, and Protobuf Python includes its Python object model. No backend should be treated as inherently superior from these measurements.", "",
+             "A future caller-buffer / codec benchmark may measure non-owning serialization APIs if supported. It must use a different measurement model and must not be aggregated with `public-api-v1` results.", "",
              "## Benchmark Suite", "",
              "The suite uses deterministic datasets for telemetry, configuration, nested device state, large payload, and small-message stress workloads.", "",
              "## Backend Summary", ""]
@@ -172,9 +180,9 @@ def write_report(output: Path, manifest: dict[str, object], aggregate_result: di
         lines.append(f"- {DISPLAY_NAMES.get(backend, backend)}")
     for case in cases:
         lines.extend(["", f"## {case.replace('_', ' ').title()}", "",
-                      "### Encode throughput", "", table(results, case, "encode"), "",
-                      "### Decode throughput", "", table(results, case, "decode"), "",
-                      "### Round-trip throughput", "", table(results, case, "round_trip"), "",
+                      "### Public API Encode throughput", "", table(results, case, "encode"), "",
+                      "### Public API Decode throughput", "", table(results, case, "decode"), "",
+                      "### Public API Round-trip throughput", "", table(results, case, "round_trip"), "",
                       "### Resource measurements", ""])
         for metric, title in (("encoded_byte_size", "Encoded size"), ("generated_source_bytes", "Generated source size"),
                               ("generated_files", "Generated file count"),
@@ -183,8 +191,13 @@ def write_report(output: Path, manifest: dict[str, object], aggregate_result: di
                               ("allocated_bytes", "Allocated bytes")):
             if available_resource_results(results, case, metric):
                 lines.extend([f"#### {title}", "", resource_table(results, case, metric), ""])
+    ownership = manifest.get("ownership_models", {})
+    ownership_line = "; ".join(
+        f"{backend}={ownership.get(backend, OWNERSHIP_MODELS.get(backend, 'unspecified'))}"
+        for backend in manifest["implementations"])
     lines.extend(["## Resource Measurements", "",
                   "Deterministic resource values are expected to match across repeated executions. N/A means that a portable equivalent is unavailable.", "",
+                  f"Ownership metadata: {ownership_line}", "",
                   "## Charts", ""])
     for name in chart_names:
         lines.append(f"- [{name}](charts/{name})")

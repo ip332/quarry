@@ -17,6 +17,17 @@ import tempfile
 from validate_results import validate
 
 
+MEASUREMENT_MODEL = "public-api-v1"
+OWNERSHIP_MODELS = {
+    "cpp": "owning vector encode output; owning decoded object; allocation included",
+    "c": "caller-owned fixed-capacity buffer and record; no heap allocation in the measured path",
+    "python": "Python object model; interpreter and object allocation included",
+    "protobuf-cpp": "owning protobuf message and serialized output; allocation included",
+    "protobuf-cpp-arena": "Arena-backed protobuf message; arena allocation included",
+    "protobuf-python": "Python protobuf object model; interpreter and object allocation included",
+}
+
+
 MINIMUM_RUNS = 5
 MANIFEST_COMPATIBILITY_KEYS = (
     "benchmark_version", "suite_version", "dataset_version", "schema_version",
@@ -197,6 +208,9 @@ def write_bundle(output: Path, reference: dict[str, object], manifests: list[dic
         "execution_count": len(runs), "dataset_seeds": sorted({manifest["dataset_seed"] for manifest in manifests}),
         "execution_dates": sorted({manifest.get("benchmark_date", "unknown") for manifest in manifests}),
         "generation_timestamp_utc": stable_timestamp(manifests),
+        "measurement_model": MEASUREMENT_MODEL,
+        "ownership_models": {backend: OWNERSHIP_MODELS.get(backend, "unspecified")
+                             for backend in reference["implementations"]},
         "raw_run_ids": [f"run-{index:03d}" for index in range(1, len(runs) + 1)],
     }
     digest = hashlib.sha256()
