@@ -90,10 +90,10 @@ void add_diagnostic(TranslationResult& result, std::string message) {
     return true;
 }
 
-[[nodiscard]] std::map<std::string, FieldBounds> bounds_map(const BoundsConfig& config) {
-    std::map<std::string, FieldBounds> result;
-    for (const auto& [path, bounds] : config.entries) {
-        result.emplace(path, bounds);
+[[nodiscard]] std::map<std::string, BoundEntry> bounds_map(const BoundsConfig& config) {
+    std::map<std::string, BoundEntry> result;
+    for (const auto& entry : config.entries) {
+        result.emplace(entry.path, entry);
     }
     return result;
 }
@@ -117,6 +117,17 @@ void apply_bounds_layer(FieldBounds& target, ResolvedBounds& provenance,
             provenance.source_type = std::move(source_type);
         }
     }
+}
+
+void apply_external_bounds(FieldBounds& target, ResolvedBounds& provenance,
+                           const BoundEntry& entry) {
+    apply_bounds_layer(target, provenance, entry.values,
+                       "external:" + entry.path, entry.source,
+                       entry.original_option.empty() ? "external_yaml" : "nanopb_options");
+    if (!entry.original_option.empty()) {
+        provenance.original_option = entry.original_option;
+    }
+    provenance.source_line = entry.source_line;
 }
 
 [[nodiscard]] std::vector<std::string> split_components(std::string_view value) {
@@ -406,6 +417,10 @@ void apply_bounds_layer(FieldBounds& target, ResolvedBounds& provenance,
             output << ", \"source_line\": " << field_bounds.source_line
                    << ", \"source_column\": " << field_bounds.source_column;
         }
+        if (!field_bounds.original_option.empty()) {
+            output << ", \"original_option\": \""
+                   << json_escape(field_bounds.original_option) << "\"";
+        }
         output << "}" << (++index == bounds.size() ? "\n" : ",\n");
     }
     output << "  ],\n  \"declarations\": [\n";
@@ -488,7 +503,7 @@ TranslationResult load_bounds_config(const std::string& path, BoundsConfig& conf
     }
     std::string line;
     std::string current_path;
-    std::map<std::string, FieldBounds> parsed;
+    std::map<std::string, BoundEntry> parsed;
     bool saw_root = false;
     std::size_t line_number = 0;
     while (std::getline(input, line)) {
@@ -524,7 +539,10 @@ TranslationResult load_bounds_config(const std::string& path, BoundsConfig& conf
         }
         if (indent == 2 && value.empty()) {
             current_path = key;
-            if (!parsed.emplace(current_path, FieldBounds{}).second) {
+            BoundEntry entry;
+            entry.path = current_path;
+            entry.source = std::filesystem::path(path).filename().generic_string();
+            if (!parsed.emplace(current_path, std::move(entry)).second) {
                 add_diagnostic(result, "bounds file contains duplicate field path '" +
                                          current_path + "'");
             }
@@ -549,7 +567,7 @@ TranslationResult load_bounds_config(const std::string& path, BoundsConfig& conf
             continue;
         }
         std::optional<std::uint32_t>& destination =
-            key == "max_bytes" ? iterator->second.max_bytes : iterator->second.max_elements;
+            key == "max_bytes" ? iterator->second.values.max_bytes : iterator->second.values.max_elements;
         if (destination.has_value()) {
             add_diagnostic(result, "bounds file contains duplicate " + key + " for '" +
                                      current_path + "'");
@@ -562,9 +580,143 @@ TranslationResult load_bounds_config(const std::string& path, BoundsConfig& conf
     }
     if (result.succeeded()) {
         config.entries.clear();
-        for (const auto& entry : parsed) {
-            config.entries.push_back(entry);
+        for (auto& entry : parsed) {
+            config.entries.push_back(std::move(entry.second));
         }
+    }
+    return result;
+}
+
+[[nodiscard]] bool parse_nanopb_assignment(std::string_view token, std::string& name,
+                                           std::uint32_t& value) {
+    const std::size_t separator = token.find(':');
+    if (separator == std::string_view::npos || separator == 0 ||
+        separator + 1 == token.size()) {
+        return false;
+    }
+    name = std::string(token.substr(0, separator));
+    return parse_positive_u32(std::string(token.substr(separator + 1)), value);
+}
+
+TranslationResult load_nanopb_config(const std::string& path, BoundsConfig& config) {
+    TranslationResult result;
+    std::ifstream input(path);
+    if (!input) {
+        add_diagnostic(result, "cannot open Nanopb options file '" + path + "'");
+        return result;
+    }
+    std::map<std::string, BoundEntry> parsed;
+    std::string line;
+    std::size_t line_number = 0;
+    while (std::getline(input, line)) {
+        ++line_number;
+        const std::string content = strip_comment(line);
+        if (content.empty()) continue;
+        std::istringstream tokens(content);
+        std::string field_path;
+        tokens >> field_path;
+        if (field_path.empty() || field_path.find_first_of("*?[]") != std::string::npos) {
+            add_diagnostic(result, "Nanopb options file '" + path + "' line " +
+                                     std::to_string(line_number) +
+                                     " requires an exact field path; wildcards are unsupported");
+            continue;
+        }
+        if (!field_path.empty() && field_path.front() == '.') field_path.erase(0, 1);
+        std::string option;
+        bool saw_assignment = false;
+        BoundEntry entry;
+        entry.path = field_path;
+        entry.source = std::filesystem::path(path).filename().generic_string();
+        entry.source_line = static_cast<std::uint32_t>(line_number);
+        while (tokens >> option) {
+            std::string name;
+            std::uint32_t value = 0;
+            if (!parse_nanopb_assignment(option, name, value)) {
+                add_diagnostic(result, "Nanopb options file '" + path + "' line " +
+                                         std::to_string(line_number) + " has malformed option '" +
+                                         option + "'");
+                continue;
+            }
+            if (name == "max_count") {
+                if (entry.values.max_elements.has_value()) {
+                    add_diagnostic(result, "Nanopb options file '" + path + "' line " +
+                                             std::to_string(line_number) +
+                                             " contains duplicate max_count for '" + field_path + "'");
+                } else {
+                    entry.values.max_elements = value;
+                    saw_assignment = true;
+                }
+            } else if (name == "max_size") {
+                if (entry.values.max_bytes.has_value()) {
+                    add_diagnostic(result, "Nanopb options file '" + path + "' line " +
+                                             std::to_string(line_number) +
+                                             " contains duplicate max_size for '" + field_path + "'");
+                } else {
+                    entry.values.max_bytes = value;
+                    saw_assignment = true;
+                }
+            } else if (name == "max_length") {
+                add_diagnostic(result, "Nanopb option max_length for '" + field_path +
+                                         "' is unsupported: its unit and presence semantics are not "
+                                         "identical to Quarry max_bytes; use max_size or Quarry bounds");
+            } else {
+                add_diagnostic(result, "Nanopb option '" + name + "' for '" + field_path +
+                                         "' is unsupported by Quarry");
+            }
+        }
+        if (saw_assignment) {
+            entry.original_option = content.substr(content.find_first_of(" \t") + 1);
+            auto [iterator, inserted] = parsed.emplace(field_path, std::move(entry));
+            if (!inserted) {
+                add_diagnostic(result, "Nanopb options file '" + path +
+                                         "' contains duplicate rule for '" + field_path + "'");
+            }
+        } else {
+            add_diagnostic(result, "Nanopb options file '" + path + "' line " +
+                                     std::to_string(line_number) +
+                                     " contains no supported bound assignment");
+        }
+    }
+    if (!result.succeeded()) return result;
+    config.entries.clear();
+    for (auto& entry : parsed) config.entries.push_back(std::move(entry.second));
+    return result;
+}
+
+[[nodiscard]] TranslationResult merge_options_file(const std::string& path, OptionsFormat format,
+                                                   BoundsConfig& config) {
+    BoundsConfig parsed;
+    TranslationResult result = format == OptionsFormat::Nanopb
+                                    ? load_nanopb_config(path, parsed)
+                                    : load_bounds_config(path, parsed);
+    if (!result.succeeded()) return result;
+    std::map<std::string, BoundEntry> merged = bounds_map(config);
+    for (const BoundEntry& entry : parsed.entries) {
+        auto [iterator, inserted] = merged.emplace(entry.path, entry);
+        if (inserted) continue;
+        if (entry.values.max_bytes.has_value()) iterator->second.values.max_bytes = entry.values.max_bytes;
+        if (entry.values.max_elements.has_value()) iterator->second.values.max_elements = entry.values.max_elements;
+        iterator->second.source = entry.source;
+        iterator->second.source_line = entry.source_line;
+        if (!entry.original_option.empty()) {
+            if (!iterator->second.original_option.empty()) iterator->second.original_option += " | ";
+            iterator->second.original_option += entry.original_option;
+        }
+    }
+    config.entries.clear();
+    for (auto& entry : merged) config.entries.push_back(std::move(entry.second));
+    return result;
+}
+
+TranslationResult load_options_config(const std::vector<std::string>& paths, OptionsFormat format,
+                                      BoundsConfig& config) {
+    TranslationResult result;
+    config.entries.clear();
+    for (const std::string& path : paths) {
+        TranslationResult file_result = merge_options_file(path, format, config);
+        result.diagnostics.insert(result.diagnostics.end(), file_result.diagnostics.begin(),
+                                  file_result.diagnostics.end());
+        if (!file_result.succeeded()) return result;
     }
     return result;
 }
@@ -573,13 +725,26 @@ TranslationResult translate_descriptor_model(const DescriptorModel& model, const
                                              const std::string& bounds_path,
                                              const std::string& output_directory,
                                              const std::string& options_path) {
+    std::vector<std::string> paths;
+    if (!options_path.empty()) {
+        paths.push_back(options_path);
+    } else {
+        paths.push_back(bounds_path);
+    }
+    return translate_descriptor_model(model, root, paths, OptionsFormat::Quarry,
+                                      output_directory);
+}
+
+TranslationResult translate_descriptor_model(const DescriptorModel& model, const std::string& root,
+                                             const std::vector<std::string>& options_paths,
+                                             OptionsFormat options_format,
+                                             const std::string& output_directory) {
     TranslationResult result;
     BoundsConfig config;
-    const std::string external_bounds_path = options_path.empty() ? bounds_path : options_path;
-    TranslationResult bounds_result = load_bounds_config(external_bounds_path, config);
+    TranslationResult bounds_result = load_options_config(options_paths, options_format, config);
     result.diagnostics = std::move(bounds_result.diagnostics);
     if (!result.succeeded()) return result;
-    const std::map<std::string, FieldBounds> external_bounds = bounds_map(config);
+    const std::map<std::string, BoundEntry> external_bounds = bounds_map(config);
     const DescriptorMessage* root_message = find_message(model, root);
     if (root_message == nullptr) {
         add_diagnostic(result, "unknown protobuf root message '" + root + "'");
@@ -660,14 +825,12 @@ TranslationResult translate_descriptor_model(const DescriptorModel& model, const
                 ResolvedBounds provenance;
                 if (const auto external = external_bounds.find(field_path); external != external_bounds.end()) {
                     used_bounds.insert(field_path);
-                    apply_bounds_layer(effective, provenance, external->second, "external:" + field_path,
-                                       std::filesystem::path(external_bounds_path).filename().generic_string(),
-                                       "external_yaml");
-                    if (!needs_bytes && external->second.max_bytes.has_value()) {
+                    apply_external_bounds(effective, provenance, external->second);
+                    if (!needs_bytes && external->second.values.max_bytes.has_value()) {
                         add_diagnostic(result, "bounds entry for field '" + field_path +
                                          "' has max_bytes but the field is not string or bytes");
                     }
-                    if (!needs_elements && external->second.max_elements.has_value()) {
+                    if (!needs_elements && external->second.values.max_elements.has_value()) {
                         add_diagnostic(result, "bounds entry for field '" + field_path +
                                          "' has max_elements but the field is not repeated");
                     }
@@ -757,7 +920,8 @@ TranslationResult translate_descriptor_model(const DescriptorModel& model, const
 
     for (const auto& [path, unused] : external_bounds) {
         if (!used_bounds.contains(path)) {
-            add_diagnostic(result, "bounds entry '" + path +
+            add_diagnostic(result, (options_format == OptionsFormat::Nanopb ?
+                                   "Nanopb option path '" : "bounds entry '") + path +
                                      "' is unused by reachable message graph");
         }
     }

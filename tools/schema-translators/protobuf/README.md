@@ -54,10 +54,31 @@ quarry-protobuf-translator \
   --output-dir generated
 ```
 
-`--options` is the preferred spelling for the Quarry-native external bounds
-file. `--bounds` remains a compatibility alias for existing scripts; the two
-options cannot be supplied together. The translator does not support
-`--options-format nanopb` yet.
+`--options` is the preferred spelling for the external options file. `--bounds`
+remains a compatibility alias for one Quarry-native file; the two forms cannot
+be supplied together. Multiple files may be supplied and are applied from left
+to right, with a later file supplying the external fallback value when it
+contains the same field path. The command does not invoke `protoc` or the
+Quarry compiler.
+
+Nanopb projects can use exact field paths from their `.options` files:
+
+```sh
+quarry-protobuf-translator \
+  --descriptor-set schemas.pb \
+  --root telemetry.Sample \
+  --options common.options \
+  --options board.options \
+  --options-format nanopb \
+  --output-dir generated
+```
+
+The Nanopb adapter maps `max_count` to Quarry `max_elements` and `max_size` to
+Quarry `max_bytes` for string and bytes fields. `max_length` is rejected
+because its character and terminator semantics cannot be proved equivalent to
+Quarry's byte bound. Wildcards are rejected in v0.1; write one exact protobuf
+field path per rule. Later option files override earlier external values, but
+schema custom options still have higher precedence.
 
 ## Bounds options and precedence
 
@@ -92,9 +113,24 @@ For each reachable field, values are resolved deterministically in this order:
 There are no implicit limits. Strings and bytes require `max_bytes`, repeated
 fields require `max_elements`, and repeated strings/bytes require both. The
 manifest records each final value, its source type, source file, and the
-complete precedence chain. Host-specific absolute paths are omitted. Missing,
-zero, conflicting, or unused bounds are diagnosed before any output is
-published.
+complete precedence chain. Nanopb entries additionally record their original
+option assignment and source line. Host-specific absolute paths are omitted.
+Missing, zero, conflicting, or unused bounds are diagnosed before any output
+is published.
+
+For all external formats, the deterministic precedence is:
+
+1. external files, in command-line order, provide fallback values;
+2. file custom defaults override those fallbacks;
+3. message custom defaults override file defaults;
+4. field custom options override message defaults.
+
+The Quarry-native format is selected by default with `--options-format quarry`.
+`--options-format nanopb` selects the exact-path adapter described above. The
+adapter supports only bounds with BRD meaning; callbacks, pointer/dynamic
+allocation controls, storage modifiers, packing, integer-size controls, and
+other generator-specific Nanopb options fail with diagnostics rather than being
+ignored.
 
 The translator emits one `.brd` source unit per reachable message plus
 `manifest.json`. The protobuf declaration `telemetry.Sensor.Reading` maps to
@@ -137,6 +173,9 @@ protobuf wire data. No protobuf/BRF interoperability claim is made by this
 tool. Manifest comparison is intentionally deferred until a compatibility
 policy can be defined independently of protobuf wire compatibility.
 
-Nanopb options are not parsed or inferred. Nanopb-compatible matching and
-precedence are deferred to a separate translator change; use the Quarry-native
-YAML file or the first-party protobuf options above for this release.
+Nanopb option files are an input compatibility layer only. They do not enable
+Nanopb C code-generation behavior, wildcard matching, automatic file discovery,
+or translator profiles. Existing projects can migrate incrementally by using
+their exact `max_size`/`max_count` rules, then move rules to Quarry YAML or
+first-party grouped protobuf options when they need richer provenance and
+schema-owned defaults.
