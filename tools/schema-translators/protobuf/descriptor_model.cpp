@@ -132,6 +132,7 @@ void collect_message(const DescriptorProto& source, std::string_view prefix,
         descriptor_field.oneof_index = field.has_oneof_index() ? field.oneof_index() : -1;
         descriptor_field.proto3_optional = field.proto3_optional();
         descriptor_field.packed = field.options().packed();
+        descriptor_field.has_default_value = field.has_default_value();
         message.fields.push_back(std::move(descriptor_field));
     }
     for (const auto& nested_enum : source.enum_type()) {
@@ -144,6 +145,10 @@ void collect_message(const DescriptorProto& source, std::string_view prefix,
             qualify(message.fully_qualified_name, nested_message.name()));
         collect_message(nested_message, message.fully_qualified_name, file_name,
                         message.fully_qualified_name, model, file);
+    }
+    message.map_entry = source.options().map_entry();
+    for (const auto& extension : source.extension()) {
+        message.extensions.push_back(qualify(message.fully_qualified_name, extension.name()));
     }
     model.messages.push_back(std::move(message));
     file.messages.push_back(qualify(prefix, source.name()));
@@ -174,8 +179,12 @@ void sort_model(DescriptorModel& model) {
               });
     for (DescriptorFile& file : model.files) {
         std::sort(file.imports.begin(), file.imports.end());
+        std::sort(file.public_imports.begin(), file.public_imports.end());
+        std::sort(file.weak_imports.begin(), file.weak_imports.end());
         std::sort(file.messages.begin(), file.messages.end());
         std::sort(file.enums.begin(), file.enums.end());
+        std::sort(file.services.begin(), file.services.end());
+        std::sort(file.extensions.begin(), file.extensions.end());
     }
     std::sort(model.packages.begin(), model.packages.end());
     model.packages.erase(std::unique(model.packages.begin(), model.packages.end()),
@@ -187,11 +196,13 @@ void sort_model(DescriptorModel& model) {
     for (DescriptorMessage& message : model.messages) {
         std::sort(message.nested_messages.begin(), message.nested_messages.end());
         std::sort(message.nested_enums.begin(), message.nested_enums.end());
-        std::sort(message.fields.begin(), message.fields.end(),
+        std::sort(message.extensions.begin(), message.extensions.end());
+                std::sort(message.fields.begin(), message.fields.end(),
                   [](const DescriptorField& lhs, const DescriptorField& rhs) {
-                      if (lhs.number != rhs.number) {
-                          return lhs.number < rhs.number;
+                      if (lhs.declaration_order != rhs.declaration_order) {
+                          return lhs.declaration_order < rhs.declaration_order;
                       }
+                      if (lhs.number != rhs.number) return lhs.number < rhs.number;
                       return lhs.name < rhs.name;
                   });
     }
@@ -294,6 +305,22 @@ DescriptorLoadResult load_descriptor_set(const std::string& path) {
         for (const auto& enumeration : source.enum_type()) {
             collect_enum(enumeration, source.package(), source.name(), "", model, file);
         }
+        for (const auto& service : source.service()) {
+            file.services.push_back(qualify(source.package(), service.name()));
+        }
+        for (const auto& extension : source.extension()) {
+            file.extensions.push_back(qualify(source.package(), extension.name()));
+        }
+        for (const int index : source.public_dependency()) {
+            if (index >= 0 && index < source.dependency_size()) {
+                file.public_imports.push_back(source.dependency(index));
+            }
+        }
+        for (const int index : source.weak_dependency()) {
+            if (index >= 0 && index < source.dependency_size()) {
+                file.weak_imports.push_back(source.dependency(index));
+            }
+        }
         model.files.push_back(std::move(file));
         if (!source.package().empty()) {
             model.packages.push_back(source.package());
@@ -374,6 +401,14 @@ std::string render_descriptor_list(const DescriptorModel& model) {
         for (const std::string& import : file.imports) {
             output << "      - " << quote(import) << "\n";
         }
+        output << "    public_imports:\n";
+        for (const std::string& import : file.public_imports) {
+            output << "      - " << quote(import) << "\n";
+        }
+        output << "    weak_imports:\n";
+        for (const std::string& import : file.weak_imports) {
+            output << "      - " << quote(import) << "\n";
+        }
         output << "    messages:\n";
         for (const std::string& message : file.messages) {
             output << "      - " << quote(message) << "\n";
@@ -381,6 +416,14 @@ std::string render_descriptor_list(const DescriptorModel& model) {
         output << "    enums:\n";
         for (const std::string& enumeration : file.enums) {
             output << "      - " << quote(enumeration) << "\n";
+        }
+        output << "    services:\n";
+        for (const std::string& service : file.services) {
+            output << "      - " << quote(service) << "\n";
+        }
+        output << "    extensions:\n";
+        for (const std::string& extension : file.extensions) {
+            output << "      - " << quote(extension) << "\n";
         }
     }
     output << "packages:\n";
@@ -400,6 +443,11 @@ std::string render_descriptor_list(const DescriptorModel& model) {
         for (const std::string& nested : message.nested_enums) {
             output << "      - " << quote(nested) << "\n";
         }
+        output << "    map_entry: " << (message.map_entry ? "true" : "false") << "\n"
+               << "    extensions:\n";
+        for (const std::string& extension : message.extensions) {
+            output << "      - " << quote(extension) << "\n";
+        }
         output << "    fields:\n";
         for (const DescriptorField& field : message.fields) {
             output << "      - name: " << quote(field.name) << "\n"
@@ -411,7 +459,9 @@ std::string render_descriptor_list(const DescriptorModel& model) {
                    << "        oneof_index: " << field.oneof_index << "\n"
                    << "        proto3_optional: " << (field.proto3_optional ? "true" : "false")
                    << "\n"
-                   << "        packed: " << (field.packed ? "true" : "false") << "\n";
+                   << "        packed: " << (field.packed ? "true" : "false") << "\n"
+                   << "        has_default_value: "
+                   << (field.has_default_value ? "true" : "false") << "\n";
         }
     }
     output << "enums:\n";

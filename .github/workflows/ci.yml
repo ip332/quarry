@@ -71,7 +71,7 @@ jobs:
         run: >-
           docker compose run --rm dev sh -c
           'mkdir -p coverage && gcovr --root . --object-directory build/coverage
-          --filter "^(compiler|include)/.*"
+          --filter "^(compiler|include|tools/schema-translators/protobuf)/.*"
           --exclude ".*tests.*" --exclude ".*generated.*" --exclude ".*_deps.*"
           --json-summary-pretty --json-summary coverage/native.json
           --html-details coverage/native.html --txt coverage/native.txt'

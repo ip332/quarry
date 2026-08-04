@@ -181,6 +181,14 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 target_compile_definitions(protobuf_descriptor_loader_test PRIVATE
     QUARRY_PROTOC_EXECUTABLE="${Protobuf_PROTOC_EXECUTABLE}")
+add_quarry_gtest(protobuf_translation_test
+                      tools/protobuf_translation_test.cpp
+                      quarry_protobuf_descriptor_loader)
+add_dependencies(protobuf_translation_test quarry_protobuf_translator quarry_schema_compiler)
+target_compile_definitions(protobuf_translation_test PRIVATE
+    QUARRY_PROTOC_EXECUTABLE="${Protobuf_PROTOC_EXECUTABLE}"
+    QUARRY_PROTOBUF_TRANSLATOR="$<TARGET_FILE:quarry_protobuf_translator>"
+    QUARRY_SCHEMA_COMPILER="$<TARGET_FILE:quarry_schema_compiler>")
 add_quarry_gtest(c_cpp_codec_interop_test interop/c_cpp_codec_interop_test.cpp
                       quarry_compiler_support)
 add_dependencies(c_cpp_codec_interop_test quarry_schema_compiler)

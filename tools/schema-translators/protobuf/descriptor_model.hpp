@@ -45,6 +45,7 @@ struct DescriptorField {
     std::int32_t oneof_index = -1;
     bool proto3_optional = false;
     bool packed = false;
+    bool has_default_value = false;
 };
 
 struct DescriptorEnumValue {
@@ -67,7 +68,9 @@ struct DescriptorMessage {
     std::string containing_message;
     std::vector<std::string> nested_messages;
     std::vector<std::string> nested_enums;
+    std::vector<std::string> extensions;
     std::vector<DescriptorField> fields;
+    bool map_entry = false;
 };
 
 struct DescriptorFile {
@@ -75,8 +78,12 @@ struct DescriptorFile {
     std::string package;
     std::string syntax;
     std::vector<std::string> imports;
+    std::vector<std::string> public_imports;
+    std::vector<std::string> weak_imports;
     std::vector<std::string> messages;
     std::vector<std::string> enums;
+    std::vector<std::string> services;
+    std::vector<std::string> extensions;
 };
 
 struct DescriptorModel {

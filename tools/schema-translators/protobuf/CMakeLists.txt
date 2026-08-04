@@ -25,6 +25,7 @@ endforeach()
 
 add_library(quarry_protobuf_descriptor_loader
     descriptor_model.cpp
+    translation.cpp
 )
 target_include_directories(quarry_protobuf_descriptor_loader PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
