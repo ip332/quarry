@@ -138,6 +138,34 @@ selection, result structure, summary generation, and encoded-size parity. They
 do not assert latency or throughput values. Full benchmark execution remains
 manual/release-oriented and outside normal CTest and coverage.
 
-Future work is PR-156 for performance reporting and regression analysis. RSS, stack usage,
+## Release baseline bundles
+
+Create a release baseline from at least five compatible result directories:
+
+```sh
+python3 benchmarks/scripts/create_baseline_bundle.py \
+  --input benchmark-results/run-001 benchmark-results/run-002 \
+          benchmark-results/run-003 benchmark-results/run-004 \
+          benchmark-results/run-005 \
+  --output benchmark-baseline
+```
+
+Each input must be a complete runner output directory with `manifest.json` and
+all expected result JSON files. The tool rejects mixed methodology, suite,
+schema, dataset, seed, backend, case, operation, or toolchain metadata. Use
+`--validation-only` to check inputs without creating output.
+
+The bundle contains a path-free `manifest.json`, aggregate `results.json`,
+`summary.md`, and exact raw results under `raw/run-NNN/`. Deterministic
+resource metrics must match across runs and are retained as one value. Timing
+latency and throughput retain minimum, median, mean, maximum, and raw samples;
+the bundle does not interpret them or compare them with another baseline. The
+bundle identifier and normalized generation timestamp are derived from the
+inputs, so recreating a bundle from the same runs is byte-identical. Bundles
+are intended to be attached to GitHub Releases; upload and regression analysis
+are intentionally deferred.
+
+Future work is PR-158 for reporting automation and PR-159 for comparison
+tooling. RSS, stack usage,
 cache behavior, CPU cycles, perf counters, and allocator profilers remain
 intentionally deferred.
