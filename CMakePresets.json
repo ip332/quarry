@@ -32,6 +32,16 @@
         "QUARRY_WARNINGS_AS_ERRORS": "ON",
         "QUARRY_ENABLE_CLANG_TIDY": "OFF"
       }
+    },
+    {
+      "name": "coverage",
+      "displayName": "Coverage",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/coverage",
+      "cacheVariables": {
+        "QUARRY_ENABLE_COVERAGE": "ON",
+        "QUARRY_WARNINGS_AS_ERRORS": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -46,6 +56,10 @@
     {
       "name": "debug-fuzz",
       "configurePreset": "debug-fuzz"
+    },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage"
     }
   ],
   "testPresets": [
@@ -59,6 +73,13 @@
     {
       "name": "debug-clang-tidy",
       "configurePreset": "debug-clang-tidy",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage",
       "output": {
         "outputOnFailure": true
       }

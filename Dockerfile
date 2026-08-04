@@ -26,7 +26,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         protobuf-compiler \
         python3 \
         python3-build \
+        python3-coverage \
         python3-pip \
+        gcovr \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m pip install --break-system-packages --no-index \

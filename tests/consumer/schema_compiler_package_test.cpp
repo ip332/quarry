@@ -277,15 +277,7 @@ TEST(SchemaCompilerPackageTest, ImportedExecutableTargetGeneratesDownstreamCode)
     const CommandResult consumer_result = run_executable(executable, {}, root, "run-consumer");
     expect_success(consumer_result, "run external consumer");
 
-    // Regression guard (PR-105): the example must actually exercise the
-    // structured decode-failure API (`decode_Sample_result`'s `.error`,
-    // `.path`, `.byte_offset`), not just the optional-collapsing convenience
-    // wrapper, and must demonstrate both an empty and a populated `path`.
-    EXPECT_NE(consumer_result.stdout_text.find("truncated_header"), std::string::npos);
-    EXPECT_NE(consumer_result.stdout_text.find("invalid_field_length"), std::string::npos);
-    EXPECT_NE(consumer_result.stdout_text.find("path: (empty"), std::string::npos);
-    EXPECT_NE(consumer_result.stdout_text.find("field_index=0"), std::string::npos);
-    EXPECT_NE(consumer_result.stdout_text.find("byte_offset: 19"), std::string::npos);
+    EXPECT_NE(consumer_result.stdout_text.find("decoded count: 42"), std::string::npos);
 
     const std::filesystem::path targets_file =
         install_prefix / "lib" / "cmake" / "Quarry" / "QuarryTargets.cmake";

@@ -43,3 +43,55 @@ jobs:
 
       - name: Build
         run: docker compose run --rm dev cmake --build --preset debug-clang-tidy --parallel
+
+  coverage:
+    name: Coverage baseline
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build development image
+        run: docker compose build
+
+      - name: Configure coverage build
+        run: docker compose run --rm dev cmake --preset coverage
+
+      - name: Build coverage targets
+        run: docker compose run --rm dev cmake --build --preset coverage --parallel
+
+      - name: Run coverage test suite
+        run: >-
+          docker compose run --rm dev ctest --preset coverage
+          -E "backend_codegen_test|runtime_package_consumer_test|schema_compiler_install_test|schema_compiler_package_test|public_examples_test"
+          --output-on-failure
+
+      - name: Collect native coverage
+        run: >-
+          docker compose run --rm dev sh -c
+          'mkdir -p coverage && gcovr --root . --object-directory build/coverage
+          --filter "^(compiler|include)/.*"
+          --exclude ".*tests.*" --exclude ".*generated.*" --exclude ".*_deps.*"
+          --json-summary-pretty --json-summary coverage/native.json
+          --html-details coverage/native.html --txt coverage/native.txt'
+
+      - name: Collect Python runtime coverage
+        run: >-
+          docker compose run --rm dev sh -c
+          'PYTHONPATH=runtime/python/src python3 -m coverage run --branch --source=runtime/python/src
+          -m unittest discover -s runtime/python/tests &&
+          python3 -m coverage json -o coverage/python.json &&
+          python3 -m coverage html -d coverage/python-html'
+
+      - name: Enforce coverage baseline
+        run: >-
+          docker compose run --rm dev python3 tools/coverage_guard.py
+          --native coverage/native.json --python coverage/python.json
+          --baseline tools/coverage_baseline.json --write coverage/current.json
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarry-coverage
+          path: coverage/

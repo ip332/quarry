@@ -16,6 +16,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 option(QUARRY_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
 option(QUARRY_ENABLE_CLANG_TIDY "Run clang-tidy during CMake builds" OFF)
 option(QUARRY_BUILD_FUZZERS "Build libFuzzer targets for BRF parser hardening" OFF)
+option(QUARRY_ENABLE_COVERAGE "Enable native coverage instrumentation" OFF)
 
 # Compatibility epoch for generated C++ source and Quarry runtime headers.
 # This is distinct from the package release version and BRF wire-format version.
@@ -80,6 +81,15 @@ else()
     if(QUARRY_WARNINGS_AS_ERRORS)
         target_compile_options(quarry_project_options INTERFACE -Werror)
     endif()
+endif()
+
+if(QUARRY_ENABLE_COVERAGE)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang" OR
+       NOT CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+        message(FATAL_ERROR "QUARRY_ENABLE_COVERAGE requires GCC or Clang-compatible compilers")
+    endif()
+    target_compile_options(quarry_project_options INTERFACE --coverage -O0)
+    target_link_options(quarry_project_options INTERFACE --coverage)
 endif()
 
 if(QUARRY_ENABLE_CLANG_TIDY)

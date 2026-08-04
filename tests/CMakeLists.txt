@@ -120,8 +120,15 @@ if(QUARRY_PYTHON3_EXECUTABLE AND QUARRY_PYTHON_PACKAGING_AVAILABLE EQUAL 0)
             --compiler "$<TARGET_FILE:quarry_schema_compiler>"
             --cmake "${CMAKE_COMMAND}"
             --build-dir "${CMAKE_BINARY_DIR}")
+    add_test(NAME public_examples_test
+        COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/examples/example_validation.py"
+            --cmake "${CMAKE_COMMAND}"
+            --build-dir "${CMAKE_BINARY_DIR}"
+            --source-dir "${CMAKE_SOURCE_DIR}"
+            --python "${QUARRY_PYTHON3_EXECUTABLE}")
 else()
-    message(STATUS "Skipping python_packaging_test: install runtime/python test dependencies first")
+    message(STATUS "Skipping Python packaging and public example tests: install runtime/python test dependencies first")
 endif()
 add_quarry_gtest(runtime_binary_record_test runtime/binary_record_test.cpp
                       quarry_runtime)

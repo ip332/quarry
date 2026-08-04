@@ -81,6 +81,12 @@ Testing/
 # Local agent reports
 REPORT.md
 
+# Coverage reports and raw profile data
+coverage/
+.coverage
+*.gcov
+coverage-*.status
+
 # Python bytecode cache (runtime/python/, generated Python packages)
 __pycache__/
 *.pyc

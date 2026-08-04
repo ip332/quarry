@@ -137,3 +137,42 @@ without either overfitting one host's layout or masking the actual
 divergence — so none was made. `.github/workflows/ci.yml`'s `clang-tidy` job
 runs `debug-clang-tidy` in Docker on every push/PR as the durable regression
 check for the authoritative environment.
+
+## Coverage
+
+The canonical coverage environment is Docker. It uses GCC/gcovr for native
+compiler and backend coverage, and Python `coverage.py` for the pure-Python
+runtime:
+
+```sh
+docker compose build
+docker compose run --rm dev cmake --preset coverage
+docker compose run --rm dev cmake --build --preset coverage --parallel
+docker compose run --rm dev ctest --preset coverage \
+  -E "backend_codegen_test|runtime_package_consumer_test|schema_compiler_install_test|schema_compiler_package_test|public_examples_test" \
+  --output-on-failure
+docker compose run --rm dev sh -c \
+  'mkdir -p coverage && gcovr --root . --object-directory build/coverage \
+   --filter "^(compiler|include)/.*" \
+   --exclude ".*tests.*" --exclude ".*generated.*" --exclude ".*_deps.*" \
+   --json-summary-pretty --json-summary coverage/native.json \
+   --html-details coverage/native.html --txt coverage/native.txt'
+docker compose run --rm dev sh -c \
+  'PYTHONPATH=runtime/python/src python3 -m coverage run --branch --source=runtime/python/src \
+   -m unittest discover -s runtime/python/tests && \
+   python3 -m coverage json -o coverage/python.json'
+docker compose run --rm dev python3 tools/coverage_guard.py \
+  --native coverage/native.json --python coverage/python.json \
+  --baseline tools/coverage_baseline.json
+```
+
+The coverage run omits only the slowest integration tests that compile many
+temporary downstream/generated programs; those remain required in the normal
+full CTest CI job. The checked-in baseline measures native
+line/function/branch coverage and
+Python line/branch coverage separately. The guard allows a one percentage
+point decrease in any measured metric to avoid unstable rounding failures;
+an intentional decrease must update the baseline in the same reviewed change
+and include the reason. Tests, generated sources, third-party code, build
+trees, temporary consumer trees, and system headers are excluded. Detailed
+HTML and text reports are produced as CI artifacts.
