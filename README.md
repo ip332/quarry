@@ -6,7 +6,7 @@ C++, strict-C99 C, and Python code for embedded and general-purpose consumers.
 
 ## Status
 
-Quarry is preparing its v0.1 release. The three production backends support
+Quarry is preparing the `v0.1.0-rc1` release candidate. The three production backends support
 the current Schema IR field categories and are covered by installed-consumer,
 deterministic-generation, strict-C99, packaging, and C/C++/Python
 interoperability validation.
@@ -22,6 +22,11 @@ Current intentional limitations are:
 The generated-code compatibility epochs are backend-specific: C++ `3`, C `2`,
 and Python `1`. These epochs are distinct from the Quarry package version,
 Schema IR version, and BRF version.
+
+Release-candidate notes are in
+[`docs/release-notes-v0.1.0-rc1.md`](docs/release-notes-v0.1.0-rc1.md).
+Public examples, including the protobuf descriptor-set translation workflow,
+are indexed in [`examples/README.md`](examples/README.md).
 
 > This project was formerly called Breadcrumbs. It was renamed to Quarry to
 > reflect the current focus on schema-driven binary records rather than the

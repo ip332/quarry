@@ -14,6 +14,8 @@ Current examples:
 * `python/basic_encode_decode`: generated Python dataclass consumer using an
   installed runtime wheel.
 * `interop/cpp_python`: focused C++ encoder to Python decoder BRF workflow.
+* `protobuf/descriptor_to_brd`: descriptor-set protobuf translation into
+  bounded `.brd` units, followed by separate Quarry compiler invocations.
 
 Each example README gives the install, generation, build, and execution
 commands. Imported dependency roots are always generated explicitly into the

@@ -15,9 +15,9 @@ enum references, including arrays, when imported dependency roots are generated
 separately into the same output directory. Python emits deterministic absolute
 module imports with generated aliases.
 
-`quarry-schema-compiler` is the first end-to-end schema compiler command.
-It compiles one YAML `.brd` source file through the production YAML frontend,
-generates C++ backend files, and writes those generated files to disk.
+`quarry-schema-compiler` is the installed schema compiler command. It compiles
+one YAML `.brd` source file through the production YAML frontend and writes
+generated files for the selected C++, C, or Python backend.
 
 ```text
 quarry-schema-compiler [options] INPUT
@@ -177,7 +177,8 @@ matches backend `GenerationPlan` order.
 
 The output is line-oriented and does not define an escaping format; scripts
 should avoid newline characters in output-directory, root-stem, or extension
-arguments.
+The output is line-oriented; scripts should avoid newline characters in
+output-directory, root-stem, or extension arguments.
 
 Exit codes:
 

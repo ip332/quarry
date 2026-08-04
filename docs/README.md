@@ -1,12 +1,12 @@
 # Quarry Documentation
 
-This directory contains the project documentation for Quarry.
+This directory contains the architecture, design, specification, and
+distribution documentation for Quarry v0.1.
 
-Quarry is a schema-driven platform for secure edge-to-cloud systems, with
-asset tracking as the first reference application.
-
-The documentation records stable architecture decisions and separates them from
-future implementation specifications.
+Quarry is a language-neutral schema compiler and BRF serialization system with
+production C++, strict-C99 C, and Python backends. The documentation records
+current behavior and stable architecture decisions separately from deferred
+work.
 
 ---
 
@@ -14,7 +14,7 @@ future implementation specifications.
 
 The documentation exists to:
 
-* explain the long-term platform vision
+* explain the current compiler, runtime, and distribution model
 * define stable architecture decisions
 * keep terminology consistent across the project
 * provide a reading path for contributors
@@ -73,12 +73,12 @@ compile-time model used by production systems.
 
 ## Backend Design
 
-1. [`design/c-backend.md`](design/c-backend.md)
+1. [`backend-api.md`](backend-api.md)
+2. [`design/c-backend.md`](design/c-backend.md)
+3. [`design/python-backend.md`](design/python-backend.md)
 
-This document proposes the architecture and public API for the next
-production-quality language backend, building on
-[`architecture/language-generators.md`](architecture/language-generators.md)
-and [`backend-api.md`](backend-api.md).
+These documents describe the production backend contract and the current C and
+Python implementations. They are not proposals for an unimplemented backend.
 
 ---
 
@@ -115,7 +115,7 @@ and [`backend-api.md`](backend-api.md).
 
 ---
 
-# Planned Future Specifications
+# Deferred Specifications
 
 Future specification documents should define implementation details for:
 
