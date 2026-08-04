@@ -35,6 +35,11 @@ enum class FieldType {
     Unknown,
 };
 
+struct DescriptorBounds {
+    std::optional<std::uint32_t> max_bytes;
+    std::optional<std::uint32_t> max_elements;
+};
+
 struct DescriptorField {
     std::string name;
     std::int32_t number = 0;
@@ -46,6 +51,7 @@ struct DescriptorField {
     bool proto3_optional = false;
     bool packed = false;
     bool has_default_value = false;
+    std::optional<DescriptorBounds> custom_bounds;
 };
 
 struct DescriptorEnumValue {
@@ -71,6 +77,7 @@ struct DescriptorMessage {
     std::vector<std::string> extensions;
     std::vector<DescriptorField> fields;
     bool map_entry = false;
+    std::optional<DescriptorBounds> default_bounds;
 };
 
 struct DescriptorFile {
@@ -84,6 +91,7 @@ struct DescriptorFile {
     std::vector<std::string> enums;
     std::vector<std::string> services;
     std::vector<std::string> extensions;
+    std::optional<DescriptorBounds> default_bounds;
 };
 
 struct DescriptorModel {

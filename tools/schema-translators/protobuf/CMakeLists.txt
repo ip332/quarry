@@ -1,6 +1,23 @@
 find_package(Protobuf REQUIRED)
 find_package(absl CONFIG REQUIRED)
 
+set(QUARRY_PROTOBUF_OPTIONS_PROTO ${CMAKE_CURRENT_SOURCE_DIR}/quarry_options.proto)
+set(QUARRY_PROTOBUF_OPTIONS_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+set(QUARRY_PROTOBUF_OPTIONS_CC ${QUARRY_PROTOBUF_OPTIONS_DIR}/quarry_options.pb.cc)
+set(QUARRY_PROTOBUF_OPTIONS_H ${QUARRY_PROTOBUF_OPTIONS_DIR}/quarry_options.pb.h)
+add_custom_command(
+    OUTPUT ${QUARRY_PROTOBUF_OPTIONS_CC} ${QUARRY_PROTOBUF_OPTIONS_H}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${QUARRY_PROTOBUF_OPTIONS_DIR}
+    COMMAND ${Protobuf_PROTOC_EXECUTABLE}
+    ARGS
+        --proto_path=${CMAKE_CURRENT_SOURCE_DIR}
+        --proto_path=${Protobuf_INCLUDE_DIRS}
+        --cpp_out=${QUARRY_PROTOBUF_OPTIONS_DIR}
+        ${QUARRY_PROTOBUF_OPTIONS_PROTO}
+    DEPENDS ${QUARRY_PROTOBUF_OPTIONS_PROTO}
+    VERBATIM
+)
+
 set(QUARRY_PROTOBUF_ABSL_LINK_LIBS "")
 foreach(QUARRY_ABSL_CANDIDATE
     absl::log_internal_check_op
@@ -26,9 +43,11 @@ endforeach()
 add_library(quarry_protobuf_descriptor_loader
     descriptor_model.cpp
     translation.cpp
+    ${QUARRY_PROTOBUF_OPTIONS_CC}
 )
 target_include_directories(quarry_protobuf_descriptor_loader PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${QUARRY_PROTOBUF_OPTIONS_DIR}
 )
 target_include_directories(quarry_protobuf_descriptor_loader SYSTEM PUBLIC
     ${Protobuf_INCLUDE_DIRS}
@@ -43,7 +62,11 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     # Protobuf's bundled Abseil headers use Clang nullability annotations.
     # Keep Quarry warnings-as-errors enabled for translator code without
     # promoting those third-party header annotations to errors.
-    set_source_files_properties(descriptor_model.cpp PROPERTIES
+    set_source_files_properties(descriptor_model.cpp translation.cpp PROPERTIES
+        COMPILE_OPTIONS
+            "-Wno-error=nullability-extension;-Wno-error=gcc-compat;-Wno-error=gnu-anonymous-struct;-Wno-error=nested-anon-types"
+    )
+    set_source_files_properties(${QUARRY_PROTOBUF_OPTIONS_CC} PROPERTIES
         COMPILE_OPTIONS
             "-Wno-error=nullability-extension;-Wno-error=gcc-compat;-Wno-error=gnu-anonymous-struct;-Wno-error=nested-anon-types"
     )

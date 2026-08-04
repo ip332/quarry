@@ -10,6 +10,11 @@
 #include <utility>
 
 #include <google/protobuf/descriptor.pb.h>
+#include <google/protobuf/descriptor.h>
+#include <google/protobuf/dynamic_message.h>
+#include <google/protobuf/text_format.h>
+
+#include "quarry_options.pb.h"
 
 namespace quarry::tools::protobuf {
 namespace {
@@ -19,6 +24,187 @@ using google::protobuf::EnumDescriptorProto;
 using google::protobuf::FieldDescriptorProto;
 using google::protobuf::FileDescriptorProto;
 using google::protobuf::FileDescriptorSet;
+
+void add_diagnostic(DescriptorLoadResult& result, std::string message);
+
+[[nodiscard]] std::string qualify(std::string_view prefix, std::string_view name);
+
+[[nodiscard]] std::string option_text(const google::protobuf::Message& options) {
+    std::string text;
+    google::protobuf::TextFormat::Printer printer;
+    if (!printer.PrintToString(options, &text)) return {};
+    return text;
+}
+
+class DescriptorPoolFinder final : public google::protobuf::TextFormat::Finder {
+public:
+    DescriptorPoolFinder(const google::protobuf::DescriptorPool& pool,
+                        google::protobuf::MessageFactory* factory = nullptr)
+        : pool_(pool), factory_(factory) {}
+
+    const google::protobuf::FieldDescriptor* FindExtension(
+        google::protobuf::Message* message, const std::string& name) const override {
+        const auto* extension = pool_.FindExtensionByName(name);
+        if (extension == nullptr ||
+            extension->containing_type()->full_name() != message->GetDescriptor()->full_name()) {
+            return nullptr;
+        }
+        return extension;
+    }
+
+    const google::protobuf::FieldDescriptor* FindExtensionByNumber(
+        const google::protobuf::Descriptor* descriptor, int number) const override {
+        return pool_.FindExtensionByNumber(descriptor, number);
+    }
+
+    google::protobuf::MessageFactory* FindExtensionFactory(
+        const google::protobuf::FieldDescriptor*) const override {
+        return factory_;
+    }
+
+private:
+    const google::protobuf::DescriptorPool& pool_;
+    google::protobuf::MessageFactory* factory_;
+};
+
+std::optional<DescriptorBounds> read_dynamic_bounds(DescriptorLoadResult& result,
+                                                     const google::protobuf::DescriptorPool& pool,
+                                                     const google::protobuf::Message& options,
+                                                     std::string_view extension_name,
+                                                     std::string_view owner) {
+    const auto* extension = pool.FindExtensionByName(std::string(extension_name));
+    const auto* descriptor = pool.FindMessageTypeByName(
+        std::string(options.GetDescriptor()->full_name()));
+    if (extension == nullptr || descriptor == nullptr) {
+        return std::nullopt;
+    }
+    google::protobuf::DynamicMessageFactory factory(&pool);
+    const auto* prototype = factory.GetPrototype(descriptor);
+    if (prototype == nullptr) {
+        add_diagnostic(result, "cannot construct protobuf options descriptor for '" +
+                                 std::string(owner) + "'");
+        return std::nullopt;
+    }
+    std::unique_ptr<google::protobuf::Message> dynamic_options(prototype->New());
+    DescriptorPoolFinder finder(pool, &factory);
+    google::protobuf::TextFormat::Parser parser;
+    parser.SetFinder(&finder);
+    parser.AllowFieldNumber(true);
+    if (!parser.ParseFromString(option_text(options), dynamic_options.get())) {
+        add_diagnostic(result, "malformed protobuf options for '" + std::string(owner) + "'");
+        return std::nullopt;
+    }
+    const auto* reflection = dynamic_options->GetReflection();
+    std::vector<const google::protobuf::FieldDescriptor*> fields;
+    reflection->ListFields(*dynamic_options, &fields);
+    const google::protobuf::FieldDescriptor* dynamic_extension = nullptr;
+    for (const auto* field : fields) {
+        if (field->is_extension() && field->full_name() == extension_name) {
+            dynamic_extension = field;
+            break;
+        }
+    }
+    if (dynamic_extension == nullptr) return std::nullopt;
+    const auto& value = reflection->GetMessage(*dynamic_options, dynamic_extension);
+    const auto* bounds_descriptor = value.GetDescriptor();
+    const auto* bounds_reflection = value.GetReflection();
+    const auto* max_bytes = bounds_descriptor->FindFieldByName("max_bytes");
+    const auto* max_elements = bounds_descriptor->FindFieldByName("max_elements");
+    if (max_bytes == nullptr || max_elements == nullptr) {
+        add_diagnostic(result, "malformed protobuf Bounds definition for '" + std::string(owner) + "'");
+        return std::nullopt;
+    }
+    DescriptorBounds converted;
+    if (bounds_reflection->HasField(value, max_bytes)) {
+        converted.max_bytes = bounds_reflection->GetUInt32(value, max_bytes);
+    }
+    if (bounds_reflection->HasField(value, max_elements)) {
+        converted.max_elements = bounds_reflection->GetUInt32(value, max_elements);
+    }
+    if (!converted.max_bytes.has_value() && !converted.max_elements.has_value()) return std::nullopt;
+    if (converted.max_bytes == 0) {
+        add_diagnostic(result, "custom bounds for '" + std::string(owner) +
+                                 "' has invalid max_bytes value 0");
+    }
+    if (converted.max_elements == 0) {
+        add_diagnostic(result, "custom bounds for '" + std::string(owner) +
+                                 "' has invalid max_elements value 0");
+    }
+    return converted;
+}
+
+const DescriptorProto* find_message_proto(const DescriptorProto& message,
+                                          std::string_view prefix,
+                                          std::string_view requested) {
+    const std::string name = qualify(prefix, message.name());
+    if (name == requested) return &message;
+    for (const auto& nested : message.nested_type()) {
+        if (const auto* found = find_message_proto(nested, name, requested)) return found;
+    }
+    return nullptr;
+}
+
+void apply_custom_options(DescriptorLoadResult& result, const google::protobuf::DescriptorPool& pool,
+                          const FileDescriptorSet& descriptor_set, DescriptorModel& model) {
+    std::map<std::string, const FileDescriptorProto*> sources;
+    for (const auto& source : descriptor_set.file()) sources.emplace(source.name(), &source);
+    for (DescriptorFile& file : model.files) {
+        const auto source = sources.find(file.name);
+        const auto* descriptor = pool.FindFileByName(file.name);
+        if (source == sources.end() || descriptor == nullptr) {
+            add_diagnostic(result, "cannot resolve descriptor source file '" + file.name + "'");
+            continue;
+        }
+        const auto& options = descriptor->options();
+        file.default_bounds = read_dynamic_bounds(
+            result, pool, options, "quarry.protobuf.file_default_bounds", file.name);
+    }
+    for (DescriptorMessage& message : model.messages) {
+        const auto source = sources.find(message.file_name);
+        const DescriptorProto* message_proto = nullptr;
+        if (source != sources.end()) {
+            for (const auto& candidate : source->second->message_type()) {
+                message_proto = find_message_proto(candidate, source->second->package(),
+                                                   message.fully_qualified_name);
+                if (message_proto != nullptr) break;
+            }
+        }
+        if (message_proto == nullptr) {
+            add_diagnostic(result, "cannot resolve message source '" + message.fully_qualified_name + "'");
+            continue;
+        }
+        const auto* descriptor = pool.FindMessageTypeByName(message.fully_qualified_name);
+        if (descriptor == nullptr) {
+            add_diagnostic(result, "cannot resolve message descriptor '" +
+                                     message.fully_qualified_name + "'");
+            continue;
+        }
+        const auto& options = descriptor->options();
+        message.default_bounds = read_dynamic_bounds(
+            result, pool, options, "quarry.protobuf.message_default_bounds",
+            message.fully_qualified_name);
+        for (DescriptorField& field : message.fields) {
+            const auto field_iterator = std::find_if(
+                message_proto->field().begin(), message_proto->field().end(),
+                [&](const FieldDescriptorProto& candidate) { return candidate.name() == field.name; });
+            if (field_iterator == message_proto->field().end()) {
+                add_diagnostic(result, "cannot resolve field descriptor '" +
+                                         message.fully_qualified_name + "." + field.name + "'");
+                continue;
+            }
+            const auto* field_descriptor = descriptor->FindFieldByName(field.name);
+            if (field_descriptor == nullptr) {
+                add_diagnostic(result, "cannot resolve field descriptor '" +
+                                         message.fully_qualified_name + "." + field.name + "'");
+                continue;
+            }
+            const auto& field_options = field_descriptor->options();
+            field.custom_bounds = read_dynamic_bounds(
+                result, pool, field_options, "quarry.protobuf.field_bounds",
+                message.fully_qualified_name + "." + field.name);
+        }
+    }
+}
 
 [[nodiscard]] std::string qualify(std::string_view prefix, std::string_view name) {
     if (prefix.empty()) {
@@ -380,6 +566,36 @@ DescriptorLoadResult load_descriptor_set(const std::string& path) {
                                              field.type_name + "'");
                 }
             }
+        }
+    }
+
+    if (result.diagnostics.empty()) {
+        google::protobuf::DescriptorPool pool(google::protobuf::DescriptorPool::generated_pool());
+        std::map<std::string, FileDescriptorProto> pending;
+        for (const FileDescriptorProto& source : descriptor_set.file()) {
+            pending.emplace(source.name(), source);
+        }
+        while (!pending.empty()) {
+            bool progress = false;
+            for (auto iterator = pending.begin(); iterator != pending.end();) {
+                if (pool.FindFileByName(iterator->first) != nullptr ||
+                    pool.BuildFile(iterator->second) != nullptr) {
+                    iterator = pending.erase(iterator);
+                    progress = true;
+                } else {
+                    ++iterator;
+                }
+            }
+            if (!progress) {
+                for (const auto& [name, unused] : pending) {
+                    add_diagnostic(result, "cannot resolve descriptor dependencies for option file '" +
+                                             name + "'");
+                }
+                break;
+            }
+        }
+        if (result.diagnostics.empty()) {
+            apply_custom_options(result, pool, descriptor_set, model);
         }
     }
 

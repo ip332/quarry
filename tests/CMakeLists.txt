@@ -187,6 +187,7 @@ add_quarry_gtest(protobuf_translation_test
 add_dependencies(protobuf_translation_test quarry_protobuf_translator quarry_schema_compiler)
 target_compile_definitions(protobuf_translation_test PRIVATE
     QUARRY_PROTOC_EXECUTABLE="${Protobuf_PROTOC_EXECUTABLE}"
+    QUARRY_PROTOBUF_OPTIONS_PROTO="${CMAKE_SOURCE_DIR}/tools/schema-translators/protobuf/quarry_options.proto"
     QUARRY_PROTOBUF_TRANSLATOR="$<TARGET_FILE:quarry_protobuf_translator>"
     QUARRY_SCHEMA_COMPILER="$<TARGET_FILE:quarry_schema_compiler>")
 add_quarry_gtest(c_cpp_codec_interop_test interop/c_cpp_codec_interop_test.cpp

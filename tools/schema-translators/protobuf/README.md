@@ -50,9 +50,51 @@ Translate one selected protobuf message:
 quarry-protobuf-translator \
   --descriptor-set schemas.pb \
   --root telemetry.Sample \
-  --bounds bounds.yaml \
+  --options bounds.yaml \
   --output-dir generated
 ```
+
+`--options` is the preferred spelling for the Quarry-native external bounds
+file. `--bounds` remains a compatibility alias for existing scripts; the two
+options cannot be supplied together. The translator does not support
+`--options-format nanopb` yet.
+
+## Bounds options and precedence
+
+First-party protobuf schemas may import the option definition shipped in this
+directory:
+
+```proto
+import "quarry_options.proto";
+
+option (quarry.protobuf.file_default_bounds).max_bytes = 256;
+
+message Sample {
+  option (quarry.protobuf.message_default_bounds).max_elements = 32;
+  string name = 1 [(quarry.protobuf.field_bounds).max_bytes = 64];
+}
+```
+
+`Bounds` is one grouped option with optional `max_bytes` and `max_elements`
+members. It is available on files, messages, and fields. The descriptor set
+must include `quarry_options.proto` (use `--include_imports`); the translator
+resolves the extensions through a protobuf `DescriptorPool` and does not
+decode unknown option numbers itself.
+
+For each reachable field, values are resolved deterministically in this order:
+
+1. external YAML (`--options`, or the legacy `--bounds`) fills values absent
+   from the schema;
+2. file defaults override those external fallback values;
+3. message defaults override file defaults;
+4. field options override message defaults.
+
+There are no implicit limits. Strings and bytes require `max_bytes`, repeated
+fields require `max_elements`, and repeated strings/bytes require both. The
+manifest records each final value, its source type, source file, and the
+complete precedence chain. Host-specific absolute paths are omitted. Missing,
+zero, conflicting, or unused bounds are diagnosed before any output is
+published.
 
 The translator emits one `.brd` source unit per reachable message plus
 `manifest.json`. The protobuf declaration `telemetry.Sensor.Reading` maps to
@@ -94,3 +136,7 @@ they are not BRF field indexes, and translated BRD is Quarry source rather than
 protobuf wire data. No protobuf/BRF interoperability claim is made by this
 tool. Manifest comparison is intentionally deferred until a compatibility
 policy can be defined independently of protobuf wire compatibility.
+
+Nanopb options are not parsed or inferred. Nanopb-compatible matching and
+precedence are deferred to a separate translator change; use the Quarry-native
+YAML file or the first-party protobuf options above for this release.

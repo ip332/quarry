@@ -10,9 +10,15 @@
 
 namespace quarry::tools::protobuf {
 
-struct FieldBounds {
-    std::optional<std::uint32_t> max_bytes;
-    std::optional<std::uint32_t> max_elements;
+using FieldBounds = DescriptorBounds;
+
+struct ResolvedBounds {
+    FieldBounds values;
+    std::string source;
+    std::string source_type;
+    std::vector<std::string> override_chain;
+    std::uint32_t source_line = 0;
+    std::uint32_t source_column = 0;
 };
 
 struct BoundsConfig {
@@ -31,6 +37,7 @@ struct TranslationResult {
 [[nodiscard]] TranslationResult translate_descriptor_model(const DescriptorModel& model,
                                                            const std::string& root,
                                                            const std::string& bounds_path,
-                                                           const std::string& output_directory);
+                                                           const std::string& output_directory,
+                                                           const std::string& options_path = {});
 
 } // namespace quarry::tools::protobuf

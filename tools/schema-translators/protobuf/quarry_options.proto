@@ -1,0 +1,22 @@
+syntax = "proto2";
+
+package quarry.protobuf;
+
+import "google/protobuf/descriptor.proto";
+
+message Bounds {
+  optional uint32 max_bytes = 1;
+  optional uint32 max_elements = 2;
+}
+
+extend google.protobuf.FieldOptions {
+  optional Bounds field_bounds = 50001;
+}
+
+extend google.protobuf.MessageOptions {
+  optional Bounds message_default_bounds = 50002;
+}
+
+extend google.protobuf.FileOptions {
+  optional Bounds file_default_bounds = 50003;
+}

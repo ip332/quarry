@@ -13,7 +13,8 @@ void print_help() {
                  "  --descriptor-set PATH  protobuf FileDescriptorSet input\n"
                  "  --list                 list descriptor contents\n"
                  "  --root FQN             protobuf message root for translation\n"
-                 "  --bounds PATH          YAML bounds file for translation\n"
+                 "  --options PATH         Quarry-native YAML bounds/options file\n"
+                 "  --bounds PATH          compatibility alias for --options\n"
                  "  --output-dir PATH      output directory for translated BRD files\n"
                  "  --help                 show this help\n\n"
                  "Listing is deterministic. Translation emits BRD and manifest.json.\n";
@@ -25,6 +26,7 @@ int main(int argc, char** argv) {
     std::string descriptor_set;
     std::string root;
     std::string bounds;
+    std::string options;
     std::string output_directory;
     bool list = false;
     for (int index = 1; index < argc; ++index) {
@@ -38,6 +40,7 @@ int main(int argc, char** argv) {
             continue;
         }
         if (argument == "--descriptor-set" || argument == "--root" || argument == "--bounds" ||
+            argument == "--options" ||
             argument == "--output-dir") {
             if (index + 1 >= argc) {
                 std::cerr << "quarry-protobuf-translator: error: " << argument
@@ -53,6 +56,7 @@ int main(int argc, char** argv) {
             if (argument == "--descriptor-set") descriptor_set = value;
             if (argument == "--root") root = value;
             if (argument == "--bounds") bounds = value;
+            if (argument == "--options") options = value;
             if (argument == "--output-dir") output_directory = value;
             continue;
         }
@@ -65,12 +69,16 @@ int main(int argc, char** argv) {
         return 2;
     }
     if (!list) {
-        if (root.empty() || bounds.empty() || output_directory.empty()) {
-            std::cerr << "quarry-protobuf-translator: error: translation requires --root, --bounds, and "
+        if (root.empty() || (bounds.empty() && options.empty()) || output_directory.empty()) {
+            std::cerr << "quarry-protobuf-translator: error: translation requires --root, --options (or --bounds), and "
                          "--output-dir\n";
             return 2;
         }
-    } else if (!root.empty() || !bounds.empty() || !output_directory.empty()) {
+        if (!bounds.empty() && !options.empty()) {
+            std::cerr << "quarry-protobuf-translator: error: --options and --bounds cannot be combined\n";
+            return 2;
+        }
+    } else if (!root.empty() || !bounds.empty() || !options.empty() || !output_directory.empty()) {
         std::cerr << "quarry-protobuf-translator: error: --list cannot be combined with translation options\n";
         return 2;
     }
@@ -90,7 +98,7 @@ int main(int argc, char** argv) {
     }
     const quarry::tools::protobuf::TranslationResult translation =
         quarry::tools::protobuf::translate_descriptor_model(*result.model, root, bounds,
-                                                            output_directory);
+                                                            output_directory, options);
     if (!translation.succeeded()) {
         for (const std::string& diagnostic : translation.diagnostics) {
             std::cerr << "quarry-protobuf-translator: error: " << diagnostic << "\n";

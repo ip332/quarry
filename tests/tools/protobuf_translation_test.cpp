@@ -292,18 +292,19 @@ TEST(ProtobufTranslationTest, TranslationIsDeterministicAcrossBoundsOrdering) {
         "    max_bytes: 256\n"
         "  telemetry.Sample.name:\n"
         "    max_bytes: 64\n";
-    write_text(root / "first.yaml", first_bounds);
-    write_text(root / "second.yaml", second_bounds);
+    write_text(root / "first" / "bounds.yaml", first_bounds);
+    write_text(root / "second" / "bounds.yaml", second_bounds);
     ASSERT_TRUE(quarry::tools::protobuf::translate_descriptor_model(
-                    representative_model(), "telemetry.Sample", (root / "first.yaml").string(),
+                    representative_model(), "telemetry.Sample", (root / "first" / "bounds.yaml").string(),
                     (root / "first").string())
                     .succeeded());
     ASSERT_TRUE(quarry::tools::protobuf::translate_descriptor_model(
-                    representative_model(), "telemetry.Sample", (root / "second.yaml").string(),
+                    representative_model(), "telemetry.Sample", (root / "second" / "bounds.yaml").string(),
                     (root / "second").string())
                     .succeeded());
     for (const auto& entry : std::filesystem::recursive_directory_iterator(root / "first")) {
         if (!entry.is_regular_file()) continue;
+        if (entry.path().extension() == ".yaml") continue;
         const auto relative = std::filesystem::relative(entry.path(), root / "first");
         EXPECT_EQ(read_text(entry.path()), read_text(root / "second" / relative));
     }
@@ -461,4 +462,51 @@ TEST(ProtobufTranslationTest, ProtocTranslationAndCompilerFollowThrough) {
               0);
     EXPECT_TRUE(contains_filename(compiler_output, "child.generated.hpp"));
     EXPECT_TRUE(contains_filename(compiler_output, "sample.generated.hpp"));
+}
+
+TEST(ProtobufTranslationTest, ResolvesDescriptorOptionsAndInheritance) {
+#ifndef QUARRY_PROTOBUF_OPTIONS_PROTO
+    GTEST_SKIP() << "protobuf option definition path is unavailable";
+#else
+    if (std::string_view(QUARRY_PROTOC_EXECUTABLE).empty() ||
+        std::string_view(QUARRY_PROTOBUF_TRANSLATOR).empty()) {
+        GTEST_SKIP() << "translator integration paths are unavailable";
+    }
+    const std::filesystem::path root = temporary_directory("options");
+    const std::filesystem::path options_proto = QUARRY_PROTOBUF_OPTIONS_PROTO;
+    write_text(root / "schema.proto",
+               "syntax = \"proto3\";\n"
+               "package telemetry;\n"
+               "import \"quarry_options.proto\";\n"
+               "option (quarry.protobuf.file_default_bounds).max_bytes = 96;\n"
+               "message Sample {\n"
+               "  option (quarry.protobuf.message_default_bounds).max_elements = 4;\n"
+               "  string name = 1 [(quarry.protobuf.field_bounds).max_bytes = 32];\n"
+               "  bytes payload = 2;\n"
+               "  repeated int32 values = 3;\n"
+               "}\n");
+    write_text(root / "bounds.yaml", "bounds:\n");
+    const std::filesystem::path descriptor = root / "schema.pb";
+    const std::filesystem::path generated = root / "generated";
+    const std::string protoc = shell_quote(QUARRY_PROTOC_EXECUTABLE);
+    const std::string translator = shell_quote(QUARRY_PROTOBUF_TRANSLATOR);
+    ASSERT_EQ(std::system((protoc + " --descriptor_set_out=" + shell_quote(descriptor.string()) +
+                           " --include_imports --proto_path=" + shell_quote(root.string()) +
+                           " --proto_path=" + shell_quote(options_proto.parent_path().string()) +
+                           " " + shell_quote((root / "schema.proto").string()))
+                              .c_str()),
+              0);
+    ASSERT_EQ(std::system((translator + " --descriptor-set " + shell_quote(descriptor.string()) +
+                           " --root telemetry.Sample --options " +
+                           shell_quote((root / "bounds.yaml").string()) + " --output-dir " +
+                           shell_quote(generated.string()))
+                              .c_str()),
+              0);
+    const std::string manifest = read_text(generated / "manifest.json");
+    EXPECT_NE(manifest.find("\"max_bytes\": 32"), std::string::npos);
+    EXPECT_NE(manifest.find("\"max_elements\": 4"), std::string::npos);
+    EXPECT_NE(manifest.find("\"max_bytes\": 96"), std::string::npos);
+    EXPECT_NE(manifest.find("\"source_type\": \"field_option\""), std::string::npos);
+    EXPECT_NE(manifest.find("\"source_type\": \"file_option\""), std::string::npos);
+#endif
 }

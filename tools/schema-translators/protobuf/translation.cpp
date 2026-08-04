@@ -98,6 +98,27 @@ void add_diagnostic(TranslationResult& result, std::string message) {
     return result;
 }
 
+void apply_bounds_layer(FieldBounds& target, ResolvedBounds& provenance,
+                        const FieldBounds& layer, std::string label,
+                        std::string source, std::string source_type,
+                        bool override_existing = false) {
+    const bool had_value = target.max_bytes.has_value() || target.max_elements.has_value();
+    provenance.override_chain.push_back(label);
+    if (layer.max_bytes.has_value() && (override_existing || !target.max_bytes.has_value())) {
+        target.max_bytes = layer.max_bytes;
+        provenance.source = std::move(source);
+        provenance.source_type = std::move(source_type);
+    }
+    if (layer.max_elements.has_value() &&
+        (override_existing || !target.max_elements.has_value())) {
+        target.max_elements = layer.max_elements;
+        if (!had_value && provenance.source.empty()) {
+            provenance.source = std::move(source);
+            provenance.source_type = std::move(source_type);
+        }
+    }
+}
+
 [[nodiscard]] std::vector<std::string> split_components(std::string_view value) {
     std::vector<std::string> result;
     std::size_t begin = 0;
@@ -325,7 +346,7 @@ void add_diagnostic(TranslationResult& result, std::string message) {
 
 [[nodiscard]] std::string render_manifest(const std::string& root,
                                           const std::vector<RenderedMessage>& messages,
-                                          const std::map<std::string, FieldBounds>& bounds,
+                                          const std::map<std::string, ResolvedBounds>& bounds,
                                           const std::map<std::string, MappedEnum>& enum_mappings,
                                           const std::map<std::string, DescriptorEnum>& enums,
                                           const std::map<std::string, MappedMessage>& mappings,
@@ -367,11 +388,23 @@ void add_diagnostic(TranslationResult& result, std::string message) {
     std::size_t index = 0;
     for (const auto& [path, field_bounds] : bounds) {
         output << "    {\"field\": \"" << json_escape(path) << "\"";
-        if (field_bounds.max_bytes.has_value()) {
-            output << ", \"max_bytes\": " << *field_bounds.max_bytes;
+        if (field_bounds.values.max_bytes.has_value()) {
+            output << ", \"max_bytes\": " << *field_bounds.values.max_bytes;
         }
-        if (field_bounds.max_elements.has_value()) {
-            output << ", \"max_elements\": " << *field_bounds.max_elements;
+        if (field_bounds.values.max_elements.has_value()) {
+            output << ", \"max_elements\": " << *field_bounds.values.max_elements;
+        }
+        output << ", \"source\": \"" << json_escape(field_bounds.source)
+               << "\", \"source_type\": \"" << json_escape(field_bounds.source_type)
+               << "\", \"override_chain\": [";
+        for (std::size_t chain_index = 0; chain_index < field_bounds.override_chain.size(); ++chain_index) {
+            if (chain_index != 0) output << ", ";
+            output << "\"" << json_escape(field_bounds.override_chain[chain_index]) << "\"";
+        }
+        output << "]";
+        if (field_bounds.source_line != 0) {
+            output << ", \"source_line\": " << field_bounds.source_line
+                   << ", \"source_column\": " << field_bounds.source_column;
         }
         output << "}" << (++index == bounds.size() ? "\n" : ",\n");
     }
@@ -430,8 +463,8 @@ void add_diagnostic(TranslationResult& result, std::string message) {
                   << "\", \"ordinal\": " << field.declaration_order;
             const auto bound = bounds.find(path);
             if (bound != bounds.end()) {
-                if (bound->second.max_bytes) entry << ", \"max_bytes\": " << *bound->second.max_bytes;
-                if (bound->second.max_elements) entry << ", \"max_elements\": " << *bound->second.max_elements;
+                if (bound->second.values.max_bytes) entry << ", \"max_bytes\": " << *bound->second.values.max_bytes;
+                if (bound->second.values.max_elements) entry << ", \"max_elements\": " << *bound->second.values.max_elements;
             }
             entry << "}";
             field_records.push_back(entry.str());
@@ -538,13 +571,15 @@ TranslationResult load_bounds_config(const std::string& path, BoundsConfig& conf
 
 TranslationResult translate_descriptor_model(const DescriptorModel& model, const std::string& root,
                                              const std::string& bounds_path,
-                                             const std::string& output_directory) {
+                                             const std::string& output_directory,
+                                             const std::string& options_path) {
     TranslationResult result;
     BoundsConfig config;
-    TranslationResult bounds_result = load_bounds_config(bounds_path, config);
+    const std::string external_bounds_path = options_path.empty() ? bounds_path : options_path;
+    TranslationResult bounds_result = load_bounds_config(external_bounds_path, config);
     result.diagnostics = std::move(bounds_result.diagnostics);
     if (!result.succeeded()) return result;
-    const std::map<std::string, FieldBounds> bounds = bounds_map(config);
+    const std::map<std::string, FieldBounds> external_bounds = bounds_map(config);
     const DescriptorMessage* root_message = find_message(model, root);
     if (root_message == nullptr) {
         add_diagnostic(result, "unknown protobuf root message '" + root + "'");
@@ -555,6 +590,8 @@ TranslationResult translate_descriptor_model(const DescriptorModel& model, const
     std::vector<std::string> stack;
     std::vector<std::string> order;
     std::set<std::string> used_bounds;
+    std::map<std::string, ResolvedBounds> resolved_provenance;
+    std::map<std::string, FieldBounds> bounds;
     std::map<std::string, MappedMessage> mappings;
     std::set<std::string> mapped_outputs;
     std::map<std::string, DescriptorEnum> reachable_enums;
@@ -586,11 +623,11 @@ TranslationResult translate_descriptor_model(const DescriptorModel& model, const
             add_diagnostic(result, "protobuf message '" + name +
                                      "' contains unsupported extensions");
         }
-        if (const auto file = std::find_if(model.files.begin(), model.files.end(),
-                                           [message](const DescriptorFile& candidate) {
-                                               return candidate.name == message->file_name;
-                                           });
-            file != model.files.end() &&
+        const auto file = std::find_if(model.files.begin(), model.files.end(),
+                                       [message](const DescriptorFile& candidate) {
+                                           return candidate.name == message->file_name;
+                                       });
+        if (file != model.files.end() &&
             (!file->services.empty() || !file->extensions.empty() ||
              !file->public_imports.empty() || !file->weak_imports.empty())) {
             add_diagnostic(result, "protobuf file '" + file->name +
@@ -619,25 +656,62 @@ TranslationResult translate_descriptor_model(const DescriptorModel& model, const
             const bool needs_bytes = field.type == FieldType::String || field.type == FieldType::Bytes;
             const bool needs_elements = field.label == FieldLabel::Repeated;
             if (needs_bytes || needs_elements) {
-                const auto bound = bounds.find(field_path);
-                if (bound == bounds.end()) {
-                    add_diagnostic(result, "missing bounds entry for field '" + field_path + "'");
-                } else {
+                FieldBounds effective;
+                ResolvedBounds provenance;
+                if (const auto external = external_bounds.find(field_path); external != external_bounds.end()) {
                     used_bounds.insert(field_path);
-                    if (needs_bytes && !bound->second.max_bytes.has_value()) {
-                        add_diagnostic(result, "field '" + field_path + "' requires max_bytes");
-                    }
-                    if (needs_elements && !bound->second.max_elements.has_value()) {
-                        add_diagnostic(result, "field '" + field_path + "' requires max_elements");
-                    }
-                    if (!needs_bytes && bound->second.max_bytes.has_value()) {
+                    apply_bounds_layer(effective, provenance, external->second, "external:" + field_path,
+                                       std::filesystem::path(external_bounds_path).filename().generic_string(),
+                                       "external_yaml");
+                    if (!needs_bytes && external->second.max_bytes.has_value()) {
                         add_diagnostic(result, "bounds entry for field '" + field_path +
                                          "' has max_bytes but the field is not string or bytes");
                     }
-                    if (!needs_elements && bound->second.max_elements.has_value()) {
+                    if (!needs_elements && external->second.max_elements.has_value()) {
                         add_diagnostic(result, "bounds entry for field '" + field_path +
                                          "' has max_elements but the field is not repeated");
                     }
+                }
+                if (file != model.files.end() && file->default_bounds.has_value()) {
+                    FieldBounds defaults = *file->default_bounds;
+                    if (!needs_bytes) defaults.max_bytes.reset();
+                    if (!needs_elements) defaults.max_elements.reset();
+                    apply_bounds_layer(effective, provenance, defaults,
+                                       "file_default:" + file->name, file->name, "file_option", true);
+                }
+                if (message->default_bounds.has_value()) {
+                    FieldBounds defaults = *message->default_bounds;
+                    if (!needs_bytes) defaults.max_bytes.reset();
+                    if (!needs_elements) defaults.max_elements.reset();
+                    apply_bounds_layer(effective, provenance, defaults,
+                                       "message_default:" + name, message->file_name,
+                                       "message_option", true);
+                }
+                if (field.custom_bounds.has_value()) {
+                    apply_bounds_layer(effective, provenance, *field.custom_bounds,
+                                       "field_option:" + field_path, message->file_name,
+                                       "field_option", true);
+                    if (!needs_bytes && field.custom_bounds->max_bytes.has_value()) {
+                        add_diagnostic(result, "field option for '" + field_path +
+                                         "' has max_bytes but the field is not string or bytes");
+                    }
+                    if (!needs_elements && field.custom_bounds->max_elements.has_value()) {
+                        add_diagnostic(result, "field option for '" + field_path +
+                                         "' has max_elements but the field is not repeated");
+                    }
+                }
+                if (effective.max_bytes.has_value() || effective.max_elements.has_value()) {
+                    bounds[field_path] = effective;
+                    provenance.values = effective;
+                    resolved_provenance[field_path] = std::move(provenance);
+                } else {
+                    add_diagnostic(result, "missing bounds entry for field '" + field_path + "'");
+                }
+                if (needs_bytes && !effective.max_bytes.has_value()) {
+                        add_diagnostic(result, "field '" + field_path + "' requires max_bytes");
+                }
+                if (needs_elements && !effective.max_elements.has_value()) {
+                        add_diagnostic(result, "field '" + field_path + "' requires max_elements");
                 }
             }
             if (field.type == FieldType::Enum) {
@@ -681,7 +755,7 @@ TranslationResult translate_descriptor_model(const DescriptorModel& model, const
     visit(root);
     if (!result.succeeded()) return result;
 
-    for (const auto& [path, unused] : bounds) {
+    for (const auto& [path, unused] : external_bounds) {
         if (!used_bounds.contains(path)) {
             add_diagnostic(result, "bounds entry '" + path +
                                      "' is unused by reachable message graph");
@@ -838,7 +912,7 @@ TranslationResult translate_descriptor_model(const DescriptorModel& model, const
     const std::filesystem::path manifest = temporary / "manifest.json";
     if (!error) {
         std::ofstream file(manifest);
-        if (!file || !(file << render_manifest(root, rendered, bounds, enum_mappings,
+        if (!file || !(file << render_manifest(root, rendered, resolved_provenance, enum_mappings,
                                                reachable_enums, mappings, model))) {
             error = std::make_error_code(std::errc::io_error);
         }
