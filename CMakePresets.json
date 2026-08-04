@@ -60,6 +60,23 @@
       "displayName": "Docker Coverage",
       "inherits": "coverage",
       "binaryDir": "${sourceDir}/build/docker-coverage"
+    },
+    {
+      "name": "benchmark",
+      "displayName": "Release benchmark harness",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/benchmark",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "QUARRY_BUILD_BENCHMARKS": "ON",
+        "QUARRY_WARNINGS_AS_ERRORS": "OFF"
+      }
+    },
+    {
+      "name": "docker-benchmark",
+      "displayName": "Docker release benchmark harness",
+      "inherits": "benchmark",
+      "binaryDir": "${sourceDir}/build/docker-benchmark"
     }
   ],
   "buildPresets": [
@@ -90,6 +107,14 @@
     {
       "name": "docker-coverage",
       "configurePreset": "docker-coverage"
+    },
+    {
+      "name": "benchmark",
+      "configurePreset": "benchmark"
+    },
+    {
+      "name": "docker-benchmark",
+      "configurePreset": "docker-benchmark"
     }
   ],
   "testPresets": [

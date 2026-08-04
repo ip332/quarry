@@ -1,0 +1,20 @@
+namespace: benchmark.proof
+record: Sample
+version: 1
+type: data
+fields:
+  sequence:
+    type: uint32
+  enabled:
+    type: bool
+  ratio:
+    type: float32
+  label:
+    type: string
+    max_bytes: 32
+  payload:
+    type: bytes
+    max_bytes: 16
+  readings:
+    type: uint32[]
+    max_elements: 4

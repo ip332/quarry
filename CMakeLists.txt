@@ -17,6 +17,7 @@ option(QUARRY_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
 option(QUARRY_ENABLE_CLANG_TIDY "Run clang-tidy during CMake builds" OFF)
 option(QUARRY_BUILD_FUZZERS "Build libFuzzer targets for BRF parser hardening" OFF)
 option(QUARRY_ENABLE_COVERAGE "Enable native coverage instrumentation" OFF)
+option(QUARRY_BUILD_BENCHMARKS "Build the standalone benchmark proof harnesses" OFF)
 
 # Compatibility epoch for generated C++ source and Quarry runtime headers.
 # This is distinct from the package release version and BRF wire-format version.
@@ -109,6 +110,9 @@ if(QUARRY_BUILD_FUZZERS)
 endif()
 add_subdirectory(compiler)
 add_subdirectory(tools)
+if(QUARRY_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()
 add_subdirectory(tests)
 
 install(TARGETS quarry_runtime
