@@ -14,6 +14,8 @@
 namespace {
 
 using quarry::tools::protobuf::DescriptorField;
+using quarry::tools::protobuf::DescriptorEnum;
+using quarry::tools::protobuf::DescriptorEnumValue;
 using quarry::tools::protobuf::DescriptorFile;
 using quarry::tools::protobuf::DescriptorMessage;
 using quarry::tools::protobuf::DescriptorModel;
@@ -155,6 +157,59 @@ TEST(ProtobufTranslationTest, EmitsBoundedReachableBundleAndManifest) {
     EXPECT_NE(manifest.find("telemetry/sample/sample.brd"), std::string::npos);
 }
 
+TEST(ProtobufTranslationTest, EmitsOwnedEnumsAndMigrationMetadata) {
+    const std::filesystem::path root = temporary_directory("enum");
+    DescriptorModel model = representative_model();
+    DescriptorEnum status;
+    status.name = "Status";
+    status.fully_qualified_name = "telemetry.Status";
+    status.file_name = "status.proto";
+    status.values = {DescriptorEnumValue{"UNKNOWN", 0}, DescriptorEnumValue{"READY", 1}};
+    model.enums.push_back(status);
+    DescriptorEnum mode;
+    mode.name = "Mode";
+    mode.fully_qualified_name = "telemetry.Sample.Mode";
+    mode.file_name = "sample.proto";
+    mode.containing_message = "telemetry.Sample";
+    mode.values = {DescriptorEnumValue{"IDLE", 0}, DescriptorEnumValue{"ACTIVE", 1}};
+    model.enums.push_back(mode);
+    model.messages[1].fields.push_back(field("status", FieldType::Enum, "telemetry.Status"));
+    model.messages[1].fields.push_back(
+        field("mode", FieldType::Enum, "telemetry.Sample.Mode"));
+    model.messages[1].fields.push_back(
+        field("statuses", FieldType::Enum, "telemetry.Status", FieldLabel::Repeated));
+    const std::filesystem::path bounds = root / "bounds.yaml";
+    write_text(bounds,
+               "bounds:\n"
+               "  telemetry.Sample.name:\n"
+               "    max_bytes: 64\n"
+               "  telemetry.Sample.payload:\n"
+               "    max_bytes: 256\n"
+               "  telemetry.Sample.values:\n"
+               "    max_elements: 4\n"
+               "  telemetry.Sample.children:\n"
+               "    max_elements: 2\n"
+               "  telemetry.Sample.statuses:\n"
+               "    max_elements: 3\n"
+               "  telemetry.Child.label:\n"
+               "    max_bytes: 32\n");
+    const auto result = quarry::tools::protobuf::translate_descriptor_model(
+        model, "telemetry.Sample", bounds.string(), (root / "generated").string());
+    ASSERT_TRUE(result.succeeded())
+        << (result.diagnostics.empty() ? "" : result.diagnostics.front());
+    const std::string sample = read_text(root / "generated/telemetry/sample/sample.brd");
+    EXPECT_NE(sample.find("  Status:\n    values:\n      UNKNOWN: 0\n      READY: 1\n"),
+              std::string::npos);
+    EXPECT_NE(sample.find("  Mode:\n    values:\n      IDLE: 0\n      ACTIVE: 1\n"),
+              std::string::npos);
+    EXPECT_NE(sample.find("type: Status\n"), std::string::npos);
+    EXPECT_NE(sample.find("type: Status[]\n"), std::string::npos);
+    const std::string manifest = read_text(root / "generated/manifest.json");
+    EXPECT_NE(manifest.find("\"kind\": \"enum\""), std::string::npos);
+    EXPECT_NE(manifest.find("\"number\": 1"), std::string::npos);
+    EXPECT_NE(manifest.find("\"ordinal\""), std::string::npos);
+}
+
 TEST(ProtobufTranslationTest, RejectsMissingAndUnusedBounds) {
     const std::filesystem::path root = temporary_directory("bounds");
     const std::filesystem::path bounds = root / "bounds.yaml";
@@ -173,6 +228,42 @@ TEST(ProtobufTranslationTest, RejectsMissingAndUnusedBounds) {
         return output.str();
     }();
     EXPECT_NE(diagnostics.find("invalid max_bytes value"), std::string::npos);
+}
+
+TEST(ProtobufTranslationTest, RejectsNegativeAndAliasedEnums) {
+    const std::filesystem::path root = temporary_directory("enum-rejection");
+    DescriptorModel model = representative_model();
+    DescriptorEnum invalid;
+    invalid.name = "InvalidStatus";
+    invalid.fully_qualified_name = "telemetry.InvalidStatus";
+    invalid.file_name = "status.proto";
+    invalid.values = {DescriptorEnumValue{"NEGATIVE", -1},
+                      DescriptorEnumValue{"ALIAS", 1},
+                      DescriptorEnumValue{"OTHER_ALIAS", 1}};
+    model.enums.push_back(invalid);
+    model.messages[1].fields.push_back(
+        field("status", FieldType::Enum, "telemetry.InvalidStatus"));
+    const std::filesystem::path bounds = root / "bounds.yaml";
+    write_text(bounds,
+               "bounds:\n"
+               "  telemetry.Sample.name:\n"
+               "    max_bytes: 64\n"
+               "  telemetry.Sample.payload:\n"
+               "    max_bytes: 64\n"
+               "  telemetry.Sample.values:\n"
+               "    max_elements: 2\n"
+               "  telemetry.Sample.children:\n"
+               "    max_elements: 2\n"
+               "  telemetry.Child.label:\n"
+               "    max_bytes: 32\n");
+    const auto result = quarry::tools::protobuf::translate_descriptor_model(
+        model, "telemetry.Sample", bounds.string(), (root / "generated").string());
+    ASSERT_FALSE(result.succeeded());
+    std::ostringstream diagnostics;
+    for (const auto& diagnostic : result.diagnostics) diagnostics << diagnostic << "\n";
+    EXPECT_NE(diagnostics.str().find("negative value"), std::string::npos);
+    EXPECT_NE(diagnostics.str().find("enum aliases"), std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(root / "generated"));
 }
 
 TEST(ProtobufTranslationTest, TranslationIsDeterministicAcrossBoundsOrdering) {
@@ -278,7 +369,7 @@ TEST(ProtobufTranslationTest, RejectsUnsupportedReachableConstructs) {
     ASSERT_FALSE(result.succeeded());
     std::ostringstream diagnostics;
     for (const auto& diagnostic : result.diagnostics) diagnostics << diagnostic << "\n";
-    EXPECT_NE(diagnostics.str().find("enum translation is deferred"), std::string::npos);
+    EXPECT_NE(diagnostics.str().find("unknown enum"), std::string::npos);
     EXPECT_NE(diagnostics.str().find("oneof semantics"), std::string::npos);
     EXPECT_NE(diagnostics.str().find("protobuf map type"), std::string::npos);
 }
@@ -313,6 +404,7 @@ TEST(ProtobufTranslationTest, ProtocTranslationAndCompilerFollowThrough) {
     write_text(root / "schema.proto",
                "syntax = \"proto3\";\n"
                "package telemetry;\n"
+               "enum Status { UNKNOWN = 0; READY = 1; }\n"
                "message Child { string label = 1; }\n"
                "message Sample {\n"
                "  string name = 1;\n"
@@ -320,6 +412,8 @@ TEST(ProtobufTranslationTest, ProtocTranslationAndCompilerFollowThrough) {
                "  repeated int32 values = 3;\n"
                "  Child child = 4;\n"
                "  repeated Child children = 5;\n"
+               "  Status status = 6;\n"
+               "  repeated Status statuses = 7;\n"
                "}\n");
     write_text(root / "bounds.yaml",
                "bounds:\n"
@@ -331,6 +425,8 @@ TEST(ProtobufTranslationTest, ProtocTranslationAndCompilerFollowThrough) {
                "    max_elements: 4\n"
                "  telemetry.Sample.children:\n"
                "    max_elements: 2\n"
+               "  telemetry.Sample.statuses:\n"
+               "    max_elements: 3\n"
                "  telemetry.Child.label:\n"
                "    max_bytes: 32\n");
     const std::filesystem::path descriptor = root / "schema.pb";

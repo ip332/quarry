@@ -73,10 +73,24 @@ signed 64-bit kinds to `i64`; unsigned 64-bit kinds to `u64`; `float` to
 `f32`; `double` to `f64`; and bounded `string`/`bytes` retain those Quarry
 types. Repeated fields use the corresponding bounded Quarry array type.
 
-The current slice rejects reachable enums, oneof and proto3 optional
+The current slice supports reachable non-negative protobuf enums. A top-level
+enum is owned by the lexicographically first reachable message that references
+it; a nested enum is owned by its enclosing translated message. Each enum is
+emitted exactly once, and other generated records import that owner unit when
+needed. Repeated enum fields use the same explicit `max_elements` bound as
+other repeated fields.
+
+The translator rejects enum aliases, negative enum values, and enum names or
+values that cannot be represented as Quarry identifiers. It also rejects
+oneof and proto3 optional
 presence, maps, groups, services, extensions, public/weak import semantics,
 `google.protobuf.Any`, proto2 required/default semantics, recursive messages,
 and unsupported scalar kinds. Unreachable declarations are not translated.
-Enum ownership and protobuf field-number sidecars remain deferred. Generated
-BRD is Quarry source, not protobuf wire data; no protobuf/BRF interoperability
-claim is made by this tool.
+
+`manifest.json` contains deterministic declaration and field migration
+metadata, including protobuf field numbers, translated ordinals, enum values,
+owners, and applied bounds. Protobuf field numbers are migration metadata only;
+they are not BRF field indexes, and translated BRD is Quarry source rather than
+protobuf wire data. No protobuf/BRF interoperability claim is made by this
+tool. Manifest comparison is intentionally deferred until a compatibility
+policy can be defined independently of protobuf wire compatibility.

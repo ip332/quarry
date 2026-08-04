@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <set>
@@ -19,14 +20,24 @@ namespace {
 
 struct MappedMessage {
     std::string protobuf_name;
+    std::string protobuf_file;
     std::string quarry_namespace;
     std::string quarry_name;
     std::filesystem::path output;
 };
 
+struct MappedEnum {
+    std::string protobuf_name;
+    std::string protobuf_file;
+    std::string quarry_namespace;
+    std::string quarry_name;
+    std::string owner_message;
+};
+
 struct RenderedMessage {
     MappedMessage mapped;
     std::vector<std::string> dependencies;
+    std::vector<std::string> owned_enums;
     std::string contents;
 };
 
@@ -115,9 +126,20 @@ void add_diagnostic(TranslationResult& result, std::string message) {
         !(std::isalpha(static_cast<unsigned char>(value.front())) || value.front() == '_')) {
         return false;
     }
-    return std::all_of(value.begin() + 1, value.end(), [](unsigned char character) {
+    if (!std::all_of(value.begin() + 1, value.end(), [](unsigned char character) {
         return std::isalnum(character) || character == '_';
-    });
+    })) {
+        return false;
+    }
+    static constexpr std::string_view keywords[] = {
+        "import", "namespace", "record", "enum", "true", "false", "bool", "u8", "u16",
+        "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64", "string", "bytes"};
+    return std::none_of(std::begin(keywords), std::end(keywords),
+                        [value](std::string_view keyword) { return keyword == value; });
+}
+
+[[nodiscard]] bool valid_enum_value_name(std::string_view value) {
+    return valid_quarry_component(value);
 }
 
 [[nodiscard]] std::optional<MappedMessage> map_message(const DescriptorMessage& message,
@@ -153,7 +175,8 @@ void add_diagnostic(TranslationResult& result, std::string message) {
         output /= component;
     }
     output /= lower_segment(record) + ".brd";
-    return MappedMessage{message.fully_qualified_name, quarry_namespace, record, output};
+    return MappedMessage{message.fully_qualified_name, message.file_name, quarry_namespace, record,
+                         output};
 }
 
 [[nodiscard]] const DescriptorMessage* find_message(const DescriptorModel& model,
@@ -172,6 +195,7 @@ void add_diagnostic(TranslationResult& result, std::string message) {
 
 [[nodiscard]] std::string mapped_type(const DescriptorField& field, const MappedMessage& owner,
                                       const std::map<std::string, MappedMessage>& mappings,
+                                      const std::map<std::string, MappedEnum>& enum_mappings,
                                       TranslationResult& result) {
     std::string type;
     switch (field.type) {
@@ -204,6 +228,20 @@ void add_diagnostic(TranslationResult& result, std::string message) {
         }
         break;
     }
+    case FieldType::Enum: {
+        const auto iterator = enum_mappings.find(field.type_name);
+        if (iterator == enum_mappings.end()) {
+            add_diagnostic(result, "field '" + owner.protobuf_name + "." + field.name +
+                                     "' references unmapped enum '" + field.type_name + "'");
+            return {};
+        }
+        if (iterator->second.quarry_namespace == owner.quarry_namespace) {
+            type = iterator->second.quarry_name;
+        } else {
+            type = iterator->second.quarry_namespace + "." + iterator->second.quarry_name;
+        }
+        break;
+    }
     default:
         add_diagnostic(result, "field '" + owner.protobuf_name + "." + field.name +
                                  "' uses unsupported protobuf type '" +
@@ -219,7 +257,10 @@ void add_diagnostic(TranslationResult& result, std::string message) {
 [[nodiscard]] std::string render_message(const DescriptorMessage& message,
                                          const MappedMessage& mapped,
                                          const std::map<std::string, MappedMessage>& mappings,
+                                         const std::map<std::string, MappedEnum>& enum_mappings,
+                                         const std::map<std::string, DescriptorEnum>& enums,
                                          const std::map<std::string, FieldBounds>& bounds,
+                                         const std::vector<std::string>& owned_enums,
                                          const std::vector<std::string>& dependencies,
                                          TranslationResult& result) {
     std::ostringstream output;
@@ -233,6 +274,17 @@ void add_diagnostic(TranslationResult& result, std::string message) {
             output << "  - " << dependency << "\n";
         }
     }
+    if (!owned_enums.empty()) {
+        output << "enums:\n";
+        for (const std::string& enum_name : owned_enums) {
+            const DescriptorEnum& enumeration = enums.at(enum_name);
+            output << "  " << enum_mappings.at(enum_name).quarry_name << ":\n"
+                   << "    values:\n";
+            for (const DescriptorEnumValue& value : enumeration.values) {
+                output << "      " << value.name << ": " << value.number << "\n";
+            }
+        }
+    }
     if (message.fields.empty()) {
         output << "fields: {}\n";
         return output.str();
@@ -240,7 +292,7 @@ void add_diagnostic(TranslationResult& result, std::string message) {
     output << "fields:\n";
     for (const DescriptorField& field : message.fields) {
         const std::string field_path = message.fully_qualified_name + "." + field.name;
-        const std::string type = mapped_type(field, mapped, mappings, result);
+        const std::string type = mapped_type(field, mapped, mappings, enum_mappings, result);
         output << "  " << field.name << ":\n"
                << "    type: " << type << "\n";
         const auto bound = bounds.find(field_path);
@@ -273,7 +325,11 @@ void add_diagnostic(TranslationResult& result, std::string message) {
 
 [[nodiscard]] std::string render_manifest(const std::string& root,
                                           const std::vector<RenderedMessage>& messages,
-                                          const std::map<std::string, FieldBounds>& bounds) {
+                                          const std::map<std::string, FieldBounds>& bounds,
+                                          const std::map<std::string, MappedEnum>& enum_mappings,
+                                          const std::map<std::string, DescriptorEnum>& enums,
+                                          const std::map<std::string, MappedMessage>& mappings,
+                                          const DescriptorModel& model) {
     std::ostringstream output;
     output << "{\n  \"protobuf_root\": \"" << json_escape(root) << "\",\n"
            << "  \"quarry_root\": \""
@@ -294,6 +350,12 @@ void add_diagnostic(TranslationResult& result, std::string message) {
             if (dep != 0) output << ", ";
             output << "\"" << json_escape(message.dependencies[dep]) << "\"";
         }
+        output << "],\n      \"owned_enums\": [";
+        for (std::size_t enum_index = 0; enum_index < message.owned_enums.size(); ++enum_index) {
+            if (enum_index != 0) output << ", ";
+            const auto& mapped_enum = enum_mappings.at(message.owned_enums[enum_index]);
+            output << "\"" << json_escape(mapped_enum.protobuf_name) << "\"";
+        }
         output << "]\n    }" << (index + 1 == messages.size() ? "\n" : ",\n");
     }
     output << "  ],\n  \"explicit_roots\": [\n";
@@ -312,6 +374,71 @@ void add_diagnostic(TranslationResult& result, std::string message) {
             output << ", \"max_elements\": " << *field_bounds.max_elements;
         }
         output << "}" << (++index == bounds.size() ? "\n" : ",\n");
+    }
+    output << "  ],\n  \"declarations\": [\n";
+    std::vector<std::string> declaration_records;
+    for (const auto& [name, mapped] : mappings) {
+        declaration_records.push_back(
+            "    {\"protobuf\": \"" + json_escape(name) +
+            "\", \"file\": \"" + json_escape(mapped.protobuf_file) +
+            "\", \"kind\": \"message\", \"quarry\": \"" +
+            json_escape(mapped.quarry_namespace + "." + mapped.quarry_name) +
+            "\", \"output\": \"" + json_escape(mapped.output.generic_string()) + "\"}");
+    }
+    for (const auto& [name, mapped] : enum_mappings) {
+        std::ostringstream declaration;
+        declaration << "    {\"protobuf\": \"" << json_escape(name)
+                    << "\", \"file\": \"" << json_escape(mapped.protobuf_file)
+                    << "\", \"kind\": \"enum\", \"quarry\": \""
+                    << json_escape(mapped.quarry_namespace + "." + mapped.quarry_name)
+                    << "\", \"owner\": \"" << json_escape(mapped.owner_message)
+                    << "\", \"output\": \""
+                    << json_escape(mappings.at(mapped.owner_message).output.generic_string())
+                    << "\", \"values\": [";
+        const auto& values = enums.at(name).values;
+        for (std::size_t value_index = 0; value_index < values.size(); ++value_index) {
+            if (value_index != 0) declaration << ", ";
+            declaration << "{\"name\": \"" << json_escape(values[value_index].name)
+                        << "\", \"number\": " << values[value_index].number << "}";
+        }
+        declaration << "]}";
+        declaration_records.push_back(declaration.str());
+    }
+    for (std::size_t index = 0; index < declaration_records.size(); ++index) {
+        output << declaration_records[index]
+               << (index + 1 == declaration_records.size() ? "\n" : ",\n");
+    }
+    output << "  ],\n  \"fields\": [\n";
+    std::vector<std::string> field_records;
+    for (const auto& [message_name, mapped] : mappings) {
+        const auto message = std::find_if(model.messages.begin(), model.messages.end(),
+                                          [&](const DescriptorMessage& candidate) {
+                                              return candidate.fully_qualified_name == message_name;
+                                          });
+        if (message == model.messages.end()) continue;
+        for (const auto& field : message->fields) {
+            const std::string path = message_name + "." + field.name;
+            std::ostringstream entry;
+            entry << "    {\"message\": \"" << json_escape(message_name)
+                  << "\", \"name\": \"" << json_escape(field.name)
+                  << "\", \"number\": " << field.number
+                  << ", \"kind\": \"" << json_escape(field_type_name(field.type))
+                  << "\", \"repeated\": "
+                  << (field.label == FieldLabel::Repeated ? "true" : "false")
+                  << ", \"quarry\": \"" << json_escape(mapped.quarry_namespace + "." +
+                                                              mapped.quarry_name + "." + field.name)
+                  << "\", \"ordinal\": " << field.declaration_order;
+            const auto bound = bounds.find(path);
+            if (bound != bounds.end()) {
+                if (bound->second.max_bytes) entry << ", \"max_bytes\": " << *bound->second.max_bytes;
+                if (bound->second.max_elements) entry << ", \"max_elements\": " << *bound->second.max_elements;
+            }
+            entry << "}";
+            field_records.push_back(entry.str());
+        }
+    }
+    for (std::size_t index = 0; index < field_records.size(); ++index) {
+        output << field_records[index] << (index + 1 == field_records.size() ? "\n" : ",\n");
     }
     output << "  ]\n}\n";
     return output.str();
@@ -430,6 +557,7 @@ TranslationResult translate_descriptor_model(const DescriptorModel& model, const
     std::set<std::string> used_bounds;
     std::map<std::string, MappedMessage> mappings;
     std::set<std::string> mapped_outputs;
+    std::map<std::string, DescriptorEnum> reachable_enums;
 
     std::function<void(const std::string&)> visit = [&](const std::string& name) {
         if (!result.succeeded()) return;
@@ -513,8 +641,16 @@ TranslationResult translate_descriptor_model(const DescriptorModel& model, const
                 }
             }
             if (field.type == FieldType::Enum) {
-                add_diagnostic(result, "field '" + field_path + "' references enum '" +
-                                         field.type_name + "'; enum translation is deferred");
+                const auto enumeration = std::find_if(
+                    model.enums.begin(), model.enums.end(), [&](const DescriptorEnum& candidate) {
+                        return candidate.fully_qualified_name == field.type_name;
+                    });
+                if (enumeration == model.enums.end()) {
+                    add_diagnostic(result, "field '" + field_path + "' references unknown enum '" +
+                                             field.type_name + "'");
+                } else {
+                    reachable_enums.emplace(enumeration->fully_qualified_name, *enumeration);
+                }
             } else if (field.type == FieldType::Group) {
                 add_diagnostic(result, "field '" + field_path +
                                          "' uses unsupported protobuf group type");
@@ -565,6 +701,75 @@ TranslationResult translate_descriptor_model(const DescriptorModel& model, const
     }
     if (!result.succeeded()) return result;
 
+    std::map<std::string, std::string> enum_owners;
+    for (const auto& [enum_name, enumeration] : reachable_enums) {
+        std::string owner;
+        if (!enumeration.containing_message.empty()) {
+            if (mappings.contains(enumeration.containing_message)) {
+                owner = enumeration.containing_message;
+            }
+        } else {
+            for (const std::string& message_name : order) {
+                const DescriptorMessage* message = find_message(model, message_name);
+                const bool referenced = std::any_of(
+                    message->fields.begin(), message->fields.end(), [&](const DescriptorField& field) {
+                        return field.type == FieldType::Enum && field.type_name == enum_name;
+                    });
+                if (referenced) {
+                    owner = message_name;
+                    break;
+                }
+            }
+        }
+        if (owner.empty()) {
+            add_diagnostic(result, "cannot assign an owner for reachable enum '" + enum_name + "'");
+            continue;
+        }
+        if (!valid_quarry_component(enumeration.name)) {
+            add_diagnostic(result, "cannot map protobuf enum '" + enum_name +
+                                     "': invalid Quarry enum name '" + enumeration.name + "'");
+            continue;
+        }
+        std::set<std::string> value_names;
+        std::set<std::int32_t> value_numbers;
+        for (const auto& value : enumeration.values) {
+            if (!valid_enum_value_name(value.name)) {
+                add_diagnostic(result, "cannot map protobuf enum value '" + enum_name + "." +
+                                         value.name + "': invalid Quarry name");
+            }
+            if (!value_names.insert(value.name).second) {
+                add_diagnostic(result, "protobuf enum '" + enum_name + "' contains duplicate value '" +
+                                         value.name + "'");
+            }
+            if (!value_numbers.insert(value.number).second) {
+                add_diagnostic(result, "protobuf enum '" + enum_name +
+                                         "' uses enum aliases, which are not supported");
+            }
+            if (value.number < 0) {
+                add_diagnostic(result, "protobuf enum '" + enum_name +
+                                         "' contains negative value '" + value.name + "'");
+            }
+        }
+        enum_owners.emplace(enum_name, owner);
+        for (const auto& [other_name, other_owner] : enum_owners) {
+            if (other_owner == owner && other_name != enum_name &&
+                reachable_enums.at(other_name).name == enumeration.name) {
+                add_diagnostic(result, "enum name collision in generated source unit '" + owner +
+                                         "' for '" + enum_name + "' and '" + other_name + "'");
+            }
+        }
+    }
+    if (!result.succeeded()) return result;
+
+    std::map<std::string, MappedEnum> enum_mappings;
+    for (const auto& [enum_name, enumeration] : reachable_enums) {
+        const std::string& owner = enum_owners.at(enum_name);
+        const auto& owner_mapping = mappings.at(owner);
+        enum_mappings.emplace(enum_name, MappedEnum{enum_name, enumeration.file_name,
+                                                    owner_mapping.quarry_namespace, enumeration.name,
+                                                    owner});
+    }
+
     std::vector<RenderedMessage> rendered;
     for (const std::string& name : order) {
         const DescriptorMessage* message = find_message(model, name);
@@ -578,10 +783,31 @@ TranslationResult translate_descriptor_model(const DescriptorModel& model, const
                 dependency_paths.insert(relative_import(mapped.output, dependency->second.output));
             }
         }
+        std::vector<std::string> owned_enums;
+        for (const auto& [enum_name, enum_mapping] : enum_mappings) {
+            if (enum_mapping.owner_message == name) {
+                owned_enums.push_back(enum_name);
+            } else {
+                const auto referenced = std::any_of(
+                    message->fields.begin(), message->fields.end(), [&](const DescriptorField& field) {
+                        return field.type == FieldType::Enum && field.type_name == enum_name;
+                    });
+                if (referenced) {
+                    const auto owner_message = mappings.find(enum_mapping.owner_message);
+                    if (owner_message != mappings.end() &&
+                        owner_message->second.quarry_namespace != mapped.quarry_namespace) {
+                        dependency_paths.insert(relative_import(mapped.output,
+                                                                owner_message->second.output));
+                    }
+                }
+            }
+        }
+        std::sort(owned_enums.begin(), owned_enums.end());
         const std::vector<std::string> dependencies(dependency_paths.begin(), dependency_paths.end());
         rendered.push_back(RenderedMessage{
-            mapped, dependencies,
-            render_message(*message, mapped, mappings, bounds, dependencies, result)});
+            mapped, dependencies, owned_enums,
+            render_message(*message, mapped, mappings, enum_mappings, reachable_enums, bounds,
+                           owned_enums, dependencies, result)});
     }
     if (!result.succeeded()) return result;
 
@@ -612,7 +838,8 @@ TranslationResult translate_descriptor_model(const DescriptorModel& model, const
     const std::filesystem::path manifest = temporary / "manifest.json";
     if (!error) {
         std::ofstream file(manifest);
-        if (!file || !(file << render_manifest(root, rendered, bounds))) {
+        if (!file || !(file << render_manifest(root, rendered, bounds, enum_mappings,
+                                               reachable_enums, mappings, model))) {
             error = std::make_error_code(std::errc::io_error);
         }
     }
