@@ -170,6 +170,17 @@ target_compile_definitions(schema_compiler_tool_test PRIVATE
     QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
     QUARRY_TEST_REPO_INCLUDE_DIR="${CMAKE_SOURCE_DIR}/include"
     QUARRY_TEST_GENERATED_INCLUDE_DIR="${QUARRY_GENERATED_INCLUDE_DIR}")
+add_quarry_gtest(protobuf_descriptor_loader_test
+                      tools/protobuf_descriptor_loader_test.cpp
+                      quarry_protobuf_descriptor_loader)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set_source_files_properties(tools/protobuf_descriptor_loader_test.cpp PROPERTIES
+        COMPILE_OPTIONS
+            "-Wno-error=nullability-extension;-Wno-error=gcc-compat;-Wno-error=gnu-anonymous-struct;-Wno-error=nested-anon-types"
+    )
+endif()
+target_compile_definitions(protobuf_descriptor_loader_test PRIVATE
+    QUARRY_PROTOC_EXECUTABLE="${Protobuf_PROTOC_EXECUTABLE}")
 add_quarry_gtest(c_cpp_codec_interop_test interop/c_cpp_codec_interop_test.cpp
                       quarry_compiler_support)
 add_dependencies(c_cpp_codec_interop_test quarry_schema_compiler)

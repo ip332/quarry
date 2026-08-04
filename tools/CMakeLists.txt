@@ -31,3 +31,5 @@ install(TARGETS quarry_schema_compiler
     EXPORT QuarryTargets
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+add_subdirectory(schema-translators/protobuf)
