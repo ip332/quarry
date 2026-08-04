@@ -68,6 +68,12 @@ def resource_results(results: list[dict[str, object]], case: str) -> list[dict[s
     return [selected[key] for key in sorted(selected)]
 
 
+def available_resource_results(results: list[dict[str, object]], case: str, metric: str) -> list[dict[str, object]]:
+    """Return only backends that actually instrumented a resource metric."""
+    return [result for result in resource_results(results, case)
+            if result["deterministic_metrics"].get(metric) is not None]
+
+
 def write_charts(output: Path, aggregate_result: dict[str, object]) -> list[str]:
     charts = output / "charts"
     charts.mkdir(parents=True, exist_ok=True)
@@ -93,7 +99,9 @@ def write_charts(output: Path, aggregate_result: dict[str, object]) -> list[str]
                                     ("object_size", "object size", "bytes"),
                                     ("allocations", "allocations", "allocations")):
             values = [(result["backend"], result["deterministic_metrics"][metric])
-                      for result in resource_results(results, case)]
+                      for result in available_resource_results(results, case, metric)]
+            if not values:
+                continue
             filename = f"{case}-{metric}.svg"
             (charts / filename).write_text(chart_svg(f"{case}: {label}", values, unit), encoding="utf-8")
             names.append(filename)
@@ -112,7 +120,7 @@ def table(results: list[dict[str, object]], case: str, operation: str) -> str:
 
 def resource_table(results: list[dict[str, object]], case: str, metric: str) -> str:
     lines = ["| Backend | Wire format | Value |", "| --- | --- | ---: |"]
-    for result in resource_results(results, case):
+    for result in available_resource_results(results, case, metric):
         lines.append(f"| {DISPLAY_NAMES.get(result['backend'], result['backend'])} | {result['wire_format']} | "
                      f"{display(result['deterministic_metrics'][metric])} |")
     return "\n".join(lines)
@@ -173,7 +181,8 @@ def write_report(output: Path, manifest: dict[str, object], aggregate_result: di
                               ("binary_size", "Binary size"), ("runtime_size", "Runtime size"),
                               ("object_size", "Object size"), ("allocations", "Allocations"),
                               ("allocated_bytes", "Allocated bytes")):
-            lines.extend([f"#### {title}", "", resource_table(results, case, metric), ""])
+            if available_resource_results(results, case, metric):
+                lines.extend([f"#### {title}", "", resource_table(results, case, metric), ""])
     lines.extend(["## Resource Measurements", "",
                   "Deterministic resource values are expected to match across repeated executions. N/A means that a portable equivalent is unavailable.", "",
                   "## Charts", ""])
