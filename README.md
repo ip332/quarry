@@ -1,11 +1,35 @@
 # Quarry
 
-Quarry is an open-source, language-neutral schema compiler and binary
-serialization system. It consumes YAML schema units and generates BRF-compatible
-C++, strict-C99 C, and Python code for embedded and general-purpose consumers.
+Quarry is an open-source, language-neutral schema compiler and deterministic
+binary serialization framework for embedded and systems programming. It
+consumes YAML schema units and generates BRF-compatible C++, strict-C99 C, and
+Python code for bounded, embedded-friendly data models.
 
 The development version is derived from the tracked [`git_version`](git_version)
 file and Git history; see [`docs/versioning.md`](docs/versioning.md).
+
+## Feature Summary
+
+* YAML schema language
+* C++ backend
+* strict-C99 C backend
+* Python backend
+* deterministic BRF serialization
+* Protocol Buffers descriptor-set schema translation
+* Nanopb options compatibility
+* deterministic benchmark framework
+* C/C++/Python interoperability
+
+## Protocol Buffers Translation
+
+Quarry can translate a supported subset of Protocol Buffers descriptor sets
+into native Quarry schemas. This enables existing protobuf-based projects to
+migrate incrementally while preserving deterministic, bounded data models
+suitable for embedded systems.
+
+Quarry does not implement the Protocol Buffers wire format or provide a
+Protocol Buffers runtime. The translator produces Quarry BRD source; the
+resulting data is serialized using BRF, not protobuf encoding.
 
 ## Status
 
