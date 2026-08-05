@@ -8,6 +8,12 @@ Python code for bounded, embedded-friendly data models.
 The development version is derived from the tracked [`git_version`](git_version)
 file and Git history; see [`docs/versioning.md`](docs/versioning.md).
 
+## Community
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull request
+guidance. Security issues should be reported privately as described in
+[SECURITY.md](SECURITY.md).
+
 ## Feature Summary
 
 * YAML schema language
