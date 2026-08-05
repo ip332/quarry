@@ -1,82 +1,96 @@
 # Quarry
 
-Quarry is an open-source, language-neutral schema compiler and deterministic
-binary serialization framework for embedded and systems programming. It
-consumes YAML schema units and generates BRF-compatible C++, strict-C99 C, and
-Python code for bounded, embedded-friendly data models.
+Quarry is a deterministic, language-neutral schema compiler and binary
+serialization framework for embedded and systems programming. It consumes YAML
+schemas and generates BRF-compatible C++, strict-C99 C, and Python code for
+bounded, embedded-friendly data models.
 
-The development version is derived from the tracked [`git_version`](git_version)
-file and Git history; see [`docs/versioning.md`](docs/versioning.md).
+## Why Quarry?
+
+Quarry keeps the schema model, wire format, and generated APIs explicit and
+deterministic across languages. This makes bounded binary records practical for
+embedded systems while still supporting ordinary installed C++, C, and Python
+consumers.
+
+## Quick Start
+
+The recommended first example is the installed CMake workflow in
+[`examples/cpp/schema_compiler_cmake`](examples/cpp/schema_compiler_cmake). It
+generates a root schema and its imported dependency into one output tree,
+builds a C++ consumer, and performs a BRF round trip.
+
+Clone and build Quarry:
+
+```sh
+git clone https://github.com/ip332/quarry.git
+cd quarry
+cmake --preset debug
+cmake --build --preset debug --parallel
+cmake --install build/debug --prefix "$PWD/build/install"
+```
+
+### Your first schema
+
+The example's `schema.brd` imports `shared.brd` and contains the root record;
+both are ordinary one-record Quarry source units.
+
+### Generate code
+
+Configure the example against the installed Quarry package. Its CMake build
+invokes the installed compiler separately for the dependency and root schemas:
+
+```sh
+cmake -S examples/cpp/schema_compiler_cmake \
+  -B build/first-example \
+  -DCMAKE_PREFIX_PATH="$PWD/build/install"
+```
+
+### Build and run
+
+```sh
+cmake --build build/first-example
+./build/first-example/quarry_schema_compiler_cmake
+```
+
+Expected output:
+
+```text
+decoded count: 42
+```
+
+## Installation
+
+The commands above build Quarry itself and install a local CMake package. To
+use Quarry in another project, start with the installed-package workflow in
+[`examples/cpp/schema_compiler_cmake`](examples/cpp/schema_compiler_cmake) and
+see [`docs/distribution-model.md`](docs/distribution-model.md).
+
+Docker is the recommended CI-equivalent environment; native debug builds are
+also supported. See [`docs/development-environment.md`](docs/development-environment.md).
+
+## Examples
+
+The complete example index is in [`examples/README.md`](examples/README.md).
+It includes C++, strict-C99 C, Python, cross-language interoperability, and
+Protocol Buffers descriptor-set translation.
+
+## Documentation
+
+- [Language backends and runtime design](docs/design/)
+- [Protocol Buffers translation](tools/schema-translators/protobuf/README.md)
+- [Benchmark methodology](benchmarks/README.md)
+- [Compiler and distribution documentation](docs/README.md)
+- [Versioning](docs/versioning.md)
+- [Release notes](docs/release-notes-v0.1.7-rc.1.md)
+
+Current limitations include separate explicit generation of imported roots,
+rejected source-unit import cycles, unsupported recursive by-value records and
+nested arrays, and a bounded supported subset in the protobuf translator.
 
 ## Community
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development and pull request
-guidance. Security issues should be reported privately as described in
-[SECURITY.md](SECURITY.md).
-
-## Feature Summary
-
-* YAML schema language
-* C++ backend
-* strict-C99 C backend
-* Python backend
-* deterministic BRF serialization
-* Protocol Buffers descriptor-set schema translation
-* Nanopb options compatibility
-* deterministic benchmark framework
-* C/C++/Python interoperability
-
-## Protocol Buffers Translation
-
-Quarry can translate a supported subset of Protocol Buffers descriptor sets
-into native Quarry schemas. This enables existing protobuf-based projects to
-migrate incrementally while preserving deterministic, bounded data models
-suitable for embedded systems.
-
-Quarry does not implement the Protocol Buffers wire format or provide a
-Protocol Buffers runtime. The translator produces Quarry BRD source; the
-resulting data is serialized using BRF, not protobuf encoding.
-
-## Status
-
-Quarry is preparing the `v0.1.7-rc.1` release candidate. The three production backends support
-the current Schema IR field categories and are covered by installed-consumer,
-deterministic-generation, strict-C99, packaging, and C/C++/Python
-interoperability validation.
-
-Current intentional limitations are:
-
-* imported dependency roots must be generated separately into the same output
-  directory as the root schema;
-* source-unit import cycles are rejected;
-* recursive by-value records and nested arrays are unsupported;
-* release publication automation is not yet part of the repository workflow.
-
-The generated-code compatibility epochs are backend-specific: C++ `3`, C `2`,
-and Python `1`. These epochs are distinct from the Quarry package version,
-Schema IR version, and BRF version.
-
-Release-candidate notes are in
-[`docs/release-notes-v0.1.7-rc.1.md`](docs/release-notes-v0.1.7-rc.1.md).
-Public examples, including the protobuf descriptor-set translation workflow,
-are indexed in [`examples/README.md`](examples/README.md).
-
-> This project was formerly called Breadcrumbs. It was renamed to Quarry to
-> reflect the current focus on schema-driven binary records rather than the
-> original asset-tracking framing; see `jira/backlog.md` (PR-088) for details.
-
-## Development Environment
-
-Docker is the recommended and authoritative environment for CI-equivalent
-builds, including `debug-clang-tidy`. Native (non-Docker) `debug` builds are
-also supported; native `debug-clang-tidy` is best-effort. See
-`docs/development-environment.md` for the full support policy and
-troubleshooting.
-
-```sh
-docker compose build
-docker compose run --rm dev bash
-```
+guidance. Report security issues privately as described in [SECURITY.md](SECURITY.md).
 
 ## Runtime Package
 
