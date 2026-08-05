@@ -99,6 +99,20 @@ class VersionResolutionTest(unittest.TestCase):
         finally:
             temporary.cleanup()
 
+    def test_cmake_fallback_uses_archive_tag(self):
+        temporary, root, package = self._temporary_layout()
+        try:
+            (root / "git_version").write_text("0.1\n", encoding="utf-8")
+            cmake = root / "cmake"
+            cmake.mkdir()
+            (cmake / "QuarryResolvedVersion.cmake").write_text(
+                'set(QUARRY_ARCHIVE_TAG "v0.1.17-rc.1")\n', encoding="utf-8")
+            with mock.patch.object(_version, "__file__", str(package / "_version.py")), \
+                    mock.patch.object(_version, "_git_version", return_value=None):
+                self.assertEqual(_version._resolve(), "0.1.17")
+        finally:
+            temporary.cleanup()
+
     def test_resolve_uses_metadata_and_installed_fallbacks(self):
         temporary, root, package = self._temporary_layout()
         try:

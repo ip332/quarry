@@ -26,11 +26,15 @@ repaired with:
 git fetch --unshallow
 ```
 
-For a source archive without `.git`, packaging must stage the generated,
-path-free `cmake/QuarryResolvedVersion.cmake` fallback produced in the build
-tree. The fallback records the resolved numeric version and Git identity; it is
-used only when full Git history is unavailable. Ordinary Git builds do not use
-it and cannot silently fall back to an unknown version.
+For a source archive without `.git`, the tracked
+`cmake/QuarryResolvedVersion.cmake` template receives the release tag and Git
+identity through Git's `export-subst` archive mechanism. A release tag such as
+`vX.Y.Z-rc.N` supplies the numeric `X.Y.Z` fallback; the tag's Major.Minor must
+match `git_version`. The same file is also generated beside normal build
+artifacts for packaging. These fallbacks are used only when full Git history is
+unavailable. Ordinary Git builds do not use them and cannot silently fall back
+to an unknown version. An untagged or malformed archive fails with a clear
+diagnostic.
 
 Release tags must point to a clean commit whose numeric version matches the
 tag's numeric portion, for example `vX.Y.Z-rc.N` for resolved version `X.Y.Z`.
