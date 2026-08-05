@@ -80,6 +80,7 @@ Protocol Buffers descriptor-set translation.
 - [Protocol Buffers translation](tools/schema-translators/protobuf/README.md)
 - [Benchmark methodology](benchmarks/README.md)
 - [Compiler and distribution documentation](docs/README.md)
+- [Project roadmap](docs/roadmap.md)
 - [Versioning](docs/versioning.md)
 - [Release notes](docs/release-notes-v0.1.7-rc.1.md)
 
