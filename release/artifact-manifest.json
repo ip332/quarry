@@ -1,0 +1,62 @@
+{
+  "format_version": 1,
+  "description": "Expected Quarry release artifacts",
+  "artifacts": [
+    {
+      "id": "source-tarball",
+      "kind": "source-archive",
+      "pattern": "quarry-{tag_version}.tar.gz",
+      "origin": "github-generated",
+      "required": true
+    },
+    {
+      "id": "source-zip",
+      "kind": "source-archive",
+      "pattern": "quarry-{tag_version}.zip",
+      "origin": "github-generated",
+      "required": true
+    },
+    {
+      "id": "python-wheel",
+      "kind": "python-wheel",
+      "pattern": "quarry_runtime_python-{version}-*.whl",
+      "origin": "release-build",
+      "required": true
+    },
+    {
+      "id": "python-sdist",
+      "kind": "python-sdist",
+      "pattern": "quarry_runtime_python-{version}.tar.gz",
+      "origin": "release-build",
+      "required": true
+    },
+    {
+      "id": "release-notes",
+      "kind": "documentation",
+      "pattern": "release-notes-{tag}.md",
+      "origin": "repository",
+      "required": true
+    },
+    {
+      "id": "schema-compiler",
+      "kind": "compiler-binary",
+      "pattern": "quarry-schema-compiler*",
+      "origin": "release-build",
+      "required": false
+    },
+    {
+      "id": "protobuf-translator",
+      "kind": "translator-binary",
+      "pattern": "quarry-protobuf-translator*",
+      "origin": "release-build",
+      "required": false
+    },
+    {
+      "id": "benchmark-bundle",
+      "kind": "benchmark-bundle",
+      "pattern": "benchmark-*",
+      "origin": "benchmark-reporting",
+      "required": false
+    }
+  ]
+}
