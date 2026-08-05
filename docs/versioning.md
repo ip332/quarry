@@ -45,7 +45,7 @@ To build the native compiler with fresh version metadata and display its
 version, run:
 
 ```sh
-./tools/sem_version.sh --version
+./tools/sem_version.sh
 ```
 
 The wrapper configures the supported `debug` preset before building the
