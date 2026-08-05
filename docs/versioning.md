@@ -33,7 +33,7 @@ used only when full Git history is unavailable. Ordinary Git builds do not use
 it and cannot silently fall back to an unknown version.
 
 Release tags must point to a clean commit whose numeric version matches the
-tag's numeric portion, for example `v0.1.0-rc.1` for resolved version `0.1.0`.
+tag's numeric portion, for example `vX.Y.Z-rc.N` for resolved version `X.Y.Z`.
 Release creation must reject tracked modifications.
 
 Release versioning is independent from compatibility contracts: C++ generated
