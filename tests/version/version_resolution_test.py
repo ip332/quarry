@@ -37,6 +37,40 @@ def commit(root: Path, message: str) -> None:
     run(["git", "commit", "-m", message], cwd=root)
 
 
+def archive_fallback_scenario(cmake: str, resolver: Path) -> None:
+    with tempfile.TemporaryDirectory(prefix="quarry-version-archive-test-") as name:
+        source = Path(name) / "source"
+        source.mkdir()
+        run(["git", "init", "-q"], cwd=source)
+        run(["git", "config", "user.email", "test@example.invalid"], cwd=source)
+        run(["git", "config", "user.name", "Quarry test"], cwd=source)
+        (source / "git_version").write_text("0.3\n", encoding="utf-8")
+        (source / ".gitattributes").write_text(
+            "cmake/QuarryResolvedVersion.cmake export-subst\n", encoding="utf-8")
+        (source / "cmake").mkdir()
+        (source / "cmake" / "QuarryResolvedVersion.cmake").write_text(
+            'set(QUARRY_ARCHIVE_TAG "$Format:%(describe:tags)$")\n'
+            'set(QUARRY_GIT_SHA "$Format:%H$")\n', encoding="utf-8")
+        (source / "CMakeLists.txt").write_text(
+            "cmake_minimum_required(VERSION 3.20)\n"
+            f"include(\"{resolver}\")\n"
+            "quarry_resolve_version()\n"
+            "file(WRITE \"${CMAKE_BINARY_DIR}/result.txt\" "
+            "\"${QUARRY_VERSION}|${QUARRY_VERSION_SOURCE}|${QUARRY_GIT_SHA}\")\n",
+            encoding="utf-8")
+        commit(source, "establish archive version")
+        run(["git", "tag", "v0.3.8-rc.1"], cwd=source)
+        archive = Path(name) / "archive.tar"
+        with archive.open("wb") as output:
+            subprocess.run(["git", "archive", "--format=tar", "HEAD"],
+                           cwd=source, check=True, stdout=output)
+        extracted = Path(name) / "extracted"
+        extracted.mkdir()
+        run(["tar", "-xf", str(archive), "-C", str(extracted)])
+        result = configure(extracted, cmake)
+        assert result.startswith("0.3.8|packaged-archive|"), result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cmake", required=True)
@@ -75,11 +109,33 @@ def main() -> None:
         write_project(fallback_root, args.resolver)
         assert configure(fallback_root, args.cmake).startswith("0.3.7|0.3.7|FALSE|packaged-fallback")
 
+        archive_root = root / "archive-fallback"
+        archive_root.mkdir()
+        (archive_root / "git_version").write_text("0.3\n", encoding="utf-8")
+        (archive_root / "cmake").mkdir()
+        (archive_root / "cmake" / "QuarryResolvedVersion.cmake").write_text(
+            'set(QUARRY_ARCHIVE_TAG "v0.3.8-rc.1")\n'
+            'set(QUARRY_GIT_SHA "archive123")\n', encoding="utf-8")
+        write_project(archive_root, args.resolver)
+        assert configure(archive_root, args.cmake).startswith("0.3.8|0.3.8|FALSE|packaged-archive")
+
+        mismatched_archive = root / "mismatched-archive"
+        mismatched_archive.mkdir()
+        (mismatched_archive / "git_version").write_text("0.3\n", encoding="utf-8")
+        (mismatched_archive / "cmake").mkdir()
+        (mismatched_archive / "cmake" / "QuarryResolvedVersion.cmake").write_text(
+            'set(QUARRY_ARCHIVE_TAG "v0.4.8")\n', encoding="utf-8")
+        write_project(mismatched_archive, args.resolver)
+        assert "does not match git_version" in configure(
+            mismatched_archive, args.cmake, expect_success=False)
+
         malformed_root = root / "malformed"
         malformed_root.mkdir()
         (malformed_root / "git_version").write_text("0.3.7\n", encoding="utf-8")
         write_project(malformed_root, args.resolver)
         assert "Major.Minor" in configure(malformed_root, args.cmake, expect_success=False)
+
+    archive_fallback_scenario(args.cmake, args.resolver)
 
 
 if __name__ == "__main__":

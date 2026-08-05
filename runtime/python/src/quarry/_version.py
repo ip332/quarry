@@ -10,6 +10,9 @@ import subprocess
 
 
 _NUMERIC_VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+_ARCHIVE_TAG_VERSION = re.compile(
+    r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-rc\.[0-9]+)?$"
+)
 _LINE_VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\n$")
 
 
@@ -41,6 +44,22 @@ def _installed_metadata_version() -> str | None:
     except importlib.metadata.PackageNotFoundError:
         return None
     return value if _NUMERIC_VERSION.fullmatch(value) else None
+
+
+def _cmake_fallback_version(root: Path) -> str | None:
+    fallback = root / "cmake" / "QuarryResolvedVersion.cmake"
+    if not fallback.exists():
+        return None
+    text = fallback.read_text()
+    match = re.search(r'set\(QUARRY_VERSION\s+"([^"]+)"\)', text)
+    if match and _NUMERIC_VERSION.fullmatch(match.group(1)):
+        return match.group(1)
+    match = re.search(r'set\(QUARRY_ARCHIVE_TAG\s+"([^"]+)"\)', text)
+    if match:
+        archive_match = _ARCHIVE_TAG_VERSION.fullmatch(match.group(1))
+        if archive_match:
+            return ".".join(archive_match.groups())
+    return None
 
 
 def _git_version(root: Path, major_minor: str) -> str | None:
@@ -81,11 +100,9 @@ def _resolve() -> str:
         resolved = _git_version(root, major_minor)
         if resolved:
             return resolved
-        cmake_fallback = root / "cmake" / "QuarryResolvedVersion.cmake"
-        if cmake_fallback.exists():
-            match = re.search(r'set\(QUARRY_VERSION\s+"([^"]+)"\)', cmake_fallback.read_text())
-            if match and _NUMERIC_VERSION.fullmatch(match.group(1)):
-                return match.group(1)
+        resolved_fallback = _cmake_fallback_version(root)
+        if resolved_fallback:
+            return resolved_fallback
 
     metadata_version = _metadata_version()
     if metadata_version:
