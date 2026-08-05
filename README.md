@@ -33,7 +33,7 @@ resulting data is serialized using BRF, not protobuf encoding.
 
 ## Status
 
-Quarry is preparing the `v0.1.0-rc1` release candidate. The three production backends support
+Quarry is preparing the `v0.1.7-rc.1` release candidate. The three production backends support
 the current Schema IR field categories and are covered by installed-consumer,
 deterministic-generation, strict-C99, packaging, and C/C++/Python
 interoperability validation.
@@ -51,7 +51,7 @@ and Python `1`. These epochs are distinct from the Quarry package version,
 Schema IR version, and BRF version.
 
 Release-candidate notes are in
-[`docs/release-notes-v0.1.0-rc1.md`](docs/release-notes-v0.1.0-rc1.md).
+[`docs/release-notes-v0.1.7-rc.1.md`](docs/release-notes-v0.1.7-rc.1.md).
 Public examples, including the protobuf descriptor-set translation workflow,
 are indexed in [`examples/README.md`](examples/README.md).
 

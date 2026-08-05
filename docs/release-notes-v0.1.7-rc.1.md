@@ -1,6 +1,6 @@
-# Quarry v0.1.0-rc1
+# Quarry v0.1.7-rc.1
 
-Quarry v0.1.0-rc1 is a release candidate for the language-neutral schema
+Quarry v0.1.7-rc.1 is a release candidate for the language-neutral schema
 compiler and BRF serialization system.
 
 ## Highlights
@@ -25,7 +25,7 @@ compiler and BRF serialization system.
 ## Compatibility
 
 The C++ generated-code API epoch is `3`, the C epoch is `2`, and the Python
-epoch is `1`. These epochs are independent of the `0.1.0` package version and
+epoch is `1`. These epochs are independent of the `0.1.7` package version and
 the BRF wire-format version. Generated code should use the runtime from the
 same Quarry release, and compatibility guards diagnose mismatched generated
 runtime epochs.
