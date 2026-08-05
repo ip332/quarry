@@ -2,6 +2,22 @@
 
 This directory contains tools built from the compiler libraries.
 
+## Release artifact validation
+
+The expected public release assets are declared in
+`release/artifact-manifest.json`. Validate a separate release staging
+directory with:
+
+```sh
+python3 tools/validate_release_artifacts.py \
+  --root /path/to/release-staging \
+  --version 0.1.7 \
+  --tag v0.1.7-rc.1
+```
+
+See `docs/release-artifacts.md` for the staging contract. This command only
+checks release contents; it does not upload or publish anything.
+
 The schema compiler's downstream distribution decision is documented in
 `docs/schema-compiler-tool-distribution.md`. The current supported boundary is
 the installed `quarry-schema-compiler` executable and the
