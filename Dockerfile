@@ -38,4 +38,9 @@ RUN python3 -m pip install --break-system-packages --no-index \
 ENV PATH="/root/.local/bin:${PATH}"
 RUN pipx install pre-commit
 
+# The repository is bind-mounted from the GitHub Actions runner. Git sees the
+# mounted checkout under a different UID inside this development container;
+# trust the fixed mount point so runtime version resolution can inspect it.
+RUN git config --system --add safe.directory /workspace
+
 WORKDIR /workspace
