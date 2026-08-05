@@ -37,7 +37,7 @@ jobs:
           expected="$major_minor.$revision";
           compiler=$(build/docker-debug/tools/quarry-schema-compiler --version);
           translator=$(build/docker-debug/tools/schema-translators/protobuf/quarry-protobuf-translator --version);
-          python_version=$(PYTHONPATH=runtime/python/src python3 -c 'import quarry; print(quarry.__version__)');
+          python_version=$(PYTHONPATH=runtime/python/src python3 -c "import quarry; print(quarry.__version__)");
           case "$compiler" in
           "quarry-schema-compiler $expected ("*|"quarry-schema-compiler $expected-dirty ("*) :;;
           *) exit 1;;
