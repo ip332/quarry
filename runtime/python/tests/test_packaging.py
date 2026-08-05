@@ -6,6 +6,7 @@ import argparse
 import importlib.metadata
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -84,6 +85,17 @@ def install_and_check_runtime(python: Path, wheel: Path, expected_version: str) 
         "assert binary_record.pack_scalar('uint32', 7) == b'\\x00\\x00\\x00\\x07'\n"
     )
     run([str(python), "-c", script], env=clean_env())
+
+
+def resolve_source_version(python: Path, runtime_source: Path) -> str:
+    environment = clean_env()
+    environment["PYTHONPATH"] = str(runtime_source / "src")
+    result = run([str(python), "-c", "import quarry; print(quarry.__version__)"],
+                 env=environment)
+    version = result.stdout.strip()
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise RuntimeError(f"authoritative Quarry version resolver returned invalid version: {version}")
+    return version
 
 
 def install_from_sdist(python: Path, sdist: Path, root: Path) -> None:
@@ -189,7 +201,6 @@ def main() -> None:
     parser.add_argument("--compiler", type=Path, required=True)
     parser.add_argument("--cmake", type=Path, required=True)
     parser.add_argument("--build-dir", type=Path, required=True)
-    parser.add_argument("--expected-version", required=True)
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="quarry-python-package-") as temporary:
         root = Path(temporary)
@@ -197,11 +208,12 @@ def main() -> None:
         run([sys.executable, "-m", "build", "--no-isolation", "--wheel", "--sdist", "--outdir", str(dist),
              str(args.runtime_source)], env=clean_env())
         wheel, sdist = assert_artifacts(dist)
+        expected_version = resolve_source_version(sys.executable, args.runtime_source)
         install_prefix = root / "quarry-install"
         run([str(args.cmake), "--install", str(args.build_dir), "--prefix", str(install_prefix)],
             env=clean_env())
         first_python = make_venv(root / "wheel-env")
-        install_and_check_runtime(first_python, wheel, args.expected_version)
+        install_and_check_runtime(first_python, wheel, expected_version)
         generated_consumer(first_python, install_prefix / "bin/quarry-schema-compiler",
                            install_prefix, root)
         # The consumer's generated files are retained under root/generated for the

@@ -126,8 +126,7 @@ if(QUARRY_PYTHON3_EXECUTABLE AND QUARRY_PYTHON_PACKAGING_AVAILABLE EQUAL 0)
             --runtime-source "${CMAKE_SOURCE_DIR}/runtime/python"
             --compiler "$<TARGET_FILE:quarry_schema_compiler>"
             --cmake "${CMAKE_COMMAND}"
-            --build-dir "${CMAKE_BINARY_DIR}"
-            --expected-version "${QUARRY_VERSION}")
+            --build-dir "${CMAKE_BINARY_DIR}")
     add_test(NAME public_examples_test
         COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/examples/example_validation.py"
