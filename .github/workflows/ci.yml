@@ -26,6 +26,26 @@ jobs:
       - name: Build
         run: docker compose run --rm dev cmake --build --preset docker-debug --parallel
 
+      - name: Verify Git-derived version
+        run: >-
+          docker compose run --rm dev sh -c
+          'set -eu;
+          base=$(git log -1 --format=%H -- git_version);
+          test -n "$base";
+          revision=$(git rev-list --count "$base..HEAD");
+          major_minor=$(tr -d "\n" < git_version);
+          expected="$major_minor.$revision";
+          compiler=$(build/docker-debug/tools/quarry-schema-compiler --version);
+          translator=$(build/docker-debug/tools/schema-translators/protobuf/quarry-protobuf-translator --version);
+          case "$compiler" in
+          "quarry-schema-compiler $expected ("*|"quarry-schema-compiler $expected-dirty ("*) :;;
+          *) exit 1;;
+          esac;
+          case "$translator" in
+          "quarry-protobuf-translator $expected ("*|"quarry-protobuf-translator $expected-dirty ("*) :;;
+          *) exit 1;;
+          esac'
+
       - name: Test
         run: docker compose run --rm dev ctest --preset docker-debug --output-on-failure
 
