@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import importlib.metadata
 from pathlib import Path
 import re
 import subprocess
@@ -32,6 +33,14 @@ def _metadata_version() -> str | None:
             if match and _NUMERIC_VERSION.fullmatch(match.group(1).strip()):
                 return match.group(1).strip()
     return None
+
+
+def _installed_metadata_version() -> str | None:
+    try:
+        value = importlib.metadata.version("quarry-runtime-python")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+    return value if _NUMERIC_VERSION.fullmatch(value) else None
 
 
 def _git_version(root: Path, major_minor: str) -> str | None:
@@ -81,6 +90,9 @@ def _resolve() -> str:
     metadata_version = _metadata_version()
     if metadata_version:
         return metadata_version
+    installed_version = _installed_metadata_version()
+    if installed_version:
+        return installed_version
 
     raise RuntimeError(
         "unable to resolve Quarry version; use a full Git checkout or package the "
