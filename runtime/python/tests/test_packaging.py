@@ -159,7 +159,8 @@ def epoch_mismatch(python: Path, wheel: Path, generated: Path, root: Path) -> No
     installed_quarry = installed_runtime.parents[1]
     target = mismatch / "quarry/runtime/python"
     target.mkdir(parents=True)
-    for package_init in (installed_quarry / "__init__.py", installed_quarry / "runtime" / "__init__.py"):
+    for package_init in (installed_quarry / "__init__.py", installed_quarry / "_version.py",
+                         installed_quarry / "runtime" / "__init__.py"):
         relative = package_init.relative_to(installed_quarry)
         destination = mismatch / "quarry" / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
