@@ -40,3 +40,16 @@ Release versioning is independent from compatibility contracts: C++ generated
 code epoch `3`, C generated code epoch `2`, Python generated code epoch `1`,
 Schema IR version `1`, and BRF header version `1` do not derive from this
 version.
+
+To build the native compiler with fresh version metadata and display its
+version, run:
+
+```sh
+./tools/run-schema-compiler.sh --version
+```
+
+The wrapper configures the supported `debug` preset before building the
+compiler, so an old build directory cannot silently retain version metadata
+from an earlier checkout. Directly invoking an existing binary does not
+reconfigure CMake; use the wrapper after changing Git state or switching
+commits.
