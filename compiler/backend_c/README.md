@@ -752,8 +752,8 @@ cycle detection (introduced in PR-113) needed no changes at all to reject
 this, since it already generalizes to any dependency edge.
 
 **Encoding and decoding are pure composition, using PR-114's investigation
-findings (`docs/design/c-backend.md` references the REPORT.md write-up
-that resolved this) to avoid any new runtime code whatsoever** -- this
+findings summarized in the design documentation to avoid any new runtime code
+whatsoever** -- this
 field kind was initially thought to need a new runtime primitive (a
 raw-byte-append function for a `quarry_c_writer_t`), until a closer look
 established that it does not:
@@ -1035,7 +1035,7 @@ than PR-113's, since this is the first field kind whose *encode* path
 initially concluded a new write-side runtime primitive
 (`quarry_c_write_bytes`, an "append pre-encoded raw bytes" function) was
 required, by analogy with the C++ backend's implementation -- a follow-up
-investigation (recorded in this session's REPORT.md, and summarized in
+investigation (recorded in the implementation investigation and summarized in
 "Record array fields" above) disproved this: C, unlike C++, already has a
 size-only, non-allocating `<Type>_encoded_size()` for every generated
 record (since PR-108), which lets generated code learn an array element's
