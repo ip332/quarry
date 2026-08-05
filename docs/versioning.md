@@ -45,7 +45,7 @@ To build the native compiler with fresh version metadata and display its
 version, run:
 
 ```sh
-./tools/run-schema-compiler.sh --version
+./tools/sem_version.sh --version
 ```
 
 The wrapper configures the supported `debug` preset before building the
