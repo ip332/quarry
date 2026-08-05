@@ -113,6 +113,23 @@ class VersionResolutionTest(unittest.TestCase):
         finally:
             temporary.cleanup()
 
+    def test_cmake_fallback_rejects_missing_and_malformed_values(self):
+        temporary, root, package = self._temporary_layout()
+        try:
+            cmake = root / "cmake"
+            cmake.mkdir()
+            with mock.patch.object(_version, "__file__", str(package / "_version.py")):
+                self.assertIsNone(_version._cmake_fallback_version(root))
+            fallback = cmake / "QuarryResolvedVersion.cmake"
+            fallback.write_text(
+                'set(QUARRY_VERSION "not-a-version")\n'
+                'set(QUARRY_ARCHIVE_TAG "$Format:%(describe:tags)$")\n',
+                encoding="utf-8")
+            with mock.patch.object(_version, "__file__", str(package / "_version.py")):
+                self.assertIsNone(_version._cmake_fallback_version(root))
+        finally:
+            temporary.cleanup()
+
     def test_resolve_uses_metadata_and_installed_fallbacks(self):
         temporary, root, package = self._temporary_layout()
         try:
