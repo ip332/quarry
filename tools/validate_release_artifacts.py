@@ -79,7 +79,9 @@ def validate_python_metadata(path: Path, version: str, kind: str) -> None:
             metadata = [
                 archive.extractfile(member).read().decode("utf-8", errors="replace")
                 for member in archive.getmembers()
-                if member.name.endswith("/PKG-INFO") and member.isfile()
+                if member.name.endswith("/PKG-INFO")
+                and not any(part.endswith(".egg-info") for part in Path(member.name).parts)
+                and member.isfile()
             ]
     if len(metadata) != 1:
         fail(f"{kind} {path.name} must contain exactly one package metadata file")

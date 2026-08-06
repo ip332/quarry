@@ -2,6 +2,7 @@
 """Focused tests for release artifact manifest validation."""
 
 import json
+import tarfile
 import tempfile
 import unittest
 import zipfile
@@ -22,6 +23,8 @@ class ReleaseArtifactManifestTest(unittest.TestCase):
                  "origin": "github-generated", "required": True},
                 {"id": "wheel", "kind": "python-wheel", "pattern": "quarry_runtime_python-{version}-*.whl",
                  "origin": "release-build", "required": True},
+                {"id": "sdist", "kind": "python-sdist", "pattern": "quarry-runtime-python-{version}.tar.gz",
+                 "origin": "release-build", "required": True},
             ],
         }))
 
@@ -34,11 +37,20 @@ class ReleaseArtifactManifestTest(unittest.TestCase):
         with zipfile.ZipFile(self.root / "quarry_runtime_python-0.1.7-py3-none-any.whl", "w") as archive:
             archive.writestr("quarry_runtime_python-0.1.7.dist-info/METADATA",
                              "Metadata-Version: 2.1\nVersion: 0.1.7\n")
+        with tarfile.open(self.root / "quarry-runtime-python-0.1.7.tar.gz", "w:gz") as archive:
+            metadata = self.root / "PKG-INFO"
+            metadata.write_text("Metadata-Version: 2.1\nVersion: 0.1.7\n")
+            archive.add(metadata, arcname="quarry-runtime-python-0.1.7/PKG-INFO")
+            egg_metadata = self.root / "egg-PKG-INFO"
+            egg_metadata.write_text("Metadata-Version: 2.1\nVersion: 0.1.7\n")
+            archive.add(egg_metadata, arcname="quarry-runtime-python-0.1.7/src/quarry_runtime_python.egg-info/PKG-INFO")
+            metadata.unlink()
+            egg_metadata.unlink()
 
     def test_complete_release_passes(self):
         self.write_valid_artifacts()
         found = validator.validate(self.root, self.manifest, "0.1.7", "v0.1.7")
-        self.assertEqual(len(found), 2)
+        self.assertEqual(len(found), 3)
 
     def test_missing_required_artifact_fails(self):
         with self.assertRaisesRegex(ValueError, "required artifact source is missing"):
@@ -52,6 +64,13 @@ class ReleaseArtifactManifestTest(unittest.TestCase):
             archive.writestr("quarry_runtime_python-0.1.7.dist-info/METADATA",
                              "Metadata-Version: 2.1\nVersion: 0.1.6\n")
         with self.assertRaisesRegex(ValueError, "declares version 0.1.6"):
+            validator.validate(self.root, self.manifest, "0.1.7", "v0.1.7")
+
+    def test_legacy_underscore_sdist_name_is_rejected(self):
+        self.write_valid_artifacts()
+        (self.root / "quarry-runtime-python-0.1.7.tar.gz").rename(
+            self.root / "quarry_runtime_python-0.1.7.tar.gz")
+        with self.assertRaisesRegex(ValueError, "required artifact sdist is missing"):
             validator.validate(self.root, self.manifest, "0.1.7", "v0.1.7")
 
     def test_development_file_in_source_archive_fails(self):
