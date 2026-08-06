@@ -26,7 +26,7 @@
     {
       "id": "python-sdist",
       "kind": "python-sdist",
-      "pattern": "quarry_runtime_python-{version}.tar.gz",
+      "pattern": "quarry-runtime-python-{version}.tar.gz",
       "origin": "release-build",
       "required": true
     },
