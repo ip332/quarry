@@ -71,6 +71,60 @@ jobs:
       - name: Build
         run: docker compose run --rm dev cmake --build --preset docker-debug-clang-tidy --parallel
 
+  cortex-m:
+    name: Cortex-M Cross Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build development image
+        run: docker compose build
+
+      - name: Configure host tools
+        run: docker compose run --rm dev cmake --preset docker-debug
+
+      - name: Build host schema compiler
+        run: >-
+          docker compose run --rm dev
+          cmake --build --preset docker-debug --target quarry_schema_compiler
+
+      - name: Report ARM toolchain version
+        run: docker compose run --rm dev arm-none-eabi-gcc --version
+
+      - name: Configure Cortex-M cross build
+        run: >-
+          docker compose run --rm dev sh -c '
+          cmake -S cortex_m -B cortex_m/build
+          -DCMAKE_TOOLCHAIN_FILE=$(pwd)/cmake/toolchains/arm-cortex-m4.cmake
+          -DQUARRY_HOST_SCHEMA_COMPILER=$(pwd)/build/docker-debug/tools/quarry-schema-compiler
+          -DQUARRY_RUNTIME_C_INCLUDE_DIR=$(pwd)/include
+          -DQUARRY_RUNTIME_C_VERSION_HEADER_DIR=$(pwd)/build/docker-debug/generated'
+
+      - name: Build Cortex-M smoke target
+        run: docker compose run --rm dev cmake --build cortex_m/build --parallel
+
+      - name: Report footprint
+        run: >-
+          docker compose run --rm dev
+          python3 cortex_m/scripts/report_footprint.py
+          --elf cortex_m/build/quarry_cortex_m_smoke.elf
+          --object generated_workload=cortex_m/build/CMakeFiles/quarry_cortex_m_smoke.dir/generated/benchmark/workload.generated.c.obj
+          --object generated_shared=cortex_m/build/CMakeFiles/quarry_cortex_m_smoke.dir/generated/benchmark/workload/shared.generated.c.obj
+          --object smoke=cortex_m/build/CMakeFiles/quarry_cortex_m_smoke.dir/smoke/workload_smoke.c.obj
+          --object startup=cortex_m/build/CMakeFiles/quarry_cortex_m_smoke.dir/startup_cortex_m4.c.obj
+          --json cortex_m/build/footprint.json
+          >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload footprint report
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarry-cortex-m-footprint
+          path: cortex_m/build/footprint.json
+
   coverage:
     name: Coverage baseline
     runs-on: ubuntu-latest
