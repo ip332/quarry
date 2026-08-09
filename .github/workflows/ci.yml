@@ -152,30 +152,19 @@ jobs:
           quarry_benchmark_protobuf_cpp quarry_benchmark_protobuf_cpp_arena --parallel
 
       - name: Run and publish benchmark report
-        run: >-
-          docker compose run --rm dev sh -c
-          'set -eu;
-          rm -rf benchmark-results quarry-benchmark-results quarry-benchmark-results-repeat;
-          mkdir -p benchmark-results;
+        run: |
+          docker compose run --rm dev sh -c '
+          set -eu
+          rm -rf benchmark-results quarry-benchmark-results quarry-benchmark-results-repeat
+          mkdir -p benchmark-results
           for run in 001 002 003 004 005; do
-            python3 benchmarks/scripts/run_benchmarks.py
-            --build-dir build/docker-benchmark --case all --backend all
-            --operation all --output-dir benchmark-results/run-$run;
-          done;
-          python3 benchmarks/scripts/generate_benchmark_report.py
-          --input benchmark-results/run-001 benchmark-results/run-002
-          benchmark-results/run-003 benchmark-results/run-004 benchmark-results/run-005
-          --output quarry-benchmark-results;
-          python3 benchmarks/scripts/generate_benchmark_report.py
-          --input benchmark-results/run-001 benchmark-results/run-002
-          benchmark-results/run-003 benchmark-results/run-004 benchmark-results/run-005
-          --output quarry-benchmark-results-repeat;
-          diff -r quarry-benchmark-results quarry-benchmark-results-repeat;
-          rm -rf quarry-benchmark-results-repeat;
-          python3 benchmarks/scripts/generate_benchmark_report.py
-          --input benchmark-results/run-001 benchmark-results/run-002
-          benchmark-results/run-003 benchmark-results/run-004 benchmark-results/run-005
-          --output validation-output --validation-only;
+            python3 benchmarks/scripts/run_benchmarks.py --build-dir build/docker-benchmark --case all --backend all --operation all --output-dir benchmark-results/run-$run
+          done
+          python3 benchmarks/scripts/generate_benchmark_report.py --input benchmark-results/run-001 benchmark-results/run-002 benchmark-results/run-003 benchmark-results/run-004 benchmark-results/run-005 --output quarry-benchmark-results
+          python3 benchmarks/scripts/generate_benchmark_report.py --input benchmark-results/run-001 benchmark-results/run-002 benchmark-results/run-003 benchmark-results/run-004 benchmark-results/run-005 --output quarry-benchmark-results-repeat
+          diff -r quarry-benchmark-results quarry-benchmark-results-repeat
+          rm -rf quarry-benchmark-results-repeat
+          python3 benchmarks/scripts/generate_benchmark_report.py --input benchmark-results/run-001 benchmark-results/run-002 benchmark-results/run-003 benchmark-results/run-004 benchmark-results/run-005 --output validation-output --validation-only
           rm -rf validation-output'
 
       - name: Add benchmark overview to job summary
