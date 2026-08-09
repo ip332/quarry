@@ -21,7 +21,9 @@ Python wheel and source distribution, and the release notes. It validates the
 Python package metadata and rejects development-only files such as `REPORT.md`,
 `.coverage`, `.git`, and `*.egg-info` from source archives. Compiler,
 translator, and benchmark assets are described as optional because the current
-release process does not publish them automatically.
+release process does not publish them automatically. The benchmark manifest
+entry reserves this future-release category, while CI currently publishes
+`quarry-benchmark-results-<commit>` as a GitHub Actions artifact on `main`.
 
 The staging directory is intentionally separate from the repository checkout.
 This prevents ignored or untracked developer files from becoming release
@@ -30,4 +32,7 @@ artifacts should be copied into the staging directory before validation.
 
 The manifest is a release checklist, not a publication workflow. Checksums,
 signatures, SBOMs, provenance attestations, and GitHub upload automation remain
-deferred.
+deferred. A future release workflow may package the same generated bundle as
+`quarry-<version>-benchmarks.zip`; adding that upload is deferred until the
+release workflow is automated so the RC release process and existing assets
+remain unchanged.
