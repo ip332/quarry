@@ -40,8 +40,10 @@ def main() -> None:
         for heading in ("# Benchmark Report", "## Environment", "## Methodology",
                         "## Benchmark Scope", "## How to Interpret These Results",
                         "## Backend Summary", "## Telemetry", "## Resource Measurements",
-                        "## Charts", "## Appendix"):
+                        "## Charts", "### Representative charts", "## Appendix"):
             assert heading in summary
+        assert "complete set of " in summary
+        assert "deterministic SVG charts" in summary
         assert "Public API Benchmark" in summary
         report_manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
         assert report_manifest["measurement_model"] == "public-api-v1"

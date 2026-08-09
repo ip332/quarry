@@ -152,7 +152,19 @@ python3 benchmarks/scripts/validate_results.py benchmark-results/*.json
 The smoke tests check deterministic registration/datasets, invalid benchmark
 selection, result structure, summary generation, and encoded-size parity. They
 do not assert latency or throughput values. Full benchmark execution remains
-manual/release-oriented and outside normal CTest and coverage.
+outside normal CTest and coverage. The `Benchmarks` GitHub Actions job runs
+the complete five-run suite on pushes to `main` and on manual dispatch; it does
+not run on pull requests so normal PR validation stays bounded. The job
+uploads `quarry-benchmark-results-<commit>`, containing the report, raw JSON
+runs, machine-readable aggregate results, and SVG charts. It also adds a short
+environment and methodology excerpt to the Actions summary.
+
+Benchmark execution failures and report/determinism failures fail the job; no
+benchmark error is swallowed. Timing and throughput remain informational
+because shared GitHub-hosted runners are not stable enough for strict
+wall-clock regression thresholds. Encoded sizes and other deterministic
+resource values are validated by the report generator and are better
+candidates for future gates.
 
 ## Release baseline bundles
 
@@ -209,6 +221,9 @@ bundle to be rebuilt in stages.
 Charts are dependency-free SVG files with fixed colors and stable ordering;
 they contain no timestamps or absolute paths. `summary.md` is suitable for
 attachment to a GitHub Release beside `manifest.json` and `results.json`.
+CI publishes the generated directory as an Actions artifact rather than
+committing volatile measurements under `benchmarks/results/`; use the artifact
+from a successful `main` run for the current published measurements.
 Tables and charts show measurements only: timing is advisory, deterministic
 resource metrics are validated across runs, and BRF/protobuf encoded sizes are
 separate wire-format series. The tool does not compare baselines, upload
