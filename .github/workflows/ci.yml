@@ -167,6 +167,9 @@ jobs:
           python3 benchmarks/scripts/generate_benchmark_report.py --input benchmark-results/run-001 benchmark-results/run-002 benchmark-results/run-003 benchmark-results/run-004 benchmark-results/run-005 --output validation-output --validation-only
           rm -rf validation-output'
 
+      - name: Make benchmark outputs readable
+        run: sudo chown -R "$USER":"$USER" benchmark-results quarry-benchmark-results
+
       - name: Add benchmark overview to job summary
         run: sed -n '1,42p' quarry-benchmark-results/summary.md >> "$GITHUB_STEP_SUMMARY"
 
