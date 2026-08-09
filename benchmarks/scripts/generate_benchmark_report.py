@@ -195,13 +195,17 @@ def write_report(output: Path, manifest: dict[str, object], aggregate_result: di
     ownership_line = "; ".join(
         f"{backend}={ownership.get(backend, OWNERSHIP_MODELS.get(backend, 'unspecified'))}"
         for backend in manifest["implementations"])
+    representative = [name for name in (
+        "telemetry-encoded-size-brf.svg", "telemetry-encoded-size-protobuf.svg",
+        "telemetry-encode-throughput.svg", "telemetry-decode-throughput.svg",
+        "telemetry-binary_size.svg") if name in chart_names]
     lines.extend(["## Resource Measurements", "",
                   "Deterministic resource values are expected to match across repeated executions. N/A means that a portable equivalent is unavailable.", "",
                   f"Ownership metadata: {ownership_line}", "",
-                  "## Charts", ""])
-    for name in chart_names:
+                  "## Charts", "", "### Representative charts", ""])
+    for name in representative:
         lines.append(f"- [{name}](charts/{name})")
-    lines.extend(["", "## Appendix", "", "Raw JSON executions are preserved under `raw/`; `results.json` contains aggregate statistics and raw-run references.", ""])
+    lines.extend(["", f"The complete set of {len(chart_names)} deterministic SVG charts is preserved under `charts/`, including every workload, operation, wire format, and available resource metric.", "", "## Appendix", "", "Raw JSON executions are preserved under `raw/`; `results.json` contains aggregate statistics and raw-run references.", ""])
     (output / "summary.md").write_text("\n".join(lines), encoding="utf-8")
 
 
