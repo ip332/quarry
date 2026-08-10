@@ -18,8 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         clang-format \
         clang-tidy \
         cmake \
+        gcc-arm-none-eabi \
         git \
         libabsl-dev \
+        libnewlib-arm-none-eabi \
         libprotobuf-dev \
         libyaml-dev \
         pipx \

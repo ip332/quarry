@@ -47,16 +47,33 @@ change.
 
 ### Cortex-M validation
 
-Status: High-priority post-release validation
+Status: Cross-compilation validated in CI; hardware execution and footprint
+regression tracking remain future work
 
-Investigate validation with `arm-none-eabi-gcc` for an appropriate Cortex-M
-target/profile. Compile representative generated strict-C99 code and the C
-runtime, report flash/code size and static RAM/data/BSS, and document stack
-considerations where measurable. Confirm that generated and runtime code does
-not accidentally depend on hosted Linux facilities, and establish CI
-regression tracking for embedded footprint. Cross-compilation evidence must be
-reported separately from hardware execution or emulation; a successful
-cross-build alone is not evidence of runtime behavior on the target.
+CI now cross-compiles Quarry's generated strict-C99 code and the C runtime
+for a generic Cortex-M4 target (`arm-none-eabi-gcc`, illustrative
+STM32F446-class profile, `-mcpu=cortex-m4 -mthumb -mfloat-abi=soft`, no FPU
+flags) via a standalone `cortex_m/` CMake project and a reusable toolchain
+file (`cmake/toolchains/arm-cortex-m4.cmake`), exercised against the
+existing representative `benchmark.workload`/`workload_shared` schemas
+(records, an enum, bounded string/bytes, a bounded array, a cross-namespace
+nested record, and a cross-namespace array of records). The generated C
+headers and the C runtime were confirmed to require only
+`<stdbool.h> <stddef.h> <stdint.h> <string.h>` -- no heap, exceptions, RTTI,
+or other hosted Linux/POSIX dependency -- so no runtime or generated-code
+changes were needed to make this build pass. The "Cortex-M Cross Build" CI
+job reports flash/RAM footprint (`.text`/`.rodata`/`.data`/`.bss`) for the
+smoke build on every run; see `cortex_m/README.md`.
+
+Not yet done, and explicitly out of scope for this initial validation:
+
+- execution on physical Cortex-M hardware or an emulator (QEMU) -- a
+  successful cross-build is evidence of build/portability, not of runtime
+  behavior on target;
+- footprint regression tracking against a baseline (today's job reports
+  footprint; it does not gate on it);
+- additional Cortex-M profiles (M0/M0+/M3/M7, hard-float);
+- RTOS/Zephyr, HAL, or board-support-package integration.
 
 ## Pre-1.0 investigations
 
@@ -75,6 +92,14 @@ backward-compatibility options if a rename is necessary.
 The output must be an explicit decision to keep Quarry, keep the project name
 with ecosystem-specific package names, or rename before broader adoption/1.0.
 This is an investigation, not a predetermined rename.
+
+A project rename before 1.0 remains explicitly on the table if cross-ecosystem
+name collisions (PyPI, crates.io, npm, CMake `find_package`/package
+registries, embedded package indices, GitHub/project discoverability) are
+found to materially harm discoverability or distribution. This project has
+already executed a full rename once (Breadcrumbs to Quarry; see
+`jira/backlog.md`, PR-088), which is precedent that a further rename, if
+warranted, is operationally tractable rather than merely theoretical.
 
 ### Positioning and adoption/distribution
 
