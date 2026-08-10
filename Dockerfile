@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc-arm-none-eabi \
         git \
         libabsl-dev \
+        libnewlib-arm-none-eabi \
         libprotobuf-dev \
         libyaml-dev \
         pipx \
