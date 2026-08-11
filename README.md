@@ -80,6 +80,50 @@ The same schema can be generated for C or Python with their corresponding
 type-safe APIs. The generated code is intentionally kept out of this README;
 see the [examples](examples/README.md) for complete consumers.
 
+## Performance & footprint
+
+Quarry includes a reproducible [benchmark suite and methodology](benchmarks/README.md)
+covering telemetry, configuration, nested, large-payload, and small-message
+stress workloads. The latest published baseline is from `main` commit
+`04349e57` using five aggregated runs on a Linux/x86_64 GitHub-hosted runner
+(AMD EPYC 7763), with a Release build, C++ 13.3.0, and Protobuf/protoc 3.21.12.
+
+The representative measurements below are medians from that baseline. Throughput
+is in operations per second; encoded sizes are bytes per record.
+
+| Workload | Quarry C | Quarry C++ | Protobuf C++ | Protobuf Arena |
+| --- | ---: | ---: | ---: | ---: |
+| Telemetry encode | 9.69M | 1.17M | 18.81M | 10.38M |
+| Telemetry decode | 5.45M | 3.55M | 13.48M | 12.18M |
+| Large encode | 0.48M | 0.15M | 1.60M | 0.37M |
+| Large decode | 0.85M | 0.21M | 0.57M | 0.45M |
+
+| Workload | Quarry BRF | Protobuf |
+| --- | ---: | ---: |
+| Telemetry | 60 bytes/record | 16 bytes/record |
+| Large | 1,661 bytes/record | 1,425 bytes/record |
+
+BRF and Protobuf are different wire formats, so their encoded sizes are shown
+separately and are not byte-compatible comparisons. Quarry C uses caller-owned
+fixed-capacity buffers; Quarry C++ uses owning values; Protobuf C++ and Arena
+use their respective owning and arena APIs. These ownership and allocation
+models are intentional methodology differences, not a backend-quality ranking.
+
+For the same run, the generated-source and benchmark-executable measurements
+were: Quarry C `40,722`/`38,280` bytes, Quarry C++ `38,811`/`110,872` bytes,
+and Protobuf C++/Arena `73,782`/`91,216` bytes. These are build measurements,
+not universal application footprints; the reported native Quarry runtime size
+is deterministic zero because it is header-only, while the Protobuf runtime is
+external to this metric. Shared-runner timing is informational and depends on
+hardware, compiler, optimization, runtime, and workload.
+
+The complete raw data, normalized results, environment manifest, report, and
+deterministic SVG charts are published by the [`Benchmarks` CI job](.github/workflows/ci.yml)
+on `main` and manual workflow dispatch. The artifact is intentionally not a
+permanent README link because GitHub Actions artifacts expire; use the
+[benchmark documentation](benchmarks/README.md) to reproduce or obtain current
+results.
+
 ## Quick Start
 
 The quickest complete path is the installed CMake workflow in
