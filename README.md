@@ -1,16 +1,84 @@
 # Quarry
 
 Quarry is a deterministic, language-neutral schema compiler and binary
-serialization framework for embedded and systems programming. It consumes YAML
-schemas and generates BRF-compatible C++, strict-C99 C, and Python code for
-bounded, embedded-friendly data models.
+serialization framework for embedded and systems programming. It consumes
+`.brd` schemas and generates BRF-compatible C++, strict-C99 C, and Python code
+for bounded, embedded-friendly data models.
+
+## What is Quarry?
+
+Quarry lets you define structured data once and generate type-safe APIs for
+multiple environments. The generated C, C++, and Python implementations use
+the same binary record format and serialization rules, so an embedded producer
+and a Python tool can exchange the same data without maintaining separate data
+models by hand.
+
+Quarry is intended for bounded data exchanged in systems such as:
+
+- MCU ↔ embedded Linux communication
+- device telemetry
+- configuration and state exchange
+- recorded sensor or diagnostic data
+- interoperability between embedded software and Python tooling
 
 ## Why Quarry?
 
-Quarry keeps the schema model, wire format, and generated APIs explicit and
-deterministic across languages. This makes bounded binary records practical for
-embedded systems while still supporting ordinary installed C++, C, and Python
-consumers.
+Schema-driven serialization and multi-language code generation are established
+ideas, with technologies such as Protocol Buffers already solving much of this
+problem. Quarry applies those ideas specifically to embedded and systems
+software, with an emphasis on predictable resource use, small and explicit
+runtimes, C/C++ integration, cross-platform interoperability, and behavior that
+can be understood and validated on constrained targets.
+
+The schema is the shared source of truth for the data model, generated APIs,
+and wire representation. That makes the relationship between a record in an
+embedded program, its serialized bytes, and a desktop or Python consumer
+explicit and reviewable.
+
+## Workflow
+
+```mermaid
+flowchart LR
+    S[Schema] --> Q[Quarry compiler]
+    Q --> C[C]
+    Q --> CPP[C++]
+    Q --> P[Python]
+    C --> B[Serialized data]
+    CPP --> B
+    P --> B
+```
+
+The compiler generates language-specific APIs; applications then encode and
+decode the same serialized records using the backend appropriate to their
+environment.
+
+## Schema → generated API → application
+
+Input (`schema.brd`):
+
+```yaml
+namespace: demo
+record: Sample
+version: 1
+type: data
+fields:
+  count:
+    type: uint32
+```
+
+For C++, Quarry generates a typed record API with a builder and encode/decode
+functions (among other generated details):
+
+```cpp
+demo::SampleBuilder builder;
+builder.set_count(42U);
+auto encoded = demo::encode(builder.build());
+auto decoded = demo::decode_Sample(bytes);
+```
+
+The same schema can be generated for C or Python with their corresponding
+type-safe APIs. The generated code is intentionally kept out of this README;
+see the [examples](examples/README.md) for complete consumers.
 
 ## Performance & footprint
 
@@ -58,10 +126,12 @@ results.
 
 ## Quick Start
 
-The recommended first example is the installed CMake workflow in
+The quickest complete path is the installed CMake workflow in
 [`examples/cpp/schema_compiler_cmake`](examples/cpp/schema_compiler_cmake). It
 generates a root schema and its imported dependency into one output tree,
-builds a C++ consumer, and performs a BRF round trip.
+builds a C++ consumer, and performs a BRF encode/decode round trip.
+
+Requirements: Git, CMake 3.20 or newer, and a C++20 compiler.
 
 Clone and build Quarry:
 
@@ -73,15 +143,26 @@ cmake --build --preset debug --parallel
 cmake --install build/debug --prefix "$PWD/build/install"
 ```
 
-### Your first schema
+The example uses this root schema (`examples/cpp/schema_compiler_cmake/schema.brd`):
 
-The example's `schema.brd` imports `shared.brd` and contains the root record;
-both are ordinary one-record Quarry source units.
+```yaml
+namespace: quarry.telemetry
+record: Sample
+version: 1
+type: data
+imports:
+  - shared.brd
+fields:
+  count:
+    type: uint32
+  child:
+    type: quarry.shared.Child
+```
 
-### Generate code
+Its imported `shared.brd` defines `quarry.shared.Child`. The CMake helper
+invokes the installed `Quarry::schema_compiler` target for both source units.
 
-Configure the example against the installed Quarry package. Its CMake build
-invokes the installed compiler separately for the dependency and root schemas:
+Configure the example against the local installation:
 
 ```sh
 cmake -S examples/cpp/schema_compiler_cmake \
@@ -89,10 +170,22 @@ cmake -S examples/cpp/schema_compiler_cmake \
   -DCMAKE_PREFIX_PATH="$PWD/build/install"
 ```
 
-### Build and run
+Build it. This runs the compiler and compiles the generated C++ sources:
 
 ```sh
 cmake --build build/first-example
+```
+
+The generated output includes:
+
+```text
+build/first-example/generated/quarry/shared.generated.hpp
+build/first-example/generated/quarry/telemetry.generated.hpp
+```
+
+Run the consumer:
+
+```sh
 ./build/first-example/quarry_schema_compiler_cmake
 ```
 
@@ -101,6 +194,63 @@ Expected output:
 ```text
 decoded count: 42
 ```
+
+The consumer builds a `Sample`, encodes it, decodes it, and checks both the
+`count` value and the imported child record. This is the same schema →
+compiler → generated code → application path shown above.
+
+## Supported backends
+
+Quarry currently generates APIs for C++, strict-C99 C, and Python. The C and
+C++ runtimes are designed for bounded, embedded-friendly records; the Python
+backend supports the corresponding generated data model and BRF serialization
+for tooling and interoperability. Imported source units are generated as
+explicit roots into the same output tree. See the [complete examples](examples/README.md)
+for each backend and the cross-language C++/Python workflow.
+
+## Performance & footprint
+
+Quarry includes a reproducible [benchmark suite and methodology](benchmarks/README.md)
+covering telemetry, configuration, nested, large-payload, and small-message
+stress workloads. The latest published baseline is from `main` commit
+`04349e57` using five aggregated runs on a Linux/x86_64 GitHub-hosted runner
+(AMD EPYC 7763), with a Release build, C++ 13.3.0, and Protobuf/protoc 3.21.12.
+
+The representative measurements below are medians from that baseline. Throughput
+is in operations per second; encoded sizes are bytes per record.
+
+| Workload | Quarry C | Quarry C++ | Protobuf C++ | Protobuf Arena |
+| --- | ---: | ---: | ---: | ---: |
+| Telemetry encode | 9.69M | 1.17M | 18.81M | 10.38M |
+| Telemetry decode | 5.45M | 3.55M | 13.48M | 12.18M |
+| Large encode | 0.48M | 0.15M | 1.60M | 0.37M |
+| Large decode | 0.85M | 0.21M | 0.57M | 0.45M |
+
+| Workload | Quarry BRF | Protobuf |
+| --- | ---: | ---: |
+| Telemetry | 60 bytes/record | 16 bytes/record |
+| Large | 1,661 bytes/record | 1,425 bytes/record |
+
+BRF and Protobuf are different wire formats, so their encoded sizes are shown
+separately and are not byte-compatible comparisons. Quarry C uses caller-owned
+fixed-capacity buffers; Quarry C++ uses owning values; Protobuf C++ and Arena
+use their respective owning and arena APIs. These ownership and allocation
+models are intentional methodology differences, not a backend-quality ranking.
+
+For the same run, the generated-source and benchmark-executable measurements
+were: Quarry C `40,722`/`38,280` bytes, Quarry C++ `38,811`/`110,872` bytes,
+and Protobuf C++/Arena `73,782`/`91,216` bytes. These are build measurements,
+not universal application footprints; the reported native Quarry runtime size
+is deterministic zero because it is header-only, while the Protobuf runtime is
+external to this metric. Shared-runner timing is informational and depends on
+hardware, compiler, optimization, runtime, and workload.
+
+The complete raw data, normalized results, environment manifest, report, and
+deterministic SVG charts are published by the [`Benchmarks` CI job](.github/workflows/ci.yml)
+on `main` and manual workflow dispatch. The artifact is intentionally not a
+permanent README link because GitHub Actions artifacts expire; use the
+[benchmark documentation](benchmarks/README.md) to reproduce or obtain current
+results.
 
 ## Installation
 
@@ -120,10 +270,15 @@ Protocol Buffers descriptor-set translation.
 
 ## Documentation
 
-- [Language backends and runtime design](docs/design/)
-- [Protocol Buffers translation](tools/schema-translators/protobuf/README.md)
-- [Benchmark methodology](benchmarks/README.md)
+After the Quick Start, continue with the topic you need:
+
+- [Language backends and runtime design](docs/design/) — generated C and Python APIs
+- [Schema syntax and features](docs/specifications/schema-language.md)
+- [Serialization and the BRF wire format](docs/specifications/binary-record-format.md)
+- [Cross-language interoperability](examples/interop/cpp_python/README.md)
+- [Benchmark methodology and reproducibility](benchmarks/README.md)
 - [Compiler and distribution documentation](docs/README.md)
+- [Protocol Buffers translation](tools/schema-translators/protobuf/README.md)
 - [Project roadmap](docs/roadmap.md)
 - [Versioning](docs/versioning.md)
 - [Release notes](docs/release-notes-v0.1.7-rc.1.md)
