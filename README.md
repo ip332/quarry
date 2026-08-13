@@ -252,6 +252,38 @@ permanent README link because GitHub Actions artifacts expire; use the
 [benchmark documentation](benchmarks/README.md) to reproduce or obtain current
 results.
 
+### Embedded Cortex-M4F benchmark
+
+Quarry is designed for resource-constrained embedded systems. The following
+results are from a hardware benchmark on a VisionCB-8M-STD board (NXP i.MX8M
+Mini Cortex-M4F running at 200 MHz) using the `telemetry` workload from the
+Quarry schema. The benchmark executes 500 iterations of encode and decode,
+measuring cycle counts using ARM Data Watchpoint and Trace (DWT).
+
+| Metric | Value |
+| --- | ---: |
+| **Encode cycles** (500 iterations) | 6,243 |
+| **Decode cycles** (500 iterations) | 8,528 |
+| **Round-trip (encode + decode)** | 14,766 |
+| **Encoded payload size** | 85 bytes |
+| **Stack watermark** | 2,116 bytes |
+| **Stack region total** | 4,096 bytes |
+| **Validation failures** | 0 |
+
+These measurements are from automated local hardware-in-the-loop (HIL) runs
+using the infrastructure in [`quarry-hil`](https://github.com/ip332/quarry-hil),
+which builds Quarry's C code for bare-metal Cortex-M4, transfers it via U-Boot,
+executes it on the target, and collects DTCM results automatically. The
+benchmark is deterministic and reproducible; results are identical across
+consecutive runs (see the [HIL infrastructure documentation](https://github.com/ip332/quarry-hil)
+for details).
+
+**Provenance:** Quarry commit `2767673` (main branch), arm-none-eabi-gcc 10.3.1,
+bare-metal C99 implementation, 200 MHz ARM Cortex-M4F (single-threaded,
+real-time capable). These are actual cycle counts on silicon, not simulation
+or emulation; they include function call overhead, register allocation,
+compiler optimization, and memory latency effects.
+
 ## Installation
 
 The commands above build Quarry itself and install a local CMake package. To
