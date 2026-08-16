@@ -127,6 +127,45 @@ separate strategic consideration.
 
 ## Longer-term backend and feature investigations
 
+### Compact compiled-schema access layer
+
+Status: Future investigation
+
+Investigate compiling a schema into a compact binary representation consumed by
+a small, highly tested set of operations: `put`, `get`, `count_size`, and
+`print`. The investigation should define the representation, operation
+semantics, validation and error behavior, generated-code/runtime/tooling
+boundaries, and cross-language consistency, while assessing code size,
+allocation, lookup cost, and suitability for constrained targets. Keep this
+distinct from BRF unless a later compatibility analysis explicitly determines
+otherwise; this roadmap item does not authorize changes to BRF, Schema IR, or
+generated APIs.
+
+### Human-readable runtime data representation
+
+Status: Future investigation
+
+Investigate a human-readable representation of schema-defined runtime data,
+separate from the YAML schema language: YAML schema describes types and schema
+definitions, while this capability would represent instances/runtime values and
+support typed Quarry object → text → typed Quarry object conversion. Primary
+use cases include debugging and diagnostics, configuration, logging, CLI
+inspection/editing, human-readable test vectors and golden files, and manually
+constructing data for tests and tools.
+
+The investigation should compare YAML, JSON, and a Quarry-specific language;
+define round-trip, deterministic/canonical-output, validation, error-reporting,
+and schema-evolution semantics; and cover records, arrays, enums, strings,
+integers, floating-point values, booleans, nested types, presence information,
+unknown/unsupported values, and the optional role of comments. It should
+explicitly compare the valuable properties of Protocol Buffers TextFormat
+without assuming its syntax or API, and determine the appropriate division
+between generated APIs, runtime libraries, and tooling. It must also assess
+behavioral consistency across C++, C, and Python, embedded code-size and
+allocation costs, exclusion from constrained targets, and the fact that this
+is an additional human-facing representation that must not replace or modify
+BRF.
+
 ### Rust backend
 
 Status: Future enhancement
