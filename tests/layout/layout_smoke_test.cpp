@@ -107,8 +107,17 @@ struct BrfV2LayoutOutput {
 
 [[nodiscard]] RecordIR* add_schema_record(SchemaIR& schema, std::uint64_t ir_id,
                                            std::uint32_t record_id, std::string_view fqn) {
-    NamespaceIR* root = schema.mutable_root_namespace();
-    RecordIR* record = root->add_records();
+    RecordIR* record = schema.mutable_root_namespace()->add_records();
+    record->set_ir_id(ir_id);
+    record->set_record_id(record_id);
+    record->set_name(std::string(fqn));
+    record->set_fqn(std::string(fqn));
+    return record;
+}
+
+[[nodiscard]] RecordIR* add_namespace_record(NamespaceIR& namespace_ir, std::uint64_t ir_id,
+                                             std::uint32_t record_id, std::string_view fqn) {
+    RecordIR* record = namespace_ir.add_records();
     record->set_ir_id(ir_id);
     record->set_record_id(record_id);
     record->set_name(std::string(fqn));
@@ -549,6 +558,84 @@ TEST(BrfV2LayoutTest, InvalidReferenceAndRecursiveReferenceFail) {
     const BrfV2LayoutOutput recursive_output = run_brf_v2_layout(recursive_schema);
     EXPECT_FALSE(recursive_output.diagnostics.empty());
     EXPECT_TRUE(recursive_output.layout_model.records.empty());
+
+    SchemaIR three_node_cycle = make_schema();
+    RecordIR* a = add_schema_record(three_node_cycle, 1U, 1U, "A");
+    RecordIR* b = add_schema_record(three_node_cycle, 2U, 2U, "B");
+    RecordIR* c = add_schema_record(three_node_cycle, 3U, 3U, "C");
+    add_record_field(*a, "b", 0U, 2U);
+    add_record_field(*b, "c", 0U, 3U);
+    add_record_field(*c, "a", 0U, 1U);
+    const BrfV2LayoutOutput three_node_output = run_brf_v2_layout(three_node_cycle);
+    EXPECT_FALSE(three_node_output.diagnostics.empty());
+    EXPECT_TRUE(three_node_output.layout_model.records.empty());
+}
+
+TEST(BrfV2LayoutTest, DeepNamespaceHierarchyUsesIterativeTraversal) {
+    constexpr std::size_t depth = 4096U;
+    SchemaIR schema = make_schema();
+    NamespaceIR* current = schema.mutable_root_namespace();
+    std::string fqn;
+    for (std::size_t index = 0U; index < depth; ++index) {
+        current = current->add_namespaces();
+        current->set_ir_id(static_cast<std::uint64_t>(index + 2U));
+        current->set_name("n" + std::to_string(index));
+        if (!fqn.empty()) {
+            fqn += '.';
+        }
+        fqn += current->name();
+        current->set_fqn(fqn);
+    }
+    ASSERT_NE(add_namespace_record(*current, depth + 2U, 1U, fqn + ".Deep"), nullptr);
+    add_primitive_field(*current->mutable_records(0), "value", 0U,
+                        PrimitiveType::PRIMITIVE_TYPE_U32);
+
+    const BrfV2LayoutOutput first = run_brf_v2_layout(schema);
+    const BrfV2LayoutOutput second = run_brf_v2_layout(schema);
+    ASSERT_TRUE(first.diagnostics.empty()) << diagnostics_summary(first.diagnostics);
+    ASSERT_TRUE(second.diagnostics.empty()) << diagnostics_summary(second.diagnostics);
+    ASSERT_EQ(first.layout_model.records.size(), 1U);
+    ASSERT_EQ(second.layout_model.records.size(), 1U);
+    EXPECT_EQ(first.layout_model.records[0].fqn, fqn + ".Deep");
+    EXPECT_EQ(first.layout_model.records[0].fields[0].location.byte_offset,
+              second.layout_model.records[0].fields[0].location.byte_offset);
+}
+
+TEST(BrfV2LayoutTest, DeepAcyclicRecordChainUsesIterativeDependencyTraversal) {
+    constexpr std::size_t depth = 4096U;
+    SchemaIR schema = make_schema();
+    std::vector<RecordIR*> records;
+    records.reserve(depth);
+    for (std::size_t index = 0U; index < depth; ++index) {
+        records.push_back(add_schema_record(schema, index + 1U,
+                                             static_cast<std::uint32_t>(index + 1U),
+                                             "R" + std::to_string(index)));
+    }
+    for (std::size_t index = 0U; index + 1U < depth; ++index) {
+        add_record_field(*records[index], "next", 0U, index + 2U);
+    }
+    add_primitive_field(*records.back(), "value", 0U, PrimitiveType::PRIMITIVE_TYPE_U32);
+
+    const BrfV2LayoutOutput first = run_brf_v2_layout(schema);
+    const BrfV2LayoutOutput second = run_brf_v2_layout(schema);
+    ASSERT_TRUE(first.diagnostics.empty()) << diagnostics_summary(first.diagnostics);
+    ASSERT_TRUE(second.diagnostics.empty()) << diagnostics_summary(second.diagnostics);
+    ASSERT_EQ(first.layout_model.records.size(), depth);
+    ASSERT_EQ(second.layout_model.records.size(), depth);
+    for (std::size_t index = 0U; index < depth; ++index) {
+        const auto& first_record = first.layout_model.records[index];
+        const auto& second_record = second.layout_model.records[index];
+        EXPECT_EQ(first_record.fqn, second_record.fqn);
+        EXPECT_EQ(first_record.classification, second_record.classification);
+        EXPECT_EQ(first_record.fixed_region_size, second_record.fixed_region_size);
+        EXPECT_EQ(first_record.complete_fixed_record_size,
+                  second_record.complete_fixed_record_size);
+        ASSERT_EQ(first_record.fields.size(), second_record.fields.size());
+        ASSERT_EQ(first_record.fields.size(), 1U);
+        EXPECT_EQ(first_record.fields[0].location.byte_offset,
+                  second_record.fields[0].location.byte_offset);
+        EXPECT_EQ(first_record.fields[0].slot_size, second_record.fields[0].slot_size);
+    }
 }
 
 TEST(BrfV2LayoutTest, RepeatedSchemaIrLayoutIsDeterministic) {

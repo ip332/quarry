@@ -188,54 +188,143 @@ private:
         failed_ = true;
     }
 
-    void collect_namespace(const ::quarry::schema_ir::NamespaceIR& namespace_ir) {
-        for (const ::quarry::schema_ir::RecordIR& record : namespace_ir.records()) {
-            if (record.ir_id() == 0U || record.fqn().empty()) {
-                fail("BRF v2 layout encountered a record without a valid identity");
-                return;
+    void collect_namespace(const ::quarry::schema_ir::NamespaceIR& root_namespace) {
+        std::vector<const ::quarry::schema_ir::NamespaceIR*> worklist{&root_namespace};
+        while (!worklist.empty() && !failed_) {
+            const ::quarry::schema_ir::NamespaceIR* namespace_ir = worklist.back();
+            worklist.pop_back();
+
+            for (const ::quarry::schema_ir::RecordIR& record : namespace_ir->records()) {
+                if (record.ir_id() == 0U || record.fqn().empty()) {
+                    fail("BRF v2 layout encountered a record without a valid identity");
+                    return;
+                }
+                if (!records_by_id_.emplace(record.ir_id(), &record).second ||
+                    !record_ids_by_fqn_.emplace(record.fqn(), record.ir_id()).second) {
+                    fail("BRF v2 layout encountered a duplicate record identity");
+                    return;
+                }
             }
-            if (!records_by_id_.emplace(record.ir_id(), &record).second ||
-                !record_ids_by_fqn_.emplace(record.fqn(), record.ir_id()).second) {
-                fail("BRF v2 layout encountered a duplicate record identity");
-                return;
+            for (const ::quarry::schema_ir::EnumIR& enumeration : namespace_ir->enums()) {
+                if (enumeration.ir_id() == 0U || enumeration.fqn().empty()) {
+                    fail("BRF v2 layout encountered an enum without a valid identity");
+                    return;
+                }
+                if (!enums_by_id_.emplace(enumeration.ir_id(), &enumeration).second) {
+                    fail("BRF v2 layout encountered a duplicate enum identity");
+                    return;
+                }
             }
-        }
-        for (const ::quarry::schema_ir::EnumIR& enumeration : namespace_ir.enums()) {
-            if (enumeration.ir_id() == 0U || enumeration.fqn().empty()) {
-                fail("BRF v2 layout encountered an enum without a valid identity");
-                return;
-            }
-            if (!enums_by_id_.emplace(enumeration.ir_id(), &enumeration).second) {
-                fail("BRF v2 layout encountered a duplicate enum identity");
-                return;
-            }
-        }
-        for (const ::quarry::schema_ir::NamespaceIR& child : namespace_ir.namespaces()) {
-            collect_namespace(child);
-            if (failed_) {
-                return;
+
+            // Reverse-push so pop_back visits children in declaration order,
+            // matching the former recursive depth-first traversal.
+            for (auto child = namespace_ir->namespaces().rbegin();
+                 child != namespace_ir->namespaces().rend(); ++child) {
+                worklist.push_back(&*child);
             }
         }
     }
 
     [[nodiscard]] bool build_record(std::uint64_t record_id) {
-        const auto record_it = records_by_id_.find(record_id);
-        if (record_it == records_by_id_.end()) {
+        struct Frame {
+            std::uint64_t record_id;
+            int next_field = 0;
+        };
+
+        const auto initial_record = records_by_id_.find(record_id);
+        if (initial_record == records_by_id_.end()) {
             fail("BRF v2 layout could not resolve record IR id " + std::to_string(record_id));
             return false;
         }
-        const auto state_it = states_.find(record_id);
-        if (state_it != states_.end()) {
-            if (state_it->second == VisitState::Visiting) {
+        const auto initial_state = states_.find(record_id);
+        if (initial_state != states_.end()) {
+            if (initial_state->second == VisitState::Visiting) {
                 fail("BRF v2 layout encountered a recursive record reference at '" +
-                     record_it->second->fqn() + "'");
+                     initial_record->second->fqn() + "'");
                 return false;
             }
             return true;
         }
 
+        std::vector<Frame> workstack;
+        workstack.push_back({record_id});
         states_[record_id] = VisitState::Visiting;
-        const ::quarry::schema_ir::RecordIR& record = *record_it->second;
+
+        while (!workstack.empty() && !failed_) {
+            Frame& frame = workstack.back();
+            const auto record_it = records_by_id_.find(frame.record_id);
+            if (record_it == records_by_id_.end()) {
+                fail("BRF v2 layout could not resolve record IR id " +
+                     std::to_string(frame.record_id));
+                break;
+            }
+            const ::quarry::schema_ir::RecordIR& record = *record_it->second;
+
+            bool dependency_pushed = false;
+            while (frame.next_field < record.fields_size()) {
+                const ::quarry::schema_ir::FieldType& field_type =
+                    record.fields(frame.next_field++).type();
+                const std::optional<std::uint64_t> dependency = record_dependency(field_type);
+                if (!dependency.has_value()) {
+                    continue;
+                }
+
+                const auto dependency_state = states_.find(*dependency);
+                if (dependency_state != states_.end()) {
+                    if (dependency_state->second == VisitState::Visiting) {
+                        const auto dependency_record = records_by_id_.find(*dependency);
+                        fail("BRF v2 layout encountered a recursive record reference at '" +
+                             (dependency_record == records_by_id_.end()
+                                  ? std::to_string(*dependency)
+                                  : dependency_record->second->fqn()) +
+                             "'");
+                        break;
+                    }
+                    continue;
+                }
+
+                if (records_by_id_.find(*dependency) == records_by_id_.end()) {
+                    fail("BRF v2 layout could not resolve record IR id " +
+                         std::to_string(*dependency));
+                    break;
+                }
+                states_[*dependency] = VisitState::Visiting;
+                workstack.push_back({*dependency});
+                dependency_pushed = true;
+                break;
+            }
+            if (failed_) {
+                break;
+            }
+            if (dependency_pushed) {
+                continue;
+            }
+
+            if (!construct_record_layout(record)) {
+                break;
+            }
+            states_[frame.record_id] = VisitState::Complete;
+            workstack.pop_back();
+        }
+
+        return !failed_;
+    }
+
+    [[nodiscard]] std::optional<std::uint64_t>
+    record_dependency(const ::quarry::schema_ir::FieldType& field_type) const {
+        if (field_type.kind_case() == ::quarry::schema_ir::FieldType::kRecord) {
+            return field_type.record().target_record_ir_id();
+        }
+        if (field_type.kind_case() == ::quarry::schema_ir::FieldType::kArray &&
+            field_type.array().element_type().kind_case() ==
+                ::quarry::schema_ir::FieldType::kRecord) {
+            return field_type.array().element_type().record().target_record_ir_id();
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] bool construct_record_layout(
+        const ::quarry::schema_ir::RecordIR& record) {
         if (record.fields_size() > 256) {
             fail("record '" + record.fqn() + "' has more than 256 fields in BRF v2 layout");
             return false;
@@ -313,8 +402,7 @@ private:
             result.complete_fixed_record_size = cursor;
         }
 
-        states_[record_id] = VisitState::Complete;
-        record_layouts_.emplace(record_id, std::move(result));
+        record_layouts_[record.ir_id()] = std::move(result);
         return true;
     }
 
@@ -373,10 +461,13 @@ private:
             return true;
         case ::quarry::schema_ir::FieldType::kRecord: {
             const std::uint64_t target_id = field_type.record().target_record_ir_id();
-            if (!build_record(target_id)) {
+            const auto target_it = record_layouts_.find(target_id);
+            if (target_it == record_layouts_.end()) {
+                fail("BRF v2 layout could not resolve completed record IR id " +
+                     std::to_string(target_id));
                 return false;
             }
-            const RecordLayout& target = record_layouts_.at(target_id);
+            const RecordLayout& target = target_it->second;
             result.kind = LayoutTypeKind::Record;
             result.classification = target.classification;
             result.referenced_ir_id = target_id;
