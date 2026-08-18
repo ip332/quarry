@@ -149,6 +149,8 @@ add_quarry_gtest(runtime_c_binary_record_test runtime_c/binary_record_test.cpp
                       quarry_runtime_c)
 target_compile_definitions(runtime_c_binary_record_test PRIVATE
     QUARRY_TEST_GENERATED_CODE_API_VERSION_C=${QUARRY_GENERATED_CODE_API_VERSION_C})
+add_quarry_gtest(runtime_c_binary_record_v2_test runtime_c/binary_record_v2_test.cpp
+                      quarry_runtime_c)
 add_quarry_gtest(runtime_package_consumer_test consumer/runtime_package_test.cpp
                       quarry_compiler_support)
 target_compile_definitions(runtime_package_consumer_test PRIVATE

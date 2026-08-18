@@ -351,6 +351,7 @@ target_link_libraries(quarry_compiler_backend_c
         quarry_compiler_output_planning
         quarry_project_options
     PRIVATE
+        quarry_compiler_layout
         quarry_schema_ir_warning_tweaks
 )
 
