@@ -433,14 +433,16 @@ TEST(BackendCTest, GeneratesScalarStructFieldsAndCodecDeclarations) {
     EXPECT_NE(header.find("telemetry_Sample_encode_result_t"), std::string::npos);
     EXPECT_NE(header.find("telemetry_Sample_decode_result_t"), std::string::npos);
     EXPECT_NE(header.find("size_t telemetry_Sample_encoded_size("), std::string::npos);
-    EXPECT_NE(header.find("#include <quarry/runtime_c/binary_record.h>"), std::string::npos);
+    EXPECT_NE(header.find("#include <quarry/runtime_c/binary_record_v2.h>"), std::string::npos);
     EXPECT_NE(header.find("QUARRY_C_GENERATED_CODE_API_VERSION"), std::string::npos);
 
     const std::string& source = result.files[1].content;
     EXPECT_NE(source.find("quarry_c_write_u32(&writer, record->count)"), std::string::npos);
     EXPECT_NE(source.find("quarry_c_write_f32(&writer, record->ratio)"), std::string::npos);
-    EXPECT_NE(source.find("quarry_c_encode_record(1U, fields, field_count"), std::string::npos);
-    EXPECT_NE(source.find("quarry_c_parse_record(input, input_length"), std::string::npos);
+    EXPECT_NE(source.find("quarry_c_brf_v2_encode_record(&"),
+             std::string::npos);
+    EXPECT_NE(source.find("quarry_c_brf_v2_parse_record(input, input_length"),
+             std::string::npos);
 }
 
 TEST(BackendCTest, EnumFieldGeneratesTypedefTypeStructFieldAndCodec) {
@@ -1337,27 +1339,20 @@ TEST(BackendCTest, ArrayOfRecordFieldGeneratesFixedCapacityStructFieldAndCodec) 
     // max_encoded_size: 16 header + 21 directory overhead + 4 payload)) =
     // 5 + 3 * 51 = 158.
     EXPECT_NE(source.find("uint8_t items_bytes[158];"), std::string::npos);
-    // Encode (PR-114 §2A "Option A"): learn the element's length from its
-    // own existing _encoded_size(), write that as the length-prefix
-    // varuint, then encode the element directly into the writer's own
-    // remaining tail space -- no temporary buffer, no raw-byte copy, no
-    // new runtime function.
+    // BRF v2 fixed-size record elements are packed consecutively without a
+    // per-element length prefix; the child layout supplies their size.
     EXPECT_NE(source.find("const size_t element_size = "
                          "tree_Item_encoded_size(&record->items[element_index]);"),
              std::string::npos);
-    EXPECT_NE(source.find("quarry_c_write_varuint(&writer, (uint64_t)element_size)"),
+    EXPECT_EQ(source.find("quarry_c_write_varuint(&writer, (uint64_t)element_size)"),
              std::string::npos);
     EXPECT_NE(source.find("tree_Item_encode(&record->items[element_index], "
                          "writer.buffer + writer.length, writer.capacity - writer.length)"),
              std::string::npos);
     EXPECT_NE(source.find("writer.length += element_result.bytes_written;"), std::string::npos);
-    // Decode: per-element varuint length prefix, bounds-checked, then pure
-    // composition via the element type's own _decode() on the isolated
-    // element byte span.
-    EXPECT_NE(source.find("quarry_c_read_varuint(&array_reader, &element_length_raw)"),
-             std::string::npos);
-    EXPECT_NE(source.find("element_length_raw > array_reader.length - array_reader.offset"),
-             std::string::npos);
+    // Decode uses the schema-known child size and validates each complete
+    // child record in place.
+    EXPECT_NE(source.find("const size_t element_length = "), std::string::npos);
     EXPECT_NE(source.find("tree_Item_decode(array_reader.buffer + array_reader.offset, "
                          "element_length)"),
              std::string::npos);

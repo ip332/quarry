@@ -1,5 +1,17 @@
 # Runtime (C)
 
+## BRF v2 C path
+
+Generated C now includes `quarry/runtime_c/binary_record_v2.h` and emits
+canonical BRF v2 records. The compiler-provided layout metadata owns fixed
+slot and presence-bit locations; the v2 runtime owns the big-endian header,
+8-byte variable descriptors, contiguous declaration-ordered variable tail,
+and structural parsing. Generated record setters continue to use the
+caller-owned logical C structs, so each encode rebuilds the tail rather than
+mutating offsets in place. This keeps updates deterministic and bounded by
+the caller's output buffer. C++ and Python generated paths remain explicit
+BRF v1 users until their migration PRs.
+
 This module owns generic C runtime support for Quarry binary records --
 the C counterpart to `runtime/` (the C++ runtime). The two are independent
 sibling implementations: neither depends on the other, and each is

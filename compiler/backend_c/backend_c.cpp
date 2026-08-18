@@ -1,5 +1,7 @@
 #include "compiler/backend_c/backend_c.hpp"
 #include "compiler/backend_c/generated_code_api_version_c.hpp"
+#include "compiler/diagnostics/diagnostic.hpp"
+#include "compiler/layout/layout.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -26,6 +28,9 @@ using ::quarry::schema_ir::FieldIR;
 using ::quarry::schema_ir::FieldType;
 using ::quarry::schema_ir::NamespaceIR;
 using ::quarry::schema_ir::RecordIR;
+using ::quarry::compiler::layout::FieldStorage;
+using ::quarry::compiler::layout::LayoutModel;
+using ::quarry::compiler::layout::RecordLayout;
 
 // --- Namespace/symbol naming -------------------------------------------------
 //
@@ -349,6 +354,8 @@ struct FieldEncoding {
                                           // is_array, so field reuse is unambiguous, mirroring
                                           // how is_enum already double-duties for both plain-enum
                                           // and array-of-enum fields.
+    bool array_element_is_fixed_record = false;
+    std::uint32_t array_element_fixed_record_size = 0U;
     bool is_record = false;
     std::uint64_t record_target_ir_id = 0U; // only meaningful when is_record; the referenced
                                             // record's Schema IR id, used to look up its
@@ -597,6 +604,10 @@ struct PlannedField {
     std::string name;        // generated C member/local base name
     std::string source_name; // original Schema IR field name, for diagnostics
     std::uint32_t field_index = 0U;
+    std::uint32_t presence_bit_index = 0U;
+    std::uint32_t byte_offset = 0U;
+    std::uint32_t slot_size = 0U;
+    FieldStorage storage = FieldStorage::Fixed;
     FieldEncoding encoding;
 };
 
@@ -604,6 +615,8 @@ struct PlannedRecord {
     std::uint64_t ir_id = 0U;
     std::string symbol_name;
     std::uint32_t record_id = 0U;
+    std::uint32_t presence_bitmap_size = 0U;
+    std::uint32_t fixed_region_size = 0U;
     std::vector<PlannedField> fields;
     // Transient: same-namespace record ir_ids this record's fields embed by
     // value, used only by order_records_topologically below (not consulted
@@ -1045,6 +1058,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 [[nodiscard]] bool collect_namespace_files(const NamespaceIR& ns, const CodegenOptions& options,
                                            const EnumCatalog& catalog,
                                            RecordCatalog& record_catalog,
+                                           const LayoutModel& layout_model,
                                            const OutputSelection* output_selection,
                                            std::vector<PlannedNamespaceFile>& files,
                                            std::string& error_message) {
@@ -1110,10 +1124,18 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         std::vector<PlannedRecord> planned_records;
         planned_records.reserve(static_cast<std::size_t>(ns.records_size()));
         for (const RecordIR& record_ir : ns.records()) {
+            const RecordLayout* canonical_layout = layout_model.find_record(record_ir.fqn());
+            if (canonical_layout == nullptr ||
+                canonical_layout->fields.size() != static_cast<std::size_t>(record_ir.fields_size())) {
+                error_message = "backend_c: canonical BRF v2 layout is missing record '" +
+                                record_ir.fqn() + "' or has an inconsistent field count";
+                return false;
+            }
             std::vector<PlannedField> planned_fields;
             CIdentifierAllocator field_names;
             std::vector<std::uint64_t> dependencies;
             planned_fields.reserve(static_cast<std::size_t>(record_ir.fields_size()));
+            std::size_t field_position = 0U;
             for (const FieldIR& field_ir : record_ir.fields()) {
                 std::optional<FieldEncoding> encoding = lower_field_encoding(
                     record_ir, field_ir, ns.fqn(), catalog, record_catalog, error_message);
@@ -1131,8 +1153,51 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                     .name = allocate_field_name(field_names, field_ir.name(), *encoding),
                     .source_name = field_ir.name(),
                     .field_index = field_ir.field_index(),
+                    .presence_bit_index = canonical_layout->fields[field_position].presence_bit_index,
+                    .byte_offset = canonical_layout->fields[field_position].location.byte_offset,
+                    .slot_size = canonical_layout->fields[field_position].slot_size,
+                    .storage = canonical_layout->fields[field_position].storage,
                     .encoding = std::move(*encoding),
                 };
+                const auto& canonical_field = canonical_layout->fields[field_position];
+                const auto* canonical_type = &canonical_field.type;
+                if (canonical_field.type.kind ==
+                        ::quarry::compiler::layout::LayoutTypeKind::Array &&
+                    canonical_field.type.element_type != nullptr) {
+                    canonical_type = canonical_field.type.element_type.get();
+                }
+                if (planned_field.encoding.is_enum &&
+                    canonical_type->kind == ::quarry::compiler::layout::LayoutTypeKind::Enum) {
+                    planned_field.encoding.width_bytes =
+                        static_cast<std::uint8_t>(canonical_type->encoded_width);
+                    planned_field.encoding.enum_valid_values.clear();
+                    for (const std::uint64_t value : canonical_type->enum_values) {
+                        planned_field.encoding.enum_valid_values.push_back(
+                            static_cast<std::int64_t>(value));
+                    }
+                    planned_field.encoding.runtime_verb =
+                        unsigned_runtime_verb_for_width(planned_field.encoding.width_bytes);
+                }
+                if (!planned_field.encoding.is_string && !planned_field.encoding.is_bytes &&
+                    !planned_field.encoding.is_record && !planned_field.encoding.array_element_is_record &&
+                    canonical_type->encoded_width != 0U) {
+                    planned_field.encoding.width_bytes =
+                        static_cast<std::uint8_t>(canonical_type->encoded_width);
+                    planned_field.encoding.runtime_verb =
+                        planned_field.encoding.is_enum
+                            ? unsigned_runtime_verb_for_width(planned_field.encoding.width_bytes)
+                            : planned_field.encoding.runtime_verb;
+                }
+                if (planned_field.encoding.is_array &&
+                    planned_field.encoding.array_element_is_record &&
+                    canonical_field.type.element_type != nullptr) {
+                    planned_field.encoding.array_element_is_fixed_record =
+                        canonical_field.type.element_type->classification ==
+                        ::quarry::compiler::layout::RecordClassification::FixedSize;
+                    planned_field.encoding.array_element_fixed_record_size =
+                        canonical_field.type.element_type->encoded_width;
+                }
+                ++field_position;
                 const bool references_record =
                     planned_field.encoding.is_record ||
                     planned_field.encoding.array_element_is_record;
@@ -1174,6 +1239,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                 .ir_id = record_ir.ir_id(),
                 .symbol_name = safe_c_identifier(symbol_prefix + record_ir.name()),
                 .record_id = record_ir.record_id(),
+                .presence_bitmap_size = canonical_layout->presence_bitmap_size,
+                .fixed_region_size = canonical_layout->fixed_region_size,
                 .fields = std::move(planned_fields),
                 .same_namespace_dependencies = std::move(dependencies),
             });
@@ -1232,7 +1299,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     }
 
     for (const NamespaceIR& child : ns.namespaces()) {
-        if (!collect_namespace_files(child, options, catalog, record_catalog, output_selection,
+        if (!collect_namespace_files(child, options, catalog, record_catalog, layout_model,
+                                     output_selection,
                                      files,
                                      error_message)) {
             return false;
@@ -1319,7 +1387,55 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     }
     RecordCatalog record_catalog;
     collect_record_catalog(schema_ir.root_namespace(), record_catalog);
+    ::quarry::compiler::diagnostics::DiagnosticEngine layout_diagnostics;
+    ::quarry::compiler::layout::LayoutComputer layout_computer;
+    const LayoutModel layout_model = layout_computer.compute(schema_ir, layout_diagnostics);
+    if (layout_diagnostics.has_errors()) {
+        error_message = "backend_c: BRF v2 layout computation failed";
+        if (!layout_diagnostics.diagnostics().empty()) {
+            error_message += ": " + layout_diagnostics.diagnostics().front().message();
+            if (error_message.find("recursive record") != std::string::npos) {
+                error_message += " (cycle in by-value record dependency)";
+            }
+        }
+        // Preserve the C backend's established, field-specific diagnostic
+        // for negative enum values even though the canonical layout pass
+        // rejects them before planning can begin.
+        std::vector<const NamespaceIR*> namespaces{&schema_ir.root_namespace()};
+        while (!namespaces.empty()) {
+            const NamespaceIR* current = namespaces.back();
+            namespaces.pop_back();
+            for (const RecordIR& record_ir : current->records()) {
+                for (const FieldIR& field_ir : record_ir.fields()) {
+                    const FieldType* enum_type = nullptr;
+                    if (field_ir.type().kind_case() == FieldType::kEnumType) {
+                        enum_type = &field_ir.type();
+                    } else if (field_ir.type().kind_case() == FieldType::kArray &&
+                               field_ir.type().array().element_type().kind_case() ==
+                                   FieldType::kEnumType) {
+                        enum_type = &field_ir.type().array().element_type();
+                    }
+                    if (enum_type == nullptr) continue;
+                    const auto enum_it = catalog.find(
+                        enum_type->enum_type().target_enum_ir_id());
+                    if (enum_it != catalog.end() && !enum_it->second.all_non_negative) {
+                        error_message = "backend_c: field '" + record_ir.fqn() + "." +
+                                        field_ir.name() + "' references an enum with a negative "
+                                        "declared value; enum fields are only supported when "
+                                        "every declared value is non-negative";
+                        if (field_ir.type().kind_case() == FieldType::kArray) {
+                            error_message += " (array element type)";
+                        }
+                        return false;
+                    }
+                }
+            }
+            for (const NamespaceIR& child : current->namespaces()) namespaces.push_back(&child);
+        }
+        return false;
+    }
     if (!collect_namespace_files(schema_ir.root_namespace(), options, catalog, record_catalog,
+                                 layout_model,
                                  output_selection_ptr, files, error_message)) {
         return false;
     }
@@ -1422,7 +1538,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         stream << "#include <stdbool.h>\n";
         stream << "#include <stddef.h>\n";
         stream << "\n";
-        stream << "#include <quarry/runtime_c/binary_record.h>\n";
+        stream << "#include <quarry/runtime_c/binary_record_v2.h>\n";
         stream << "\n";
         stream << "#if QUARRY_C_GENERATED_CODE_API_VERSION != " << kGeneratedCodeApiVersionC
                << "U\n";
@@ -1738,6 +1854,25 @@ void render_scalar_or_enum_field_build(std::ostringstream& stream, const Planned
 // `_encoded_size()` instead of its `_encode()`.
 void render_record_array_element_build(std::ostringstream& stream, const PlannedField& field,
                                        bool check_write_status) {
+    if (field.encoding.array_element_is_fixed_record) {
+        if (check_write_status) {
+            stream << "            const " << field.encoding.record_symbol_name
+                   << "_encode_result_t element_result = " << field.encoding.record_symbol_name
+                   << "_encode(&record->" << field.name
+                   << "[element_index], writer.buffer + writer.length, writer.capacity - writer.length);\n";
+            stream << "            if (element_result.status != QUARRY_C_STATUS_OK) {\n"
+                      "                result.status = element_result.status;\n"
+                      "                return result;\n"
+                      "            }\n";
+            stream << "            writer.length += element_result.bytes_written;\n";
+        } else {
+            stream << "            const size_t element_size = "
+                   << field.encoding.record_symbol_name << "_encoded_size(&record->"
+                   << field.name << "[element_index]);\n";
+            stream << "            writer.length += element_size;\n";
+        }
+        return;
+    }
     stream << "            const size_t element_size = " << field.encoding.record_symbol_name
            << "_encoded_size(&record->" << field.name << "[element_index]);\n";
     if (check_write_status) {
@@ -2067,6 +2202,28 @@ void render_bytes_field_decode(std::ostringstream& stream, const PlannedField& f
 // afterward -- a direct write to an already-public field, the write-side
 // mirror of how this same field is already read directly elsewhere.
 void render_record_array_element_decode(std::ostringstream& stream, const PlannedField& field) {
+    if (field.encoding.array_element_is_fixed_record) {
+        stream << "                const size_t element_length = "
+               << field.encoding.array_element_fixed_record_size << "U;\n";
+        stream << "                if (element_length > array_reader.length - array_reader.offset) {\n"
+                  "                    result.status = QUARRY_C_STATUS_INVALID_FIELD_LENGTH;\n"
+                  "                    result.has_byte_offset = true;\n"
+                  "                    result.byte_offset = field_view.byte_offset + array_reader.offset;\n"
+                  "                    return result;\n"
+                  "                }\n";
+        stream << "                const " << field.encoding.record_symbol_name
+               << "_decode_result_t element_result = " << field.encoding.record_symbol_name
+               << "_decode(array_reader.buffer + array_reader.offset, element_length);\n";
+        stream << "                if (element_result.status != QUARRY_C_STATUS_OK) {\n"
+                  "                    result.status = element_result.status;\n"
+                  "                    result.has_byte_offset = true;\n"
+                  "                    result.byte_offset = field_view.byte_offset + array_reader.offset + element_result.byte_offset;\n"
+                  "                    return result;\n"
+                  "                }\n";
+        stream << "                result.value." << field.name << "[element_index] = element_result.value;\n"
+                  "                array_reader.offset += element_length;\n";
+        return;
+    }
     stream << "                uint64_t element_length_raw = 0;\n";
     stream << "                const quarry_c_status_t element_length_status = "
               "quarry_c_read_varuint(&array_reader, &element_length_raw);\n";
@@ -2335,6 +2492,32 @@ void render_record_field_decode(std::ostringstream& stream, const PlannedField& 
 
     for (const PlannedRecord& record : file.records) {
         stream << "\n";
+        if (record.fields.empty()) {
+            stream << "static const quarry_c_brf_v2_record_layout_t " << record.symbol_name
+                   << "_brf_v2_layout = { " << record.record_id << "U, "
+                   << record.presence_bitmap_size << "U, " << record.fixed_region_size
+                   << "U, 0U, NULL };\n";
+        } else {
+            stream << "static const quarry_c_brf_v2_field_layout_t " << record.symbol_name
+                   << "_brf_v2_fields[] = {\n";
+            for (const PlannedField& field : record.fields) {
+                const char* storage = "QUARRY_C_BRF_V2_STORAGE_FIXED";
+                if (field.storage == FieldStorage::InlineFixedNestedRecord) {
+                    storage = "QUARRY_C_BRF_V2_STORAGE_INLINE_FIXED_NESTED";
+                } else if (field.storage == FieldStorage::VariableDescriptor) {
+                    storage = "QUARRY_C_BRF_V2_STORAGE_VARIABLE_DESCRIPTOR";
+                }
+                stream << "    { " << field.field_index << "U, " << field.presence_bit_index
+                       << "U, " << field.byte_offset << "U, 0U, "
+                       << field.encoding.width_bytes * 8U << "U, " << field.slot_size << "U, "
+                       << storage << " },\n";
+            }
+            stream << "};\n";
+            stream << "static const quarry_c_brf_v2_record_layout_t " << record.symbol_name
+                   << "_brf_v2_layout = { " << record.record_id << "U, "
+                   << record.presence_bitmap_size << "U, " << record.fixed_region_size << "U, "
+                   << record.fields.size() << "U, " << record.symbol_name << "_brf_v2_fields };\n";
+        }
         stream << "void " << record.symbol_name << "_init(" << record.symbol_name
                << "_t* record) {\n";
         stream << "    memset(record, 0, sizeof(*record));\n";
@@ -2346,15 +2529,18 @@ void render_record_field_decode(std::ostringstream& stream, const PlannedField& 
         if (record.fields.empty()) {
             stream << "    (void)record;\n";
             stream << "    size_t size = 0U;\n";
-            stream << "    (void)quarry_c_record_encoded_size(NULL, 0U, &size);\n";
+            stream << "    (void)quarry_c_brf_v2_record_size(&" << record.symbol_name
+                   << "_brf_v2_layout, NULL, 0U, &size);\n";
             stream << "    return size;\n";
         } else {
-            stream << "    quarry_c_field_t fields[" << record.fields.size() << "];\n";
+            stream << "    quarry_c_brf_v2_field_value_t fields[" << record.fields.size()
+                   << "];\n";
             stream << "    size_t field_count = 0U;\n";
             render_field_scratch_declarations(stream, record.fields);
             render_build_fields_loop(stream, record.fields, /*check_write_status=*/false);
             stream << "    size_t size = 0U;\n";
-            stream << "    (void)quarry_c_record_encoded_size(fields, field_count, &size);\n";
+            stream << "    (void)quarry_c_brf_v2_record_size(&" << record.symbol_name
+                   << "_brf_v2_layout, fields, field_count, &size);\n";
             stream << "    return size;\n";
         }
         stream << "}\n";
@@ -2368,14 +2554,17 @@ void render_record_field_decode(std::ostringstream& stream, const PlannedField& 
         stream << "    result.bytes_written = 0U;\n";
         if (record.fields.empty()) {
             stream << "    (void)record;\n";
-            stream << "    result.status = quarry_c_encode_record(" << record.record_id
+            stream << "    result.status = quarry_c_brf_v2_encode_record(&" << record.symbol_name
+                   << "_brf_v2_layout, " << record.record_id
                    << "U, NULL, 0U, output, output_capacity, &result.bytes_written);\n";
         } else {
-            stream << "    quarry_c_field_t fields[" << record.fields.size() << "];\n";
+            stream << "    quarry_c_brf_v2_field_value_t fields[" << record.fields.size()
+                   << "];\n";
             stream << "    size_t field_count = 0U;\n";
             render_field_scratch_declarations(stream, record.fields);
             render_build_fields_loop(stream, record.fields, /*check_write_status=*/true);
-            stream << "    result.status = quarry_c_encode_record(" << record.record_id
+            stream << "    result.status = quarry_c_brf_v2_encode_record(&"
+                   << record.symbol_name << "_brf_v2_layout, " << record.record_id
                    << "U, fields, field_count, output, output_capacity, "
                       "&result.bytes_written);\n";
         }
@@ -2391,11 +2580,11 @@ void render_record_field_decode(std::ostringstream& stream, const PlannedField& 
         stream << "    result.byte_offset = 0U;\n";
         stream << "    memset(&result.value, 0, sizeof(result.value));\n";
         stream << "\n";
-        stream << "    quarry_c_parsed_record_t parsed;\n";
+        stream << "    quarry_c_brf_v2_parsed_record_t parsed;\n";
         stream << "    size_t error_offset = 0U;\n";
         stream << "    const quarry_c_status_t parse_status =\n";
-        stream << "        quarry_c_parse_record(input, input_length, &parsed, "
-                  "&error_offset);\n";
+        stream << "        quarry_c_brf_v2_parse_record(input, input_length, &"
+                  << record.symbol_name << "_brf_v2_layout, &parsed, &error_offset);\n";
         stream << "    if (parse_status != QUARRY_C_STATUS_OK) {\n";
         stream << "        result.status = parse_status;\n";
         stream << "        if (parse_status != QUARRY_C_STATUS_UNSUPPORTED_FIELD_COUNT) {\n";
@@ -2414,10 +2603,12 @@ void render_record_field_decode(std::ostringstream& stream, const PlannedField& 
         for (const PlannedField& field : record.fields) {
             stream << "\n";
             stream << "    {\n";
-            stream << "        quarry_c_field_view_t field_view;\n";
+            stream << "        quarry_c_brf_v2_field_view_t field_view;\n";
             stream << "        bool field_found = false;\n";
-            stream << "        (void)quarry_c_find_field(&parsed, " << field.field_index
-                   << "U, &field_view, &field_found);\n";
+            stream << "        (void)quarry_c_brf_v2_find_field(&parsed, &"
+                   << record.symbol_name << "_brf_v2_layout, " << field.field_index
+                   << "U, &field_view);\n";
+            stream << "        field_found = field_view.present;\n";
             stream << "        if (field_found) {\n";
             if (field.encoding.is_array) {
                 render_array_field_decode(stream, field);

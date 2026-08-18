@@ -1,5 +1,15 @@
 # Backend (C)
 
+## BRF v2 migration
+
+Generated C targets BRF v2 through the canonical compiler layout artifact.
+The generator emits layout constants and logical field values; it does not
+calculate wire offsets, bitmap positions, descriptors, or tail placement.
+`binary_record_v2.h` performs the physical construction and validation. The
+existing C++ and Python generated backends remain on BRF v1 during this
+increment, so mixed-language interoperability tests are intentionally split
+by format until those migrations land.
+
 **Status: scalar, enum, bounded string, bounded bytes, bounded array (of
 scalar, enum, bounded string, bounded bytes, or record elements), and nested
 record field codec (PR-108/PR-109/PR-110/PR-111/PR-112/PR-113/PR-114/PR-131/PR-139).
