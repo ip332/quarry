@@ -578,8 +578,9 @@ LayoutModel LayoutComputer::compute(const semantic::SemanticModel& semantic_mode
         record_layout.record_id = static_cast<std::uint32_t>(index + 1U);
         record_layout.fields.reserve(record.fields.size());
         for (std::size_t field_index = 0; field_index < record.fields.size(); ++field_index) {
-            record_layout.fields.push_back(
-                FieldLayout{.field_index = static_cast<std::uint32_t>(field_index)});
+            FieldLayout field_layout;
+            field_layout.field_index = static_cast<std::uint32_t>(field_index);
+            record_layout.fields.push_back(std::move(field_layout));
         }
 
         layout_model.records.push_back(std::move(record_layout));
