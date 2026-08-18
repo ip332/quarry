@@ -132,9 +132,9 @@ A future caller-buffer / codec benchmark may measure non-owning serialization
 APIs if a supported C++ API becomes available. It must use a different
 measurement model and must not be aggregated with `public-api-v1` results.
 
-BRF and protobuf encoded sizes are reported independently. They are different
-wire formats and must not be compared for byte equality. The logical records,
-field presence, dataset seed, and validation rules are shared. Protobuf C++
+BRF v1, BRF v2, and protobuf encoded sizes are reported independently. They are
+different wire formats and must not be compared for byte equality. The logical
+records, field presence, dataset seed, and validation rules are shared. Protobuf C++
 normal allocation and Arena allocation are separate implementations and are
 never merged into one result.
 
@@ -225,6 +225,6 @@ CI publishes the generated directory as an Actions artifact rather than
 committing volatile measurements under `benchmarks/results/`; use the artifact
 from a successful `main` run for the current published measurements.
 Tables and charts show measurements only: timing is advisory, deterministic
-resource metrics are validated across runs, and BRF/protobuf encoded sizes are
-separate wire-format series. The tool does not compare baselines, upload
+resource metrics are validated across runs, and BRF v1/BRF v2/protobuf encoded
+sizes are separate wire-format series. The tool does not compare baselines, upload
 assets, rank implementations, or create CI performance gates.

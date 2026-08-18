@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 from generate_dataset import CASES
+from run_benchmarks import wire_format
 from validate_results import validate
 
 
@@ -40,6 +41,18 @@ def main() -> None:
             "validation_status": "passed",
         }) + "\n", encoding="utf-8")
         validate(result)
+        quarry_c_result = json.loads(result.read_text(encoding="utf-8"))
+        quarry_c_result.update({"backend": "c", "wire_format": wire_format("c"),
+                                "encoded_byte_size": 11})
+        quarry_c_result["resources"]["encoded_bytes"] = 11
+        c_result = root / "telemetry-c-round_trip.json"
+        c_result.write_text(json.dumps(quarry_c_result) + "\n", encoding="utf-8")
+        subprocess.run([sys.executable, str(ROOT / "benchmarks/scripts/validate_results.py"),
+                        str(result), str(c_result)], check=True, stdout=subprocess.DEVNULL)
+        assert wire_format("cpp") == "brf-v1"
+        assert wire_format("python") == "brf-v1"
+        assert wire_format("c") == "brf-v2"
+        assert wire_format("protobuf-cpp") == "protobuf"
         protobuf_result = json.loads(result.read_text(encoding="utf-8"))
         protobuf_result.update({"backend": "protobuf-cpp", "wire_format": "protobuf", "encoded_byte_size": 11})
         protobuf_result["resources"]["encoded_bytes"] = 11
@@ -53,6 +66,7 @@ def main() -> None:
                          "--markdown", str(root / "summary.md")], check=True,
                        stdout=subprocess.DEVNULL)
         result.unlink()
+        c_result.unlink()
         (root / "telemetry-protobuf-cpp-round_trip.json").unlink()
         try:
             subprocess.run([sys.executable, str(ROOT / "benchmarks/scripts/run_benchmarks.py"),

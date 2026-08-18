@@ -21,6 +21,12 @@ CASES = ("telemetry", "configuration", "nested", "large", "stress")
 EPOCHS = {"cpp": 3, "c": 2, "python": 1}
 
 
+def wire_format(backend: str) -> str:
+    if backend.startswith("protobuf-"):
+        return "protobuf"
+    return "brf-v2" if backend == "c" else "brf-v1"
+
+
 def run(command: list[str], cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
     subprocess.run(command, cwd=cwd, env=env, check=True)
 
@@ -172,7 +178,7 @@ def main() -> None:
                     value.update({
                         "quarry_version": quarry_version, "generated_code_api_epoch": EPOCHS.get(backend),
                         "compiler_or_interpreter_version": version([sys.executable, "--version"] if python_backend else ["c++", "--version"]),
-                        "wire_format": "protobuf" if backend.startswith("protobuf-") else "brf",
+                        "wire_format": wire_format(backend),
                         "protobuf_version": version(["protoc", "--version"]) if backend.startswith("protobuf-") else None,
                         "protoc_version": version(["protoc", "--version"]) if backend.startswith("protobuf-") else None,
                         "benchmark_harness_version": 3, "benchmark_suite_version": "153",
