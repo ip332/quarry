@@ -6,21 +6,60 @@ Draft
 
 ## Version
 
-0.1
+BRF v1 (the current v0.1 format) and BRF v2 (draft).
 
 ## Purpose
 
 This document defines the binary representation of Quarry records and
-field payloads.
+field payloads for BRF v1 and the proposed BRF v2 layout.
 
 The binary record format defines how record headers, field directories,
 payloads, nested records, scalar values, arrays, strings, bytes, and enum values
 are encoded.
 
 This document does not define schema syntax, transport protocols, application
-semantics, or cloud APIs.
+semantics, cloud APIs, or the future QBS representation.
+
+## Format Versions and Identities
+
+BRF physical format version, logical record identity, and exact schema identity
+are independent concepts:
+
+```text
+brf_format_version
+    The physical byte representation and validation rules.
+
+record_id
+    The logical record or message identity.
+
+schema_id
+    The identity of an exact schema definition and version.
+```
+
+`record_id` SHALL mean only the logical identity of the record or message type.
+It SHALL NOT identify a BRF physical format version, an exact schema revision,
+an exact physical layout, a schema hash, or a schema evolution version. A
+logical record MAY retain the same `record_id` across BRF v1 and BRF v2,
+compatible schema evolution, and changes to a future exact `schema_id`. A new
+`record_id` is required only when the logical record or message identity itself
+changes such that it is treated as a different logical record type.
+
+A future `schema_id` MAY be carried by an outer protocol, a schema registry,
+QBS, or a future header extension; BRF v2 does not define the schema identity
+mechanism.
+
+The first header byte is the BRF format discriminator in both versions:
+
+* BRF v1 uses value `1`;
+* BRF v2 uses value `2`.
+
+A decoder SHALL select the physical parser from this discriminator before
+interpreting the remaining header or record body. BRF v1 and BRF v2 records
+MUST NOT be confused.
 
 ---
+
+## BRF v1 (Current v0.1 Format)
 
 ## Record Layout
 
@@ -86,21 +125,28 @@ The Record Header does not contain:
 
 ## recordId and Compatibility
 
-A `recordId` is the compiler-generated binary identifier of a record. It
-identifies a compatible evolution line, not a single schema file revision.
+A `recordId` is the compiler-generated binary identifier of the logical record
+or message type. It is not a schema-version, schema-hash, physical-layout, or
+BRF-format identifier.
 
-Compatible schema evolution SHALL keep the same `recordId`.
+A logical record MAY retain the same `recordId` through compatible schema
+evolution and across BRF format versions. A physical BRF layout change SHALL
+be identified by `brf_format_version` and MUST NOT require a new `recordId`
+solely because the physical format changed.
 
-Incompatible layout or semantic changes SHALL require a new `recordId`.
+A new `recordId` is required only when the logical record or message identity
+changes such that it is treated as a different logical record type.
 
-Backward compatibility is provided by schema evolution rules and generated
-readers, not by a record version field in the Record Header.
+Backward compatibility is provided by schema evolution rules, the selected BRF
+format version, and generated readers. `record_id` is not a physical format
+version field.
 
 Older readers MAY read the fields they know and ignore unknown Field Directory
 entries and their referenced payload bytes when compatibility rules allow.
 
-Within the same `recordId`, existing `fieldIndex`, type, encoding, and meaning
-associations SHALL NOT change.
+Detailed schema compatibility, field evolution, and exact schema identity rules
+are outside this BRF specification and belong to future schema/QBS evolution
+work.
 
 ---
 
@@ -577,3 +623,453 @@ The v0.1 Binary Record Format does not include:
 * footer or trailer data
 * varint header fields
 * padding or alignment bytes
+
+---
+
+# BRF v2 Draft
+
+## BRF v2 Scope
+
+BRF v2 changes the physical record layout so that every declared field has
+either a schema-determined fixed location or a schema-determined fixed-size
+descriptor location. Runtime values and lengths of preceding fields SHALL NOT
+change those locations.
+
+BRF v2 is a physical serialization format. It is not QBS and does not define
+schema exchange, exact schema identity, or a generic schema interpreter.
+
+## BRF v2 Header
+
+The BRF v2 header is exactly 16 bytes:
+
+```text
+offset  size  field
+0       1     brf_format_version
+1       1     flags
+2       2     header_size
+4       4     record_id
+8       4     fixed_region_size
+12      4     record_size
+```
+
+The fields use big-endian encoding. BRF v2 requires:
+
+```text
+brf_format_version = 2
+flags = 0
+header_size = 16
+```
+
+`record_size` is the complete encoded record size, including the header. It
+MUST be at least `header_size + fixed_region_size` and MUST fit in `uint32`.
+
+`fixed_region_size` is the number of bytes immediately following the header
+that belong to the fixed region. It includes the presence bitmap and every
+fixed field slot or variable-field descriptor slot. It does not include any
+variable-data payload.
+
+The variable region begins at:
+
+```text
+variable_region_start = header_size + fixed_region_size
+```
+
+The variable region ends at `record_size`. A record with no variable payload
+has `record_size == variable_region_start`.
+
+The v2 header does not contain `schema_id`. An exact schema identity MAY be
+carried by an outer protocol, QBS, a registry, or a future header extension.
+
+## BRF v2 Presence Bitmap
+
+The presence bitmap is the first object in the fixed region. Its size is:
+
+```text
+presence_bitmap_size = ceil(declared_field_count / 8)
+```
+
+Fields are assigned bitmap positions in schema declaration order. Bitmap bit
+zero is the least-significant bit of the first bitmap byte; subsequent field
+positions increase toward more significant bits and then continue in the next
+byte.
+
+Unused high bits in the final bitmap byte MUST be zero.
+
+A set bit means that the corresponding field is present. A clear bit means
+that it is absent. Presence is independent from the field payload.
+
+Every declared field has a fixed-region slot even when it is absent. For a
+canonical encoding:
+
+* an absent fixed field's slot bytes MUST be zero;
+* an absent variable field's descriptor bytes MUST be zero;
+* an absent nested field's inline bytes, when it is fixed-size, MUST be zero.
+
+An absent inline fixed-size nested-record slot is canonical zero storage and
+SHALL NOT be interpreted or validated as an embedded BRF v2 record unless the
+corresponding parent presence bit is set. When the parent presence bit is set,
+the inline nested-record slot SHALL contain a complete valid BRF v2 record and
+SHALL be validated according to the normal nested-record rules.
+
+A present zero-length string, bytes value, or variable array is distinct from
+an absent field.
+
+## BRF v2 Canonical Fixed Region
+
+After the presence bitmap, field slots occur in schema declaration order.
+
+The compiler SHALL determine the size and location of every slot. Backends
+MUST consume this canonical layout rather than calculate BRF offsets from
+native structures or independently from one another.
+
+The fixed region may contain:
+
+* fixed-width scalar slots;
+* enum slots;
+* fixed-size array slots when fixed arrays are added to the schema language;
+* complete inline fixed-size nested records;
+* fixed-size variable-field descriptor slots.
+
+BRF v2 is packed. No implicit or native ABI padding is inserted between slots.
+
+The canonical physical order is schema declaration order. Implementations MUST
+NOT reorder fields based on compiler, CPU, or native structure alignment.
+
+## BRF v2 Field Locations
+
+The compiler's internal layout model SHALL represent a field location as:
+
+```text
+FieldLocation {
+    byte_offset
+    bit_offset
+    bit_width
+}
+```
+
+For ordinary BRF v2 fields:
+
+```text
+bit_offset = 0
+bit_width = encoded_byte_width * 8
+```
+
+`byte_offset` is relative to the beginning of the complete BRF record. A
+variable field's `byte_offset` points to its descriptor, not to its variable
+payload.
+
+BRF v2 does not introduce public packed-field or bit-field schema syntax.
+All currently encodable fields, descriptors, and variable payloads are
+byte-aligned.
+
+The location abstraction is intentionally capable of representing future
+packed fields without a fundamental BRF redesign. If packed fields are added,
+the specification MUST define bit numbering separately from byte endianness.
+The reserved direction is least-significant-bit first within each addressed
+byte (`bit_offset = 0` identifies that byte's least-significant bit).
+
+## BRF v2 Variable-Field Descriptor
+
+Every variable-size field has an 8-byte descriptor in its schema-determined
+fixed-region slot:
+
+```text
+uint32 data_offset
+uint32 byte_length
+```
+
+Both values use big-endian encoding.
+
+`data_offset` is an absolute byte offset from the beginning of the complete
+BRF record. It MUST point into the variable region, or to its end for a
+zero-length object.
+
+`byte_length` is the complete number of bytes occupied by the variable object.
+
+The descriptor does not contain an element count. Counts are represented only
+where required by the variable object's encoding:
+
+* strings and bytes have no internal count;
+* variable arrays begin with an encoded element count;
+* fixed-size arrays derive their count from the schema;
+* nested records have no array count.
+
+This common descriptor is used for:
+
+* strings;
+* bytes;
+* variable arrays;
+* variable-size nested records;
+* arrays of records.
+
+## BRF v2 Variable Region
+
+Variable objects are stored after the complete fixed region. Their physical
+order is the order of their corresponding fields in schema declaration order.
+
+Variable objects MUST NOT overlap. Zero-length objects do not overlap any
+other object and MAY have the same offset as another zero-length object.
+
+The variable region contains no implicit padding. All variable objects begin
+at byte boundaries.
+
+### Strings and bytes
+
+The descriptor's `byte_length` is the length of the raw object bytes.
+
+Strings contain valid UTF-8 bytes and have no NUL terminator or internal length
+prefix. Bytes contain arbitrary bytes and have no internal length prefix.
+
+### Variable arrays
+
+A variable array object begins with an unsigned LEB128 `varuint` element count:
+
+```text
+varuint element_count
+array elements
+```
+
+The descriptor's `byte_length` includes the count prefix and every element.
+
+For fixed-width elements, elements follow tightly with no padding:
+
+```text
+element[0]
+element[1]
+...
+```
+
+For fixed-size nested-record elements, complete embedded BRF v2 records follow
+tightly in schema-known element-size slots. No per-element byte length is
+required because the element size is determined recursively from the schema.
+
+For variable-size leaf elements and variable-size record elements, each element
+is length-delimited:
+
+```text
+varuint element_byte_length
+element bytes
+```
+
+The array count is required at runtime and is therefore retained inside the
+array object rather than duplicated in the common field descriptor.
+
+A present empty array has `element_count = 0` and a canonical one-byte array
+object containing `00`. An absent array has a clear presence bit and a zeroed
+descriptor.
+
+### Nested records
+
+A variable-size nested record's variable object is a complete BRF v2 record,
+including its own header, presence bitmap, fixed region, and variable region.
+The parent descriptor's `byte_length` covers the complete child record.
+
+## BRF v2 Fixed/Variable Classification
+
+Classification is recursive.
+
+A record is fixed-size when all of its fields are fixed-size, including all
+nested record fields and all array element types, and when any future fixed
+array counts are schema-defined.
+
+A record is variable-size when it contains any variable-size field or any
+nested record that is variable-size.
+
+The following rules apply:
+
+* fixed-width scalar and enum fields are inline fixed slots;
+* fixed-size nested records are inline complete BRF v2 records;
+* variable-size nested records use an 8-byte descriptor and trailing child
+  record;
+* variable arrays use an 8-byte descriptor and a trailing array object;
+* arrays of fixed-size nested records use their schema-known element size;
+* arrays of variable-size nested records use per-element byte lengths.
+
+An inline fixed-size nested record retains its complete BRF representation,
+including its own header and presence bitmap. A future optimization MAY
+investigate a more compact embedded representation when the nested type is
+already known from the parent schema, but that optimization is not part of
+BRF v2.
+
+## BRF v2 Nested Record Access
+
+For an inline fixed-size nested record, the parent field location points to the
+child's complete BRF v2 header when the parent presence bit is set. If the
+parent presence bit is clear, the slot is canonical zero storage and the child
+header MUST NOT be read or validated. When present, the child has its own
+`record_id`, fixed-region size, record size, presence bitmap, and field slots,
+all of which SHALL be validated according to the normal nested-record rules.
+
+For a variable-size nested record, the parent field location points to the
+child descriptor. The descriptor points to the complete child record in the
+parent variable region.
+
+At every nesting level, offsets are relative to the beginning of the complete
+record containing the descriptor. A nested record's own descriptors are
+relative to the nested record's beginning, not the parent's beginning.
+
+## BRF v2 Byte Order and Alignment
+
+All fixed-width integer fields, floating-point fields, header fields, presence
+metadata, and variable descriptors use the canonical BRF byte order: big-endian
+for multi-byte values.
+
+Unsigned LEB128 `varuint` values retain their byte-oriented LEB128 encoding;
+they are not native-endian values.
+
+BRF v2 does not use native C/C++ structure layout, `offsetof()`, compiler
+bit-fields, or native alignment as wire-format rules. Implementations MUST use
+explicit byte-wise encoding and decoding that is safe for unaligned storage.
+
+## BRF v2 Validation Rules
+
+A v2 decoder SHALL reject a record when any of the following is true:
+
+* `brf_format_version` is not `2`;
+* `header_size` is not supported or is smaller than the v2 header;
+* `record_size` is smaller than `header_size + fixed_region_size`;
+* the input does not contain exactly `record_size` bytes;
+* `fixed_region_size` causes the variable-region start to overflow;
+* the presence bitmap is shorter than the schema requires;
+* unused presence-bitmap bits are nonzero;
+* a fixed-region slot lies outside the declared fixed region;
+* an absent fixed slot or descriptor is not canonical zero when canonical input
+  is required;
+* a descriptor is truncated or lies outside the fixed region;
+* `data_offset` is before the variable region;
+* `data_offset` is greater than `record_size`;
+* `byte_length` is greater than `record_size - data_offset`;
+* variable objects overlap, except that zero-length objects may share offsets;
+* an array count exceeds the schema or implementation limit;
+* array count framing is truncated or malformed;
+* fixed-width array count multiplication overflows;
+* an array's consumed bytes do not equal its descriptor `byte_length`;
+* a variable array element length exceeds the remaining array object;
+* a present inline nested record is truncated or extends beyond its fixed slot;
+* a present variable nested record is truncated or extends beyond its
+  descriptor range;
+* a nested record uses an unsupported BRF format version;
+* a nested record has an unexpected logical `record_id`;
+* a scalar, enum, string, or bytes value violates its schema-level encoding
+  rules;
+* a value exceeds the schema's `max_bytes` or `max_elements` bound.
+
+All offset and length calculations MUST use checked arithmetic. The `uint32`
+record-size fields impose a maximum encoded BRF v2 record size of
+`UINT32_MAX` bytes, subject to smaller implementation or transport limits.
+Implementations MAY impose a smaller configured maximum, but MUST reject
+records exceeding that maximum before allocation or pointer formation.
+
+## BRF v2 Examples
+
+For the schema:
+
+```text
+record Example {
+    uint32 timestamp;
+    string name;
+    uint16 state;
+    uint16[] samples;
+}
+```
+
+with values `timestamp = 1`, `name = "abc"`, `state = 2`, and
+`samples = [10, 20]`, assume one presence byte and 8-byte descriptors.
+
+The fixed region is:
+
+```text
+presence bitmap       1 byte
+timestamp             4 bytes
+name descriptor       8 bytes
+state                 2 bytes
+samples descriptor    8 bytes
+```
+
+The fixed region is 23 bytes. The variable region is:
+
+```text
+61 62 63                         name
+02 00 0a 00 14                   count=2, samples
+```
+
+The header is conceptually:
+
+```text
+brf_format_version = 2
+flags = 0
+header_size = 16
+record_id = 1
+fixed_region_size = 23
+record_size = 47
+```
+
+The descriptor for `name` points to the first variable byte and has
+`byte_length = 3`. The descriptor for `samples` points to the array count and
+has `byte_length = 5`.
+
+For a fixed nested record:
+
+```text
+record Child {
+    uint16 level;
+    uint32 code;
+}
+
+record Parent {
+    uint32 timestamp;
+    Child child;
+    uint16 state;
+}
+```
+
+The complete fixed-size child occupies:
+
+```text
+16-byte child header
+1-byte child presence bitmap
+2-byte level
+4-byte code
+= 23 bytes
+```
+
+The child is placed inline in the parent's fixed region. No parent descriptor
+is emitted.
+
+If `Child` instead contains a `string label`, the child is variable-size. The
+parent receives an 8-byte child descriptor, and the complete child BRF v2
+record is placed in the parent's variable region.
+
+## BRF v2 Compatibility Rules
+
+BRF v1 and BRF v2 are distinct physical formats selected by
+`brf_format_version`. A v1 decoder MUST NOT interpret a v2 record as v1, and a
+v2 decoder MUST NOT interpret a v1 record as v2.
+
+Changing from BRF v1 to BRF v2 does not, by itself, change `record_id`.
+`record_id` changes only when the logical record or message identity itself
+changes such that it is treated as a different logical record type.
+
+An exact schema change MAY change `schema_id` while retaining `record_id`.
+The schema identity mechanism and schema compatibility rules are outside this
+specification.
+
+Changing a field from fixed to variable, or variable to fixed, is a physical
+layout change and requires a distinct schema/layout interpretation. It does
+not by itself require a new logical `record_id`.
+
+## BRF v2 Open Questions
+
+The following are intentionally outside the first v2 implementation contract:
+
+* the transport or container location of an exact `schema_id`;
+* a schema hash algorithm and schema identity registry;
+* public packed-field syntax;
+* the complete bit-spanning encoding rules for future packed fields;
+* whether a smaller BRF16 profile is justified by measurements;
+* preservation of unknown fields during generated re-encoding;
+* the future compact embedded representation optimization for fixed nested
+  records.
+
+None of these questions changes the v2 fixed-region, 8-byte descriptor,
+record-relative-offset, or independent-identity decisions in this draft.
