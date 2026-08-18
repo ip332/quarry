@@ -49,6 +49,7 @@ struct BrfV2TypeLayout {
     std::uint32_t max_bytes = 0U;
     std::uint32_t max_elements = 0U;
     std::uint32_t nested_record_id = 0U;
+    std::vector<std::uint64_t> enum_values;
     std::shared_ptr<const BrfV2TypeLayout> element_type;
 };
 
@@ -188,6 +189,40 @@ inline void write_brf_v2_descriptor(std::span<std::byte> descriptor, std::uint32
 inline bool brf_v2_is_zero(std::span<const std::byte> bytes) {
     return std::all_of(bytes.begin(), bytes.end(),
                        [](std::byte value) { return value == std::byte{0}; });
+}
+
+inline bool brf_v2_is_valid_enum(std::span<const std::byte> value, const BrfV2TypeLayout& type) {
+    std::uint64_t numeric_value = 0U;
+    switch (type.encoded_width) {
+    case 1U:
+        if (value.size() != 1U) {
+            return false;
+        }
+        numeric_value = byte_value(value[0]);
+        break;
+    case 2U:
+        if (value.size() != 2U) {
+            return false;
+        }
+        numeric_value = read_raw_u16(value);
+        break;
+    case 4U:
+        if (value.size() != 4U) {
+            return false;
+        }
+        numeric_value = read_raw_u32(value);
+        break;
+    case 8U:
+        if (value.size() != 8U) {
+            return false;
+        }
+        numeric_value = read_raw_u64(value);
+        break;
+    default:
+        return false;
+    }
+    return std::find(type.enum_values.begin(), type.enum_values.end(), numeric_value) !=
+           type.enum_values.end();
 }
 
 inline const BrfV2FieldLayout* brf_v2_find_field(const BrfV2RecordLayout& layout,
@@ -427,6 +462,30 @@ inline BrfV2ValidationResult validate_brf_v2(std::span<const std::byte> input,
                             array_offset + *count.value * element->encoded_width != value.size()) {
                             return brf_v2_failure(BrfV2Error::malformed_array, data_offset);
                         }
+                        if (element->kind == BrfV2TypeKind::Bool) {
+                            for (std::uint64_t item = 0U; item < *count.value; ++item) {
+                                const std::size_t item_offset =
+                                    array_offset + static_cast<std::size_t>(item);
+                                const std::uint8_t encoded = byte_value(value[item_offset]);
+                                if (encoded != 0U && encoded != 1U) {
+                                    return brf_v2_failure(BrfV2Error::invalid_slot,
+                                                          data_offset + item_offset);
+                                }
+                            }
+                        }
+                        if (element->kind == BrfV2TypeKind::Enum) {
+                            for (std::uint64_t item = 0U; item < *count.value; ++item) {
+                                const std::size_t item_offset =
+                                    array_offset +
+                                    static_cast<std::size_t>(item) * element->encoded_width;
+                                if (!brf_v2_is_valid_enum(
+                                        value.subspan(item_offset, element->encoded_width),
+                                        *element)) {
+                                    return brf_v2_failure(BrfV2Error::invalid_slot,
+                                                          data_offset + item_offset);
+                                }
+                            }
+                        }
                     } else if (element->kind == BrfV2TypeKind::Record) {
                         const BrfV2RecordLayout* child = registry.find(element->nested_record_id);
                         if (child == nullptr) {
@@ -500,6 +559,10 @@ inline BrfV2ValidationResult validate_brf_v2(std::span<const std::byte> input,
                 if (field.type.kind == BrfV2TypeKind::Bool &&
                     (slot.size() != 1U ||
                      (byte_value(slot[0]) != 0U && byte_value(slot[0]) != 1U))) {
+                    return brf_v2_failure(BrfV2Error::invalid_slot, field.byte_offset);
+                }
+                if (field.type.kind == BrfV2TypeKind::Enum &&
+                    !brf_v2_is_valid_enum(slot, field.type)) {
                     return brf_v2_failure(BrfV2Error::invalid_slot, field.byte_offset);
                 }
                 if (field.type.kind == BrfV2TypeKind::Record) {

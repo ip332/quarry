@@ -23,6 +23,8 @@ using quarry::runtime::BrfV2Error;
 using quarry::runtime::BrfV2LayoutRegistry;
 using quarry::runtime::BrfV2RecordLayout;
 using quarry::runtime::BrfV2ValidationResult;
+using quarry::schema_ir::EnumIR;
+using quarry::schema_ir::EnumValueIR;
 using quarry::schema_ir::FieldIR;
 using quarry::schema_ir::PrimitiveType;
 using quarry::schema_ir::RecordIR;
@@ -83,6 +85,51 @@ void add_record_array_field(RecordIR& record, std::string name, std::uint32_t in
         ->mutable_element_type()
         ->mutable_record()
         ->set_target_record_ir_id(target_ir_id);
+}
+
+[[nodiscard]] EnumIR* add_enum(SchemaIR& schema, std::uint64_t ir_id, std::string name) {
+    EnumIR* enumeration = schema.mutable_root_namespace()->add_enums();
+    enumeration->set_ir_id(ir_id);
+    enumeration->set_name(name);
+    enumeration->set_fqn(name);
+    return enumeration;
+}
+
+void add_enum_value(EnumIR& enumeration, std::string name, std::int64_t value) {
+    EnumValueIR* enum_value = enumeration.add_values();
+    enum_value->set_name(std::move(name));
+    enum_value->set_value(value);
+}
+
+void add_enum_field(RecordIR& record, std::string name, std::uint32_t index,
+                    std::uint64_t enum_ir_id) {
+    FieldIR* field = record.add_fields();
+    field->set_name(std::move(name));
+    field->set_field_index(index);
+    field->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(enum_ir_id);
+}
+
+void add_enum_array_field(RecordIR& record, std::string name, std::uint32_t index,
+                          std::uint64_t enum_ir_id, std::uint32_t max_elements) {
+    FieldIR* field = record.add_fields();
+    field->set_name(std::move(name));
+    field->set_field_index(index);
+    field->mutable_type()->mutable_array()->set_max_elements(max_elements);
+    field->mutable_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->mutable_enum_type()
+        ->set_target_enum_ir_id(enum_ir_id);
+}
+
+void add_bool_array_field(RecordIR& record, std::string name, std::uint32_t index,
+                          std::uint32_t max_elements) {
+    FieldIR* field = record.add_fields();
+    field->set_name(std::move(name));
+    field->set_field_index(index);
+    field->mutable_type()->mutable_array()->set_max_elements(max_elements);
+    field->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
+        PrimitiveType::PRIMITIVE_TYPE_BOOL);
 }
 
 [[nodiscard]] std::optional<BrfV2LayoutRegistry> example_layout() {
@@ -286,6 +333,78 @@ TEST(BinaryRecordV2RuntimeTest, ValidatesVariableNestedRecordAndRecordArrays) {
     EXPECT_EQ(
         quarry::runtime::validate_brf_v2(*parent_bytes.value, *parent_layout, *registry).error,
         BrfV2Error::none);
+}
+
+TEST(BinaryRecordV2RuntimeTest, ValidatesBooleanAndEnumScalarsAndArrays) {
+    SchemaIR schema = make_schema();
+    EnumIR* state = add_enum(schema, 2U, "State");
+    add_enum_value(*state, "Off", 0);
+    add_enum_value(*state, "On", 1);
+    RecordIR* record = add_record(schema, 1U, 1U, "StateRecord");
+    add_enum_field(*record, "state", 0U, 2U);
+    add_enum_array_field(*record, "states", 1U, 2U, 4U);
+    add_bool_array_field(*record, "flags", 2U, 4U);
+    RecordIR* nested_child = add_record(schema, 3U, 3U, "NestedState");
+    add_enum_field(*nested_child, "state", 0U, 2U);
+    RecordIR* nested_parent = add_record(schema, 4U, 4U, "NestedStateParent");
+    add_record_field(*nested_parent, "child", 0U, 3U);
+
+    LayoutComputer computer;
+    DiagnosticCollection diagnostics;
+    const LayoutModel layout = computer.compute(schema, diagnostics);
+    ASSERT_TRUE(diagnostics.empty());
+    auto registry = quarry::compiler::layout::to_brf_v2_runtime_layout(layout);
+    ASSERT_TRUE(registry.has_value());
+    const BrfV2RecordLayout* record_layout = registry->find(1U);
+    ASSERT_NE(record_layout, nullptr);
+
+    BrfV2Builder valid(*record_layout, *registry);
+    ASSERT_TRUE(valid.set_field(0U, Bytes{b(0x01)}));
+    ASSERT_TRUE(valid.set_field(1U, Bytes{b(0x02), b(0x00), b(0x01)}));
+    ASSERT_TRUE(valid.set_field(2U, Bytes{b(0x02), b(0x00), b(0x01)}));
+    EXPECT_TRUE(valid.finalize().ok());
+
+    BrfV2Builder invalid_scalar(*record_layout, *registry);
+    ASSERT_TRUE(invalid_scalar.set_field(0U, Bytes{b(0x02)}));
+    EXPECT_EQ(invalid_scalar.finalize().error, BrfV2Error::invalid_slot);
+
+    BrfV2Builder invalid_scalar_ff(*record_layout, *registry);
+    ASSERT_TRUE(invalid_scalar_ff.set_field(0U, Bytes{b(0xFF)}));
+    EXPECT_EQ(invalid_scalar_ff.finalize().error, BrfV2Error::invalid_slot);
+
+    BrfV2Builder invalid_enum_array(*record_layout, *registry);
+    ASSERT_TRUE(invalid_enum_array.set_field(1U, Bytes{b(0x02), b(0x00), b(0x02)}));
+    EXPECT_EQ(invalid_enum_array.finalize().error, BrfV2Error::invalid_slot);
+
+    BrfV2Builder valid_false_true(*record_layout, *registry);
+    ASSERT_TRUE(valid_false_true.set_field(2U, Bytes{b(0x02), b(0x00), b(0x01)}));
+    EXPECT_TRUE(valid_false_true.finalize().ok());
+
+    BrfV2Builder valid_three_bools(*record_layout, *registry);
+    ASSERT_TRUE(valid_three_bools.set_field(2U, Bytes{b(0x03), b(0x00), b(0x01), b(0x00)}));
+    EXPECT_TRUE(valid_three_bools.finalize().ok());
+
+    BrfV2Builder invalid_bool_two(*record_layout, *registry);
+    ASSERT_TRUE(invalid_bool_two.set_field(2U, Bytes{b(0x01), b(0x02)}));
+    EXPECT_EQ(invalid_bool_two.finalize().error, BrfV2Error::invalid_slot);
+
+    BrfV2Builder invalid_bool_ff(*record_layout, *registry);
+    ASSERT_TRUE(invalid_bool_ff.set_field(2U, Bytes{b(0x02), b(0x00), b(0xFF)}));
+    EXPECT_EQ(invalid_bool_ff.finalize().error, BrfV2Error::invalid_slot);
+
+    const BrfV2RecordLayout* nested_child_layout = registry->find(3U);
+    const BrfV2RecordLayout* nested_parent_layout = registry->find(4U);
+    ASSERT_NE(nested_child_layout, nullptr);
+    ASSERT_NE(nested_parent_layout, nullptr);
+    BrfV2Builder nested_child_builder(*nested_child_layout, *registry);
+    ASSERT_TRUE(nested_child_builder.set_field(0U, Bytes{b(0x01)}));
+    const auto nested_child_bytes = nested_child_builder.finalize();
+    ASSERT_TRUE(nested_child_bytes.ok());
+    Bytes invalid_nested_child = *nested_child_bytes.value;
+    invalid_nested_child[17] = b(0x02);
+    BrfV2Builder nested_parent_builder(*nested_parent_layout, *registry);
+    ASSERT_TRUE(nested_parent_builder.set_field(0U, invalid_nested_child));
+    EXPECT_EQ(nested_parent_builder.finalize().error, BrfV2Error::invalid_slot);
 }
 
 TEST(BinaryRecordV2RuntimeTest, DeepNestedChainUsesIterativeValidation) {

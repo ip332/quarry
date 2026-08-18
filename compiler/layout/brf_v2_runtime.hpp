@@ -17,6 +17,7 @@ to_brf_v2_runtime_type(const TypeLayout& type,
     result.encoded_width = type.encoded_width;
     result.max_bytes = type.max_bytes;
     result.max_elements = type.max_elements;
+    result.enum_values = type.enum_values;
     switch (type.kind) {
     case LayoutTypeKind::Bool:
         result.kind = runtime::BrfV2TypeKind::Bool;
