@@ -261,6 +261,8 @@ target_link_libraries(quarry_compiler_layout
         quarry_compiler_semantic
         quarry_compiler_diagnostics
         quarry_compiler_support
+        quarry_schema_ir_proto
+        quarry_schema_ir_warning_tweaks
         quarry_project_options
 )
 
