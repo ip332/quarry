@@ -66,6 +66,7 @@ struct TypeLayout {
     std::uint32_t max_elements = 0U;
     std::uint64_t referenced_ir_id = 0U;
     std::string referenced_fqn;
+    std::vector<std::uint64_t> enum_values;
     std::unique_ptr<TypeLayout> element_type;
 
     TypeLayout() = default;

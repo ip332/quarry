@@ -2,6 +2,30 @@
 
 This module owns generic runtime support for Quarry binary records.
 
+### BRF v2 primitives
+
+BRF v2 support is available through the header-only
+`quarry/runtime/binary_record_v2.hpp` API and is intentionally separate from
+the existing generated BRF v1 codecs. A compiler-owned Layout IR can be
+adapted with `compiler/layout/brf_v2_runtime.hpp`; the runtime does not
+recalculate field offsets.
+
+`BrfV2Builder` starts with a zero-filled header and fixed region, keeps field
+presence separate from slot contents, and finalizes variable values in schema
+declaration order. Finalization rebuilds the contiguous variable tail, so a
+variable-field update never requires an in-place allocator or leaves holes.
+Descriptors contain absolute record-relative `data_offset` and
+`byte_length` values. Strings and bytes are raw objects; array values include
+their existing varuint/element framing. Fixed-size nested records remain
+inline, while variable-size nested records are complete child records in the
+tail.
+
+`validate_brf_v2` performs structural, bounds, schema-bound, canonical-tail,
+and nested-record checks. Nested validation uses an explicit work stack rather
+than native recursion proportional to record depth. The builder and validator
+are runtime primitives only: generated C, C++, and Python backends continue to
+emit and consume BRF v1 until a later migration.
+
 Generated C++ schema code calls the header-only `quarry_runtime` target for
 byte-level mechanics while generated code keeps schema-specific knowledge such
 as `record_id`, `field_index`, field type, and enum value sets.

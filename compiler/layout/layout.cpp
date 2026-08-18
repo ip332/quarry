@@ -439,6 +439,10 @@ private:
             result.encoded_width = enum_width(maximum);
             result.referenced_ir_id = enum_it->second->ir_id();
             result.referenced_fqn = enum_it->second->fqn();
+            result.enum_values.reserve(enum_it->second->values_size());
+            for (const ::quarry::schema_ir::EnumValueIR& value : enum_it->second->values()) {
+                result.enum_values.push_back(static_cast<std::uint64_t>(value.value()));
+            }
             return true;
         }
         case ::quarry::schema_ir::FieldType::kString:
@@ -514,6 +518,7 @@ TypeLayout::TypeLayout(const TypeLayout& other)
     : kind(other.kind), classification(other.classification), encoded_width(other.encoded_width),
       max_bytes(other.max_bytes), max_elements(other.max_elements),
       referenced_ir_id(other.referenced_ir_id), referenced_fqn(other.referenced_fqn),
+      enum_values(other.enum_values),
       element_type(other.element_type == nullptr ? nullptr
                                                   : std::make_unique<TypeLayout>(*other.element_type)) {}
 
@@ -528,6 +533,7 @@ TypeLayout& TypeLayout::operator=(const TypeLayout& other) {
     max_elements = other.max_elements;
     referenced_ir_id = other.referenced_ir_id;
     referenced_fqn = other.referenced_fqn;
+    enum_values = other.enum_values;
     element_type = other.element_type == nullptr ? nullptr
                                                  : std::make_unique<TypeLayout>(*other.element_type);
     return *this;
