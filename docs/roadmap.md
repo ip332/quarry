@@ -127,6 +127,20 @@ separate strategic consideration.
 
 ## Longer-term backend and feature investigations
 
+### Compact compiled-schema access layer
+
+Status: Future investigation
+
+Investigate compiling a schema into a compact binary representation consumed by
+a small, highly tested set of operations: `put`, `get`, `count_size`, and
+`print`. The investigation should define the representation, operation
+semantics, validation and error behavior, generated-code/runtime/tooling
+boundaries, and cross-language consistency, while assessing code size,
+allocation, lookup cost, and suitability for constrained targets. Keep this
+distinct from BRF unless a later compatibility analysis explicitly determines
+otherwise; this roadmap item does not authorize changes to BRF, Schema IR, or
+generated APIs.
+
 ### Human-readable runtime data representation
 
 Status: Future investigation
