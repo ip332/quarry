@@ -346,6 +346,7 @@ TEST(BinaryRecordV2RuntimeTest, ValidatesBooleanAndEnumScalarsAndArrays) {
     add_bool_array_field(*record, "flags", 2U, 4U);
     RecordIR* nested_child = add_record(schema, 3U, 3U, "NestedState");
     add_enum_field(*nested_child, "state", 0U, 2U);
+    add_enum_array_field(*nested_child, "states", 1U, 2U, 4U);
     RecordIR* nested_parent = add_record(schema, 4U, 4U, "NestedStateParent");
     add_record_field(*nested_parent, "child", 0U, 3U);
 
@@ -398,10 +399,11 @@ TEST(BinaryRecordV2RuntimeTest, ValidatesBooleanAndEnumScalarsAndArrays) {
     ASSERT_NE(nested_parent_layout, nullptr);
     BrfV2Builder nested_child_builder(*nested_child_layout, *registry);
     ASSERT_TRUE(nested_child_builder.set_field(0U, Bytes{b(0x01)}));
+    ASSERT_TRUE(nested_child_builder.set_field(1U, Bytes{b(0x02), b(0x00), b(0x01)}));
     const auto nested_child_bytes = nested_child_builder.finalize();
     ASSERT_TRUE(nested_child_bytes.ok());
     Bytes invalid_nested_child = *nested_child_bytes.value;
-    invalid_nested_child[17] = b(0x02);
+    invalid_nested_child[27] = b(0x02);
     BrfV2Builder nested_parent_builder(*nested_parent_layout, *registry);
     ASSERT_TRUE(nested_parent_builder.set_field(0U, invalid_nested_child));
     EXPECT_EQ(nested_parent_builder.finalize().error, BrfV2Error::invalid_slot);
