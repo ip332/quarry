@@ -165,7 +165,7 @@ def write_report(output: Path, manifest: dict[str, object], aggregate_result: di
              f"- Executions: `{manifest['execution_count']}`",
              f"- Measurement model: `{manifest.get('measurement_model', MEASUREMENT_MODEL)}`",
             "- Timing values are advisory measurements; no implementations are ranked.",
-             "- BRF and protobuf sizes are separate wire-format measurements; they are not byte-compatible.",
+             "- BRF v1, BRF v2, and protobuf sizes are separate wire-format measurements; they are not byte-compatible.",
              "- C++/C/Python have different runtime and ownership models; timing is not a backend-quality ranking.",
              "- Quarry C has no official strict-C99 protobuf counterpart.", "",
              "## Benchmark Scope", "",
@@ -196,7 +196,8 @@ def write_report(output: Path, manifest: dict[str, object], aggregate_result: di
         f"{backend}={ownership.get(backend, OWNERSHIP_MODELS.get(backend, 'unspecified'))}"
         for backend in manifest["implementations"])
     representative = [name for name in (
-        "telemetry-encoded-size-brf.svg", "telemetry-encoded-size-protobuf.svg",
+        "telemetry-encoded-size-brf-v1.svg", "telemetry-encoded-size-brf-v2.svg",
+        "telemetry-encoded-size-protobuf.svg",
         "telemetry-encode-throughput.svg", "telemetry-decode-throughput.svg",
         "telemetry-binary_size.svg") if name in chart_names]
     lines.extend(["## Resource Measurements", "",
