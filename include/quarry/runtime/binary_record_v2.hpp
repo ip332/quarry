@@ -129,6 +129,24 @@ struct BrfV2EncodeResult {
     [[nodiscard]] bool ok() const { return value.has_value(); }
 };
 
+struct BrfV2FieldView {
+    std::span<const std::byte> bytes;
+    std::uint64_t field_offset = 0U;
+    bool present = false;
+};
+
+struct BrfV2ParsedRecord {
+    std::uint32_t record_id = 0U;
+    const BrfV2RecordLayout* layout = nullptr;
+    std::vector<BrfV2FieldView> fields;
+};
+
+struct BrfV2ParseRecordResult {
+    std::optional<BrfV2ParsedRecord> record;
+    BrfV2Error error = BrfV2Error::none;
+    std::optional<std::uint64_t> offset;
+};
+
 inline BrfV2ValidationResult brf_v2_failure(BrfV2Error error, std::uint64_t offset = 0U) {
     return BrfV2ValidationResult{.error = error, .offset = offset};
 }
@@ -258,10 +276,156 @@ inline BrfV2ValidationResult validate_brf_v2(std::span<const std::byte> input,
                                              const BrfV2RecordLayout& layout,
                                              const BrfV2LayoutRegistry& registry);
 
+inline BrfV2ValidationResult validate_brf_v2_physical(std::span<const std::byte> input,
+                                                      const BrfV2RecordLayout& layout) {
+    const auto header = read_brf_v2_header(input);
+    if (!header.has_value()) {
+        return brf_v2_failure(BrfV2Error::truncated_header);
+    }
+    if (header->format_version != kBinaryRecordV2FormatVersion) {
+        return brf_v2_failure(BrfV2Error::unsupported_version);
+    }
+    if (header->flags != 0U || header->header_size != kBinaryRecordV2HeaderSize) {
+        return brf_v2_failure(header->flags != 0U ? BrfV2Error::unsupported_flags
+                                                   : BrfV2Error::invalid_header);
+    }
+    if (header->record_id != layout.record_id) {
+        return brf_v2_failure(BrfV2Error::unexpected_record_id, 4U);
+    }
+    const std::uint64_t fixed_end = static_cast<std::uint64_t>(header->header_size) +
+                                    header->fixed_region_size;
+    if (header->fixed_region_size != layout.fixed_region_size ||
+        fixed_end > input.size() || header->record_size != input.size() ||
+        header->record_size < fixed_end) {
+        return brf_v2_failure(BrfV2Error::invalid_record_size, 8U);
+    }
+    if (layout.presence_bitmap_size != (layout.fields.size() + 7U) / 8U ||
+        kBinaryRecordV2HeaderSize + layout.presence_bitmap_size > fixed_end) {
+        return brf_v2_failure(BrfV2Error::invalid_presence);
+    }
+    const std::size_t bitmap_end = kBinaryRecordV2HeaderSize + layout.presence_bitmap_size;
+    if (!layout.fields.empty() && layout.fields.size() % 8U != 0U) {
+        const auto unused = byte_value(input[bitmap_end - 1U]) &
+                            static_cast<std::uint8_t>(0xFFU << (layout.fields.size() % 8U));
+        if (unused != 0U) {
+            return brf_v2_failure(BrfV2Error::invalid_presence, bitmap_end - 1U);
+        }
+    }
+    std::uint64_t tail = fixed_end;
+    std::uint64_t fixed_cursor = bitmap_end;
+    for (std::size_t position = 0U; position < layout.fields.size(); ++position) {
+        const auto& field = layout.fields[position];
+        const std::uint64_t slot_end = static_cast<std::uint64_t>(field.byte_offset) +
+                                       field.slot_size;
+        if (field.presence_bit_index != position || field.byte_offset != fixed_cursor ||
+            slot_end > fixed_end || field.bit_offset != 0U ||
+            field.bit_width != field.slot_size * 8U) {
+            return brf_v2_failure(BrfV2Error::invalid_slot, field.byte_offset);
+        }
+        fixed_cursor = slot_end;
+        const bool present = brf_v2_is_present(input, field);
+        const auto slot = input.subspan(field.byte_offset, field.slot_size);
+        if (!present) {
+            if (!brf_v2_is_zero(slot)) {
+                return brf_v2_failure(BrfV2Error::invalid_presence, field.byte_offset);
+            }
+            continue;
+        }
+        if (field.storage == BrfV2FieldStorage::VariableDescriptor) {
+            if (field.slot_size != kBinaryRecordV2VariableDescriptorSize) {
+                return brf_v2_failure(BrfV2Error::invalid_descriptor, field.byte_offset);
+            }
+            const std::uint32_t offset = read_brf_v2_descriptor_offset(slot);
+            const std::uint32_t length = read_brf_v2_descriptor_length(slot);
+            if (offset < fixed_end || offset > header->record_size ||
+                length > header->record_size - offset || offset != tail) {
+                return brf_v2_failure(BrfV2Error::invalid_variable_range, field.byte_offset);
+            }
+            tail += length;
+        }
+    }
+    if (tail != header->record_size) {
+        return brf_v2_failure(BrfV2Error::noncanonical_tail, tail);
+    }
+    return {};
+}
+
+inline DecodeError brf_v2_decode_error(BrfV2Error error) {
+    switch (error) {
+    case BrfV2Error::none: return DecodeError::none;
+    case BrfV2Error::truncated_header: return DecodeError::truncated_header;
+    case BrfV2Error::unsupported_version: return DecodeError::unsupported_version;
+    case BrfV2Error::unsupported_flags: return DecodeError::unsupported_flags;
+    case BrfV2Error::invalid_header: return DecodeError::invalid_header;
+    case BrfV2Error::unexpected_record_id: return DecodeError::unexpected_record_id;
+    case BrfV2Error::malformed_varuint: return DecodeError::malformed_varuint;
+    case BrfV2Error::overflow: return DecodeError::overflow;
+    case BrfV2Error::bounds_exceeded: return DecodeError::bounds_exceeded;
+    case BrfV2Error::invalid_presence:
+    case BrfV2Error::invalid_slot:
+    case BrfV2Error::invalid_descriptor:
+    case BrfV2Error::invalid_variable_range:
+        return DecodeError::invalid_field_range;
+    default: return DecodeError::invalid_payload_length;
+    }
+}
+
+inline BrfV2ParseRecordResult parse_brf_v2_record(std::span<const std::byte> input,
+                                                  const BrfV2RecordLayout& layout) {
+    const auto validation = validate_brf_v2_physical(input, layout);
+    if (!validation.ok()) {
+        return {.record = std::nullopt,
+                .error = validation.error == BrfV2Error::unexpected_record_id
+                             ? BrfV2Error::unexpected_record_id
+                             : validation.error,
+                .offset = validation.offset};
+    }
+    BrfV2ParsedRecord record;
+    record.record_id = layout.record_id;
+    record.layout = &layout;
+    for (const auto& field : layout.fields) {
+        if (!brf_v2_is_present(input, field)) {
+            continue;
+        }
+        const auto slot = input.subspan(field.byte_offset, field.slot_size);
+        if (field.storage == BrfV2FieldStorage::VariableDescriptor) {
+            const auto offset = read_brf_v2_descriptor_offset(slot);
+            const auto length = read_brf_v2_descriptor_length(slot);
+            record.fields.push_back({input.subspan(offset, length), field.byte_offset, true});
+        } else {
+            record.fields.push_back({slot, field.byte_offset, true});
+        }
+    }
+    return {.record = std::move(record), .error = BrfV2Error::none, .offset = std::nullopt};
+}
+
+inline const BrfV2FieldView* find_field(const BrfV2ParsedRecord& record,
+                                        std::uint32_t field_index,
+                                        const BrfV2RecordLayout& layout) {
+    const auto* field = brf_v2_find_field(layout, field_index);
+    if (field == nullptr) {
+        return nullptr;
+    }
+    for (const auto& view : record.fields) {
+        if (view.field_offset == field->byte_offset) {
+            return &view;
+        }
+    }
+    return nullptr;
+}
+
+inline const BrfV2FieldView* find_field(const BrfV2ParsedRecord& record,
+                                        std::uint32_t field_index) {
+    return record.layout == nullptr ? nullptr : find_field(record, field_index, *record.layout);
+}
+
 class BrfV2Builder {
 public:
+    explicit BrfV2Builder(const BrfV2RecordLayout& layout)
+        : layout_(layout), registry_(nullptr), values_(layout.fields.size()) {}
+
     BrfV2Builder(const BrfV2RecordLayout& layout, const BrfV2LayoutRegistry& registry)
-        : layout_(layout), registry_(registry), values_(layout.fields.size()) {}
+        : layout_(layout), registry_(&registry), values_(layout.fields.size()) {}
 
     [[nodiscard]] bool set_field(std::uint32_t field_index, std::span<const std::byte> value) {
         const BrfV2FieldLayout* field = brf_v2_find_field(layout_, field_index);
@@ -331,18 +495,51 @@ public:
                                         .fixed_region_size = layout_.fixed_region_size,
                                         .record_size = static_cast<std::uint32_t>(tail_offset)});
 
-        const BrfV2ValidationResult validation = validate_brf_v2(output, layout_, registry_);
-        if (!validation.ok()) {
-            return {.value = std::nullopt, .error = validation.error};
+        if (registry_ != nullptr) {
+            const BrfV2ValidationResult validation = validate_brf_v2(output, layout_, *registry_);
+            if (!validation.ok()) {
+                return {.value = std::nullopt, .error = validation.error};
+            }
         }
         return {.value = std::move(output), .error = BrfV2Error::none};
     }
 
 private:
     const BrfV2RecordLayout& layout_;
-    const BrfV2LayoutRegistry& registry_;
+    const BrfV2LayoutRegistry* registry_ = nullptr;
     std::vector<std::optional<std::vector<std::byte>>> values_;
 };
+
+inline EncodeError brf_v2_encode_error(BrfV2Error error) {
+    switch (error) {
+    case BrfV2Error::bounds_exceeded:
+    case BrfV2Error::invalid_variable_range:
+        return EncodeError::bounds_exceeded;
+    case BrfV2Error::overflow:
+        return EncodeError::overflow;
+    case BrfV2Error::invalid_nested_record:
+    case BrfV2Error::invalid_slot:
+    case BrfV2Error::invalid_descriptor:
+        return EncodeError::unsupported_field_type;
+    default:
+        return EncodeError::overflow;
+    }
+}
+
+inline EncodeResult<std::vector<std::byte>> encode_brf_v2_record_result(
+    const BrfV2RecordLayout& layout, std::span<const FieldBytes> fields) {
+    BrfV2Builder builder(layout);
+    for (const auto& field : fields) {
+        if (!builder.set_field(field.field_index, field.bytes)) {
+            return encode_failure<std::vector<std::byte>>(EncodeError::unsupported_field_type);
+        }
+    }
+    const BrfV2EncodeResult encoded = builder.finalize();
+    if (!encoded.value.has_value()) {
+        return encode_failure<std::vector<std::byte>>(brf_v2_encode_error(encoded.error));
+    }
+    return encode_success(std::move(*encoded.value));
+}
 
 inline BrfV2ValidationResult validate_brf_v2(std::span<const std::byte> input,
                                              const BrfV2RecordLayout& layout,

@@ -1,5 +1,7 @@
 #include "compiler/backend/backend.hpp"
 #include "compiler/backend/generated_code_api_version.hpp"
+#include "compiler/diagnostics/diagnostic.hpp"
+#include "compiler/layout/layout.hpp"
 
 #include <cstdint>
 
@@ -100,6 +102,7 @@ struct RuntimeFieldEncoding {
 
 struct FieldPlan {
     const ::quarry::schema_ir::FieldIR* field = nullptr;
+    const ::quarry::compiler::layout::FieldLayout* brf_layout = nullptr;
     std::string name;
     std::string cpp_type;
     RuntimeFieldEncoding runtime_encoding;
@@ -107,6 +110,7 @@ struct FieldPlan {
 
 struct RecordPlan {
     const ::quarry::schema_ir::RecordIR* record = nullptr;
+    const ::quarry::compiler::layout::RecordLayout* brf_layout = nullptr;
     std::size_t source_order = 0;
     std::vector<FieldPlan> fields;
     std::vector<std::uint64_t> same_namespace_declaration_dependencies;
@@ -143,6 +147,7 @@ struct PlannedRenderFile {
 };
 
 struct RenderGenerationPlan {
+    ::quarry::compiler::layout::LayoutModel brf_layout_model;
     std::vector<PlannedRenderFile> files;
 };
 
@@ -831,6 +836,7 @@ void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
 
 [[nodiscard]] bool analyze_namespace(const ::quarry::schema_ir::NamespaceIR& ns,
                                      const CodegenOptions& options, const TypeCatalog& catalog,
+                                     const ::quarry::compiler::layout::LayoutModel& layout_model,
                                      const OutputSelection* output_selection, NamespacePlan& plan,
                                      std::string& error_message) {
     plan.namespace_ir = &ns;
@@ -863,7 +869,7 @@ void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
         for (int index = 0; index < ns.records_size(); ++index) {
             const ::quarry::schema_ir::RecordIR& record = ns.records(index);
             add_record_requirements(plan.standard_includes);
-            plan.includes.insert("quarry/runtime/binary_record.hpp");
+            plan.includes.insert("quarry/runtime/binary_record_v2.hpp");
             plan.declarations.push_back(DeclarationPlan{
                 .kind = DeclarationPlan::Kind::Record,
                 .enum_ir = nullptr,
@@ -894,6 +900,14 @@ void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
             }
 
             RecordPlan& record_plan = declaration_plan.record;
+            record_plan.brf_layout = layout_model.find_record(record_plan.record->fqn());
+            if (record_plan.brf_layout == nullptr ||
+                record_plan.brf_layout->fields.size() !=
+                    static_cast<std::size_t>(record_plan.record->fields_size())) {
+                error_message = "backend codegen could not find canonical BRF v2 layout for '" +
+                                 record_plan.record->fqn() + "'";
+                return false;
+            }
             record_plan.fields.reserve(static_cast<std::size_t>(record_plan.record->fields_size()));
             for (int field_index = 0; field_index < record_plan.record->fields_size();
                  ++field_index) {
@@ -909,6 +923,8 @@ void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
                     lower_runtime_field_encoding(field.type(), catalog);
                 record_plan.fields.push_back(
                     FieldPlan{.field = &field,
+                              .brf_layout = &record_plan.brf_layout->fields[
+                                  static_cast<std::size_t>(field_index)],
                               .name = field.name(),
                               .cpp_type = lowered.cpp_type,
                               .runtime_encoding = runtime_encoding});
@@ -931,7 +947,8 @@ void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
     plan.children.reserve(static_cast<std::size_t>(ns.namespaces_size()));
     for (int index = 0; index < ns.namespaces_size(); ++index) {
         NamespacePlan child_plan;
-        if (!analyze_namespace(ns.namespaces(index), options, catalog, output_selection,
+        if (!analyze_namespace(ns.namespaces(index), options, catalog, layout_model,
+                               output_selection,
                                child_plan, error_message)) {
             return false;
         }
@@ -1053,6 +1070,17 @@ void collect_planned_files(const NamespacePlan& plan, RenderGenerationPlan& gene
     TypeCatalog catalog;
     collect_named_types(schema_ir.root_namespace(), options, catalog);
 
+    ::quarry::compiler::diagnostics::DiagnosticCollection layout_diagnostics;
+    ::quarry::compiler::layout::LayoutComputer layout_computer;
+    generation_plan.brf_layout_model = layout_computer.compute(schema_ir, layout_diagnostics);
+    if (layout_diagnostics.has_errors()) {
+        error_message = "backend codegen BRF v2 layout computation failed";
+        if (!layout_diagnostics.diagnostics().empty()) {
+            error_message += ": " + layout_diagnostics.diagnostics().front().message();
+        }
+        return false;
+    }
+
     OutputSelection selection;
     if (output_plan != nullptr) {
         for (const output_planning::PlannedSourceUnit& unit : output_plan->units) {
@@ -1064,8 +1092,9 @@ void collect_planned_files(const NamespacePlan& plan, RenderGenerationPlan& gene
     }
     const OutputSelection* selection_ptr = output_plan == nullptr ? nullptr : &selection;
 
-    if (!analyze_namespace(schema_ir.root_namespace(), options, catalog, selection_ptr, root_plan,
-                           error_message)) {
+    if (!analyze_namespace(schema_ir.root_namespace(), options, catalog,
+                           generation_plan.brf_layout_model, selection_ptr,
+                           root_plan, error_message)) {
         return false;
     }
 
@@ -1460,6 +1489,10 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
 
     if (array_encoding.record_encoding.has_value()) {
         const RuntimeRecordEncoding& record_encoding = *array_encoding.record_encoding;
+        const bool fixed_record_elements =
+            field.brf_layout != nullptr && field.brf_layout->type.element_type != nullptr &&
+            field.brf_layout->type.element_type->classification ==
+                ::quarry::compiler::layout::RecordClassification::FixedSize;
         render_array_encode_loop_open(stream, indent_level + 1, field.name);
         stream << indent(indent_level + 2) << "auto element_bytes = "
                << record_encoding.encode_function << "(element);\n";
@@ -1475,9 +1508,11 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
                << "return ::quarry::runtime::encode_failure<std::vector<std::byte>>("
                << "element_bytes.error, std::move(nested_path));\n";
         stream << indent(indent_level + 2) << "}\n";
-        stream << indent(indent_level + 2)
-               << "::quarry::runtime::append_varuint(field_bytes, "
-               << "element_bytes.value->size());\n";
+        if (!fixed_record_elements) {
+            stream << indent(indent_level + 2)
+                   << "::quarry::runtime::append_varuint(field_bytes, "
+                   << "element_bytes.value->size());\n";
+        }
         stream << indent(indent_level + 2)
                << "::quarry::runtime::append_bytes(field_bytes, "
                << "std::span<const std::byte>(element_bytes.value->data(), "
@@ -1606,8 +1641,9 @@ void render_record_encoder_definition(const RecordPlan& record_plan, std::size_t
     } else {
         stream << indent(indent_level + 1) << "(void)value;\n";
     }
-    stream << indent(indent_level + 1) << "return ::quarry::runtime::encode_record_result("
-           << record_plan.record->record_id() << "U, fields);\n";
+    stream << indent(indent_level + 1)
+           << "return ::quarry::runtime::encode_brf_v2_record_result("
+           << "brf_v2_layout_" << record_name << "(), fields);\n";
     stream << indent(indent_level) << "}\n";
     stream << "\n\n";
     stream << indent(indent_level) << "std::optional<std::vector<std::byte>> encode(const "
@@ -1810,6 +1846,13 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
     const bool is_bytes_array = array_encoding.variable == RuntimeVariableEncoding::Bytes;
     const bool is_enum_array = array_encoding.enum_encoding.has_value();
     const bool is_record_array = array_encoding.record_encoding.has_value();
+    const bool fixed_record_elements =
+        is_record_array && field.brf_layout != nullptr &&
+        field.brf_layout->type.element_type != nullptr &&
+        field.brf_layout->type.element_type->classification ==
+            ::quarry::compiler::layout::RecordClassification::FixedSize;
+    const std::uint32_t fixed_record_element_size =
+        fixed_record_elements ? field.brf_layout->type.element_type->encoded_width : 0U;
     const std::string read_function =
         is_enum_array ? enum_read_function(array_encoding.enum_encoding->width_bytes)
                       : runtime_read_function(array_encoding.scalar);
@@ -1842,6 +1885,18 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
         const RuntimeRecordEncoding& record_encoding = *array_encoding.record_encoding;
         stream << indent(indent_level + 1)
                << "for (std::size_t index = 0U; index < element_count; ++index) {\n";
+        if (fixed_record_elements) {
+            stream << indent(indent_level + 2) << "const std::size_t element_length = "
+                   << fixed_record_element_size << "U;\n";
+            stream << indent(indent_level + 2)
+                   << "if (element_offset > field->bytes.size() || "
+                   << "element_length > field->bytes.size() - element_offset) {\n";
+            render_decode_failure_return(stream, indent_level + 3, record_name,
+                                         "::quarry::runtime::DecodeError::invalid_field_length",
+                                         field_index, "static_cast<std::uint32_t>(index)",
+                                         "field->field_offset + element_offset");
+            stream << indent(indent_level + 2) << "}\n";
+        } else {
         stream << indent(indent_level + 2) << "const std::size_t element_length_start = "
                << "element_offset;\n";
         stream << indent(indent_level + 2)
@@ -1862,6 +1917,7 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2)
                << "const auto element_length = static_cast<std::size_t>(*decoded_length.value);\n";
+        }
         stream << indent(indent_level + 2) << "const auto element_bytes = "
                << "field->bytes.subspan(element_offset, element_length);\n";
         stream << indent(indent_level + 2) << "auto decoded = "
@@ -2039,16 +2095,65 @@ void render_field_decoding(const FieldPlan& field, std::string_view record_name,
     render_unsupported_present_field_decoding(field, record_name, indent_level, stream);
 }
 
+[[nodiscard]] std::string brf_v2_storage_name(::quarry::compiler::layout::FieldStorage storage) {
+    switch (storage) {
+    case ::quarry::compiler::layout::FieldStorage::Fixed:
+        return "Fixed";
+    case ::quarry::compiler::layout::FieldStorage::InlineFixedNestedRecord:
+        return "InlineFixedNestedRecord";
+    case ::quarry::compiler::layout::FieldStorage::VariableDescriptor:
+        return "VariableDescriptor";
+    }
+    return "Fixed";
+}
+
+void render_brf_v2_layout_definition(const RecordPlan& record_plan, std::size_t indent_level,
+                                     std::ostringstream& stream) {
+    const std::string& record_name = record_plan.record->name();
+    const auto& layout = *record_plan.brf_layout;
+    stream << indent(indent_level) << "inline const ::quarry::runtime::BrfV2RecordLayout& "
+           << "brf_v2_layout_" << record_name << "() {\n";
+    stream << indent(indent_level + 1)
+           << "static const ::quarry::runtime::BrfV2RecordLayout layout{\n";
+    stream << indent(indent_level + 2) << ".record_id = " << layout.record_id << "U,\n";
+    stream << indent(indent_level + 2) << ".presence_bitmap_size = "
+           << layout.presence_bitmap_size << "U,\n";
+    stream << indent(indent_level + 2) << ".fixed_region_size = " << layout.fixed_region_size
+           << "U,\n";
+    if (layout.complete_fixed_record_size.has_value()) {
+        stream << indent(indent_level + 2) << ".complete_fixed_record_size = std::optional<std::uint32_t>{"
+               << *layout.complete_fixed_record_size << "U},\n";
+    } else {
+        stream << indent(indent_level + 2) << ".complete_fixed_record_size = std::nullopt,\n";
+    }
+    stream << indent(indent_level + 2) << ".fields = {\n";
+    for (const auto& field : layout.fields) {
+        stream << indent(indent_level + 3) << "::quarry::runtime::BrfV2FieldLayout{"
+               << field.field_index << "U, " << field.presence_bit_index << "U, "
+               << field.location.byte_offset << "U, "
+               << static_cast<unsigned int>(field.location.bit_offset) << "U, "
+               << field.location.bit_width << "U, " << field.slot_size << "U, "
+               << "::quarry::runtime::BrfV2FieldStorage::"
+               << brf_v2_storage_name(field.storage) << ", {}},\n";
+    }
+    stream << indent(indent_level + 2) << "},\n";
+    stream << indent(indent_level + 1) << "};\n";
+    stream << indent(indent_level + 1) << "return layout;\n";
+    stream << indent(indent_level) << "}\n\n";
+}
+
 void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t indent_level,
                                       std::ostringstream& stream) {
     const std::string& record_name = record_plan.record->name();
     stream << indent(indent_level) << "::quarry::runtime::DecodeResult<" << record_name
            << "> decode_" << record_name << "_result(std::span<const std::byte> input) {\n";
     stream << indent(indent_level + 1)
-           << "const auto parsed = ::quarry::runtime::parse_record(input);\n";
+           << "const auto parsed = ::quarry::runtime::parse_brf_v2_record("
+           << "input, brf_v2_layout_" << record_name << "());\n";
     stream << indent(indent_level + 1) << "if (!parsed.record.has_value()) {\n";
     stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(parsed.error, {}, parsed.offset);\n";
+           << record_name << ">(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, "
+           << "parsed.offset);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (parsed.record->record_id != "
            << record_plan.record->record_id() << "U) {\n";
@@ -2078,6 +2183,7 @@ void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t
                                             std::ostringstream& stream,
                                             std::string& error_message) {
     const std::string& record_name = record_plan.record->name();
+    render_brf_v2_layout_definition(record_plan, indent_level, stream);
     if (record_plan.fields.empty()) {
         stream << indent(indent_level) << "struct " << record_name << " {};\n\n";
         if (!render_record_builder_definition(record_plan, indent_level, stream, error_message)) {

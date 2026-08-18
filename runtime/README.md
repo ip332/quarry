@@ -6,9 +6,9 @@ This module owns generic runtime support for Quarry binary records.
 
 BRF v2 support is available through the header-only
 `quarry/runtime/binary_record_v2.hpp` API and is intentionally separate from
-the existing generated BRF v1 codecs. A compiler-owned Layout IR can be
-adapted with `compiler/layout/brf_v2_runtime.hpp`; the runtime does not
-recalculate field offsets.
+the existing BRF v1 runtime. A compiler-owned Layout IR can be adapted with
+`compiler/layout/brf_v2_runtime.hpp`; the runtime does not recalculate field
+offsets.
 
 `BrfV2Builder` starts with a zero-filled header and fixed region, keeps field
 presence separate from slot contents, and finalizes variable values in schema
@@ -22,18 +22,17 @@ tail.
 
 `validate_brf_v2` performs structural, bounds, schema-bound, canonical-tail,
 and nested-record checks. Nested validation uses an explicit work stack rather
-than native recursion proportional to record depth. The builder and validator
-are runtime primitives only: generated C, C++, and Python backends continue to
-emit and consume BRF v1 until a later migration.
+than native recursion proportional to record depth. Generated C and C++ schema
+code now use these BRF v2 primitives; Python generated code remains on BRF v1
+during the staged backend migration.
 
-Generated C++ schema code calls the header-only `quarry_runtime` target for
+Generated C and C++ schema code call the header-only `quarry_runtime` target for
 byte-level mechanics while generated code keeps schema-specific knowledge such
 as `record_id`, `field_index`, field type, and enum value sets.
 
-Current support:
+Current v2 generated-backend support:
 
-* top-level Binary Record Format v0.1 header emission
-* top-level Binary Record Format v0.1 header parsing
+* BRF v2 header emission and parsing for generated C and C++
 * Field Directory emission sorted by `fieldIndex`
 * structural Field Directory parsing and field lookup
 * unsigned LEB128 `varuint` emission for directory offsets and lengths
