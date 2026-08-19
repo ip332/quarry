@@ -8,13 +8,25 @@
 #include <utility>
 #include <vector>
 
-#include "quarry/runtime/binary_record.hpp"
+#include "quarry/runtime/binary_record_v2.hpp"
 
 static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 3U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 namespace alpha {
 namespace one {
+
+    inline const ::quarry::runtime::BrfV2RecordLayout& brf_v2_layout_First() {
+      static const ::quarry::runtime::BrfV2RecordLayout layout{
+        .record_id = 1U,
+        .presence_bitmap_size = 0U,
+        .fixed_region_size = 0U,
+        .complete_fixed_record_size = std::optional<std::uint32_t>{16U},
+        .fields = {
+        },
+      };
+      return layout;
+    }
 
     struct First {};
 
@@ -28,7 +40,7 @@ namespace one {
     ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const First& value) {
       std::vector<::quarry::runtime::FieldBytes> fields;
       (void)value;
-      return ::quarry::runtime::encode_record_result(1U, fields);
+      return ::quarry::runtime::encode_brf_v2_record_result(brf_v2_layout_First(), fields);
     }
 
 
@@ -42,9 +54,9 @@ namespace one {
 
 
     ::quarry::runtime::DecodeResult<First> decode_First_result(std::span<const std::byte> input) {
-      const auto parsed = ::quarry::runtime::parse_record(input);
+      const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_First());
       if (!parsed.record.has_value()) {
-        return ::quarry::runtime::decode_failure<First>(parsed.error, {}, parsed.offset);
+        return ::quarry::runtime::decode_failure<First>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
       }
       if (parsed.record->record_id != 1U) {
         return ::quarry::runtime::decode_failure<First>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
@@ -74,13 +86,25 @@ namespace one {
 #include <utility>
 #include <vector>
 
-#include "quarry/runtime/binary_record.hpp"
+#include "quarry/runtime/binary_record_v2.hpp"
 
 static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 3U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 namespace beta {
 namespace two {
+
+    inline const ::quarry::runtime::BrfV2RecordLayout& brf_v2_layout_Second() {
+      static const ::quarry::runtime::BrfV2RecordLayout layout{
+        .record_id = 2U,
+        .presence_bitmap_size = 0U,
+        .fixed_region_size = 0U,
+        .complete_fixed_record_size = std::optional<std::uint32_t>{16U},
+        .fields = {
+        },
+      };
+      return layout;
+    }
 
     struct Second {};
 
@@ -94,7 +118,7 @@ namespace two {
     ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Second& value) {
       std::vector<::quarry::runtime::FieldBytes> fields;
       (void)value;
-      return ::quarry::runtime::encode_record_result(2U, fields);
+      return ::quarry::runtime::encode_brf_v2_record_result(brf_v2_layout_Second(), fields);
     }
 
 
@@ -108,9 +132,9 @@ namespace two {
 
 
     ::quarry::runtime::DecodeResult<Second> decode_Second_result(std::span<const std::byte> input) {
-      const auto parsed = ::quarry::runtime::parse_record(input);
+      const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_Second());
       if (!parsed.record.has_value()) {
-        return ::quarry::runtime::decode_failure<Second>(parsed.error, {}, parsed.offset);
+        return ::quarry::runtime::decode_failure<Second>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
       }
       if (parsed.record->record_id != 2U) {
         return ::quarry::runtime::decode_failure<Second>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);

@@ -10,10 +10,25 @@
 #include <utility>
 #include <vector>
 
-#include "quarry/runtime/binary_record.hpp"
+#include "quarry/runtime/binary_record_v2.hpp"
 
 static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 3U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
+
+inline const ::quarry::runtime::BrfV2RecordLayout& brf_v2_layout_Inner() {
+  static const ::quarry::runtime::BrfV2RecordLayout layout{
+    .record_id = 1U,
+    .presence_bitmap_size = 1U,
+    .fixed_region_size = 21U,
+    .complete_fixed_record_size = std::nullopt,
+    .fields = {
+      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 32U, 4U, ::quarry::runtime::BrfV2FieldStorage::Fixed, {}},
+      ::quarry::runtime::BrfV2FieldLayout{1U, 1U, 21U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+      ::quarry::runtime::BrfV2FieldLayout{2U, 2U, 29U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+    },
+  };
+  return layout;
+}
 
 struct Inner {
   Inner() = default;
@@ -160,7 +175,7 @@ private:
       .bytes = std::move(field_bytes),
     });
   }
-  return ::quarry::runtime::encode_record_result(1U, fields);
+  return ::quarry::runtime::encode_brf_v2_record_result(brf_v2_layout_Inner(), fields);
 }
 
 
@@ -174,9 +189,9 @@ std::optional<std::vector<std::byte>> encode(const Inner& value) {
 
 
 ::quarry::runtime::DecodeResult<Inner> decode_Inner_result(std::span<const std::byte> input) {
-  const auto parsed = ::quarry::runtime::parse_record(input);
+  const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_Inner());
   if (!parsed.record.has_value()) {
-    return ::quarry::runtime::decode_failure<Inner>(parsed.error, {}, parsed.offset);
+    return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
   }
   if (parsed.record->record_id != 1U) {
     return ::quarry::runtime::decode_failure<Inner>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
@@ -255,6 +270,19 @@ std::optional<Inner> decode_Inner(std::span<const std::byte> input) {
   return std::move(decoded.value);
 }
 
+inline const ::quarry::runtime::BrfV2RecordLayout& brf_v2_layout_Middle() {
+  static const ::quarry::runtime::BrfV2RecordLayout layout{
+    .record_id = 2U,
+    .presence_bitmap_size = 1U,
+    .fixed_region_size = 9U,
+    .complete_fixed_record_size = std::nullopt,
+    .fields = {
+      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+    },
+  };
+  return layout;
+}
+
 struct Middle {
   Middle() = default;
 
@@ -316,7 +344,7 @@ private:
       .bytes = std::move(*field_bytes.value),
     });
   }
-  return ::quarry::runtime::encode_record_result(2U, fields);
+  return ::quarry::runtime::encode_brf_v2_record_result(brf_v2_layout_Middle(), fields);
 }
 
 
@@ -330,9 +358,9 @@ std::optional<std::vector<std::byte>> encode(const Middle& value) {
 
 
 ::quarry::runtime::DecodeResult<Middle> decode_Middle_result(std::span<const std::byte> input) {
-  const auto parsed = ::quarry::runtime::parse_record(input);
+  const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_Middle());
   if (!parsed.record.has_value()) {
-    return ::quarry::runtime::decode_failure<Middle>(parsed.error, {}, parsed.offset);
+    return ::quarry::runtime::decode_failure<Middle>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
   }
   if (parsed.record->record_id != 2U) {
     return ::quarry::runtime::decode_failure<Middle>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
@@ -365,6 +393,20 @@ std::optional<Middle> decode_Middle(std::span<const std::byte> input) {
     return std::nullopt;
   }
   return std::move(decoded.value);
+}
+
+inline const ::quarry::runtime::BrfV2RecordLayout& brf_v2_layout_Outer() {
+  static const ::quarry::runtime::BrfV2RecordLayout layout{
+    .record_id = 3U,
+    .presence_bitmap_size = 1U,
+    .fixed_region_size = 17U,
+    .complete_fixed_record_size = std::nullopt,
+    .fields = {
+      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+      ::quarry::runtime::BrfV2FieldLayout{1U, 1U, 25U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+    },
+  };
+  return layout;
 }
 
 struct Outer {
@@ -465,7 +507,7 @@ private:
       .bytes = std::move(*field_bytes.value),
     });
   }
-  return ::quarry::runtime::encode_record_result(3U, fields);
+  return ::quarry::runtime::encode_brf_v2_record_result(brf_v2_layout_Outer(), fields);
 }
 
 
@@ -479,9 +521,9 @@ std::optional<std::vector<std::byte>> encode(const Outer& value) {
 
 
 ::quarry::runtime::DecodeResult<Outer> decode_Outer_result(std::span<const std::byte> input) {
-  const auto parsed = ::quarry::runtime::parse_record(input);
+  const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_Outer());
   if (!parsed.record.has_value()) {
-    return ::quarry::runtime::decode_failure<Outer>(parsed.error, {}, parsed.offset);
+    return ::quarry::runtime::decode_failure<Outer>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
   }
   if (parsed.record->record_id != 3U) {
     return ::quarry::runtime::decode_failure<Outer>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
@@ -531,6 +573,19 @@ std::optional<Outer> decode_Outer(std::span<const std::byte> input) {
     return std::nullopt;
   }
   return std::move(decoded.value);
+}
+
+inline const ::quarry::runtime::BrfV2RecordLayout& brf_v2_layout_Group() {
+  static const ::quarry::runtime::BrfV2RecordLayout layout{
+    .record_id = 4U,
+    .presence_bitmap_size = 1U,
+    .fixed_region_size = 9U,
+    .complete_fixed_record_size = std::nullopt,
+    .fields = {
+      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+    },
+  };
+  return layout;
 }
 
 struct Group {
@@ -609,7 +664,7 @@ private:
       .bytes = std::move(field_bytes),
     });
   }
-  return ::quarry::runtime::encode_record_result(4U, fields);
+  return ::quarry::runtime::encode_brf_v2_record_result(brf_v2_layout_Group(), fields);
 }
 
 
@@ -623,9 +678,9 @@ std::optional<std::vector<std::byte>> encode(const Group& value) {
 
 
 ::quarry::runtime::DecodeResult<Group> decode_Group_result(std::span<const std::byte> input) {
-  const auto parsed = ::quarry::runtime::parse_record(input);
+  const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_Group());
   if (!parsed.record.has_value()) {
-    return ::quarry::runtime::decode_failure<Group>(parsed.error, {}, parsed.offset);
+    return ::quarry::runtime::decode_failure<Group>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
   }
   if (parsed.record->record_id != 4U) {
     return ::quarry::runtime::decode_failure<Group>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);

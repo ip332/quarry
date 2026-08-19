@@ -50,8 +50,7 @@ Current C++ generation behavior:
     structured `EncodeError`
   * encode errors distinguish schema bounds, invalid UTF-8, unknown enum
     values, unsupported present field types, and runtime overflow
-  * successful results contain a complete top-level Binary Record Format v0.1
-    record
+  * successful results contain a complete top-level BRF v2 record
   * present supported fields are encoded through the runtime library
   * absent fields are omitted, including absent fields whose type is not yet
     encodable
@@ -79,8 +78,8 @@ Current C++ generation behavior:
   * wrappers delegate to `encode_result` and intentionally discard error detail
 * generates `decode_RecordName_result(std::span<const std::byte>)` overloads
   that return `::quarry::runtime::DecodeResult<RecordName>`
-  * decoding structurally parses a complete top-level Binary Record Format v0.1
-    record through the runtime library
+  * decoding structurally parses a complete top-level BRF v2 record through the
+    runtime library
   * structural parse/read failures preserve the runtime `DecodeError`
   * a mismatched `record_id` returns `DecodeError::unexpected_record_id`
   * unknown field indexes are ignored after structural validation
@@ -172,9 +171,9 @@ Current C++ generation behavior:
   * `<utility>` for generated encoder moves
   * `<string>` for `std::string`
   * `<vector>` for arrays, `bytes`, and generated encoder results
-* includes `quarry/runtime/binary_record.hpp` when a generated file contains
-  records — the same canonical public include path documented for
-  hand-written consumers (see `runtime/README.md`)
+* includes `quarry/runtime/binary_record_v2.hpp` when a generated file contains
+  records; generated C++ now targets BRF v2 while Python remains on the v1
+  runtime during staged migration
 * emits a compile-time generated-code API compatibility assertion for generated
   record headers
   * the assertion checks

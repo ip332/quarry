@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-#include "quarry/runtime/binary_record.hpp"
+#include "quarry/runtime/binary_record_v2.hpp"
 
 static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 3U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
@@ -21,6 +21,19 @@ namespace one {
       Off = 0,
       On = 1,
     };
+
+    inline const ::quarry::runtime::BrfV2RecordLayout& brf_v2_layout_Element() {
+      static const ::quarry::runtime::BrfV2RecordLayout layout{
+        .record_id = 1U,
+        .presence_bitmap_size = 1U,
+        .fixed_region_size = 5U,
+        .complete_fixed_record_size = std::optional<std::uint32_t>{21U},
+        .fields = {
+          ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 32U, 4U, ::quarry::runtime::BrfV2FieldStorage::Fixed, {}},
+        },
+      };
+      return layout;
+    }
 
     struct Element {
       Element() = default;
@@ -78,7 +91,7 @@ namespace one {
           .bytes = std::move(field_bytes),
         });
       }
-      return ::quarry::runtime::encode_record_result(1U, fields);
+      return ::quarry::runtime::encode_brf_v2_record_result(brf_v2_layout_Element(), fields);
     }
 
 
@@ -92,9 +105,9 @@ namespace one {
 
 
     ::quarry::runtime::DecodeResult<Element> decode_Element_result(std::span<const std::byte> input) {
-      const auto parsed = ::quarry::runtime::parse_record(input);
+      const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_Element());
       if (!parsed.record.has_value()) {
-        return ::quarry::runtime::decode_failure<Element>(parsed.error, {}, parsed.offset);
+        return ::quarry::runtime::decode_failure<Element>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
       }
       if (parsed.record->record_id != 1U) {
         return ::quarry::runtime::decode_failure<Element>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
@@ -134,13 +147,27 @@ namespace one {
 #include <vector>
 
 #include "alpha/one.generated.hpp"
-#include "quarry/runtime/binary_record.hpp"
+#include "quarry/runtime/binary_record_v2.hpp"
 
 static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 3U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
 
 namespace beta {
 namespace two {
+
+    inline const ::quarry::runtime::BrfV2RecordLayout& brf_v2_layout_Basket() {
+      static const ::quarry::runtime::BrfV2RecordLayout layout{
+        .record_id = 2U,
+        .presence_bitmap_size = 1U,
+        .fixed_region_size = 17U,
+        .complete_fixed_record_size = std::nullopt,
+        .fields = {
+          ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+          ::quarry::runtime::BrfV2FieldLayout{1U, 1U, 25U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+        },
+      };
+      return layout;
+    }
 
     struct Basket {
       Basket() = default;
@@ -237,7 +264,6 @@ namespace two {
             });
             return ::quarry::runtime::encode_failure<std::vector<std::byte>>(element_bytes.error, std::move(nested_path));
           }
-          ::quarry::runtime::append_varuint(field_bytes, element_bytes.value->size());
           ::quarry::runtime::append_bytes(field_bytes, std::span<const std::byte>(element_bytes.value->data(), element_bytes.value->size()));
         }
         fields.push_back(::quarry::runtime::FieldBytes{
@@ -264,7 +290,7 @@ namespace two {
           .bytes = std::move(field_bytes),
         });
       }
-      return ::quarry::runtime::encode_record_result(2U, fields);
+      return ::quarry::runtime::encode_brf_v2_record_result(brf_v2_layout_Basket(), fields);
     }
 
 
@@ -278,9 +304,9 @@ namespace two {
 
 
     ::quarry::runtime::DecodeResult<Basket> decode_Basket_result(std::span<const std::byte> input) {
-      const auto parsed = ::quarry::runtime::parse_record(input);
+      const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_Basket());
       if (!parsed.record.has_value()) {
-        return ::quarry::runtime::decode_failure<Basket>(parsed.error, {}, parsed.offset);
+        return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
       }
       if (parsed.record->record_id != 2U) {
         return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
@@ -299,15 +325,10 @@ namespace two {
         std::vector<::alpha::one::Element> elements;
         elements.reserve(element_count);
         for (std::size_t index = 0U; index < element_count; ++index) {
-          const std::size_t element_length_start = element_offset;
-          const auto decoded_length = ::quarry::runtime::read_varuint(field->bytes, element_offset);
-          if (!decoded_length.value.has_value()) {
-            return ::quarry::runtime::decode_failure<Basket>(decoded_length.error, {{.field_index = 0U, .array_index = static_cast<std::uint32_t>(index)}}, field->field_offset + element_length_start);
-          }
-          if (*decoded_length.value > field->bytes.size() - element_offset) {
+          const std::size_t element_length = 21U;
+          if (element_offset > field->bytes.size() || element_length > field->bytes.size() - element_offset) {
             return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 0U, .array_index = static_cast<std::uint32_t>(index)}}, field->field_offset + element_offset);
           }
-          const auto element_length = static_cast<std::size_t>(*decoded_length.value);
           const auto element_bytes = field->bytes.subspan(element_offset, element_length);
           auto decoded = ::alpha::one::decode_Element_result(element_bytes);
           if (!decoded.value.has_value()) {

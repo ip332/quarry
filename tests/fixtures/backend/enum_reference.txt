@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-#include "quarry/runtime/binary_record.hpp"
+#include "quarry/runtime/binary_record_v2.hpp"
 
 static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 3U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
@@ -18,6 +18,19 @@ enum class Color : std::int64_t {
   Red = 1,
   Green = 2,
 };
+
+inline const ::quarry::runtime::BrfV2RecordLayout& brf_v2_layout_Paint() {
+  static const ::quarry::runtime::BrfV2RecordLayout layout{
+    .record_id = 1U,
+    .presence_bitmap_size = 1U,
+    .fixed_region_size = 2U,
+    .complete_fixed_record_size = std::optional<std::uint32_t>{18U},
+    .fields = {
+      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 8U, 1U, ::quarry::runtime::BrfV2FieldStorage::Fixed, {}},
+    },
+  };
+  return layout;
+}
 
 struct Paint {
   Paint() = default;
@@ -77,7 +90,7 @@ private:
       .bytes = std::move(field_bytes),
     });
   }
-  return ::quarry::runtime::encode_record_result(1U, fields);
+  return ::quarry::runtime::encode_brf_v2_record_result(brf_v2_layout_Paint(), fields);
 }
 
 
@@ -91,9 +104,9 @@ std::optional<std::vector<std::byte>> encode(const Paint& value) {
 
 
 ::quarry::runtime::DecodeResult<Paint> decode_Paint_result(std::span<const std::byte> input) {
-  const auto parsed = ::quarry::runtime::parse_record(input);
+  const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_Paint());
   if (!parsed.record.has_value()) {
-    return ::quarry::runtime::decode_failure<Paint>(parsed.error, {}, parsed.offset);
+    return ::quarry::runtime::decode_failure<Paint>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
   }
   if (parsed.record->record_id != 1U) {
     return ::quarry::runtime::decode_failure<Paint>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);

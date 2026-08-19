@@ -9,10 +9,25 @@
 #include <utility>
 #include <vector>
 
-#include "quarry/runtime/binary_record.hpp"
+#include "quarry/runtime/binary_record_v2.hpp"
 
 static_assert(::quarry::runtime::kGeneratedCodeApiVersion == 3U,
               "Generated Quarry code is incompatible with the installed Quarry runtime. Regenerate the code using a compatible quarry-schema-compiler release.");
+
+inline const ::quarry::runtime::BrfV2RecordLayout& brf_v2_layout_Example() {
+  static const ::quarry::runtime::BrfV2RecordLayout layout{
+    .record_id = 1U,
+    .presence_bitmap_size = 1U,
+    .fixed_region_size = 14U,
+    .complete_fixed_record_size = std::optional<std::uint32_t>{30U},
+    .fields = {
+      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 8U, 1U, ::quarry::runtime::BrfV2FieldStorage::Fixed, {}},
+      ::quarry::runtime::BrfV2FieldLayout{1U, 1U, 18U, 0U, 32U, 4U, ::quarry::runtime::BrfV2FieldStorage::Fixed, {}},
+      ::quarry::runtime::BrfV2FieldLayout{2U, 2U, 22U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::Fixed, {}},
+    },
+  };
+  return layout;
+}
 
 struct Example {
   Example() = default;
@@ -134,7 +149,7 @@ private:
       .bytes = std::move(field_bytes),
     });
   }
-  return ::quarry::runtime::encode_record_result(1U, fields);
+  return ::quarry::runtime::encode_brf_v2_record_result(brf_v2_layout_Example(), fields);
 }
 
 
@@ -148,9 +163,9 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
 
 
 ::quarry::runtime::DecodeResult<Example> decode_Example_result(std::span<const std::byte> input) {
-  const auto parsed = ::quarry::runtime::parse_record(input);
+  const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_Example());
   if (!parsed.record.has_value()) {
-    return ::quarry::runtime::decode_failure<Example>(parsed.error, {}, parsed.offset);
+    return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
   }
   if (parsed.record->record_id != 1U) {
     return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);
