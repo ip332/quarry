@@ -1,8 +1,9 @@
-# C++ to Python Interoperability
+# C++ BRF v2 encode/decode
 
-This focused example generates the same schema for C++ and Python. The C++
-consumer writes BRF bytes; the Python consumer reads and decodes those bytes
-through the installed Python runtime.
+This focused example generates a C++ BRF v2 encoder and decoder for the same
+schema. Python remains on the BRF v1 compatibility path during the staged
+backend migration, so this example no longer claims C++/Python wire
+interoperability.
 
 Build the C++ producer after installing Quarry:
 
@@ -12,17 +13,8 @@ cmake --build build
 ./build/quarry_cpp_python_encode encoded.brf
 ```
 
-Generate Python code into the same example build tree and run the decoder with
-the installed runtime:
+Run the generated C++ decoder against the encoded record:
 
 ```sh
-quarry-schema-compiler --language python \
-  --output-directory build/python schema.brd
+./build/quarry_cpp_python_encode --decode encoded.brf
 ```
-
-```sh
-PYTHONPATH=build/python python decode.py encoded.brf
-```
-
-The two backends use the existing BRF contract; no adapter or special wire
-handling is involved.
