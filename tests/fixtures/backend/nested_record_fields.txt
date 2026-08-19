@@ -22,9 +22,9 @@ inline const ::quarry::runtime::BrfV2RecordLayout& brf_v2_layout_Inner() {
     .fixed_region_size = 21U,
     .complete_fixed_record_size = std::nullopt,
     .fields = {
-      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 32U, 4U, ::quarry::runtime::BrfV2FieldStorage::Fixed, {}} ,
-      ::quarry::runtime::BrfV2FieldLayout{1U, 1U, 21U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
-      ::quarry::runtime::BrfV2FieldLayout{2U, 2U, 29U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
+      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 32U, 4U, ::quarry::runtime::BrfV2FieldStorage::Fixed, {}},
+      ::quarry::runtime::BrfV2FieldLayout{1U, 1U, 21U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+      ::quarry::runtime::BrfV2FieldLayout{2U, 2U, 29U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
     },
   };
   return layout;
@@ -277,7 +277,7 @@ inline const ::quarry::runtime::BrfV2RecordLayout& brf_v2_layout_Middle() {
     .fixed_region_size = 9U,
     .complete_fixed_record_size = std::nullopt,
     .fields = {
-      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
+      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
     },
   };
   return layout;
@@ -402,8 +402,8 @@ inline const ::quarry::runtime::BrfV2RecordLayout& brf_v2_layout_Outer() {
     .fixed_region_size = 17U,
     .complete_fixed_record_size = std::nullopt,
     .fields = {
-      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
-      ::quarry::runtime::BrfV2FieldLayout{1U, 1U, 25U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
+      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+      ::quarry::runtime::BrfV2FieldLayout{1U, 1U, 25U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
     },
   };
   return layout;
@@ -582,7 +582,7 @@ inline const ::quarry::runtime::BrfV2RecordLayout& brf_v2_layout_Group() {
     .fixed_region_size = 9U,
     .complete_fixed_record_size = std::nullopt,
     .fields = {
-      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
+      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
     },
   };
   return layout;

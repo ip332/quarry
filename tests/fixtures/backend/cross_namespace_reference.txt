@@ -102,7 +102,7 @@ namespace two {
         .fixed_region_size = 17U,
         .complete_fixed_record_size = std::optional<std::uint32_t>{33U},
         .fields = {
-          ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 128U, 16U, ::quarry::runtime::BrfV2FieldStorage::InlineFixedNestedRecord, {}} ,
+          ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 128U, 16U, ::quarry::runtime::BrfV2FieldStorage::InlineFixedNestedRecord, {}},
         },
       };
       return layout;

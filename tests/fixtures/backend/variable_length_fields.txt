@@ -27,7 +27,7 @@ inline const ::quarry::runtime::BrfV2RecordLayout& brf_v2_layout_Child() {
     .fixed_region_size = 5U,
     .complete_fixed_record_size = std::optional<std::uint32_t>{21U},
     .fields = {
-      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 32U, 4U, ::quarry::runtime::BrfV2FieldStorage::Fixed, {}} ,
+      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 17U, 0U, 32U, 4U, ::quarry::runtime::BrfV2FieldStorage::Fixed, {}},
     },
   };
   return layout;
@@ -139,18 +139,18 @@ inline const ::quarry::runtime::BrfV2RecordLayout& brf_v2_layout_Example() {
     .fixed_region_size = 91U,
     .complete_fixed_record_size = std::nullopt,
     .fields = {
-      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 18U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
-      ::quarry::runtime::BrfV2FieldLayout{1U, 1U, 26U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
-      ::quarry::runtime::BrfV2FieldLayout{2U, 2U, 34U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
-      ::quarry::runtime::BrfV2FieldLayout{3U, 3U, 42U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
-      ::quarry::runtime::BrfV2FieldLayout{4U, 4U, 50U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
-      ::quarry::runtime::BrfV2FieldLayout{5U, 5U, 58U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
-      ::quarry::runtime::BrfV2FieldLayout{6U, 6U, 66U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
-      ::quarry::runtime::BrfV2FieldLayout{7U, 7U, 74U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
-      ::quarry::runtime::BrfV2FieldLayout{8U, 8U, 82U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
-      ::quarry::runtime::BrfV2FieldLayout{9U, 9U, 90U, 0U, 8U, 1U, ::quarry::runtime::BrfV2FieldStorage::Fixed, {}} ,
-      ::quarry::runtime::BrfV2FieldLayout{10U, 10U, 91U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
-      ::quarry::runtime::BrfV2FieldLayout{11U, 11U, 99U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}} ,
+      ::quarry::runtime::BrfV2FieldLayout{0U, 0U, 18U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+      ::quarry::runtime::BrfV2FieldLayout{1U, 1U, 26U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+      ::quarry::runtime::BrfV2FieldLayout{2U, 2U, 34U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+      ::quarry::runtime::BrfV2FieldLayout{3U, 3U, 42U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+      ::quarry::runtime::BrfV2FieldLayout{4U, 4U, 50U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+      ::quarry::runtime::BrfV2FieldLayout{5U, 5U, 58U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+      ::quarry::runtime::BrfV2FieldLayout{6U, 6U, 66U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+      ::quarry::runtime::BrfV2FieldLayout{7U, 7U, 74U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+      ::quarry::runtime::BrfV2FieldLayout{8U, 8U, 82U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+      ::quarry::runtime::BrfV2FieldLayout{9U, 9U, 90U, 0U, 8U, 1U, ::quarry::runtime::BrfV2FieldStorage::Fixed, {}},
+      ::quarry::runtime::BrfV2FieldLayout{10U, 10U, 91U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
+      ::quarry::runtime::BrfV2FieldLayout{11U, 11U, 99U, 0U, 64U, 8U, ::quarry::runtime::BrfV2FieldStorage::VariableDescriptor, {}},
     },
   };
   return layout;
@@ -595,7 +595,6 @@ private:
         });
         return ::quarry::runtime::encode_failure<std::vector<std::byte>>(element_bytes.error, std::move(nested_path));
       }
-      ::quarry::runtime::append_varuint(field_bytes, element_bytes.value->size());
       ::quarry::runtime::append_bytes(field_bytes, std::span<const std::byte>(element_bytes.value->data(), element_bytes.value->size()));
     }
     fields.push_back(::quarry::runtime::FieldBytes{
@@ -854,15 +853,10 @@ std::optional<std::vector<std::byte>> encode(const Example& value) {
     std::vector<::Child> elements;
     elements.reserve(element_count);
     for (std::size_t index = 0U; index < element_count; ++index) {
-      const std::size_t element_length_start = element_offset;
-      const auto decoded_length = ::quarry::runtime::read_varuint(field->bytes, element_offset);
-      if (!decoded_length.value.has_value()) {
-        return ::quarry::runtime::decode_failure<Example>(decoded_length.error, {{.field_index = 5U, .array_index = static_cast<std::uint32_t>(index)}}, field->field_offset + element_length_start);
-      }
-      if (*decoded_length.value > field->bytes.size() - element_offset) {
+      const std::size_t element_length = 21U;
+      if (element_offset > field->bytes.size() || element_length > field->bytes.size() - element_offset) {
         return ::quarry::runtime::decode_failure<Example>(::quarry::runtime::DecodeError::invalid_field_length, {{.field_index = 5U, .array_index = static_cast<std::uint32_t>(index)}}, field->field_offset + element_offset);
       }
-      const auto element_length = static_cast<std::size_t>(*decoded_length.value);
       const auto element_bytes = field->bytes.subspan(element_offset, element_length);
       auto decoded = ::decode_Child_result(element_bytes);
       if (!decoded.value.has_value()) {
