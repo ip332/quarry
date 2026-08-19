@@ -538,7 +538,7 @@ inline EncodeResult<std::vector<std::byte>> encode_brf_v2_record_result(
     if (!encoded.value.has_value()) {
         return encode_failure<std::vector<std::byte>>(brf_v2_encode_error(encoded.error));
     }
-    return encode_success(std::move(*encoded.value));
+    return encode_success(*encoded.value);
 }
 
 inline BrfV2ValidationResult validate_brf_v2(std::span<const std::byte> input,
