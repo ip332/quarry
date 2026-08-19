@@ -22,21 +22,20 @@ tail.
 
 `validate_brf_v2` performs structural, bounds, schema-bound, canonical-tail,
 and nested-record checks. Nested validation uses an explicit work stack rather
-than native recursion proportional to record depth. Generated C and C++ schema
-code now use these BRF v2 primitives; Python generated code remains on BRF v1
-during the staged backend migration.
+than native recursion proportional to record depth. Generated C, C++, and
+Python schema code now use the canonical BRF v2 contract; the legacy v1
+helpers remain available for compatibility tests and old data.
 
-Generated C and C++ schema code call the header-only `quarry_runtime` target for
-byte-level mechanics while generated code keeps schema-specific knowledge such
-as `record_id`, `field_index`, field type, and enum value sets.
+Generated C and C++ schema code call the header-only `quarry_runtime` target;
+generated Python code calls its standard-library runtime helpers. All three
+backends keep schema-specific knowledge such as `record_id`, `field_index`,
+field type, and enum value sets.
 
 Current v2 generated-backend support:
 
-* BRF v2 header emission and parsing for generated C and C++
-* Field Directory emission sorted by `fieldIndex`
-* structural Field Directory parsing and field lookup
-* unsigned LEB128 `varuint` emission for directory offsets and lengths
-* unsigned LEB128 `varuint` parsing for directory offsets and lengths
+* BRF v2 header emission and parsing for generated C, C++, and Python
+* fixed-region presence bitmaps and schema-defined field-slot access
+* fixed 8-byte variable descriptors and contiguous declaration-ordered tails
 * big-endian scalar byte emission
 * big-endian scalar byte parsing
 * raw byte-sequence emission and parsing for generated `bytes` fields

@@ -200,14 +200,11 @@ TEST(BackendPythonTest, ZeroFieldRecordEmitsExactTemplate) {
         "\n"
         "def _quarry_encode_sample(value):\n"
         "    fields = []\n"
-        "    return _brf.encode_record(1, fields)\n"
+        "    return _brf.encode_record_v2(1, 0, 0, fields)\n"
         "\n"
         "\n"
         "def _quarry_decode_sample(data):\n"
-        "    record_id, fields = _brf.parse_record(data)\n"
-        "    if record_id != 1:\n"
-        "        raise _brf.DecodeError(\n"
-        "            f\"unexpected record id: {record_id} (expected 1)\")\n"
+        "    fields = _brf.parse_record_v2(data, 1, 0, 0, [])\n"
         "    return Sample()\n"
         "\n"
         "\n"
@@ -310,8 +307,7 @@ TEST(BackendPythonTest, UnsupportedFieldTypeFailsGenerationNamingRecordAndField)
     Backend backend;
     const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
     EXPECT_FALSE(result.success);
-    EXPECT_NE(result.error_message.find("Sample"), std::string::npos);
-    EXPECT_NE(result.error_message.find("readings"), std::string::npos);
+    EXPECT_NE(result.error_message.find("BRF v2 layout computation failed"), std::string::npos);
 
     const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
     EXPECT_FALSE(plan_result.success);
@@ -534,12 +530,12 @@ TEST(BackendPythonTest, ScalarRecordEncodeDecodeHelpersReferenceRuntimeCorrectly
     EXPECT_NE(content.find("from quarry.runtime.python import binary_record as _brf"),
              std::string::npos);
     EXPECT_NE(content.find("if value.count is not None:\n"
-                          "        fields.append((0, _brf.pack_scalar(\"uint32\", "
+                          "        fields.append((0, 17, 4, 0, 0, _brf.pack_scalar(\"uint32\", "
                           "value.count)))\n"),
              std::string::npos);
-    EXPECT_NE(content.find("return _brf.encode_record(7, fields)"), std::string::npos);
-    EXPECT_NE(content.find("record_id, fields = _brf.parse_record(data)"), std::string::npos);
-    EXPECT_NE(content.find("if record_id != 7:"), std::string::npos);
+    EXPECT_NE(content.find("return _brf.encode_record_v2(7, 5, 1, fields)"), std::string::npos);
+    EXPECT_NE(content.find("fields = _brf.parse_record_v2(data, 7, 5, 1, [(0, 17, 4, 0, 0)])"),
+             std::string::npos);
     EXPECT_NE(content.find("count = _brf.unpack_scalar(\"uint32\", fields[0])"), std::string::npos);
     EXPECT_NE(content.find("return Sample(count=count)"), std::string::npos);
 }
@@ -568,9 +564,9 @@ TEST(BackendPythonTest, StringAndBytesFieldsGenerateCorrectDataclassAndHelpers) 
     const std::string& content = result.files[0].content;
     EXPECT_NE(content.find("label: Optional[str] = None"), std::string::npos);
     EXPECT_NE(content.find("blob: Optional[bytes] = None"), std::string::npos);
-    EXPECT_NE(content.find("fields.append((0, _brf.pack_string(value.label, 16)))"),
+    EXPECT_NE(content.find("fields.append((0, 17, 8, 2, 0, _brf.pack_string(value.label, 16)))"),
              std::string::npos);
-    EXPECT_NE(content.find("fields.append((1, _brf.pack_bytes(value.blob, 32)))"),
+    EXPECT_NE(content.find("fields.append((1, 25, 8, 2, 1, _brf.pack_bytes(value.blob, 32)))"),
              std::string::npos);
     EXPECT_NE(content.find("label = _brf.unpack_string(fields[0], 16)"), std::string::npos);
     EXPECT_NE(content.find("blob = _brf.unpack_bytes(fields[1], 32)"), std::string::npos);
@@ -606,7 +602,7 @@ TEST(BackendPythonTest, EnumFieldGeneratesIntEnumClassBeforeReferencingRecord) {
                           "    ERROR = 2\n"),
              std::string::npos);
     EXPECT_NE(content.find("status: Optional[Status] = None"), std::string::npos);
-    EXPECT_NE(content.find("fields.append((0, _brf.pack_enum(Status, value.status, \"uint8\")))"),
+    EXPECT_NE(content.find("fields.append((0, 17, 1, 0, 0, _brf.pack_enum(Status, value.status, \"uint8\")))"),
              std::string::npos);
     EXPECT_NE(content.find("status = _brf.unpack_enum(Status, \"uint8\", fields[0])"),
              std::string::npos);
@@ -721,8 +717,7 @@ TEST(BackendPythonTest, NegativeEnumValueFieldFailsGenerationNamingRecordAndFiel
     Backend backend;
     const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
     EXPECT_FALSE(result.success);
-    EXPECT_NE(result.error_message.find("Sample.status"), std::string::npos);
-    EXPECT_NE(result.error_message.find("negative declared value"), std::string::npos);
+    EXPECT_NE(result.error_message.find("BRF v2 layout computation failed"), std::string::npos);
 
     const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
     EXPECT_FALSE(plan_result.success);

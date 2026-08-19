@@ -1,4 +1,6 @@
 #include "compiler/backend_python/backend_python.hpp"
+#include "compiler/layout/layout.hpp"
+#include "compiler/diagnostics/diagnostic.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -26,6 +28,9 @@ using ::quarry::schema_ir::FieldType;
 using ::quarry::schema_ir::NamespaceIR;
 using ::quarry::schema_ir::PrimitiveType;
 using ::quarry::schema_ir::RecordIR;
+using ::quarry::compiler::layout::FieldStorage;
+using ::quarry::compiler::layout::LayoutModel;
+using ::quarry::compiler::layout::RecordClassification;
 
 // Compatibility epoch embedded in every generated module's import-time check
 // (see render_module below). Independent from
@@ -545,12 +550,23 @@ struct PlannedField {
     std::uint64_t record_target_ir_id = 0U; // meaningful only when is_record
     bool is_array = false;
     std::uint32_t array_max_elements = 0U; // meaningful only when is_array
+    std::uint32_t byte_offset = 0U;
+    std::uint8_t bit_offset = 0U;
+    std::uint32_t bit_width = 0U;
+    std::uint32_t presence_bit_index = 0U;
+    std::uint32_t slot_size = 0U;
+    std::uint32_t storage_kind = 0U;
+    bool array_element_fixed_record = false;
+    std::uint32_t array_element_fixed_record_size = 0U;
 };
 
 struct PlannedRecord {
     std::uint64_t ir_id = 0U;
     std::string name;
     std::uint32_t record_id = 0U;
+    std::uint32_t presence_bitmap_size = 0U;
+    std::uint32_t fixed_region_size = 0U;
+    bool fixed_size = true;
     std::vector<PlannedField> fields;
     std::vector<std::uint64_t> same_namespace_dependencies;
 };
@@ -853,6 +869,52 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     return true;
 }
 
+[[nodiscard]] bool attach_layout(const RecordIR& record_ir, PlannedRecord& planned_record,
+                                 const LayoutModel& layout_model, std::string& error_message) {
+    const auto* layout = layout_model.find_record(record_ir.fqn());
+    if (layout == nullptr || layout->fields.size() != planned_record.fields.size()) {
+        error_message = "backend_python: canonical BRF v2 layout is missing record '" +
+                        record_ir.fqn() + "' or has an unexpected field count";
+        return false;
+    }
+    planned_record.presence_bitmap_size = layout->presence_bitmap_size;
+    planned_record.fixed_region_size = layout->fixed_region_size;
+    planned_record.fixed_size = layout->classification == RecordClassification::FixedSize;
+    for (std::size_t index = 0; index < planned_record.fields.size(); ++index) {
+        const auto& canonical = layout->fields[index];
+        PlannedField& field = planned_record.fields[index];
+        if (canonical.field_index != field.field_index || canonical.name != record_ir.fields(
+                static_cast<int>(index)).name()) {
+            error_message = "backend_python: canonical BRF v2 layout field order disagrees with "
+                            "Schema IR for record '" + record_ir.fqn() + "'";
+            return false;
+        }
+        field.byte_offset = canonical.location.byte_offset;
+        field.bit_offset = canonical.location.bit_offset;
+        field.bit_width = canonical.location.bit_width;
+        field.presence_bit_index = canonical.presence_bit_index;
+        field.slot_size = canonical.slot_size;
+        switch (canonical.storage) {
+        case FieldStorage::Fixed:
+            field.storage_kind = 0U;
+            break;
+        case FieldStorage::InlineFixedNestedRecord:
+            field.storage_kind = 1U;
+            break;
+        case FieldStorage::VariableDescriptor:
+            field.storage_kind = 2U;
+            break;
+        }
+        field.array_element_fixed_record =
+            field.is_array && field.is_record && canonical.type.element_type != nullptr &&
+            canonical.type.element_type->classification == RecordClassification::FixedSize;
+        if (field.array_element_fixed_record) {
+            field.array_element_fixed_record_size = canonical.type.element_type->encoded_width;
+        }
+    }
+    return true;
+}
+
 // Collects one PlannedNamespaceFile per namespace that directly owns
 // records or enums, in Schema IR declaration order (pre-order namespace
 // traversal), and accumulates every such namespace's ancestor __init__.py
@@ -863,6 +925,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 [[nodiscard]] bool collect_namespace_files(const NamespaceIR& ns, const CodegenOptions& options,
                                           const EnumCatalog& enum_catalog,
                                           const RecordCatalog& record_catalog,
+                                          const LayoutModel& layout_model,
                                           std::vector<PlannedNamespaceFile>& files,
                                           std::set<std::string>& ancestor_init_paths,
                                           std::string& error_message) {
@@ -960,6 +1023,9 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                 .fields = std::move(planned_fields),
                 .same_namespace_dependencies = std::move(dependencies),
             });
+            if (!attach_layout(record_ir, file.records.back(), layout_model, error_message)) {
+                return false;
+            }
         }
 
         if (!order_records_topologically(file.records, ns.fqn(), error_message)) {
@@ -970,7 +1036,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     }
 
     for (const NamespaceIR& child : ns.namespaces()) {
-        if (!collect_namespace_files(child, options, enum_catalog, record_catalog, files,
+        if (!collect_namespace_files(child, options, enum_catalog, record_catalog, layout_model,
+                                    files,
                                     ancestor_init_paths, error_message)) {
             return false;
         }
@@ -985,6 +1052,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 [[nodiscard]] bool build_generation_plan(const schema_ir::SchemaIrModel& schema_ir,
                                         const CodegenOptions& options,
                                         const output_planning::OutputPlan* output_plan,
+                                        const LayoutModel& layout_model,
                                         std::vector<std::string>& init_file_paths,
                                         std::vector<PlannedNamespaceFile>& module_files,
                                         std::string& error_message) {
@@ -1000,6 +1068,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 
     std::set<std::string> ancestor_init_paths;
     if (!collect_namespace_files(schema_ir.root_namespace(), options, enum_catalog, record_catalog,
+                                 layout_model,
                                  module_files, ancestor_init_paths, error_message)) {
         return false;
     }
@@ -1134,6 +1203,22 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     return "\"\"\"Generated by Quarry (Python backend). Do not edit by hand.\"\"\"\n";
 }
 
+[[nodiscard]] std::string render_field_metadata(const PlannedRecord& record) {
+    std::ostringstream stream;
+    stream << "[";
+    for (std::size_t index = 0; index < record.fields.size(); ++index) {
+        if (index != 0U) {
+            stream << ", ";
+        }
+        const PlannedField& field = record.fields[index];
+        stream << "(" << field.field_index << ", " << field.byte_offset << ", "
+               << field.slot_size << ", " << field.storage_kind << ", "
+               << field.presence_bit_index << ")";
+    }
+    stream << "]";
+    return stream.str();
+}
+
 // Renders one record: a @dataclass (one Optional[<hint>] = None field per
 // declared field, matching PR-117's decided absent/present-via-None
 // representation) whose encode/decode/encoded_size methods delegate their
@@ -1192,63 +1277,78 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             stream << "        for _item in _items:\n";
             stream << "            _encoded_item = " << field.record_encode_expression
                    << "(_item)\n";
-            stream << "            _brf.append_varuint(_array_payload, len(_encoded_item))\n";
+            if (!field.array_element_fixed_record) {
+                stream << "            _brf.append_varuint(_array_payload, len(_encoded_item))\n";
+            }
             stream << "            _array_payload.extend(_encoded_item)\n";
-            stream << "        fields.append((" << field.field_index
-                   << ", bytes(_array_payload)))\n";
+            stream << "        fields.append((" << field.field_index << ", " << field.byte_offset
+                   << ", " << field.slot_size << ", " << field.storage_kind << ", "
+                   << field.presence_bit_index << ", bytes(_array_payload)))\n";
         } else if (field.is_array && field.is_string) {
-            stream << "        fields.append((" << field.field_index
-                   << ", _brf.pack_array_of_string(value." << field.name << ", "
+            stream << "        fields.append((" << field.field_index << ", " << field.byte_offset
+                   << ", " << field.slot_size << ", " << field.storage_kind << ", "
+                   << field.presence_bit_index << ", _brf.pack_array_of_string(value." << field.name << ", "
                    << field.array_max_elements << ", " << field.string_max_bytes << ")))\n";
         } else if (field.is_array && field.is_bytes) {
-            stream << "        fields.append((" << field.field_index
-                   << ", _brf.pack_array_of_bytes(value." << field.name << ", "
+            stream << "        fields.append((" << field.field_index << ", " << field.byte_offset
+                   << ", " << field.slot_size << ", " << field.storage_kind << ", "
+                   << field.presence_bit_index << ", _brf.pack_array_of_bytes(value." << field.name << ", "
                    << field.array_max_elements << ", " << field.bytes_max_bytes << ")))\n";
         } else if (field.is_array && field.is_enum) {
             const std::string type_expression = field.python_type_expression.empty()
                                                      ? field.python_type_hint
                                                      : field.python_type_expression;
-            stream << "        fields.append((" << field.field_index
-                   << ", _brf.pack_array_of_enum(" << type_expression << ", \""
+            stream << "        fields.append((" << field.field_index << ", " << field.byte_offset
+                   << ", " << field.slot_size << ", " << field.storage_kind << ", "
+                   << field.presence_bit_index << ", _brf.pack_array_of_enum(" << type_expression << ", \""
                    << field.runtime_type_name << "\", value." << field.name << ", "
                    << field.array_max_elements << ")))\n";
         } else if (field.is_array) {
-            stream << "        fields.append((" << field.field_index
-                   << ", _brf.pack_array_of_scalar(\"" << field.runtime_type_name
+            stream << "        fields.append((" << field.field_index << ", " << field.byte_offset
+                   << ", " << field.slot_size << ", " << field.storage_kind << ", "
+                   << field.presence_bit_index << ", _brf.pack_array_of_scalar(\"" << field.runtime_type_name
                    << "\", value." << field.name << ", " << field.array_max_elements
                    << ")))\n";
         } else if (field.is_enum) {
             const std::string type_expression = field.python_type_expression.empty()
                                                      ? field.python_type_hint
                                                      : field.python_type_expression;
-            stream << "        fields.append((" << field.field_index << ", _brf.pack_enum("
+            stream << "        fields.append((" << field.field_index << ", " << field.byte_offset
+                   << ", " << field.slot_size << ", " << field.storage_kind << ", "
+                   << field.presence_bit_index << ", _brf.pack_enum("
                    << type_expression << ", value." << field.name << ", \""
                    << field.runtime_type_name << "\")))\n";
         } else if (field.is_string) {
-            stream << "        fields.append((" << field.field_index << ", _brf.pack_string("
+            stream << "        fields.append((" << field.field_index << ", " << field.byte_offset
+                   << ", " << field.slot_size << ", " << field.storage_kind << ", "
+                   << field.presence_bit_index << ", _brf.pack_string("
                    << "value." << field.name << ", " << field.string_max_bytes << ")))\n";
         } else if (field.is_bytes) {
-            stream << "        fields.append((" << field.field_index << ", _brf.pack_bytes("
+            stream << "        fields.append((" << field.field_index << ", " << field.byte_offset
+                   << ", " << field.slot_size << ", " << field.storage_kind << ", "
+                   << field.presence_bit_index << ", _brf.pack_bytes("
                    << "value." << field.name << ", " << field.bytes_max_bytes << ")))\n";
         } else if (field.is_record) {
-            stream << "        fields.append((" << field.field_index << ", "
-                   << field.record_encode_expression << "(value."
+            stream << "        fields.append((" << field.field_index << ", " << field.byte_offset
+                   << ", " << field.slot_size << ", " << field.storage_kind << ", "
+                   << field.presence_bit_index << ", " << field.record_encode_expression << "(value."
                    << field.name << ")))\n";
         } else {
-            stream << "        fields.append((" << field.field_index << ", _brf.pack_scalar(\""
+            stream << "        fields.append((" << field.field_index << ", " << field.byte_offset
+                   << ", " << field.slot_size << ", " << field.storage_kind << ", "
+                   << field.presence_bit_index << ", _brf.pack_scalar(\""
                    << field.runtime_type_name << "\", value." << field.name << ")))\n";
         }
     }
-    stream << "    return _brf.encode_record(" << record.record_id << ", fields)\n";
+    stream << "    return _brf.encode_record_v2(" << record.record_id << ", "
+           << record.fixed_region_size << ", " << record.presence_bitmap_size << ", fields)\n";
     stream << "\n";
     stream << "\n";
 
     stream << "def " << decode_name << "(data):\n";
-    stream << "    record_id, fields = _brf.parse_record(data)\n";
-    stream << "    if record_id != " << record.record_id << ":\n";
-    stream << "        raise _brf.DecodeError(\n";
-    stream << "            f\"unexpected record id: {record_id} (expected " << record.record_id
-           << ")\")\n";
+    stream << "    fields = _brf.parse_record_v2(data, " << record.record_id << ", "
+           << record.fixed_region_size << ", " << record.presence_bitmap_size << ", "
+           << render_field_metadata(record) << ")\n";
     for (const PlannedField& field : record.fields) {
         stream << "    " << field.name << " = None\n";
         stream << "    if " << field.field_index << " in fields:\n";
@@ -1264,11 +1364,16 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                    << field.array_max_elements << "\")\n";
             stream << "        " << field.name << " = []\n";
             stream << "        for _index in range(_count):\n";
-            stream << "            _length_offset = _offset\n";
-            stream << "            try:\n";
-            stream << "                _element_length, _offset = _brf.read_varuint(_array_data, _offset)\n";
-            stream << "            except _brf.DecodeError as _error:\n";
-            stream << "                raise _brf.DecodeError('malformed element length varuint for ' + str(_index) + ' at byte offset ' + str(_length_offset) + ': ' + str(_error)) from _error\n";
+            if (field.array_element_fixed_record) {
+                stream << "            _element_length = " << field.array_element_fixed_record_size
+                       << "\n";
+            } else {
+                stream << "            _length_offset = _offset\n";
+                stream << "            try:\n";
+                stream << "                _element_length, _offset = _brf.read_varuint(_array_data, _offset)\n";
+                stream << "            except _brf.DecodeError as _error:\n";
+                stream << "                raise _brf.DecodeError('malformed element length varuint for ' + str(_index) + ' at byte offset ' + str(_length_offset) + ': ' + str(_error)) from _error\n";
+            }
             stream << "            if _element_length > len(_array_data) - _offset:\n";
             stream << "                raise _brf.DecodeError('truncated array element ' + str(_index) + ' payload at byte offset ' + str(_offset))\n";
             stream << "            _element_end = _offset + _element_length\n";
@@ -1427,11 +1532,23 @@ PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir,
                         const output_planning::OutputPlan* output_plan) const {
     PlanResult result;
 
+    ::quarry::compiler::diagnostics::DiagnosticEngine layout_diagnostics;
+    ::quarry::compiler::layout::LayoutComputer layout_computer;
+    const LayoutModel layout_model = layout_computer.compute(schema_ir, layout_diagnostics);
+    if (layout_diagnostics.has_errors()) {
+        result.success = false;
+        result.error_message = "backend_python: BRF v2 layout computation failed";
+        if (!layout_diagnostics.diagnostics().empty()) {
+            result.error_message += ": " + layout_diagnostics.diagnostics().front().message();
+        }
+        return result;
+    }
+
     std::vector<std::string> init_file_paths;
     std::vector<PlannedNamespaceFile> module_files;
     std::string error_message;
-    if (!build_generation_plan(schema_ir, options, output_plan, init_file_paths, module_files,
-                              error_message)) {
+    if (!build_generation_plan(schema_ir, options, output_plan, layout_model, init_file_paths,
+                               module_files, error_message)) {
         result.success = false;
         result.error_message = std::move(error_message);
         return result;
@@ -1453,11 +1570,23 @@ CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
                                const output_planning::OutputPlan* output_plan) const {
     CodegenResult result;
 
+    ::quarry::compiler::diagnostics::DiagnosticEngine layout_diagnostics;
+    ::quarry::compiler::layout::LayoutComputer layout_computer;
+    const LayoutModel layout_model = layout_computer.compute(schema_ir, layout_diagnostics);
+    if (layout_diagnostics.has_errors()) {
+        result.success = false;
+        result.error_message = "backend_python: BRF v2 layout computation failed";
+        if (!layout_diagnostics.diagnostics().empty()) {
+            result.error_message += ": " + layout_diagnostics.diagnostics().front().message();
+        }
+        return result;
+    }
+
     std::vector<std::string> init_file_paths;
     std::vector<PlannedNamespaceFile> module_files;
     std::string error_message;
-    if (!build_generation_plan(schema_ir, options, output_plan, init_file_paths, module_files,
-                              error_message)) {
+    if (!build_generation_plan(schema_ir, options, output_plan, layout_model, init_file_paths,
+                               module_files, error_message)) {
         result.success = false;
         result.error_message = std::move(error_message);
         return result;

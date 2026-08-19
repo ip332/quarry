@@ -534,7 +534,7 @@ QUARRY_GENERATED_CODE_API_VERSION_PYTHON = 1
 ```
 
 Since PR-119, a sibling module,
-`quarry/runtime/python/binary_record.py`, implements the real BRF codec
+`quarry/runtime/python/binary_record.py`, implements the BRF v2 codec
 mechanics generated code needs -- the Python analog of
 `quarry/runtime/binary_record.hpp` (C++) and `quarry/runtime_c/
 binary_record.h` (C), covering the same scalar-field subset:
@@ -550,8 +550,10 @@ binary_record.h` (C), covering the same scalar-field subset:
 * `append_varuint(buffer, value)` / `read_varuint(data, offset)` --
   unsigned LEB128, matching the BRF spec's Varuint Encoding section byte
   for byte.
-* `encode_record(record_id, fields)` / `parse_record(data)` -- whole-record
-  (16-byte header + Field Directory + Payload) assembly/parsing, with the
+* `encode_record_v2(record_id, fixed_region_size, presence_bitmap_size, fields)` /
+  `parse_record_v2(data, record_id, fixed_region_size, presence_bitmap_size,
+  field_metadata)` -- whole-record BRF v2 fixed-region/variable-tail
+  assembly/parsing, with the
   same structural validation the C++/C runtimes perform: header version,
   zero flags/reserved fields, exact payload-length match (catching both
   truncation and trailing bytes), Field Directory sort/duplicate/overlap

@@ -172,8 +172,7 @@ Current C++ generation behavior:
   * `<string>` for `std::string`
   * `<vector>` for arrays, `bytes`, and generated encoder results
 * includes `quarry/runtime/binary_record_v2.hpp` when a generated file contains
-  records; generated C++ now targets BRF v2 while Python remains on the v1
-  runtime during staged migration
+  records; generated C++, C, and Python now target BRF v2
 * emits a compile-time generated-code API compatibility assertion for generated
   record headers
   * the assertion checks

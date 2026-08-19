@@ -3,7 +3,7 @@
 Covers bool, fixed-width signed/unsigned integers, float32/float64, enums,
 strings, bytes, fixed-width arrays of scalar and enum values, and
 length-delimited arrays of strings and bytes, plus varuint I/O and whole-record
-(16-byte header + Field Directory + Payload) assembly/parsing. Mirrors the
+(BRF v1 compatibility and BRF v2 fixed-region/variable-tail) assembly/parsing. Mirrors the
 byte-for-byte wire behavior of
 quarry/runtime/binary_record.hpp (C++) and quarry/runtime_c/binary_record.h
 (C) for that same subset. Built entirely on the standard library (`struct`
@@ -11,8 +11,9 @@ for big-endian packing/range-checked scalar conversion), per this project's
 "do not hand-write integer packing if the stdlib already provides it" rule.
 
 Nested-record fields and record arrays are composed by generated codecs using
-the schema-neutral record and varuint helpers; nested arrays remain a backend
-limitation. See docs/design/python-backend.md for the supported surface.
+the schema-neutral v2 layout helpers; nested arrays remain a backend limitation.
+The legacy v1 record helpers remain available for old data and compatibility
+tests. See docs/design/python-backend.md for the supported surface.
 """
 
 import struct
@@ -20,6 +21,13 @@ import struct
 _HEADER_VERSION = 1
 _HEADER_SIZE = 16
 _HEADER_STRUCT = struct.Struct(">BBBBIII")
+_BRF_V2_VERSION = 2
+_BRF_V2_HEADER_STRUCT = struct.Struct(">BBHIII")
+_BRF_V2_HEADER_SIZE = 16
+_BRF_V2_DESCRIPTOR_SIZE = 8
+_BRF_V2_STORAGE_FIXED = 0
+_BRF_V2_STORAGE_INLINE_FIXED_NESTED = 1
+_BRF_V2_STORAGE_VARIABLE_DESCRIPTOR = 2
 _MAX_DIRECTORY_ENTRIES = 255
 _MAX_VARUINT_BYTES = 10  # ceil(64 / 7), matches the C++/C runtimes' own bound
 
@@ -549,3 +557,153 @@ def parse_record(data: bytes) -> tuple[int, dict[int, bytes]]:
             raise DecodeError("overlapping field payload ranges")
 
     return record_id, fields
+
+
+def _brf_v2_presence_offset(field_index: int) -> tuple[int, int]:
+    if field_index < 0:
+        raise ValueError(f"field index must be non-negative: {field_index}")
+    return field_index // 8, field_index % 8
+
+
+def _brf_v2_set_presence(bitmap: bytearray, field_index: int) -> None:
+    byte_index, bit_index = _brf_v2_presence_offset(field_index)
+    if byte_index >= len(bitmap):
+        raise EncodeError(f"field index {field_index} is outside the presence bitmap")
+    bitmap[byte_index] |= 1 << bit_index
+
+
+def _brf_v2_is_present(bitmap: bytes, field_index: int) -> bool:
+    byte_index, bit_index = _brf_v2_presence_offset(field_index)
+    return byte_index < len(bitmap) and (bitmap[byte_index] & (1 << bit_index)) != 0
+
+
+def _brf_v2_validate_field_metadata(field_metadata, fixed_end: int) -> None:
+    previous_index = -1
+    for field_index, byte_offset, slot_size, storage, presence_bit in field_metadata:
+        if field_index <= previous_index:
+            raise DecodeError("BRF v2 field metadata is not declaration ordered")
+        previous_index = field_index
+        if byte_offset < _BRF_V2_HEADER_SIZE or slot_size < 0:
+            raise DecodeError(f"invalid BRF v2 field slot for field {field_index}")
+        if byte_offset > fixed_end or slot_size > fixed_end - byte_offset:
+            raise DecodeError(f"BRF v2 field {field_index} slot is outside the fixed region")
+        if storage not in (_BRF_V2_STORAGE_FIXED, _BRF_V2_STORAGE_INLINE_FIXED_NESTED,
+                           _BRF_V2_STORAGE_VARIABLE_DESCRIPTOR):
+            raise DecodeError(f"invalid BRF v2 storage kind for field {field_index}")
+        if presence_bit < 0:
+            raise DecodeError(f"invalid BRF v2 presence bit for field {field_index}")
+        if storage == _BRF_V2_STORAGE_VARIABLE_DESCRIPTOR and slot_size != _BRF_V2_DESCRIPTOR_SIZE:
+            raise DecodeError(f"BRF v2 variable field {field_index} has an invalid descriptor size")
+
+
+def encode_record_v2(record_id: int, fixed_region_size: int, presence_bitmap_size: int,
+                     fields) -> bytes:
+    """Builds a canonical BRF v2 record from layout-described field payloads.
+
+    Each field is ``(field_index, absolute_byte_offset, slot_size, storage_kind,
+    presence_bit, payload)``.
+    Layout metadata supplies every fixed location; this function only appends variable payloads
+    in declaration order and fills their descriptors.
+    """
+    if not 0 <= record_id <= 0xFFFFFFFF or not 0 <= fixed_region_size <= 0xFFFFFFFF:
+        raise EncodeError("BRF v2 header value is outside its 32-bit range")
+    if presence_bitmap_size < 0:
+        raise EncodeError("presence bitmap size must be non-negative")
+    # The canonical Layout IR's fixed_region_size includes the presence bitmap:
+    # it is the complete byte span immediately following the 16-byte header.
+    fixed_end = _BRF_V2_HEADER_SIZE + fixed_region_size
+    if fixed_end > 0xFFFFFFFF:
+        raise EncodeError("BRF v2 fixed-region arithmetic overflow")
+    ordered = list(fields)
+    metadata = [(item[0], item[1], item[2], item[3], item[4]) for item in ordered]
+    _brf_v2_validate_field_metadata(metadata, fixed_end)
+    fixed = bytearray(fixed_end - _BRF_V2_HEADER_SIZE)
+    bitmap = bytearray(presence_bitmap_size)
+    tail = bytearray()
+    previous_index = -1
+    for field_index, byte_offset, slot_size, storage, presence_bit, payload in ordered:
+        if field_index <= previous_index:
+            raise EncodeError("BRF v2 fields must be declaration ordered")
+        previous_index = field_index
+        if not isinstance(payload, (bytes, bytearray)):
+            raise EncodeError(f"field {field_index} payload must be bytes")
+        payload = bytes(payload)
+        slot = byte_offset - _BRF_V2_HEADER_SIZE
+        if storage in (_BRF_V2_STORAGE_FIXED, _BRF_V2_STORAGE_INLINE_FIXED_NESTED):
+            if len(payload) != slot_size:
+                raise EncodeError(f"field {field_index} payload has wrong fixed slot size")
+            fixed[slot:slot + slot_size] = payload
+        else:
+            data_offset = fixed_end + len(tail)
+            if data_offset > 0xFFFFFFFF or len(payload) > 0xFFFFFFFF:
+                raise EncodeError("BRF v2 variable payload exceeds 32-bit bounds")
+            fixed[slot:slot + _BRF_V2_DESCRIPTOR_SIZE] = struct.pack(
+                ">II", data_offset, len(payload))
+            tail.extend(payload)
+        _brf_v2_set_presence(bitmap, presence_bit)
+    record_size = fixed_end + len(tail)
+    if record_size > 0xFFFFFFFF:
+        raise EncodeError("BRF v2 record exceeds the 32-bit record-size bound")
+    header = _BRF_V2_HEADER_STRUCT.pack(_BRF_V2_VERSION, 0, _BRF_V2_HEADER_SIZE,
+                                        record_id, fixed_region_size, record_size)
+    return header + bytes(bitmap) + bytes(fixed[presence_bitmap_size:]) + bytes(tail)
+
+
+def parse_record_v2(data: bytes, expected_record_id: int, fixed_region_size: int,
+                    presence_bitmap_size: int, field_metadata) -> dict[int, bytes]:
+    """Validates and extracts fields from a canonical BRF v2 record.
+
+    ``field_metadata`` contains ``(field_index, absolute_byte_offset, slot_size,
+    storage_kind, presence_bit)`` entries in schema declaration order. Variable descriptors are
+    checked for contiguous declaration-ordered tail spans; zero-length values may
+    share the current tail offset.
+    """
+    if len(data) < _BRF_V2_HEADER_SIZE:
+        raise DecodeError("truncated BRF v2 record header")
+    version, flags, header_size, record_id, encoded_fixed_size, record_size = \
+        _BRF_V2_HEADER_STRUCT.unpack(data[:_BRF_V2_HEADER_SIZE])
+    if version != _BRF_V2_VERSION:
+        raise DecodeError(f"unsupported BRF v2 header version: {version}")
+    if flags != 0:
+        raise DecodeError(f"unsupported BRF v2 flags: {flags}")
+    if header_size != _BRF_V2_HEADER_SIZE:
+        raise DecodeError(f"unsupported BRF v2 header size: {header_size}")
+    if record_id != expected_record_id:
+        raise DecodeError(f"unexpected record id: {record_id} (expected {expected_record_id})")
+    if encoded_fixed_size != fixed_region_size:
+        raise DecodeError("BRF v2 fixed-region size does not match the schema layout")
+    if record_size != len(data):
+        raise DecodeError("BRF v2 record size does not match the input length")
+    fixed_end = _BRF_V2_HEADER_SIZE + fixed_region_size
+    if fixed_end > record_size:
+        raise DecodeError("BRF v2 fixed region exceeds the record")
+    bitmap = data[_BRF_V2_HEADER_SIZE:_BRF_V2_HEADER_SIZE + presence_bitmap_size]
+    if presence_bitmap_size and len(bitmap) > 0:
+        declared_fields = len(field_metadata)
+        unused = presence_bitmap_size * 8 - declared_fields
+        if unused > 0 and bitmap[-1] & ((0xFF << (8 - unused)) & 0xFF):
+            raise DecodeError("unused BRF v2 presence bits must be zero")
+    _brf_v2_validate_field_metadata(field_metadata, fixed_end)
+    variable_region_start = fixed_end
+    result = {}
+    cursor = variable_region_start
+    for field_index, byte_offset, slot_size, storage, presence_bit in field_metadata:
+        slot = data[byte_offset:byte_offset + slot_size]
+        present = _brf_v2_is_present(bitmap, presence_bit)
+        if not present:
+            if any(slot):
+                raise DecodeError(f"absent BRF v2 field {field_index} has nonzero storage")
+            continue
+        if storage in (_BRF_V2_STORAGE_FIXED, _BRF_V2_STORAGE_INLINE_FIXED_NESTED):
+            result[field_index] = bytes(slot)
+            continue
+        data_offset, byte_length = struct.unpack(">II", slot)
+        if data_offset != cursor:
+            raise DecodeError("BRF v2 variable objects are not contiguous and declaration ordered")
+        if data_offset > record_size or byte_length > record_size - data_offset:
+            raise DecodeError(f"BRF v2 field {field_index} variable range is outside the record")
+        result[field_index] = data[data_offset:data_offset + byte_length]
+        cursor = data_offset + byte_length
+    if cursor != record_size:
+        raise DecodeError("unexpected BRF v2 trailing bytes after the variable region")
+    return result

@@ -7,6 +7,10 @@ array fields are
 `Optional[...]` values where `None` means absent and an empty list means a
 present empty array.
 
+Generated modules now emit and consume BRF v2 through the canonical compiler
+Layout IR. Fixed slots, presence bits, variable descriptors, and tail ordering
+are emitted as layout metadata; Python does not recalculate wire offsets.
+
 Supported array element types are fixed-width scalars, non-negative enums,
 bounded strings, and bounded bytes. String and bytes
 arrays use the existing BRF count-plus-length-delimited-element encoding and

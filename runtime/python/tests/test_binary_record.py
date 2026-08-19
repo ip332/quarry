@@ -16,6 +16,7 @@ isolation, matching this project's "runtime components must not depend on the
 compiler" boundary.
 """
 
+import struct
 import unittest
 from enum import IntEnum
 
@@ -590,6 +591,71 @@ class RecordEncodeDecodeTest(unittest.TestCase):
         with self.assertRaises(brf.DecodeError):
             brf.parse_record(child[:-1])
 
+    def test_brf_v2_reference_record_is_byte_exact(self):
+        fields = [
+            (0, 17, 4, 0, 0, brf.pack_scalar("uint32", 1)),
+            (1, 21, 8, 2, 1, brf.pack_string("abc", 16)),
+            (2, 29, 2, 0, 2, brf.pack_scalar("uint16", 2)),
+            (3, 31, 8, 2, 3, brf.pack_array_of_scalar("uint16", [10, 20], 4)),
+        ]
+        encoded = brf.encode_record_v2(1, 23, 1, fields)
+        self.assertEqual(
+            encoded.hex(),
+            "0200001000000001000000170000002f"
+            "0f00000001000000270000000300020000"
+            "002a0000000561626302000a0014",
+        )
+        decoded = brf.parse_record_v2(
+            encoded, 1, 23, 1,
+            [(0, 17, 4, 0, 0), (1, 21, 8, 2, 1),
+             (2, 29, 2, 0, 2), (3, 31, 8, 2, 3)],
+        )
+        self.assertEqual(brf.unpack_scalar("uint32", decoded[0]), 1)
+        self.assertEqual(decoded[1], b"abc")
+        self.assertEqual(brf.unpack_scalar("uint16", decoded[2]), 2)
+        self.assertEqual(brf.unpack_array_of_scalar("uint16", decoded[3], 4), [10, 20])
 
+    def test_brf_v2_absent_and_present_empty_values_are_distinct(self):
+        metadata = [(0, 17, 8, 2, 0), (1, 25, 8, 2, 1), (2, 33, 8, 2, 2)]
+        absent = brf.encode_record_v2(1, 25, 1, [])
+        self.assertEqual(brf.parse_record_v2(absent, 1, 25, 1, metadata), {})
+        present = brf.encode_record_v2(
+            1, 25, 1,
+            [(0, 17, 8, 2, 0, b""), (1, 25, 8, 2, 1, b""),
+             (2, 33, 8, 2, 2, b"\x00")],
+        )
+        self.assertEqual(brf.parse_record_v2(present, 1, 25, 1, metadata),
+                         {0: b"", 1: b"", 2: b"\x00"})
+
+    def test_brf_v2_rejects_invalid_presence_and_descriptor_data(self):
+        metadata = [(0, 17, 4, 0, 0), (1, 21, 8, 2, 1)]
+        encoded = bytearray(brf.encode_record_v2(
+            1, 13, 1,
+            [(0, 17, 4, 0, 0, b"\x00\x00\x00\x01"),
+             (1, 21, 8, 2, 1, b"abc")],
+        ))
+        encoded[16] |= 0x80
+        with self.assertRaises(brf.DecodeError):
+            brf.parse_record_v2(bytes(encoded), 1, 13, 1, metadata)
+        encoded = bytearray(brf.encode_record_v2(
+            1, 13, 1,
+            [(0, 17, 4, 0, 0, b"\x00\x00\x00\x01")],
+        ))
+        encoded[21:29] = struct.pack(">II", 30, 4)
+        encoded[16] |= 0x02
+        with self.assertRaises(brf.DecodeError):
+            brf.parse_record_v2(bytes(encoded), 1, 13, 1, metadata)
+
+    def test_brf_v2_presence_uses_declaration_position_not_field_index(self):
+        metadata = [(7, 17, 4, 0, 0), (12, 21, 4, 0, 1)]
+        encoded = brf.encode_record_v2(
+            1, 9, 1,
+            [(12, 21, 4, 0, 1, b"\x00\x00\x00\x07")],
+        )
+        self.assertEqual(encoded[16], 0x02)
+        self.assertEqual(
+            brf.parse_record_v2(encoded, 1, 9, 1, metadata),
+            {12: b"\x00\x00\x00\x07"},
+        )
 if __name__ == "__main__":
     unittest.main()
