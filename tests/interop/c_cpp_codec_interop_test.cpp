@@ -794,7 +794,7 @@ TEST(CCppCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     const std::string c_bytes = read_binary_file(c_encoded);
     const std::string cpp_bytes = read_binary_file(cpp_encoded);
     ASSERT_FALSE(c_bytes.empty());
-    // C targets BRF v2 while C++ remains on BRF v1 during this migration.
+    // Both generated backends target BRF v2 and share the canonical layout.
     EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) + " decode " +
                                     shell_quote(c_encoded.string())), 0);
     EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) + " decode " +

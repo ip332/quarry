@@ -1,6 +1,5 @@
 // Proves byte-for-byte BRF v2 wire compatibility between the C and C++
-// backends for a scalar-plus-enum-plus-string/bytes-plus-array schema, while
-// retaining separate legacy BRF v1 coverage for Python.
+// backends for a scalar-plus-enum-plus-string/bytes-plus-array schema.
 // (PR-119 scalars, PR-120 enum, PR-121 string/bytes, PR-122 fixed-width arrays): generates
 // the same schema
 // through all three `quarry-schema-compiler` backends, compiles small C
@@ -513,7 +512,7 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     const std::string python_bytes = read_binary_file(python_encoded);
     ASSERT_FALSE(c_bytes.empty());
     EXPECT_EQ(cpp_bytes, c_bytes) << "C and C++ BRF v2 encoders produced different bytes";
-    EXPECT_NE(cpp_bytes, python_bytes) << "Python remains a BRF v1 migration cohort";
+    EXPECT_EQ(python_bytes, c_bytes) << "Python BRF v2 encoder diverged from C";
 
     EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) + " decode " +
                                     shell_quote(c_encoded.string())), 0)
@@ -523,7 +522,7 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
              0)
         << "C++ failed to decode its BRF v2 bytes";
     EXPECT_EQ(run_python("decode", python_encoded), 0)
-        << "Python failed to decode its BRF v1 bytes";
+        << "Python failed to decode its BRF v2 bytes";
 
     // Truncated buffer: chop the last byte and confirm all three reject it.
     const std::filesystem::path truncated = root / "truncated.bin";
@@ -886,7 +885,7 @@ else:
              0);
     ASSERT_EQ(run_python("encode", python_encoded), 0);
     EXPECT_EQ(read_binary_file(cpp_encoded), read_binary_file(c_encoded));
-    EXPECT_NE(read_binary_file(cpp_encoded), read_binary_file(python_encoded));
+    EXPECT_EQ(read_binary_file(cpp_encoded), read_binary_file(python_encoded));
     EXPECT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) + " decode " +
                                     shell_quote(c_encoded.string())), 0);
     EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " decode " +
@@ -1199,7 +1198,7 @@ else:
     ASSERT_EQ(run_python("encode", python_encoded), 0);
     const std::string c_bytes = read_binary_file(c_encoded);
     EXPECT_EQ(read_binary_file(cpp_encoded), c_bytes);
-    EXPECT_NE(read_binary_file(python_encoded), c_bytes);
+    EXPECT_EQ(read_binary_file(python_encoded), c_bytes);
     EXPECT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) + " decode " +
                                     shell_quote(c_encoded.string())), 0);
     EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " decode " +
