@@ -657,5 +657,109 @@ class RecordEncodeDecodeTest(unittest.TestCase):
             brf.parse_record_v2(encoded, 1, 9, 1, metadata),
             {12: b"\x00\x00\x00\x07"},
         )
+
+    def test_brf_v2_rejects_invalid_metadata_and_encode_arguments(self):
+        with self.assertRaises(ValueError):
+            brf._brf_v2_presence_offset(-1)
+        with self.assertRaises(brf.EncodeError):
+            brf._brf_v2_set_presence(bytearray(1), 8)
+
+        invalid_metadata = [
+            [(1, 17, 1, 0, 0), (0, 18, 1, 0, 1)],
+            [(0, 15, 1, 0, 0)],
+            [(0, 17, 1, 99, 0)],
+            [(0, 17, 1, 0, -1)],
+            [(0, 17, 4, 2, 0)],
+        ]
+        for metadata in invalid_metadata:
+            with self.subTest(metadata=metadata):
+                with self.assertRaises(brf.DecodeError):
+                    fields = [(*item, b"\x00" * item[2]) for item in metadata]
+                    brf.encode_record_v2(1, 32, 1, fields)
+        with self.assertRaises(brf.DecodeError):
+            brf.encode_record_v2(1, 2, 1, [(0, 17, 5, 0, 0, b"\x00" * 5)])
+
+        with self.assertRaises(brf.EncodeError):
+            brf.encode_record_v2(-1, 1, 1, [])
+        with self.assertRaises(brf.EncodeError):
+            brf.encode_record_v2(1, -1, 1, [])
+        with self.assertRaises(brf.EncodeError):
+            brf.encode_record_v2(1, 1, -1, [])
+        with self.assertRaises(brf.EncodeError):
+            brf.encode_record_v2(1, 0xFFFFFFFF, 0, [])
+        with self.assertRaises(brf.EncodeError):
+            brf.encode_record_v2(1, 2, 1, [(0, 17, 1, 0, 0, "not bytes")])
+        with self.assertRaises(brf.EncodeError):
+            brf.encode_record_v2(1, 2, 1, [(0, 17, 1, 0, 0, b"\x00\x01")])
+
+    def test_brf_v2_rejects_malformed_headers_and_fixed_storage(self):
+        metadata = [(0, 17, 1, 0, 0)]
+        encoded = brf.encode_record_v2(1, 2, 1, [(0, 17, 1, 0, 0, b"\x01")])
+
+        mutations = [
+            (0, b"\x03"),
+            (1, b"\x01"),
+            (2, b"\x00\x0f"),
+            (4, b"\x00\x00\x00\x02"),
+            (8, b"\x00\x00\x00\x01"),
+            (12, b"\x00\x00\x00\x01"),
+        ]
+        for offset, value in mutations:
+            malformed = bytearray(encoded)
+            malformed[offset:offset + len(value)] = value
+            with self.subTest(offset=offset):
+                with self.assertRaises(brf.DecodeError):
+                    brf.parse_record_v2(bytes(malformed), 1, 2, 1, metadata)
+
+        with self.assertRaises(brf.DecodeError):
+            brf.parse_record_v2(encoded[:15], 1, 1, 1, metadata)
+        with self.assertRaises(brf.DecodeError):
+            brf.parse_record_v2(encoded, 1, 3, 1, metadata)
+
+        malformed = bytearray(encoded)
+        malformed[8:12] = (100).to_bytes(4, "big")
+        with self.assertRaises(brf.DecodeError):
+            brf.parse_record_v2(bytes(malformed), 1, 100, 1, metadata)
+
+        empty = brf.encode_record_v2(1, 0, 0, [])
+        self.assertEqual(brf.parse_record_v2(empty, 1, 0, 0, []), {})
+
+        malformed = bytearray(encoded)
+        malformed[17] = 2
+        with self.assertRaises(brf.DecodeError):
+            brf.parse_record_v2(bytes(malformed), 1, 1, 1, metadata)
+
+    def test_brf_v2_rejects_descriptor_order_ranges_and_trailing_data(self):
+        metadata = [(0, 17, 8, 2, 0), (1, 25, 8, 2, 1)]
+        encoded = brf.encode_record_v2(
+            1, 17, 1,
+            [(0, 17, 8, 2, 0, b"a"), (1, 25, 8, 2, 1, b"b")],
+        )
+
+        malformed = bytearray(encoded)
+        malformed[17:25] = struct.pack(">II", 36, 1)
+        with self.assertRaises(brf.DecodeError):
+            brf.parse_record_v2(bytes(malformed), 1, 17, 1, metadata)
+
+        malformed = bytearray(encoded)
+        malformed[17:25] = struct.pack(">II", 33, 3)
+        with self.assertRaises(brf.DecodeError):
+            brf.parse_record_v2(bytes(malformed), 1, 17, 1, metadata)
+
+        malformed = bytearray(encoded)
+        malformed[17:25] = struct.pack(">II", 32, 1)
+        with self.assertRaises(brf.DecodeError):
+            brf.parse_record_v2(bytes(malformed), 1, 17, 1, metadata)
+
+        trailing = bytearray(encoded + b"x")
+        trailing[12:16] = len(trailing).to_bytes(4, "big")
+        with self.assertRaises(brf.DecodeError):
+            brf.parse_record_v2(bytes(trailing), 1, 17, 1, metadata)
+
+        absent_metadata = [(0, 17, 8, 2, 0)]
+        absent = bytearray(brf.encode_record_v2(1, 9, 1, []))
+        absent[17] = 1
+        with self.assertRaises(brf.DecodeError):
+            brf.parse_record_v2(bytes(absent), 1, 9, 1, absent_metadata)
 if __name__ == "__main__":
     unittest.main()
