@@ -21,8 +21,11 @@ using quarry::compiler::layout::RecordLayout;
 using quarry::compiler::layout::TypeLayout;
 using quarry::compiler::qbs::BuildMode;
 using quarry::compiler::qbs::QbsBuildOptions;
+using quarry::compiler::qbs::QbsFieldModel;
 using quarry::compiler::qbs::QbsImageModel;
 using quarry::compiler::qbs::QbsModelBuilder;
+using quarry::compiler::qbs::QbsRecordModel;
+using quarry::compiler::qbs::QbsTypeModel;
 using quarry::compiler::qbs::Storage;
 using quarry::compiler::qbs::TypeCode;
 using quarry::schema_ir::EnumIR;
@@ -183,7 +186,7 @@ TEST(QbsModelTest, SharesEnumAndNestedRecordReferences) {
     enumeration->set_ir_id(20U);
     enumeration->set_name("State");
     enumeration->set_fqn("State");
-    for (const auto [name, value] : {std::pair{"Off", 0}, std::pair{"On", 1}}) {
+    for (const auto& [name, value] : {std::pair{"Off", 0}, std::pair{"On", 1}}) {
         auto* item = enumeration->add_values();
         item->set_name(name);
         item->set_value(value);
@@ -359,6 +362,267 @@ TEST(QbsModelTest, ValidatesFieldSlotsAgainstActualFixedRegionEnd) {
     at_boundary.fields[1].byte_offset = 22U;
     DiagnosticCollection boundary_diagnostics;
     EXPECT_TRUE(QbsModelBuilder{}.validate(at_boundary, boundary_diagnostics));
+}
+
+TEST(QbsModelTest, RepresentsAllSupportedScalarTypes) {
+    SchemaIR schema = base_schema();
+    add_record(schema, 1U, 1U, "Scalars",
+               {"bool", "i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64", "f32", "f64"});
+    const std::vector<std::pair<LayoutTypeKind, std::uint32_t>> scalar_types = {
+        {LayoutTypeKind::Bool, 1U}, {LayoutTypeKind::I8, 1U},  {LayoutTypeKind::U8, 1U},
+        {LayoutTypeKind::I16, 2U},  {LayoutTypeKind::U16, 2U}, {LayoutTypeKind::I32, 4U},
+        {LayoutTypeKind::U32, 4U},  {LayoutTypeKind::I64, 8U}, {LayoutTypeKind::U64, 8U},
+        {LayoutTypeKind::F32, 4U},  {LayoutTypeKind::F64, 8U},
+    };
+    RecordLayout record;
+    record.fqn = "Scalars";
+    record.record_id = 1U;
+    record.presence_bitmap_size = 2U;
+    record.fixed_region_size = 2U;
+    std::uint32_t offset = 18U;
+    for (std::uint32_t index = 0; index < scalar_types.size(); ++index) {
+        const auto [kind, width] = scalar_types[index];
+        record.fields.push_back(
+            field(index, "field" + std::to_string(index), fixed_type(kind, width), offset, width));
+        offset += width;
+        record.fixed_region_size += width;
+    }
+    const auto layout = quarry::compiler::layout::LayoutModel{.records = {std::move(record)}};
+    DiagnosticCollection diagnostics;
+    const auto model = build(schema, layout, BuildMode::Minimal, diagnostics);
+    ASSERT_TRUE(model.has_value());
+    ASSERT_EQ(model->types.size(), scalar_types.size());
+    EXPECT_EQ(model->fields.front().byte_offset, 18U);
+    EXPECT_EQ(model->fields.back().byte_offset, 53U);
+}
+
+TEST(QbsModelTest, RejectsMalformedQbsModelReferences) {
+    QbsImageModel base;
+    base.records = {QbsRecordModel{.table_index = 0U,
+                                   .record_id = 1U,
+                                   .field_start = 0U,
+                                   .field_count = 1U,
+                                   .presence_bitmap_size = 1U,
+                                   .fixed_region_size = 6U,
+                                   .complete_fixed_record_size = std::nullopt,
+                                   .fqn = "Record"}};
+    base.fields = {QbsFieldModel{.owning_record_index = 0U,
+                                 .field_index = 0U,
+                                 .type_index = 0U,
+                                 .byte_offset = 17U,
+                                 .bit_width = 32U,
+                                 .slot_size = 4U}};
+    base.types = {QbsTypeModel{.code = TypeCode::U32, .fixed_size = true, .encoded_width = 4U}};
+
+    const auto expect_invalid = [](QbsImageModel model) {
+        DiagnosticCollection diagnostics;
+        EXPECT_FALSE(QbsModelBuilder{}.validate(model, diagnostics));
+        EXPECT_FALSE(diagnostics.diagnostics().empty());
+    };
+
+    {
+        auto model = base;
+        model.format_version = 2U;
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.records[0].record_id = 0U;
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.records[0].table_index = 1U;
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.records[0].field_start = 2U;
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.records[0].name_string_index = 0U;
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.fields[0].owning_record_index = 1U;
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.fields[0].type_index = 1U;
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.fields[0].field_index = 1U;
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.fields[0].storage = Storage::VariableDescriptor;
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.fields[0].byte_offset = 16U;
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.fields[0].presence_bit_index = 8U;
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.fields[0].bit_offset = 8U;
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.fields[0].bit_width = 0U;
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.types[0].code = static_cast<TypeCode>(99U);
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.types[0].code = TypeCode::Record;
+        model.types[0].reference = 1U;
+        model.types[0].fixed_size = true;
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.types[0].code = TypeCode::Array;
+        model.types[0].reference = 1U;
+        model.types[0].fixed_size = false;
+        model.types[0].max_elements = 1U;
+        model.fields[0].storage = Storage::VariableDescriptor;
+        model.fields[0].descriptor_kind =
+            quarry::compiler::qbs::DescriptorKind::DataOffsetByteLength;
+        model.fields[0].slot_size = 8U;
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.types[0].code = TypeCode::String;
+        model.types[0].fixed_size = true;
+        expect_invalid(std::move(model));
+    }
+    {
+        auto model = base;
+        model.types[0].code = TypeCode::Array;
+        model.types[0].fixed_size = false;
+        model.types[0].reference = 0U;
+        model.types[0].max_elements = 0U;
+        model.fields[0].storage = Storage::VariableDescriptor;
+        model.fields[0].descriptor_kind =
+            quarry::compiler::qbs::DescriptorKind::DataOffsetByteLength;
+        model.fields[0].slot_size = 8U;
+        expect_invalid(std::move(model));
+    }
+}
+
+TEST(QbsModelTest, RejectsInvalidSchemaLayoutInputs) {
+    const auto expect_build_failure = [](const SchemaIR& schema,
+                                         const quarry::compiler::layout::LayoutModel& layout) {
+        DiagnosticCollection diagnostics;
+        EXPECT_FALSE(QbsModelBuilder{}.build(schema, layout, QbsBuildOptions{}, diagnostics));
+        EXPECT_FALSE(diagnostics.diagnostics().empty());
+    };
+
+    {
+        SchemaIR schema = base_schema();
+        auto* record = schema.mutable_root_namespace()->add_records();
+        record->set_ir_id(1U);
+        record->set_record_id(1U);
+        expect_build_failure(schema, {});
+    }
+    {
+        SchemaIR schema = base_schema();
+        add_record(schema, 1U, 1U, "Record", {});
+        add_record(schema, 2U, 2U, "Record", {});
+        expect_build_failure(schema, {});
+    }
+    {
+        SchemaIR schema = base_schema();
+        add_record(schema, 1U, 1U, "Record", {"child"});
+        RecordLayout record;
+        record.fqn = "Record";
+        record.record_id = 1U;
+        record.presence_bitmap_size = 1U;
+        record.fixed_region_size = 5U;
+        TypeLayout child = fixed_type(LayoutTypeKind::Record, 1U);
+        child.referenced_fqn = "Missing";
+        record.fields = {field(0U, "child", std::move(child), 17U, 1U)};
+        expect_build_failure(schema, {.records = {std::move(record)}});
+    }
+    {
+        SchemaIR schema = base_schema();
+        add_record(schema, 1U, 1U, "Record", {"state"});
+        RecordLayout record;
+        record.fqn = "Record";
+        record.record_id = 1U;
+        record.presence_bitmap_size = 1U;
+        record.fixed_region_size = 5U;
+        TypeLayout state = fixed_type(LayoutTypeKind::Enum, 1U);
+        state.referenced_ir_id = 99U;
+        state.referenced_fqn = "Missing";
+        record.fields = {field(0U, "state", std::move(state), 17U, 1U)};
+        expect_build_failure(schema, {.records = {std::move(record)}});
+    }
+    {
+        SchemaIR schema = base_schema();
+        add_record(schema, 1U, 1U, "Record", {"values"});
+        RecordLayout record;
+        record.fqn = "Record";
+        record.record_id = 1U;
+        record.presence_bitmap_size = 1U;
+        record.fixed_region_size = 9U;
+        TypeLayout values;
+        values.kind = LayoutTypeKind::Array;
+        values.classification = RecordClassification::VariableSize;
+        values.max_elements = 1U;
+        record.fields = {
+            field(0U, "values", std::move(values), 17U, 8U, FieldStorage::VariableDescriptor)};
+        expect_build_failure(schema, {.records = {std::move(record)}});
+    }
+    {
+        SchemaIR schema = base_schema();
+        add_record(schema, 1U, 1U, "Record", {"state"});
+        auto* enumeration = schema.mutable_root_namespace()->add_enums();
+        enumeration->set_ir_id(2U);
+        enumeration->set_name("State");
+        enumeration->set_fqn("State");
+        enumeration->add_values()->set_value(-1);
+        RecordLayout record;
+        record.fqn = "Record";
+        record.record_id = 1U;
+        record.presence_bitmap_size = 1U;
+        record.fixed_region_size = 5U;
+        TypeLayout state = fixed_type(LayoutTypeKind::Enum, 1U);
+        state.referenced_ir_id = 2U;
+        state.referenced_fqn = "State";
+        record.fields = {field(0U, "state", std::move(state), 17U, 1U)};
+        expect_build_failure(schema, {.records = {std::move(record)}});
+    }
+    {
+        SchemaIR schema = base_schema();
+        add_record(schema, 1U, 1U, "Record", {"value"});
+        RecordLayout record;
+        record.fqn = "Record";
+        record.record_id = 1U;
+        record.presence_bitmap_size = 1U;
+        record.fixed_region_size = 5U;
+        record.fields = {field(70000U, "value", fixed_type(LayoutTypeKind::U32, 4U), 17U, 4U)};
+        expect_build_failure(schema, {.records = {std::move(record)}});
+    }
 }
 
 } // namespace
