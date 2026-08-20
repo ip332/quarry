@@ -155,6 +155,7 @@ Before approving a specification, reviewers SHOULD verify:
 * `binary-record-format.md`
 * `schema-compiler.md`
 * `manifest-format.md`
+* `quarry-binary-schema.md` (draft)
 
 ---
 
