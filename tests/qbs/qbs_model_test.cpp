@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -74,6 +75,36 @@ RecordIR* add_record(SchemaIR& schema, std::uint64_t ir_id, std::uint32_t record
     schema.set_schema_ir_version(1U);
     schema.mutable_root_namespace()->set_ir_id(1U);
     return schema;
+}
+
+[[nodiscard]] SchemaIR enum_schema(const std::vector<int>& values) {
+    SchemaIR schema = base_schema();
+    add_record(schema, 1U, 1U, "Packet", {"state"});
+    auto* enumeration = schema.mutable_root_namespace()->add_enums();
+    enumeration->set_ir_id(2U);
+    enumeration->set_name("State");
+    enumeration->set_fqn("State");
+    for (const int value : values) {
+        auto* item = enumeration->add_values();
+        item->set_name("value" + std::to_string(value));
+        item->set_value(value);
+    }
+    return schema;
+}
+
+[[nodiscard]] quarry::compiler::layout::LayoutModel
+enum_layout(const std::vector<std::uint64_t>& values) {
+    TypeLayout type = fixed_type(LayoutTypeKind::Enum, 1U);
+    type.referenced_ir_id = 2U;
+    type.referenced_fqn = "State";
+    type.enum_values = values;
+    RecordLayout record;
+    record.fqn = "Packet";
+    record.record_id = 1U;
+    record.presence_bitmap_size = 1U;
+    record.fixed_region_size = 2U;
+    record.fields = {field(0U, "state", std::move(type), 17U, 1U)};
+    return {.records = {std::move(record)}};
 }
 
 [[nodiscard]] std::optional<QbsImageModel>
@@ -181,7 +212,7 @@ TEST(QbsModelTest, SharesEnumAndNestedRecordReferences) {
     parent.record_id = 7U;
     parent.classification = RecordClassification::VariableSize;
     parent.presence_bitmap_size = 1U;
-    parent.fixed_region_size = 39U;
+    parent.fixed_region_size = 40U;
     parent.fields = {
         field(0U, "fixed", fixed_child, 17U, 22U, FieldStorage::InlineFixedNestedRecord),
         field(1U, "variable", variable_child, 39U, 8U, FieldStorage::VariableDescriptor),
@@ -268,6 +299,66 @@ TEST(QbsModelTest, IdentityInputIgnoresReflectiveNames) {
     ASSERT_TRUE(reflective.has_value());
     EXPECT_EQ(minimal->schema_identity_input, reflective->schema_identity_input);
     EXPECT_NE(reflective->records[0].name_string_index, quarry::compiler::qbs::kQbsNoStringIndex);
+}
+
+TEST(QbsModelTest, EnumIdentityUsesSortedNumericValues) {
+    const SchemaIR declaration_order_a = enum_schema({0, 1});
+    const SchemaIR declaration_order_b = enum_schema({1, 0});
+    const SchemaIR changed_value = enum_schema({0, 2});
+    const SchemaIR added_value = enum_schema({0, 1, 2});
+
+    DiagnosticCollection diagnostics_a;
+    DiagnosticCollection diagnostics_b;
+    DiagnosticCollection diagnostics_changed;
+    DiagnosticCollection diagnostics_added;
+    const auto model_a =
+        build(declaration_order_a, enum_layout({0U, 1U}), BuildMode::Minimal, diagnostics_a);
+    const auto model_b =
+        build(declaration_order_b, enum_layout({1U, 0U}), BuildMode::Minimal, diagnostics_b);
+    const auto model_changed =
+        build(changed_value, enum_layout({0U, 2U}), BuildMode::Minimal, diagnostics_changed);
+    const auto model_added =
+        build(added_value, enum_layout({0U, 1U, 2U}), BuildMode::Minimal, diagnostics_added);
+    ASSERT_TRUE(model_a.has_value());
+    ASSERT_TRUE(model_b.has_value());
+    ASSERT_TRUE(model_changed.has_value());
+    ASSERT_TRUE(model_added.has_value());
+    EXPECT_EQ(model_a->schema_identity_input, model_b->schema_identity_input);
+    EXPECT_NE(model_a->schema_identity_input, model_changed->schema_identity_input);
+    EXPECT_NE(model_a->schema_identity_input, model_added->schema_identity_input);
+}
+
+TEST(QbsModelTest, ValidatesFieldSlotsAgainstActualFixedRegionEnd) {
+    SchemaIR schema = base_schema();
+    add_record(schema, 1U, 1U, "Example", {"value", "payload"});
+    RecordLayout record;
+    record.fqn = "Example";
+    record.record_id = 1U;
+    record.presence_bitmap_size = 1U;
+    record.fixed_region_size = 14U;
+    TypeLayout bytes_type;
+    bytes_type.kind = LayoutTypeKind::Bytes;
+    bytes_type.classification = RecordClassification::VariableSize;
+    bytes_type.max_bytes = 32U;
+    record.fields = {
+        field(0U, "value", fixed_type(LayoutTypeKind::U32, 4U), 17U, 4U),
+        field(1U, "payload", std::move(bytes_type), 22U, 8U, FieldStorage::VariableDescriptor),
+    };
+    const auto layout = quarry::compiler::layout::LayoutModel{.records = {record}};
+    DiagnosticCollection build_diagnostics;
+    const auto valid = build(schema, layout, BuildMode::Minimal, build_diagnostics);
+    ASSERT_TRUE(valid.has_value());
+    ASSERT_EQ(valid->fields[1].byte_offset + valid->fields[1].slot_size, 30U);
+
+    QbsImageModel crossing = *valid;
+    crossing.fields[1].byte_offset = 23U;
+    DiagnosticCollection crossing_diagnostics;
+    EXPECT_FALSE(QbsModelBuilder{}.validate(crossing, crossing_diagnostics));
+
+    QbsImageModel at_boundary = *valid;
+    at_boundary.fields[1].byte_offset = 22U;
+    DiagnosticCollection boundary_diagnostics;
+    EXPECT_TRUE(QbsModelBuilder{}.validate(at_boundary, boundary_diagnostics));
 }
 
 } // namespace

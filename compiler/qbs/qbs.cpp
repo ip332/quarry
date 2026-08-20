@@ -117,8 +117,10 @@ void append_type_identity(std::vector<std::uint8_t>& output, const layout::TypeL
     append_u32(output, type.max_elements);
     append_u32(output, type.max_bytes);
     append_string(output, type.referenced_fqn);
-    append_u32(output, static_cast<std::uint32_t>(type.enum_values.size()));
-    for (const std::uint64_t value : type.enum_values) {
+    std::vector<std::uint64_t> enum_values = type.enum_values;
+    std::sort(enum_values.begin(), enum_values.end());
+    append_u32(output, static_cast<std::uint32_t>(enum_values.size()));
+    for (const std::uint64_t value : enum_values) {
         append_u64(output, value);
     }
     append_u8(output, type.element_type != nullptr ? 1U : 0U);
@@ -711,8 +713,7 @@ bool QbsModelBuilder::validate(const QbsImageModel& model,
         }
         const auto& owner = model.records[field.owning_record_index];
         std::uint32_t fixed_end = 0U;
-        if (!checked_add(layout::kBrfV2HeaderSize, owner.presence_bitmap_size, fixed_end) ||
-            !checked_add(fixed_end, owner.fixed_region_size, fixed_end)) {
+        if (!checked_add(layout::kBrfV2HeaderSize, owner.fixed_region_size, fixed_end)) {
             emit_error(diagnostics, "QBS record fixed-region arithmetic overflows 32 bits");
             return false;
         }
@@ -738,9 +739,11 @@ bool QbsModelBuilder::validate(const QbsImageModel& model,
         }
         std::uint32_t slot_end = 0U;
         std::uint32_t presence_bits = 0U;
+        std::uint32_t fixed_start = 0U;
         if (!checked_add(field.byte_offset, field.slot_size, slot_end) ||
             !checked_multiply(owner.presence_bitmap_size, 8U, presence_bits) ||
-            field.byte_offset < layout::kBrfV2HeaderSize || slot_end > fixed_end ||
+            !checked_add(layout::kBrfV2HeaderSize, owner.presence_bitmap_size, fixed_start) ||
+            field.byte_offset < fixed_start || slot_end > fixed_end ||
             field.presence_bit_index >= presence_bits || field.bit_offset > 7U ||
             field.bit_width == 0U) {
             emit_error(diagnostics, "QBS field location is outside the representable BRF range");
