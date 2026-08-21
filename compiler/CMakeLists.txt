@@ -266,6 +266,19 @@ target_link_libraries(quarry_compiler_layout
         quarry_project_options
 )
 
+add_library(quarry_compiler_qbs
+    qbs/qbs.cpp
+)
+target_include_directories(quarry_compiler_qbs PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_link_libraries(quarry_compiler_qbs
+    PUBLIC
+        quarry_compiler_layout
+        quarry_compiler_diagnostics
+        quarry_schema_ir_proto
+        quarry_schema_ir_warning_tweaks
+        quarry_project_options
+)
+
 add_library(quarry_compiler_output_planning
     output_planning/output_planning.cpp
 )
