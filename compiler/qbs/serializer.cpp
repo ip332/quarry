@@ -1,5 +1,6 @@
 #include "compiler/qbs/serializer.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstddef>
@@ -197,6 +198,79 @@ namespace {
     return value >= 1U && value <= 16U;
 }
 
+[[nodiscard]] bool valid_storage(Storage storage) {
+    switch (storage) {
+    case Storage::Fixed:
+    case Storage::InlineFixedNestedRecord:
+    case Storage::VariableDescriptor:
+        return true;
+    }
+    return false;
+}
+
+[[nodiscard]] bool valid_descriptor_kind(DescriptorKind kind) {
+    switch (kind) {
+    case DescriptorKind::None:
+    case DescriptorKind::DataOffsetByteLength:
+        return true;
+    }
+    return false;
+}
+
+void append_type_identity_key(std::vector<std::uint8_t>& key, const QbsImageModel& model,
+                              std::size_t index, std::vector<bool>& visiting) {
+    const auto& type = model.types[index];
+    key.push_back(static_cast<std::uint8_t>(type.code));
+    key.push_back(type.fixed_size ? 0U : 1U);
+    const auto append32 = [&key](std::uint32_t value) {
+        key.push_back(static_cast<std::uint8_t>(value >> 24U));
+        key.push_back(static_cast<std::uint8_t>(value >> 16U));
+        key.push_back(static_cast<std::uint8_t>(value >> 8U));
+        key.push_back(static_cast<std::uint8_t>(value));
+    };
+    append32(type.encoded_width);
+    append32(type.max_elements);
+    append32(type.max_bytes);
+    std::string_view reference;
+    if (type.code == TypeCode::Enum) {
+        reference = model.enums[type.reference].fqn;
+    } else if (type.code == TypeCode::Record) {
+        reference = model.records[type.reference].fqn;
+    }
+    append32(static_cast<std::uint32_t>(reference.size()));
+    key.insert(key.end(), reference.begin(), reference.end());
+    if (type.code == TypeCode::Enum) {
+        const auto& values = model.enums[type.reference].values;
+        append32(static_cast<std::uint32_t>(values.size()));
+        for (const auto value : values) {
+            for (int shift = 56; shift >= 0; shift -= 8) {
+                key.push_back(static_cast<std::uint8_t>(value >> shift));
+            }
+        }
+    } else {
+        append32(0U);
+    }
+    const bool has_element = type.code == TypeCode::Array;
+    key.push_back(has_element ? 1U : 0U);
+    if (has_element) {
+        if (visiting[type.reference]) {
+            return;
+        }
+        visiting[type.reference] = true;
+        append_type_identity_key(key, model, type.reference, visiting);
+        visiting[type.reference] = false;
+    }
+}
+
+[[nodiscard]] std::vector<std::uint8_t> type_identity_key(const QbsImageModel& model,
+                                                          std::size_t index) {
+    std::vector<std::uint8_t> key;
+    std::vector<bool> visiting(model.types.size());
+    visiting[index] = true;
+    append_type_identity_key(key, model, index, visiting);
+    return key;
+}
+
 [[nodiscard]] bool validate_serializer_model(const QbsImageModel& model,
                                              diagnostics::DiagnosticCollection& diagnostics) {
     if (model.format_version != kQbsFormatVersion ||
@@ -223,6 +297,24 @@ namespace {
             return false;
         }
     }
+    for (std::size_t index = 1U; index < model.types.size(); ++index) {
+        if (type_identity_key(model, index - 1U) >= type_identity_key(model, index)) {
+            error(diagnostics, "QBS types are not in canonical order or are duplicated");
+            return false;
+        }
+    }
+    for (std::size_t index = 1U; index < model.records.size(); ++index) {
+        if (model.records[index - 1U].fqn >= model.records[index].fqn) {
+            error(diagnostics, "QBS records are not in canonical order");
+            return false;
+        }
+    }
+    for (std::size_t index = 1U; index < model.enums.size(); ++index) {
+        if (model.enums[index - 1U].fqn >= model.enums[index].fqn) {
+            error(diagnostics, "QBS enums are not in canonical order");
+            return false;
+        }
+    }
     for (const auto& record : model.records) {
         if (!valid_string_index(record.name_string_index, model)) {
             error(diagnostics, "QBS record has an invalid name reference");
@@ -230,6 +322,10 @@ namespace {
         }
     }
     for (const auto& field : model.fields) {
+        if (!valid_storage(field.storage) || !valid_descriptor_kind(field.descriptor_kind)) {
+            error(diagnostics, "QBS field contains an unsupported enum value");
+            return false;
+        }
         if (!valid_string_index(field.name_string_index, model)) {
             error(diagnostics, "QBS field has an invalid name or bit reference");
             return false;

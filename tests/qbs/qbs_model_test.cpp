@@ -151,6 +151,15 @@ TEST(QbsModelTest, BuildsExampleFromCanonicalLayoutInMinimalAndReflectiveModes) 
     ASSERT_EQ(minimal->records.size(), 1U);
     ASSERT_EQ(minimal->fields.size(), 4U);
     ASSERT_EQ(minimal->types.size(), 4U);
+    EXPECT_EQ(minimal->types[0].code, TypeCode::U16);
+    EXPECT_EQ(minimal->types[1].code, TypeCode::U32);
+    EXPECT_EQ(minimal->types[2].code, TypeCode::String);
+    EXPECT_EQ(minimal->types[3].code, TypeCode::Array);
+    EXPECT_EQ(minimal->fields[0].type_index, 1U);
+    EXPECT_EQ(minimal->fields[1].type_index, 2U);
+    EXPECT_EQ(minimal->fields[2].type_index, 0U);
+    EXPECT_EQ(minimal->fields[3].type_index, 3U);
+    EXPECT_EQ(minimal->types[3].reference, 0U);
     EXPECT_EQ(minimal->records[0].record_id, 1U);
     EXPECT_EQ(minimal->records[0].fixed_region_size, 23U);
     EXPECT_EQ(minimal->fields[0].byte_offset, 17U);

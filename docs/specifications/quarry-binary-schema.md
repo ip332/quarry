@@ -295,11 +295,30 @@ record-table order; fields within a record are in schema declaration/field-index
 order. `field_start` and `field_count` in a record descriptor address this
 contiguous range.
 
-The type table is ordered by the canonical byte representation of each type
-descriptor, with referenced table indexes resolved to canonical identities
-before sorting. Identical type descriptors are interned once. Record and enum
-references use record-table and enum-table indexes, never pointers or FQNs in
-the structural tables.
+The type table is ordered by the canonical type-identity key defined below.
+Identical identities are interned once. This is one canonical order; source
+declaration order and first-use order are not alternatives.
+
+The key is a byte string, compared lexicographically as unsigned bytes. It is
+encoded in this order:
+
+1. one byte type code;
+2. one byte fixed/variable classification (`0` fixed, `1` variable);
+3. three big-endian unsigned 32-bit values: encoded width, maximum element
+   count, and maximum byte count;
+4. a big-endian unsigned 32-bit length followed by the referenced semantic
+   identity: the referenced record FQN for record types, the referenced enum
+   FQN for enum types, or an empty string for other types;
+5. a big-endian unsigned 32-bit enum-value count followed by each enum value as
+   an unsigned 64-bit big-endian integer, sorted in strictly ascending order;
+6. one byte indicating whether an element type is present (`0` or `1`),
+   followed recursively by that element type's identity key when present.
+
+The recursive element identity is semantic and never a QBS table index. The
+key therefore includes all structural type properties used by QBS v1,
+including bounds, referenced record/enum identity, enum values, and nested
+element types. Record and enum references in emitted descriptors use their
+canonical table indexes only after sorting and interning by this key.
 
 The enum table is ordered by enum FQN. Each enum's allowed numeric values are
 sorted in strictly increasing numeric order in the enum-value table. The string
@@ -729,14 +748,14 @@ fixed_region_size        23
 complete fixed size      not applicable (variable record)
 ```
 
-One possible canonical QBS table assignment is:
+The canonical QBS table assignment is:
 
 ```text
 record table index 0: Example, record_id 1
-type table index 0:  uint32, fixed, width 4
-type table index 1:  string, variable, max_bytes = schema bound
-type table index 2:  uint16, fixed, width 2
-type table index 3:  array, variable, element type index 2,
+type table index 0:  uint16, fixed, width 2
+type table index 1:  uint32, fixed, width 4
+type table index 2:  string, variable, max_bytes = schema bound
+type table index 3:  array, variable, element type index 0,
                       max_elements = schema bound
 ```
 
@@ -757,9 +776,9 @@ The four 28-byte field descriptors are:
 
 | Field | Index | Flags | Byte offset | Bit offset/width | Type | Presence | Slot |
 |---|---:|---|---:|---|---:|---:|---:|
-| timestamp | 0 | fixed | 17 | 0 / 32 | 0 | 0 | 4 |
-| name | 1 | descriptor | 21 | 0 / 0 | 1 | 1 | 8 |
-| state | 2 | fixed | 29 | 0 / 16 | 2 | 2 | 2 |
+| timestamp | 0 | fixed | 17 | 0 / 32 | 1 | 0 | 4 |
+| name | 1 | descriptor | 21 | 0 / 0 | 2 | 1 | 8 |
+| state | 2 | fixed | 29 | 0 / 16 | 0 | 2 | 2 |
 | samples | 3 | descriptor | 31 | 0 / 0 | 3 | 3 | 8 |
 
 For a minimal image, every `name_string_index` is `0xFFFF`. The fixed table

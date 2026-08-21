@@ -37,7 +37,7 @@ QbsImageModel example(BuildMode mode) {
     model.fields = {
         QbsFieldModel{.owning_record_index = 0U,
                       .field_index = 0U,
-                      .type_index = 0U,
+                      .type_index = 1U,
                       .byte_offset = 17U,
                       .bit_offset = 0U,
                       .bit_width = 32U,
@@ -49,7 +49,7 @@ QbsImageModel example(BuildMode mode) {
                           static_cast<std::uint16_t>(mode == BuildMode::Reflective ? 4U : 0xFFFFU)},
         QbsFieldModel{.owning_record_index = 0U,
                       .field_index = 1U,
-                      .type_index = 1U,
+                      .type_index = 2U,
                       .byte_offset = 21U,
                       .bit_offset = 0U,
                       .bit_width = 64U,
@@ -61,7 +61,7 @@ QbsImageModel example(BuildMode mode) {
                           static_cast<std::uint16_t>(mode == BuildMode::Reflective ? 1U : 0xFFFFU)},
         QbsFieldModel{.owning_record_index = 0U,
                       .field_index = 2U,
-                      .type_index = 2U,
+                      .type_index = 0U,
                       .byte_offset = 29U,
                       .bit_offset = 0U,
                       .bit_width = 16U,
@@ -85,11 +85,11 @@ QbsImageModel example(BuildMode mode) {
                           static_cast<std::uint16_t>(mode == BuildMode::Reflective ? 2U : 0xFFFFU)},
     };
     model.types = {
+        QbsTypeModel{.code = TypeCode::U16, .fixed_size = true, .encoded_width = 2U},
         QbsTypeModel{.code = TypeCode::U32, .fixed_size = true, .encoded_width = 4U},
         QbsTypeModel{.code = TypeCode::String, .fixed_size = false, .max_bytes = 64U},
-        QbsTypeModel{.code = TypeCode::U16, .fixed_size = true, .encoded_width = 2U},
         QbsTypeModel{
-            .code = TypeCode::Array, .fixed_size = false, .reference = 2U, .max_elements = 8U},
+            .code = TypeCode::Array, .fixed_size = false, .reference = 0U, .max_elements = 8U},
     };
     if (mode == BuildMode::Reflective) {
         model.strings = {"Example", "name", "samples", "state", "timestamp"};
@@ -174,11 +174,11 @@ TEST(QbsSerializerTest, SerializesExampleMinimalImage) {
     const auto expected = hex_bytes(
         "514253000100002801000010ba7816bf8f01cfea414140de5dae2223000300000000002800000118"
         "000100000000004c0000001c00020000000000680000007000030000000000d80000004000000001"
-        "0000000000040001000000010000001700000000ffff000000000000000000110000000000200000"
-        "0000000000000004ffff0000000100060000001500000000004000010001000000000008ffff0000"
-        "000200000000001d00000000001000020002000000000002ffff0000000300060000001f00000000"
-        "004000030003000000000008ffff0000070100040000000000000000000000000d02000000000000"
-        "00000000000000400501000200000000000000000000000010020000000200000000000800000000");
+        "0000000000040001000000010000001700000000ffff000000000000000000110000000000200001"
+        "0000000000000004ffff0000000100060000001500000000004000020001000000000008ffff0000"
+        "000200000000001d00000000001000000002000000000002ffff0000000300060000001f00000000"
+        "004000030003000000000008ffff0000050100020000000000000000000000000701000400000000"
+        "00000000000000000d02000000000000000000000000004010020000000000000000000800000000");
     ASSERT_EQ(expected.size(), 280U);
     EXPECT_EQ(result->bytes, expected);
     EXPECT_EQ(std::vector<std::uint8_t>(result->bytes.begin(), result->bytes.begin() + 4),
@@ -219,6 +219,36 @@ TEST(QbsSerializerTest, RejectsInvalidTableReference) {
     DiagnosticCollection diagnostics;
     EXPECT_FALSE(quarry::compiler::qbs::serialize_qbs(model, diagnostics).has_value());
     EXPECT_FALSE(diagnostics.diagnostics().empty());
+}
+
+TEST(QbsSerializerTest, RejectsInvalidFieldEnumValues) {
+    auto invalid_storage = example(BuildMode::Minimal);
+    invalid_storage.fields[0].storage = static_cast<Storage>(99U);
+    DiagnosticCollection storage_diagnostics;
+    EXPECT_FALSE(
+        quarry::compiler::qbs::serialize_qbs(invalid_storage, storage_diagnostics).has_value());
+    EXPECT_FALSE(storage_diagnostics.diagnostics().empty());
+
+    auto invalid_descriptor = example(BuildMode::Minimal);
+    invalid_descriptor.fields[0].descriptor_kind = static_cast<DescriptorKind>(99U);
+    DiagnosticCollection descriptor_diagnostics;
+    EXPECT_FALSE(quarry::compiler::qbs::serialize_qbs(invalid_descriptor, descriptor_diagnostics)
+                     .has_value());
+    EXPECT_FALSE(descriptor_diagnostics.diagnostics().empty());
+}
+
+TEST(QbsSerializerTest, RejectsNonCanonicalTypeOrdering) {
+    auto stale = example(BuildMode::Minimal);
+    std::swap(stale.types[0], stale.types[1]);
+    DiagnosticCollection stale_diagnostics;
+    EXPECT_FALSE(quarry::compiler::qbs::serialize_qbs(stale, stale_diagnostics).has_value());
+
+    auto adjusted = example(BuildMode::Minimal);
+    std::swap(adjusted.types[0], adjusted.types[1]);
+    adjusted.fields[0].type_index = 0U;
+    adjusted.fields[2].type_index = 1U;
+    DiagnosticCollection adjusted_diagnostics;
+    EXPECT_FALSE(quarry::compiler::qbs::serialize_qbs(adjusted, adjusted_diagnostics).has_value());
 }
 
 TEST(QbsSerializerTest, SerializesSharedEnumTableAndRejectsNonCanonicalValues) {
