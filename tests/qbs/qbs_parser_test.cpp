@@ -80,4 +80,16 @@ TEST(QbsParserTest, RejectsTruncationAndTrailingBytes) {
     EXPECT_FALSE(parse_qbs(bytes, diagnostics).has_value());
 }
 
+TEST(QbsParserTest, EnforcesTypeValidationWorkLimit) {
+    const auto bytes = image();
+    DiagnosticCollection diagnostics;
+    QbsParserLimits limits;
+    limits.max_work_items = 0U;
+    EXPECT_FALSE(parse_qbs(bytes, diagnostics, limits).has_value());
+
+    diagnostics.clear();
+    limits.max_work_items = 64U;
+    EXPECT_TRUE(parse_qbs(bytes, diagnostics, limits).has_value());
+}
+
 } // namespace

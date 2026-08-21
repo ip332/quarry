@@ -21,6 +21,7 @@ struct QbsParserLimits {
     std::uint32_t max_enum_values = 1U << 20U;
     std::uint32_t max_strings = 65536U;
     std::uint32_t max_work_items = 1U << 20U;
+    std::uint32_t max_identity_key_bytes = 16U * 1024U * 1024U;
 };
 
 struct QbsHeaderView {

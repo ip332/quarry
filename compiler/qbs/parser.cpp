@@ -475,49 +475,75 @@ std::optional<ValidatedQbsView> parse_qbs(std::span<const std::uint8_t> bytes,
         }
     }
     std::vector<std::vector<std::uint8_t>> type_keys(type_count);
+    std::vector<std::uint8_t> type_state(type_count, 0U);
+    std::uint64_t work_items = 0U;
+    std::uint64_t identity_bytes = 0U;
+    const auto consume_work = [&]() {
+        if (work_items == std::numeric_limits<std::uint64_t>::max() ||
+            work_items >= limits.max_work_items) {
+            fail(diagnostics, "QBS parser work limit exceeded");
+            return false;
+        }
+        ++work_items;
+        return true;
+    };
+    const auto append_bytes = [&](std::vector<std::uint8_t>& destination,
+                                  const std::uint8_t* source, std::size_t size) {
+        if (size == 0U)
+            return true;
+        if (size > limits.max_identity_key_bytes ||
+            identity_bytes > limits.max_identity_key_bytes - size) {
+            fail(diagnostics, "QBS parser identity memory limit exceeded");
+            return false;
+        }
+        destination.insert(destination.end(), source, source + size);
+        identity_bytes += size;
+        return true;
+    };
     for (std::uint32_t root = 0U; root < type_count; ++root) {
+        if (type_state[root] == 2U)
+            continue;
         struct Frame {
             std::uint16_t index;
             bool exit;
         };
         std::vector<Frame> work{{static_cast<std::uint16_t>(root), false}};
-        std::vector<std::uint8_t> state(type_count, 0U);
-        std::vector<std::vector<std::uint8_t>> keys(type_count);
         while (!work.empty()) {
+            if (!consume_work())
+                return std::nullopt;
             const auto frame = work.back();
             work.pop_back();
+            const auto at = types->offset + frame.index * kTypeStride;
             if (frame.exit) {
-                const auto at = types->offset + frame.index * kTypeStride;
-                if (bytes[at] == 16U) {
-                    const auto child = u16(bytes, at + 4U);
-                    keys[frame.index].insert(keys[frame.index].end(), keys[child].begin(),
-                                             keys[child].end());
-                }
-                state[frame.index] = 2U;
+                const auto child = u16(bytes, at + 4U);
+                if (!append_bytes(type_keys[frame.index], type_keys[child].data(),
+                                  type_keys[child].size()))
+                    return std::nullopt;
+                type_state[frame.index] = 2U;
                 continue;
             }
-            if (state[frame.index] == 1U) {
+            if (type_state[frame.index] == 1U) {
                 fail(diagnostics, "QBS type graph contains a cycle");
                 return std::nullopt;
             }
-            if (state[frame.index] == 2U) {
+            if (type_state[frame.index] == 2U)
                 continue;
-            }
-            state[frame.index] = 1U;
-            const auto at = types->offset + frame.index * kTypeStride;
+            type_state[frame.index] = 1U;
             const auto code = bytes[at];
-            auto& key = keys[frame.index];
-            const auto append32 = [&key](std::uint32_t value) {
-                key.push_back(static_cast<std::uint8_t>(value >> 24U));
-                key.push_back(static_cast<std::uint8_t>(value >> 16U));
-                key.push_back(static_cast<std::uint8_t>(value >> 8U));
-                key.push_back(static_cast<std::uint8_t>(value));
+            auto& key = type_keys[frame.index];
+            const auto append32 = [&](std::uint32_t value) {
+                const std::array<std::uint8_t, 4> encoded = {
+                    static_cast<std::uint8_t>(value >> 24U),
+                    static_cast<std::uint8_t>(value >> 16U), static_cast<std::uint8_t>(value >> 8U),
+                    static_cast<std::uint8_t>(value)};
+                return append_bytes(key, encoded.data(), encoded.size());
             };
-            key.push_back(code);
-            key.push_back(bytes[at + 1U] == 1U ? 0U : 1U);
-            append32(u16(bytes, at + 2U));
-            append32(u32(bytes, at + 8U));
-            append32(u32(bytes, at + 12U));
+            const std::array<std::uint8_t, 2> prefix = {
+                code, static_cast<std::uint8_t>(bytes[at + 1U] == 1U ? 0U : 1U)};
+            if (!append_bytes(key, prefix.data(), prefix.size()) ||
+                !append32(u16(bytes, at + 2U)) || !append32(u32(bytes, at + 8U)) ||
+                !append32(u32(bytes, at + 12U)))
+                return std::nullopt;
             std::string_view reference;
             const auto ref = u16(bytes, at + 4U);
             if (code == 12U) {
@@ -527,36 +553,45 @@ std::optional<ValidatedQbsView> parse_qbs(std::span<const std::uint8_t> bytes,
                 const auto record_at = records->offset + ref * (28U + width);
                 reference = identity(identity_offset(bytes, record_at + 24U, width));
             }
-            append32(static_cast<std::uint32_t>(reference.size()));
-            key.insert(key.end(), reference.begin(), reference.end());
+            if (!append32(static_cast<std::uint32_t>(reference.size())) ||
+                !append_bytes(key, reinterpret_cast<const std::uint8_t*>(reference.data()),
+                              reference.size()))
+                return std::nullopt;
             if (code == 12U) {
                 const auto enum_at = enums->offset + ref * (16U + width);
                 const auto start = u32(bytes, enum_at + 4U);
                 const auto count = u32(bytes, enum_at + 8U);
-                append32(count);
+                if (!append32(count))
+                    return std::nullopt;
                 for (std::uint32_t j = 0U; j < count; ++j) {
                     const auto value = u64(bytes, enum_values->offset + (start + j) * 8U);
+                    std::array<std::uint8_t, 8> encoded{};
                     for (int shift = 56; shift >= 0; shift -= 8)
-                        key.push_back(value >> shift);
+                        encoded[static_cast<std::size_t>((56 - shift) / 8)] =
+                            static_cast<std::uint8_t>(value >> shift);
+                    if (!append_bytes(key, encoded.data(), encoded.size()))
+                        return std::nullopt;
                 }
-            } else {
-                append32(0U);
+            } else if (!append32(0U)) {
+                return std::nullopt;
             }
             const bool array = code == 16U;
-            key.push_back(array ? 1U : 0U);
-            if (array) {
-                work.push_back(Frame{frame.index, true});
-                const auto child = u16(bytes, at + 4U);
-                if (state[child] == 1U) {
-                    fail(diagnostics, "QBS type graph contains a cycle");
-                    return std::nullopt;
-                }
-                work.push_back(Frame{child, false});
-            } else {
-                state[frame.index] = 2U;
+            const std::uint8_t has_element = array ? 1U : 0U;
+            if (!append_bytes(key, &has_element, 1U))
+                return std::nullopt;
+            if (!array) {
+                type_state[frame.index] = 2U;
+                continue;
             }
+            const auto child = u16(bytes, at + 4U);
+            if (type_state[child] == 1U) {
+                fail(diagnostics, "QBS type graph contains a cycle");
+                return std::nullopt;
+            }
+            work.push_back(Frame{frame.index, true});
+            if (type_state[child] == 0U)
+                work.push_back(Frame{child, false});
         }
-        type_keys[root] = std::move(keys[root]);
     }
     for (std::uint32_t i = 1U; i < type_count; ++i) {
         if (type_keys[i - 1U] >= type_keys[i]) {
