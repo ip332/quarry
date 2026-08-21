@@ -3,8 +3,6 @@
 
 #include <gtest/gtest.h>
 
-#include <algorithm>
-#include <array>
 #include <functional>
 #include <vector>
 
@@ -15,7 +13,7 @@ using namespace quarry::compiler::qbs;
 
 std::vector<std::uint8_t> image() {
     const auto hex = std::string_view{
-        "514253000100002801010010ba7816bf8f01cfea414140de5dae222300040000000000280000012d"
+        "51425300010000280101001068a731750346a0ad2e665f81260ea18300040000000000280000012d"
         "00010000000000580000001d00020000000000750000007000030000000000e50000004000060000"
         "000001250000000800000001000000000004000100000001000000170000000000ffff0000000000"
         "000000001100000000002000010000000000000004ffff0000000100060000001500000000004000"
@@ -31,12 +29,6 @@ std::vector<std::uint8_t> image() {
         };
         bytes.push_back(static_cast<std::uint8_t>((digit(hex[i]) << 4U) | digit(hex[i + 1U])));
     }
-    // The historical fixture intentionally uses an arbitrary test identity input.
-    // Replace only its stored ID with the structural digest expected by the parser.
-    const std::array<std::uint8_t, 16> structural_id = {0x68, 0xa7, 0x31, 0x75, 0x03, 0x46,
-                                                        0xa0, 0xad, 0x2e, 0x66, 0x5f, 0x81,
-                                                        0x26, 0x0e, 0xa1, 0x83};
-    std::copy(structural_id.begin(), structural_id.end(), bytes.begin() + 12U);
     return bytes;
 }
 

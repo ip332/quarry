@@ -1,3 +1,4 @@
+#include "compiler/qbs/parser.hpp"
 #include "compiler/qbs/serializer.hpp"
 
 #include <array>
@@ -39,7 +40,81 @@ TEST(QbsSerializerTest, ChecksIdentitySizeIncludingTerminator) {
 QbsImageModel example(BuildMode mode) {
     QbsImageModel model;
     model.mode = mode;
-    model.schema_identity_input = {'a', 'b', 'c'};
+    const auto append8 = [](std::vector<std::uint8_t>& out, std::uint8_t value) {
+        out.push_back(value);
+    };
+    const auto append32 = [](std::vector<std::uint8_t>& out, std::uint32_t value) {
+        out.push_back(static_cast<std::uint8_t>(value >> 24U));
+        out.push_back(static_cast<std::uint8_t>(value >> 16U));
+        out.push_back(static_cast<std::uint8_t>(value >> 8U));
+        out.push_back(static_cast<std::uint8_t>(value));
+    };
+    const auto append_string = [&](std::vector<std::uint8_t>& out, std::string_view value) {
+        append32(out, static_cast<std::uint32_t>(value.size()));
+        out.insert(out.end(), value.begin(), value.end());
+    };
+    const auto append_type = [&](std::vector<std::uint8_t>& out, std::uint8_t code,
+                                 std::uint8_t classification, std::uint32_t width,
+                                 std::uint32_t max_elements, std::uint32_t max_bytes,
+                                 bool has_element) {
+        append8(out, code);
+        append8(out, classification);
+        append32(out, width);
+        append32(out, max_elements);
+        append32(out, max_bytes);
+        append_string(out, "");
+        append32(out, 0U);
+        append8(out, has_element ? 1U : 0U);
+    };
+    auto& identity = model.schema_identity_input;
+    append_string(identity, "quarry.qbs.schema");
+    append8(identity, 2U);
+    append_string(identity, "Example");
+    append32(identity, 1U);
+    append8(identity, 1U);
+    append32(identity, 16U);
+    append32(identity, 1U);
+    append32(identity, 23U);
+    append32(identity, 0U);
+    append32(identity, 4U);
+    append32(identity, 0U);
+    append32(identity, 0U);
+    append32(identity, 17U);
+    append8(identity, 0U);
+    append32(identity, 32U);
+    append32(identity, 4U);
+    append8(identity, 0U);
+    append8(identity, 0U);
+    append_type(identity, 7U, 0U, 4U, 0U, 0U, false);
+    append32(identity, 1U);
+    append32(identity, 1U);
+    append32(identity, 21U);
+    append8(identity, 0U);
+    append32(identity, 64U);
+    append32(identity, 8U);
+    append8(identity, 2U);
+    append8(identity, 1U);
+    append_type(identity, 13U, 1U, 0U, 0U, 64U, false);
+    append32(identity, 2U);
+    append32(identity, 2U);
+    append32(identity, 29U);
+    append8(identity, 0U);
+    append32(identity, 16U);
+    append32(identity, 2U);
+    append8(identity, 0U);
+    append8(identity, 0U);
+    append_type(identity, 5U, 0U, 2U, 0U, 0U, false);
+    append32(identity, 3U);
+    append32(identity, 3U);
+    append32(identity, 31U);
+    append8(identity, 0U);
+    append32(identity, 64U);
+    append32(identity, 8U);
+    append8(identity, 2U);
+    append8(identity, 1U);
+    append_type(identity, 16U, 1U, 0U, 8U, 0U, true);
+    append_type(identity, 5U, 0U, 2U, 0U, 0U, false);
+    append32(identity, 0U);
     model.records = {QbsRecordModel{.table_index = 0U,
                                     .record_id = 1U,
                                     .field_start = 0U,
@@ -189,7 +264,7 @@ TEST(QbsSerializerTest, SerializesExampleMinimalImage) {
     EXPECT_TRUE(diagnostics.diagnostics().empty());
     ASSERT_EQ(result->bytes.size(), 301U);
     const auto expected =
-        hex_bytes("514253000100002801010010ba7816bf8f01cfea414140de5dae222300040000000000280000012d"
+        hex_bytes("51425300010000280101001068a731750346a0ad2e665f81260ea18300040000000000280000012d"
                   "00010000000000580000001d00020000000000750000007000030000000000e50000004000060000"
                   "000001250000000800000001000000000004000100000001000000170000000000ffff0000000000"
                   "000000001100000000002000010000000000000004ffff0000000100060000001500000000004000"
@@ -204,8 +279,8 @@ TEST(QbsSerializerTest, SerializesExampleMinimalImage) {
     EXPECT_EQ(std::vector<std::uint8_t>(result->bytes.begin() + 4, result->bytes.begin() + 12),
               bytes({1, 0, 0, 40, 1, 1, 0, 16}));
     EXPECT_EQ(std::vector<std::uint8_t>(result->bytes.begin() + 12, result->bytes.begin() + 28),
-              bytes({0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea, 0x41, 0x41, 0x40, 0xde, 0x5d,
-                     0xae, 0x22, 0x23}));
+              bytes({0x68, 0xa7, 0x31, 0x75, 0x03, 0x46, 0xa0, 0xad, 0x2e, 0x66, 0x5f, 0x81, 0x26,
+                     0x0e, 0xa1, 0x83}));
     EXPECT_EQ(std::vector<std::uint8_t>(result->bytes.begin() + 28, result->bytes.begin() + 40),
               bytes({0, 4, 0, 0, 0, 0, 0, 40, 0, 0, 1, 45}));
 }
@@ -229,6 +304,16 @@ TEST(QbsSerializerTest, ReflectiveImageHasCanonicalStringSectionButSameSchemaId)
                      11,  0,   0,   0,   18,  0,   0,   0,   23,  0,   0,   0,   32,  'E', 'x',
                      'a', 'm', 'p', 'l', 'e', 'n', 'a', 'm', 'e', 's', 'a', 'm', 'p', 'l', 'e',
                      's', 's', 't', 'a', 't', 'e', 't', 'i', 'm', 'e', 's', 't', 'a', 'm', 'p'}));
+
+    DiagnosticCollection minimal_parser_diagnostics;
+    DiagnosticCollection reflective_parser_diagnostics;
+    const auto parsed_minimal =
+        quarry::compiler::qbs::parse_qbs(minimal->bytes, minimal_parser_diagnostics);
+    const auto parsed_reflective =
+        quarry::compiler::qbs::parse_qbs(reflective->bytes, reflective_parser_diagnostics);
+    ASSERT_TRUE(parsed_minimal.has_value());
+    ASSERT_TRUE(parsed_reflective.has_value());
+    EXPECT_EQ(parsed_minimal->header().schema_id, parsed_reflective->header().schema_id);
 }
 
 TEST(QbsSerializerTest, RejectsInvalidTableReference) {
