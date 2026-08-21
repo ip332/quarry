@@ -24,3 +24,8 @@ canonical schema identity input.
 
 This layer does not serialize `.qbs` bytes, parse external QBS images, or
 implement a generic runtime.
+
+QBS images include a mandatory Identity String Section containing the canonical
+record and enum FQNs. It is structural metadata and is separate from the
+optional reflective string section; its global 1/2/4-byte offset width is
+selected canonically from the ISS payload size.
