@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <string_view>
 #include <vector>
 
@@ -18,6 +19,22 @@ using quarry::compiler::qbs::QbsRecordModel;
 using quarry::compiler::qbs::QbsTypeModel;
 using quarry::compiler::qbs::Storage;
 using quarry::compiler::qbs::TypeCode;
+
+TEST(QbsSerializerTest, ChecksIdentitySizeIncludingTerminator) {
+    std::uint32_t next = 0U;
+    EXPECT_TRUE(quarry::compiler::qbs::detail::checked_iss_offset_advance(
+        std::numeric_limits<std::uint32_t>::max() - 1ULL, 0U, next));
+    EXPECT_EQ(next, std::numeric_limits<std::uint32_t>::max());
+    EXPECT_FALSE(quarry::compiler::qbs::detail::checked_iss_offset_advance(
+        std::numeric_limits<std::uint32_t>::max(), 0U, next));
+    EXPECT_TRUE(quarry::compiler::qbs::detail::checked_iss_offset_advance(
+        std::numeric_limits<std::uint32_t>::max() - 2ULL, 1U, next));
+    EXPECT_EQ(next, std::numeric_limits<std::uint32_t>::max());
+    EXPECT_FALSE(quarry::compiler::qbs::detail::checked_iss_offset_advance(
+        std::numeric_limits<std::uint32_t>::max() - 1ULL, 1U, next));
+    EXPECT_TRUE(quarry::compiler::qbs::detail::checked_iss_offset_advance(7U, 0U, next));
+    EXPECT_EQ(next, 8U);
+}
 
 QbsImageModel example(BuildMode mode) {
     QbsImageModel model;

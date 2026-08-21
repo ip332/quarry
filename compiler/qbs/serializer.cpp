@@ -9,6 +9,25 @@
 #include <string_view>
 
 namespace quarry::compiler::qbs {
+
+namespace detail {
+
+bool checked_iss_offset_advance(std::uint64_t identity_size, std::uint32_t current_offset,
+                                std::uint32_t& next_offset) {
+    constexpr auto kMax = std::numeric_limits<std::uint32_t>::max();
+    if (identity_size > static_cast<std::uint64_t>(kMax) - 1U) {
+        return false;
+    }
+    const auto encoded_size = static_cast<std::uint32_t>(identity_size) + 1U;
+    if (current_offset > kMax - encoded_size) {
+        return false;
+    }
+    next_offset = current_offset + encoded_size;
+    return true;
+}
+
+} // namespace detail
+
 namespace {
 
 constexpr std::uint32_t kHeaderSize = 40U;
@@ -328,13 +347,14 @@ void append_type_identity_key(std::vector<std::uint8_t>& key, const QbsImageMode
     }
     std::uint32_t offset = 0U;
     for (const auto& identity : table.values) {
-        if (identity.size() > std::numeric_limits<std::uint32_t>::max() - offset) {
+        std::uint32_t next_offset = 0U;
+        if (!detail::checked_iss_offset_advance(identity.size(), offset, next_offset)) {
             error(diagnostics, "QBS identity section exceeds 32-bit size");
             return false;
         }
         table.bytes.insert(table.bytes.end(), identity.begin(), identity.end());
         table.bytes.push_back(0U);
-        offset += static_cast<std::uint32_t>(identity.size() + 1U);
+        offset = next_offset;
     }
     if (table.bytes.size() <= 256U) {
         table.offset_width = 1U;
