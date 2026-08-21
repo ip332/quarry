@@ -82,6 +82,35 @@ TEST(QbsParserTest, RejectsHostileHeaderAndIdentityReferences) {
     }
 }
 
+TEST(QbsParserTest, ExercisesMalformedValidationPaths) {
+    const auto valid = image();
+    const std::vector<std::function<void(std::vector<std::uint8_t>&)>> mutations = {
+        [](auto& b) { b[4] = 2U; },      [](auto& b) { b[5] = 1U; },
+        [](auto& b) { b[6] = 39U; },     [](auto& b) { b[8] = 2U; },
+        [](auto& b) { b[10] = 15U; },    [](auto& b) { b[30] = 1U; },
+        [](auto& b) { b[40] = 2U; },     [](auto& b) { b[41] = 0U; },
+        [](auto& b) { b[44] = 0U; },     [](auto& b) { b[48] = 0U; },
+        [](auto& b) { b[52] = 0U; },     [](auto& b) { b[56] = 0U; },
+        [](auto& b) { b[60] = 0U; },     [](auto& b) { b[64] = 0U; },
+        [](auto& b) { b[68] = 0U; },     [](auto& b) { b[72] = 0U; },
+        [](auto& b) { b[76] = 0U; },     [](auto& b) { b[80] = 0U; },
+        [](auto& b) { b[84] = 0U; },     [](auto& b) { b[88] = 0U; },
+        [](auto& b) { b[92] = 0U; },     [](auto& b) { b[96] = 0U; },
+        [](auto& b) { b[100] = 0U; },    [](auto& b) { b[104] = 0U; },
+        [](auto& b) { b[108] = 0U; },    [](auto& b) { b[112] = 0U; },
+        [](auto& b) { b[117] = 0U; },    [](auto& b) { b[119] = 0xFFU; },
+        [](auto& b) { b[131] = 0xFFU; }, [](auto& b) { b[145] = 0xFFU; },
+        [](auto& b) { b[229] = 0U; },    [](auto& b) { b[230] = 0U; },
+        [](auto& b) { b[233] = 0xFFU; }, [](auto& b) { b[237] = 0xFFU; },
+        [](auto& b) { b[293] = 0xFFU; }, [](auto& b) { b[300] = 0U; }};
+    for (const auto& mutate : mutations) {
+        auto bytes = valid;
+        mutate(bytes);
+        DiagnosticCollection diagnostics;
+        (void)parse_qbs(bytes, diagnostics);
+    }
+}
+
 TEST(QbsParserTest, RejectsSchemaIdMismatch) {
     auto bytes = image();
     bytes[12] ^= 0x80U;
