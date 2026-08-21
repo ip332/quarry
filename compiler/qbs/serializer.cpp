@@ -9,6 +9,25 @@
 #include <string_view>
 
 namespace quarry::compiler::qbs {
+
+namespace detail {
+
+bool checked_iss_offset_advance(std::uint64_t identity_size, std::uint32_t current_offset,
+                                std::uint32_t& next_offset) {
+    constexpr auto kMax = std::numeric_limits<std::uint32_t>::max();
+    if (identity_size > static_cast<std::uint64_t>(kMax) - 1U) {
+        return false;
+    }
+    const auto encoded_size = static_cast<std::uint32_t>(identity_size) + 1U;
+    if (current_offset > kMax - encoded_size) {
+        return false;
+    }
+    next_offset = current_offset + encoded_size;
+    return true;
+}
+
+} // namespace detail
+
 namespace {
 
 constexpr std::uint32_t kHeaderSize = 40U;
@@ -18,6 +37,14 @@ constexpr std::uint32_t kFieldDescriptorSize = 28U;
 constexpr std::uint32_t kTypeDescriptorSize = 16U;
 constexpr std::uint32_t kEnumDescriptorSize = 16U;
 constexpr std::uint8_t kSchemaIdAlgorithmSha256 = 1U;
+
+struct IdentityTable {
+    std::vector<std::string> values;
+    std::vector<std::uint32_t> record_offsets;
+    std::vector<std::uint32_t> enum_offsets;
+    std::vector<std::uint8_t> bytes;
+    std::uint8_t offset_width = 1U;
+};
 
 [[nodiscard]] diagnostics::DiagnosticId diagnostic_id() {
     const auto parsed = diagnostics::DiagnosticId::parse("BC8001");
@@ -217,6 +244,32 @@ namespace {
     return false;
 }
 
+[[nodiscard]] bool valid_fqn(std::string_view value) {
+    if (value.empty()) {
+        return false;
+    }
+    bool segment_start = true;
+    for (const char character : value) {
+        if (character == '.') {
+            if (segment_start) {
+                return false;
+            }
+            segment_start = true;
+        } else if (segment_start) {
+            if (!((character >= 'A' && character <= 'Z') ||
+                  (character >= 'a' && character <= 'z') || character == '_')) {
+                return false;
+            }
+            segment_start = false;
+        } else if (!((character >= 'A' && character <= 'Z') ||
+                     (character >= 'a' && character <= 'z') ||
+                     (character >= '0' && character <= '9') || character == '_')) {
+            return false;
+        }
+    }
+    return !segment_start;
+}
+
 void append_type_identity_key(std::vector<std::uint8_t>& key, const QbsImageModel& model,
                               std::size_t index, std::vector<bool>& visiting) {
     const auto& type = model.types[index];
@@ -269,6 +322,72 @@ void append_type_identity_key(std::vector<std::uint8_t>& key, const QbsImageMode
     visiting[index] = true;
     append_type_identity_key(key, model, index, visiting);
     return key;
+}
+
+[[nodiscard]] bool build_identity_table(const QbsImageModel& model, IdentityTable& table,
+                                        diagnostics::DiagnosticCollection& diagnostics) {
+    table.values.reserve(model.records.size() + model.enums.size());
+    for (const auto& record : model.records) {
+        table.values.push_back(record.fqn);
+    }
+    for (const auto& enumeration : model.enums) {
+        table.values.push_back(enumeration.fqn);
+    }
+    for (const auto& identity : table.values) {
+        if (!valid_fqn(identity) || identity.find('\0') != std::string::npos ||
+            !valid_utf8(identity)) {
+            error(diagnostics, "QBS identity section contains an invalid semantic identity");
+            return false;
+        }
+    }
+    std::sort(table.values.begin(), table.values.end());
+    if (std::adjacent_find(table.values.begin(), table.values.end()) != table.values.end()) {
+        error(diagnostics, "QBS identity section contains duplicate semantic identities");
+        return false;
+    }
+    std::uint32_t offset = 0U;
+    for (const auto& identity : table.values) {
+        std::uint32_t next_offset = 0U;
+        if (!detail::checked_iss_offset_advance(identity.size(), offset, next_offset)) {
+            error(diagnostics, "QBS identity section exceeds 32-bit size");
+            return false;
+        }
+        table.bytes.insert(table.bytes.end(), identity.begin(), identity.end());
+        table.bytes.push_back(0U);
+        offset = next_offset;
+    }
+    if (table.bytes.size() <= 256U) {
+        table.offset_width = 1U;
+    } else if (table.bytes.size() <= 65536U) {
+        table.offset_width = 2U;
+    } else {
+        table.offset_width = 4U;
+    }
+    const auto offset_of = [&table](std::string_view identity) {
+        const auto found = std::lower_bound(table.values.begin(), table.values.end(), identity);
+        std::uint32_t result = 0U;
+        for (auto it = table.values.begin(); it != found; ++it) {
+            result += static_cast<std::uint32_t>(it->size() + 1U);
+        }
+        return result;
+    };
+    for (const auto& record : model.records) {
+        table.record_offsets.push_back(offset_of(record.fqn));
+    }
+    for (const auto& enumeration : model.enums) {
+        table.enum_offsets.push_back(offset_of(enumeration.fqn));
+    }
+    return true;
+}
+
+void put_identity_offset(std::vector<std::uint8_t>& out, std::uint32_t offset, std::uint8_t width) {
+    if (width == 1U) {
+        put8(out, static_cast<std::uint8_t>(offset));
+    } else if (width == 2U) {
+        put16(out, static_cast<std::uint16_t>(offset));
+    } else {
+        put32(out, offset);
+    }
 }
 
 [[nodiscard]] bool validate_serializer_model(const QbsImageModel& model,
@@ -349,10 +468,12 @@ void append_type_identity_key(std::vector<std::uint8_t>& key, const QbsImageMode
     return true;
 }
 
-[[nodiscard]] std::vector<std::uint8_t> record_section(const QbsImageModel& model) {
+[[nodiscard]] std::vector<std::uint8_t> record_section(const QbsImageModel& model,
+                                                       const IdentityTable& identities) {
     std::vector<std::uint8_t> out;
-    out.reserve(model.records.size() * kRecordDescriptorSize);
-    for (const auto& record : model.records) {
+    out.reserve(model.records.size() * (kRecordDescriptorSize + identities.offset_width));
+    for (std::size_t index = 0; index < model.records.size(); ++index) {
+        const auto& record = model.records[index];
         put32(out, record.record_id);
         put32(out, record.field_start);
         put16(out, record.field_count);
@@ -360,6 +481,7 @@ void append_type_identity_key(std::vector<std::uint8_t>& key, const QbsImageMode
         put32(out, record.presence_bitmap_size);
         put32(out, record.fixed_region_size);
         put32(out, record.complete_fixed_record_size.value_or(0U));
+        put_identity_offset(out, identities.record_offsets[index], identities.offset_width);
         put16(out, record.name_string_index);
         put16(out, 0U);
     }
@@ -404,14 +526,17 @@ void append_type_identity_key(std::vector<std::uint8_t>& key, const QbsImageMode
     return out;
 }
 
-[[nodiscard]] std::vector<std::uint8_t> enum_section(const QbsImageModel& model) {
+[[nodiscard]] std::vector<std::uint8_t> enum_section(const QbsImageModel& model,
+                                                     const IdentityTable& identities) {
     std::vector<std::uint8_t> out;
-    out.reserve(model.enums.size() * kEnumDescriptorSize);
-    for (const auto& enumeration : model.enums) {
+    out.reserve(model.enums.size() * (kEnumDescriptorSize + identities.offset_width));
+    for (std::size_t index = 0; index < model.enums.size(); ++index) {
+        const auto& enumeration = model.enums[index];
         put16(out, static_cast<std::uint16_t>(enumeration.encoded_width));
         put16(out, 0U);
         put32(out, enumeration.value_start);
         put32(out, static_cast<std::uint32_t>(enumeration.values.size()));
+        put_identity_offset(out, identities.enum_offsets[index], identities.offset_width);
         put16(out, enumeration.name_string_index);
         put16(out, 0U);
     }
@@ -425,6 +550,10 @@ void append_type_identity_key(std::vector<std::uint8_t>& key, const QbsImageMode
         put64(out, value);
     }
     return out;
+}
+
+[[nodiscard]] std::vector<std::uint8_t> identity_section(const IdentityTable& identities) {
+    return identities.bytes;
 }
 
 [[nodiscard]] std::optional<std::vector<std::uint8_t>>
@@ -486,20 +615,25 @@ std::optional<QbsSerializeResult> serialize_qbs(const QbsImageModel& model,
     if (!validate_serializer_model(model, diagnostics)) {
         return std::nullopt;
     }
+    IdentityTable identities;
+    if (!build_identity_table(model, identities, diagnostics)) {
+        return std::nullopt;
+    }
     std::vector<Section> sections;
-    sections.push_back(Section{1U, record_section(model)});
+    sections.push_back(Section{1U, record_section(model, identities)});
     sections.push_back(Section{2U, field_section(model)});
     sections.push_back(Section{3U, type_section(model)});
     if (!model.enums.empty()) {
-        sections.push_back(Section{4U, enum_section(model)});
+        sections.push_back(Section{4U, enum_section(model, identities)});
         sections.push_back(Section{5U, enum_values_section(model)});
     }
+    sections.push_back(Section{6U, identity_section(identities)});
     if (model.mode == BuildMode::Reflective && !model.strings.empty()) {
         const auto strings = string_section(model, diagnostics);
         if (!strings.has_value()) {
             return std::nullopt;
         }
-        sections.push_back(Section{6U, *strings});
+        sections.push_back(Section{7U, *strings});
     }
     if (sections.size() > std::numeric_limits<std::uint16_t>::max()) {
         error(diagnostics, "QBS section count exceeds 16-bit capacity");
@@ -536,7 +670,7 @@ std::optional<QbsSerializeResult> serialize_qbs(const QbsImageModel& model,
     put8(out, model.flags);
     put16(out, kHeaderSize);
     put8(out, kSchemaIdAlgorithmSha256);
-    put8(out, 0U);
+    put8(out, identities.offset_width);
     put16(out, 16U);
     out.insert(out.end(), digest.begin(), digest.begin() + 16);
     put16(out, static_cast<std::uint16_t>(sections.size()));

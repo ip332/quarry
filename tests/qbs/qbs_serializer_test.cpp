@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <string_view>
 #include <vector>
 
@@ -18,6 +19,22 @@ using quarry::compiler::qbs::QbsRecordModel;
 using quarry::compiler::qbs::QbsTypeModel;
 using quarry::compiler::qbs::Storage;
 using quarry::compiler::qbs::TypeCode;
+
+TEST(QbsSerializerTest, ChecksIdentitySizeIncludingTerminator) {
+    std::uint32_t next = 0U;
+    EXPECT_TRUE(quarry::compiler::qbs::detail::checked_iss_offset_advance(
+        std::numeric_limits<std::uint32_t>::max() - 1ULL, 0U, next));
+    EXPECT_EQ(next, std::numeric_limits<std::uint32_t>::max());
+    EXPECT_FALSE(quarry::compiler::qbs::detail::checked_iss_offset_advance(
+        std::numeric_limits<std::uint32_t>::max(), 0U, next));
+    EXPECT_TRUE(quarry::compiler::qbs::detail::checked_iss_offset_advance(
+        std::numeric_limits<std::uint32_t>::max() - 2ULL, 1U, next));
+    EXPECT_EQ(next, std::numeric_limits<std::uint32_t>::max());
+    EXPECT_FALSE(quarry::compiler::qbs::detail::checked_iss_offset_advance(
+        std::numeric_limits<std::uint32_t>::max() - 1ULL, 1U, next));
+    EXPECT_TRUE(quarry::compiler::qbs::detail::checked_iss_offset_advance(7U, 0U, next));
+    EXPECT_EQ(next, 8U);
+}
 
 QbsImageModel example(BuildMode mode) {
     QbsImageModel model;
@@ -170,26 +187,27 @@ TEST(QbsSerializerTest, SerializesExampleMinimalImage) {
         quarry::compiler::qbs::serialize_qbs(example(BuildMode::Minimal), diagnostics);
     ASSERT_TRUE(result.has_value());
     EXPECT_TRUE(diagnostics.diagnostics().empty());
-    ASSERT_EQ(result->bytes.size(), 280U);
-    const auto expected = hex_bytes(
-        "514253000100002801000010ba7816bf8f01cfea414140de5dae2223000300000000002800000118"
-        "000100000000004c0000001c00020000000000680000007000030000000000d80000004000000001"
-        "0000000000040001000000010000001700000000ffff000000000000000000110000000000200001"
-        "0000000000000004ffff0000000100060000001500000000004000020001000000000008ffff0000"
-        "000200000000001d00000000001000000002000000000002ffff0000000300060000001f00000000"
-        "004000030003000000000008ffff0000050100020000000000000000000000000701000400000000"
-        "00000000000000000d02000000000000000000000000004010020000000000000000000800000000");
-    ASSERT_EQ(expected.size(), 280U);
+    ASSERT_EQ(result->bytes.size(), 301U);
+    const auto expected =
+        hex_bytes("514253000100002801010010ba7816bf8f01cfea414140de5dae222300040000000000280000012d"
+                  "00010000000000580000001d00020000000000750000007000030000000000e50000004000060000"
+                  "000001250000000800000001000000000004000100000001000000170000000000ffff0000000000"
+                  "000000001100000000002000010000000000000004ffff0000000100060000001500000000004000"
+                  "020001000000000008ffff0000000200000000001d00000000001000000002000000000002ffff00"
+                  "00000300060000001f00000000004000030003000000000008ffff00000501000200000000000000"
+                  "0000000000070100040000000000000000000000000d020000000000000000000000000040100200"
+                  "000000000000000008000000004578616d706c6500");
+    ASSERT_EQ(expected.size(), 301U);
     EXPECT_EQ(result->bytes, expected);
     EXPECT_EQ(std::vector<std::uint8_t>(result->bytes.begin(), result->bytes.begin() + 4),
               bytes({0x51, 0x42, 0x53, 0x00}));
     EXPECT_EQ(std::vector<std::uint8_t>(result->bytes.begin() + 4, result->bytes.begin() + 12),
-              bytes({1, 0, 0, 40, 1, 0, 0, 16}));
+              bytes({1, 0, 0, 40, 1, 1, 0, 16}));
     EXPECT_EQ(std::vector<std::uint8_t>(result->bytes.begin() + 12, result->bytes.begin() + 28),
               bytes({0xba, 0x78, 0x16, 0xbf, 0x8f, 0x01, 0xcf, 0xea, 0x41, 0x41, 0x40, 0xde, 0x5d,
                      0xae, 0x22, 0x23}));
     EXPECT_EQ(std::vector<std::uint8_t>(result->bytes.begin() + 28, result->bytes.begin() + 40),
-              bytes({0, 3, 0, 0, 0, 0, 0, 40, 0, 0, 1, 24}));
+              bytes({0, 4, 0, 0, 0, 0, 0, 40, 0, 0, 1, 45}));
 }
 
 TEST(QbsSerializerTest, ReflectiveImageHasCanonicalStringSectionButSameSchemaId) {
@@ -201,8 +219,8 @@ TEST(QbsSerializerTest, ReflectiveImageHasCanonicalStringSectionButSameSchemaId)
                                                                  reflective_diagnostics);
     ASSERT_TRUE(minimal.has_value());
     ASSERT_TRUE(reflective.has_value());
-    ASSERT_EQ(minimal->bytes.size(), 280U);
-    ASSERT_EQ(reflective->bytes.size(), 352U);
+    ASSERT_EQ(minimal->bytes.size(), 301U);
+    ASSERT_EQ(reflective->bytes.size(), 373U);
     EXPECT_EQ(
         std::vector<std::uint8_t>(minimal->bytes.begin() + 12, minimal->bytes.begin() + 28),
         std::vector<std::uint8_t>(reflective->bytes.begin() + 12, reflective->bytes.begin() + 28));
@@ -251,12 +269,45 @@ TEST(QbsSerializerTest, RejectsNonCanonicalTypeOrdering) {
     EXPECT_FALSE(quarry::compiler::qbs::serialize_qbs(adjusted, adjusted_diagnostics).has_value());
 }
 
+TEST(QbsSerializerTest, ChoosesCanonicalIdentityOffsetWidthAtPayloadBoundaries) {
+    const auto width_for_name_length = [](std::size_t length) {
+        auto model = example(BuildMode::Minimal);
+        model.records[0].fqn.assign(length, 'R');
+        DiagnosticCollection diagnostics;
+        const auto result = quarry::compiler::qbs::serialize_qbs(model, diagnostics);
+        EXPECT_TRUE(result.has_value());
+        EXPECT_TRUE(diagnostics.diagnostics().empty());
+        return result.has_value() ? result->bytes[9] : 0U;
+    };
+    EXPECT_EQ(width_for_name_length(255U), 1U);   // ISS payload 256
+    EXPECT_EQ(width_for_name_length(256U), 2U);   // ISS payload 257
+    EXPECT_EQ(width_for_name_length(65535U), 2U); // ISS payload 65536
+    EXPECT_EQ(width_for_name_length(65536U), 4U); // ISS payload 65537
+}
+
+TEST(QbsSerializerTest, EmitsCanonicalIdentitySectionForMinimalAndEnumImages) {
+    DiagnosticCollection example_diagnostics;
+    const auto example_result =
+        quarry::compiler::qbs::serialize_qbs(example(BuildMode::Minimal), example_diagnostics);
+    ASSERT_TRUE(example_result.has_value());
+    EXPECT_EQ(
+        std::vector<std::uint8_t>(example_result->bytes.end() - 8, example_result->bytes.end()),
+        (std::vector<std::uint8_t>{'E', 'x', 'a', 'm', 'p', 'l', 'e', 0U}));
+
+    DiagnosticCollection enum_diagnostics;
+    const auto enum_result = quarry::compiler::qbs::serialize_qbs(enum_image(), enum_diagnostics);
+    ASSERT_TRUE(enum_result.has_value());
+    EXPECT_EQ(
+        std::vector<std::uint8_t>(enum_result->bytes.end() - 13, enum_result->bytes.end()),
+        (std::vector<std::uint8_t>{'P', 'a', 'c', 'k', 'e', 't', 0U, 'S', 't', 'a', 't', 'e', 0U}));
+}
+
 TEST(QbsSerializerTest, SerializesSharedEnumTableAndRejectsNonCanonicalValues) {
     DiagnosticCollection diagnostics;
     const auto result = quarry::compiler::qbs::serialize_qbs(enum_image(), diagnostics);
     ASSERT_TRUE(result.has_value());
     EXPECT_TRUE(diagnostics.diagnostics().empty());
-    EXPECT_EQ(result->bytes.size(), 204U);
+    EXPECT_EQ(result->bytes.size(), 231U);
 
     auto invalid = enum_image();
     invalid.enums[0].values = {1U, 0U};

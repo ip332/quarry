@@ -180,6 +180,12 @@ The canonical identity input SHALL use length-delimited UTF-8 strings and
 explicit-width big-endian integers; it SHALL not be the in-memory protobuf or
 native object representation.
 
+The mandatory Identity String Section carries the record and enum FQNs needed
+by an independent reader to reconstruct this identity input. ISS bytes and
+their physical offsets are not themselves hashed; the referenced identity
+strings are incorporated as semantic strings in the same canonical identity
+encoding used by the compiler.
+
 QBS v1 reserves an 8-bit `schema_id_algorithm` value in the header. Algorithm
 `1` is SHA-256 truncated to its first 128 bits over the canonical identity
 input described above. A reader SHALL reject an unknown algorithm rather than
@@ -212,7 +218,7 @@ The QBS v1 header is exactly 40 bytes:
 | 5 | 1 | `flags` | Defined bits only; v1 requires zero |
 | 6 | 2 | `header_size` | `40` |
 | 8 | 1 | `schema_id_algorithm` | `1` for the assigned 128-bit digest |
-| 9 | 1 | reserved | Must be zero |
+| 9 | 1 | `identity_offset_width` | `1`, `2`, or `4`; global ISS offset width |
 | 10 | 2 | `schema_id_size` | `16` |
 | 12 | 16 | `schema_id` | 128-bit schema identity |
 | 28 | 2 | `section_count` | Number of section directory entries |
@@ -221,8 +227,11 @@ The QBS v1 header is exactly 40 bytes:
 | 36 | 4 | `total_size` | Exact image length in bytes |
 
 QBS v1 SHALL use `flags = 0`, `header_size = 40`, `schema_id_size = 16`, and a
-section directory beginning at or after the header. Header extensions are not
-implicitly skippable; a future format version must define them.
+section directory beginning at or after the header. `identity_offset_width`
+shall be `1` when the ISS payload size is at most 256 bytes, `2` when it is
+greater than 256 and at most 65,536 bytes, and `4` otherwise. An empty ISS
+uses width `1`. Header extensions are not implicitly skippable; a future
+format version must define them.
 
 ### Section directory
 
@@ -251,7 +260,8 @@ QBS v1 section kinds are:
 | 3 | type table | yes |
 | 4 | enum table | no, unless an enum type exists |
 | 5 | enum values | no, unless an enum exists |
-| 6 | string table | no; only reflective images need it |
+| 6 | identity string section | yes |
+| 7 | string table | no; only reflective images need it |
 | 0x8000–0xFFFF | extension | defined by a future specification |
 
 Sections SHALL be non-overlapping, lie after the header and directory, and be
@@ -260,7 +270,7 @@ rather than represented by a zero-length directory entry.
 
 ### String table
 
-When section kind 6 is present, it has exactly one normative encoding:
+When section kind 7 is present, it has exactly one normative encoding:
 
 ```text
 StringTable {
@@ -283,7 +293,7 @@ data size, and all additions/multiplications SHALL be checked before access.
 Strings SHALL be ordered lexicographically by their UTF-8 byte sequences and
 identical strings SHALL be deduplicated. A string index is a zero-based
 `uint16` index into this canonical table. `0xFFFF` means no string reference.
-If any descriptor contains a string index other than `0xFFFF`, section kind 6
+If any descriptor contains a string index other than `0xFFFF`, section kind 7
 SHALL be present and the index SHALL be in range. A minimal image has no string
 section and all name indexes are `0xFFFF`.
 
@@ -294,6 +304,17 @@ the BRF Layout IR. The field table is a concatenation of record field lists in
 record-table order; fields within a record are in schema declaration/field-index
 order. `field_start` and `field_count` in a record descriptor address this
 contiguous range.
+
+The identity string section (ISS) is a mandatory structural section (kind 6).
+It is one contiguous UTF-8 byte blob containing every record and enum FQN,
+each followed by one `0x00` byte. Identities are non-empty, contain no NUL,
+are valid UTF-8, are valid canonical FQNs, and are strictly lexicographically
+ordered and deduplicated. ISS offsets are relative to the first payload byte
+and must point to string starts. The final identity is terminated by the
+section's final byte; an empty ISS is permitted only for an empty schema.
+
+Record and enum descriptors carry an ISS identity offset using the global
+`identity_offset_width`; no identity sentinel exists.
 
 The type table is ordered by the canonical type-identity key defined below.
 Identical identities are interned once. This is one canonical order; source
@@ -339,8 +360,11 @@ Each record descriptor is exactly 28 bytes:
 | 12 | 4 | `presence_bitmap_size` |
 | 16 | 4 | `fixed_region_size` |
 | 20 | 4 | `complete_fixed_record_size` |
-| 24 | 2 | `name_string_index` or `0xFFFF` |
-| 26 | 2 | reserved, zero |
+| 24 | `identity_offset_width` | `identity_offset` into ISS |
+| `24 + identity_offset_width` | 2 | `name_string_index` or `0xFFFF` |
+| `26 + identity_offset_width` | 2 | reserved, zero |
+
+The record descriptor size is `28 + identity_offset_width` bytes.
 
 `record_flags` bit 0 means the record is variable-size. All other v1 bits are
 reserved and zero. A fixed-size record has bit 0 clear and a nonzero complete
@@ -445,7 +469,8 @@ element type.
 
 ## Enum representation
 
-Each enum descriptor is exactly 16 bytes:
+Each enum descriptor has a 16-byte base layout plus the global
+`identity_offset_width` bytes described below:
 
 | Offset | Size | Field |
 |---:|---:|---|
@@ -453,8 +478,11 @@ Each enum descriptor is exactly 16 bytes:
 | 2 | 2 | `enum_flags`, reserved zero in v1 |
 | 4 | 4 | `value_start` in enum-value table |
 | 8 | 4 | `value_count` |
-| 12 | 2 | `name_string_index` or `0xFFFF` |
-| 14 | 2 | reserved, zero |
+| 12 | `identity_offset_width` | `identity_offset` into ISS |
+| `12 + identity_offset_width` | 2 | `name_string_index` or `0xFFFF` |
+| `14 + identity_offset_width` | 2 | reserved, zero |
+
+The enum descriptor size is `16 + identity_offset_width` bytes.
 
 Each enum value is one unsigned 64-bit big-endian integer. QBS v1 uses the
 nonnegative enum values currently accepted by BRF v2. Values SHALL be sorted,
@@ -654,10 +682,10 @@ The following estimates use the proposed fixed widths:
 
 * 40-byte header;
 * 12-byte section directory entry;
-* 28-byte record descriptor;
+* `28 + identity_offset_width`-byte record descriptor;
 * 28-byte field descriptor;
 * 16-byte type descriptor;
-* 16-byte enum descriptor;
+* `16 + identity_offset_width`-byte enum descriptor;
 * 8 bytes per enum value;
 * string bytes plus 4-byte section offsets when reflective names are enabled.
 
@@ -666,14 +694,14 @@ They exclude alignment padding because QBS tables are packed byte sequences.
 | Representative schema | Records | Fields | Unique types | Enum values | Minimal estimate |
 |---|---:|---:|---:|---:|---:|
 | Tiny, 3 scalar fields | 1 | 3 | 3 | 0 | ~232 bytes |
-| `Example` below | 1 | 4 | 4 | 0 | ~280 bytes |
+| `Example` below | 1 | 4 | 4 | 0 | ~301 bytes |
 | Two-level nested records | 2 | 6 | 5 | 0 | ~380 bytes |
 | Enum-heavy, one shared enum | 1 | 10 | 2 | 5 | ~480 bytes |
 | Array-heavy, five array fields | 1 | 5 | 8 | 0 | ~372 bytes |
 | Larger schema, 10 records/60 fields/6 enums/50 values | 10 | 60 | 20 | 50 | ~2.8 KiB |
 
-The estimate includes three to six required sections depending on whether enum
-tables are present. Reflective names add the UTF-8 string bytes and do not
+The estimate includes four to seven required sections depending on whether enum
+tables are present and whether reflective names are enabled. Reflective names add the UTF-8 string bytes and do not
 change structural descriptor sizes; the examples above would typically gain
 roughly 30–300 bytes of names, plus the string-table framing and one section
 directory entry. The main fixed cost is the 28-byte field
@@ -781,21 +809,23 @@ The four 28-byte field descriptors are:
 | state | 2 | fixed | 29 | 0 / 16 | 0 | 2 | 2 |
 | samples | 3 | descriptor | 31 | 0 / 0 | 3 | 3 | 8 |
 
-For a minimal image, every `name_string_index` is `0xFFFF`. The fixed table
-sizes are:
+The mandatory ISS is the payload `Example\0`, so its size is 8 bytes, its
+offset width is 1, and the record's identity offset is 0. For a minimal image,
+every `name_string_index` is `0xFFFF`. The fixed table sizes are:
 
 ```text
 header                         40
-section directory (3 sections) 36
-record table                    28
+section directory (4 sections) 48
+record table                    29
 field table                    112
 type table                      64
+identity string section          8
 -----------------------------------
-minimum structural image       280 bytes
+minimum structural image       301 bytes
 ```
 
-This minimal image is 280 bytes before optional names. A reflective image adds
-one section-directory entry (12 bytes) and a string table. With the five names
+This minimal image is 301 bytes before optional names. A reflective image adds
+one section-directory entry (12 bytes) and a string table, for 373 bytes. With the five names
 `Example`, `timestamp`, `name`, `state`, and `samples`, the string table is:
 
 ```text
@@ -807,7 +837,7 @@ data               Example | name | samples | state | timestamp
 The strings are shown separated for readability; the actual `data` bytes are
 concatenated UTF-8 bytes with no separators or NUL terminators. This adds
 `4 + 6 * 4 + 32 = 60` bytes for the string section and 12 bytes for its
-directory entry, making the reflective estimate 352 bytes. The name indexes
+directory entry, making the reflective estimate 373 bytes. The name indexes
 are assigned by the canonical lexicographic order, not by field traversal.
 
 The runtime locates `state` by finding record-table entry 0, reading field-table
