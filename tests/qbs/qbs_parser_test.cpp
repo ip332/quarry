@@ -32,6 +32,26 @@ std::vector<std::uint8_t> image() {
     return bytes;
 }
 
+std::vector<std::uint8_t> deep_chain_image(std::size_t depth) {
+    QbsImageModel model;
+    model.mode = BuildMode::Minimal;
+    model.schema_identity_input = {0U,  0U,  0U,  17U, 'q', 'u', 'a', 'r', 'r', 'y', '.', 'q', 'b',
+                                   's', '.', 's', 'c', 'h', 'e', 'm', 'a', 2U,  0U,  0U,  0U,  0U};
+    model.types.reserve(depth + 1U);
+    model.types.push_back(
+        QbsTypeModel{.code = TypeCode::U16, .fixed_size = true, .encoded_width = 2U});
+    for (std::size_t i = 0U; i < depth; ++i) {
+        model.types.push_back(QbsTypeModel{.code = TypeCode::Array,
+                                           .fixed_size = false,
+                                           .reference = static_cast<std::uint16_t>(i),
+                                           .max_elements = 1U});
+    }
+    DiagnosticCollection serializer_diagnostics;
+    const auto serialized = serialize_qbs(model, serializer_diagnostics);
+    EXPECT_TRUE(serialized.has_value());
+    return serialized ? serialized->bytes : std::vector<std::uint8_t>{};
+}
+
 TEST(QbsParserTest, ParsesSerializerOutputAndExposesIdentity) {
     auto bytes = image();
     DiagnosticCollection diagnostics;
@@ -90,6 +110,26 @@ TEST(QbsParserTest, EnforcesTypeValidationWorkLimit) {
     diagnostics.clear();
     limits.max_work_items = 64U;
     EXPECT_TRUE(parse_qbs(bytes, diagnostics, limits).has_value());
+}
+
+TEST(QbsParserTest, ValidatesDeepTypeChainsWithinConfiguredBudgets) {
+    const auto bytes = deep_chain_image(256U);
+    ASSERT_FALSE(bytes.empty());
+
+    QbsParserLimits adequate;
+    adequate.max_work_items = 1024U;
+    adequate.max_identity_key_bytes = 2U * 1024U * 1024U;
+    DiagnosticCollection diagnostics;
+    EXPECT_TRUE(parse_qbs(bytes, diagnostics, adequate).has_value());
+
+    diagnostics.clear();
+    adequate.max_work_items = 256U;
+    EXPECT_FALSE(parse_qbs(bytes, diagnostics, adequate).has_value());
+
+    diagnostics.clear();
+    adequate.max_work_items = 1024U;
+    adequate.max_identity_key_bytes = 1024U;
+    EXPECT_FALSE(parse_qbs(bytes, diagnostics, adequate).has_value());
 }
 
 } // namespace
