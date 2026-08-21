@@ -62,6 +62,7 @@ target_link_libraries(yaml_compiler_test PRIVATE quarry_schema_ir_warning_tweaks
 add_quarry_gtest(layout_smoke_test layout/layout_smoke_test.cpp quarry_compiler_layout)
 add_quarry_gtest(qbs_model_test qbs/qbs_model_test.cpp quarry_compiler_qbs)
 add_quarry_gtest(qbs_serializer_test qbs/qbs_serializer_test.cpp quarry_compiler_qbs)
+add_quarry_gtest(qbs_parser_test qbs/qbs_parser_test.cpp quarry_compiler_qbs)
 add_quarry_gtest(schema_ir_golden_test schema_ir/schema_ir_golden_test.cpp
                       quarry_compiler_frontend)
 target_link_libraries(schema_ir_golden_test PRIVATE quarry_schema_ir_warning_tweaks)

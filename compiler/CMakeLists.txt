@@ -268,6 +268,7 @@ target_link_libraries(quarry_compiler_layout
 
 add_library(quarry_compiler_qbs
     qbs/qbs.cpp
+    qbs/parser.cpp
     qbs/serializer.cpp
 )
 target_include_directories(quarry_compiler_qbs PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
