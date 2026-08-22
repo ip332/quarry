@@ -308,6 +308,55 @@ advance_record_validation(const quarry::compiler::qbs::ValidatedQbsView& schema,
         set_error(error, GenericBrfError::invalid_header);
         return RecordValidationStep::Error;
     }
+    if (state.phase == RecordValidationState::Phase::Header) {
+        if (bytes.size() > limits.max_record_bytes || bytes.size() < 16U) {
+            set_error(error, bytes.size() < 16U ? GenericBrfError::truncated_header
+                                                : GenericBrfError::resource_limit_exceeded);
+            state.phase = RecordValidationState::Phase::Failed;
+            return RecordValidationStep::Error;
+        }
+        if (bytes[0] != 2U) {
+            set_error(error, GenericBrfError::unsupported_version);
+            state.phase = RecordValidationState::Phase::Failed;
+            return RecordValidationStep::Error;
+        }
+        if (bytes[1] != 0U) {
+            set_error(error, GenericBrfError::unsupported_flags);
+            state.phase = RecordValidationState::Phase::Failed;
+            return RecordValidationStep::Error;
+        }
+        if (u16(bytes, 2U) != 16U) {
+            set_error(error, GenericBrfError::invalid_header);
+            state.phase = RecordValidationState::Phase::Failed;
+            return RecordValidationStep::Error;
+        }
+        if (u32(bytes, 4U) != record_schema.record_id) {
+            set_error(error, GenericBrfError::unexpected_record_id);
+            state.phase = RecordValidationState::Phase::Failed;
+            return RecordValidationStep::Error;
+        }
+        const auto fixed_size = u32(bytes, 8U);
+        const auto record_size = u32(bytes, 12U);
+        if (fixed_size != record_schema.fixed_region_size || record_size != bytes.size() ||
+            fixed_size > bytes.size() - 16U || record_schema.presence_bitmap_size > fixed_size) {
+            set_error(error, GenericBrfError::invalid_fixed_region);
+            state.phase = RecordValidationState::Phase::Failed;
+            return RecordValidationStep::Error;
+        }
+        state.fixed_region_end = 16U + fixed_size;
+        state.variable_region_start = state.fixed_region_end;
+        state.variable_tail_cursor = state.variable_region_start;
+        state.phase = RecordValidationState::Phase::Presence;
+        return RecordValidationStep::Continue;
+    }
+    if (state.phase == RecordValidationState::Phase::Presence) {
+        // Presence validation remains in validate_record_span() during this
+        // incremental migration. Keep this phase as an explicit boundary so
+        // header-derived state is never used before Header completes.
+        state.field_cursor = 0U;
+        state.phase = RecordValidationState::Phase::Fields;
+        return RecordValidationStep::Continue;
+    }
     if (state.phase == RecordValidationState::Phase::Fields) {
         if (state.field_cursor < record_schema.field_count) {
             if (!validate_next_field(schema, record_schema, bytes, state, cache, result, work,
@@ -417,35 +466,7 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
                      std::span<const std::uint8_t> bytes, BrfReadLimits limits,
                      GenericBrfError* error) {
     set_error(error, GenericBrfError::none);
-    if (bytes.size() > limits.max_record_bytes || bytes.size() < 16U) {
-        set_error(error, bytes.size() < 16U ? GenericBrfError::truncated_header
-                                            : GenericBrfError::resource_limit_exceeded);
-        return std::nullopt;
-    }
-    if (bytes[0] != 2U) {
-        set_error(error, GenericBrfError::unsupported_version);
-        return std::nullopt;
-    }
-    if (bytes[1] != 0U) {
-        set_error(error, GenericBrfError::unsupported_flags);
-        return std::nullopt;
-    }
-    if (u16(bytes, 2U) != 16U || u32(bytes, 4U) != record_schema.record_id) {
-        set_error(error, u32(bytes, 4U) != record_schema.record_id
-                             ? GenericBrfError::unexpected_record_id
-                             : GenericBrfError::invalid_header);
-        return std::nullopt;
-    }
-    const auto fixed_size = u32(bytes, 8U);
-    const auto record_size = u32(bytes, 12U);
-    if (fixed_size != record_schema.fixed_region_size || record_size != bytes.size() ||
-        fixed_size > bytes.size() - 16U || record_schema.presence_bitmap_size > fixed_size) {
-        set_error(error, GenericBrfError::invalid_fixed_region);
-        return std::nullopt;
-    }
     const auto bitmap_begin = std::size_t{16U};
-    const auto bitmap_end = bitmap_begin + record_schema.presence_bitmap_size;
-    (void)bitmap_end;
     std::size_t record_index = schema.record_count();
     for (std::size_t i = 0U; i < schema.record_count(); ++i) {
         const auto candidate = schema.record(i);
@@ -462,9 +483,6 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
     RecordValidationState state;
     state.qbs_record_index = record_index;
     state.record_bytes = bytes;
-    state.fixed_region_end = 16U + fixed_size;
-    state.variable_region_start = state.fixed_region_end;
-    state.variable_tail_cursor = state.variable_region_start;
     std::uint64_t work = 0U;
     auto validation_cache = std::make_shared<detail::ValidationCache>(limits);
     const auto root_node = validation_cache->add_node(record_index, 0U, bytes.size());
@@ -479,7 +497,6 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
     result.record_ = record_schema;
     result.bytes_ = bytes;
     result.validation_cache_ = validation_cache;
-    state.phase = RecordValidationState::Phase::Fields;
     for (;;) {
         const auto step = advance_record_validation(schema, record_schema, bytes, state,
                                                     *validation_cache, result, work, limits, error);

@@ -141,7 +141,7 @@ private:
 // child records without changing the public reader API.
 struct RecordValidationState {
     enum class Phase { Header, Presence, Fields, FinalizeTail, Complete, Failed };
-    Phase phase = Phase::Fields;
+    Phase phase = Phase::Header;
     std::size_t qbs_record_index = 0U;
     std::size_t node_index = 0U;
     std::span<const std::uint8_t> record_bytes;
