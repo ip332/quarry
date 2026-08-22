@@ -17,6 +17,7 @@ class ValidationCache;
 
 struct RecordValidationState;
 enum class RecordValidationStep;
+class BrfRecordArrayView;
 
 struct PendingChildValidation {
     std::size_t qbs_record_index = 0U;
@@ -24,6 +25,19 @@ struct PendingChildValidation {
     std::size_t brf_length = 0U;
     std::size_t field_cache_index = 0U;
     std::size_t parent_field_index = 0U;
+    std::optional<std::size_t> child_relation;
+    std::optional<std::size_t> array_relation;
+};
+
+struct PendingRecordArrayValidation {
+    std::size_t field_cache_index = 0U;
+    std::size_t array_relation = 0U;
+    std::size_t element_type = 0U;
+    std::size_t count = 0U;
+    std::size_t current = 0U;
+    std::size_t cursor = 0U;
+    std::size_t end = 0U;
+    bool variable_elements = false;
     std::optional<std::size_t> child_relation;
 };
 
@@ -113,11 +127,15 @@ public:
     std::optional<FieldValueView> field(std::uint16_t field_index) const;
     std::optional<BrfArrayView> array(const quarry::compiler::qbs::QbsFieldView& field) const;
     std::optional<BrfArrayView> array(std::uint16_t field_index) const;
+    std::optional<BrfRecordArrayView>
+    record_array(const quarry::compiler::qbs::QbsFieldView& field) const;
+    std::optional<BrfRecordArrayView> record_array(std::uint16_t field_index) const;
     std::optional<ValidatedBrfRecordView>
     nested_record(const quarry::compiler::qbs::QbsFieldView& field) const;
     std::optional<ValidatedBrfRecordView> nested_record(std::uint16_t field_index) const;
 
 private:
+    friend class BrfRecordArrayView;
     friend bool validate_next_field(const quarry::compiler::qbs::ValidatedQbsView&,
                                     const quarry::compiler::qbs::QbsRecordView&,
                                     std::span<const std::uint8_t>, RecordValidationState&,
@@ -148,6 +166,21 @@ private:
     std::span<const std::uint8_t> bytes_;
     std::vector<FieldSpan> fields_;
     std::shared_ptr<const detail::ValidationCache> validation_cache_;
+    std::optional<ValidatedBrfRecordView> view_for_node(std::size_t node_index) const;
+};
+
+class BrfRecordArrayView {
+public:
+    std::size_t size() const { return count_; }
+    std::optional<ValidatedBrfRecordView> element(std::size_t index) const;
+
+private:
+    friend class ValidatedBrfRecordView;
+    BrfRecordArrayView(const ValidatedBrfRecordView* owner, std::size_t relation, std::size_t count)
+        : owner_(owner), relation_(relation), count_(count) {}
+    const ValidatedBrfRecordView* owner_;
+    std::size_t relation_;
+    std::size_t count_;
 };
 
 // Internal single-record validation state. Offsets and the variable tail are
@@ -166,6 +199,7 @@ struct RecordValidationState {
     std::size_t field_cursor = 0U;
     std::size_t work_items = 0U;
     std::optional<PendingChildValidation> pending_child;
+    std::optional<PendingRecordArrayValidation> pending_array;
 };
 
 [[nodiscard]] bool validate_next_field(const quarry::compiler::qbs::ValidatedQbsView& schema,

@@ -34,6 +34,7 @@ struct ValidatedFieldState {
     std::size_t payload_length = 0U;
     std::size_t array_count = 0U;
     std::optional<std::size_t> child_relation;
+    std::optional<std::size_t> array_relation;
 };
 
 struct ChildRelation {
@@ -75,12 +76,16 @@ public:
                        std::size_t brf_length);
     std::optional<std::size_t> add_array(std::size_t parent_node, std::size_t parent_field,
                                          std::span<const std::size_t> child_nodes);
+    std::optional<std::size_t> begin_array(std::size_t parent_node, std::size_t parent_field,
+                                           std::size_t count);
+    bool add_array_element(std::size_t relation_index, std::size_t child_node);
     bool account_work(std::size_t amount = 1U);
     bool begin_node(std::size_t node_index);
     bool reuse_node(std::size_t node_index);
     std::optional<std::size_t> begin_fields(std::size_t node_index);
     bool add_field(std::size_t node_index, ValidatedFieldState field);
     bool set_child_relation(std::size_t field_index, std::size_t relation_index);
+    bool set_array_relation(std::size_t field_index, std::size_t relation_index);
     bool complete_node(std::size_t node_index);
 
     const std::vector<ValidatedRecordNode>& nodes() const { return nodes_; }

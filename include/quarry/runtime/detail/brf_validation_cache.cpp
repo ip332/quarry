@@ -55,6 +55,27 @@ std::optional<std::size_t> ValidationCache::add_array(std::size_t parent_node,
     return arrays_.size() - 1U;
 }
 
+std::optional<std::size_t>
+ValidationCache::begin_array(std::size_t parent_node, std::size_t parent_field, std::size_t count) {
+    if (parent_node >= nodes_.size() || count > limits_.max_array_elements_traversed ||
+        arrays_.size() >= limits_.max_array_elements_traversed || !account_work())
+        return std::nullopt;
+    arrays_.push_back({parent_node, parent_field, array_children_.size(), 0U});
+    ++nodes_[parent_node].array_count;
+    return arrays_.size() - 1U;
+}
+
+bool ValidationCache::add_array_element(std::size_t relation_index, std::size_t child_node) {
+    if (relation_index >= arrays_.size() || child_node >= nodes_.size() || !account_work())
+        return false;
+    auto& relation = arrays_[relation_index];
+    if (relation.count >= limits_.max_array_elements_traversed)
+        return false;
+    array_children_.push_back(child_node);
+    ++relation.count;
+    return true;
+}
+
 bool ValidationCache::account_work(std::size_t amount) {
     if (amount > limits_.max_work_items - std::min(work_items_, limits_.max_work_items))
         return false;
@@ -94,6 +115,13 @@ bool ValidationCache::set_child_relation(std::size_t field_index, std::size_t re
     if (field_index >= fields_.size())
         return false;
     fields_[field_index].child_relation = relation_index;
+    return true;
+}
+
+bool ValidationCache::set_array_relation(std::size_t field_index, std::size_t relation_index) {
+    if (field_index >= fields_.size() || relation_index >= arrays_.size())
+        return false;
+    fields_[field_index].array_relation = relation_index;
     return true;
 }
 
