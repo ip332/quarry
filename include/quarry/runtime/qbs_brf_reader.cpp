@@ -345,14 +345,33 @@ advance_record_validation(const quarry::compiler::qbs::ValidatedQbsView& schema,
         }
         state.fixed_region_end = 16U + fixed_size;
         state.variable_region_start = state.fixed_region_end;
-        state.variable_tail_cursor = state.variable_region_start;
         state.phase = RecordValidationState::Phase::Presence;
         return RecordValidationStep::Continue;
     }
     if (state.phase == RecordValidationState::Phase::Presence) {
-        // Presence validation remains in validate_record_span() during this
-        // incremental migration. Keep this phase as an explicit boundary so
-        // header-derived state is never used before Header completes.
+        if (record_schema.presence_bitmap_size != 0U) {
+            std::vector<std::uint8_t> used(record_schema.presence_bitmap_size, 0U);
+            for (std::uint32_t i = 0U; i < record_schema.field_count; ++i) {
+                const auto field_schema =
+                    schema.find_field(state.qbs_record_index, static_cast<std::uint16_t>(i));
+                if (!field_schema.has_value() ||
+                    field_schema->presence_bit_index / 8U >= used.size()) {
+                    set_error(error, GenericBrfError::invalid_slot);
+                    state.phase = RecordValidationState::Phase::Failed;
+                    return RecordValidationStep::Error;
+                }
+                used[field_schema->presence_bit_index / 8U] |=
+                    static_cast<std::uint8_t>(1U << (field_schema->presence_bit_index % 8U));
+            }
+            for (std::size_t i = 0U; i < used.size(); ++i) {
+                if ((bytes[16U + i] & static_cast<std::uint8_t>(~used[i])) != 0U) {
+                    set_error(error, GenericBrfError::invalid_presence);
+                    state.phase = RecordValidationState::Phase::Failed;
+                    return RecordValidationStep::Error;
+                }
+            }
+        }
+        state.variable_tail_cursor = state.variable_region_start;
         state.field_cursor = 0U;
         state.phase = RecordValidationState::Phase::Fields;
         return RecordValidationStep::Continue;
@@ -466,7 +485,6 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
                      std::span<const std::uint8_t> bytes, BrfReadLimits limits,
                      GenericBrfError* error) {
     set_error(error, GenericBrfError::none);
-    const auto bitmap_begin = std::size_t{16U};
     std::size_t record_index = schema.record_count();
     for (std::size_t i = 0U; i < schema.record_count(); ++i) {
         const auto candidate = schema.record(i);
@@ -504,25 +522,6 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
             break;
         if (step == RecordValidationStep::Error)
             return std::nullopt;
-    }
-    if (record_schema.presence_bitmap_size != 0U) {
-        std::vector<std::uint8_t> used(record_schema.presence_bitmap_size, 0U);
-        for (std::uint32_t i = 0U; i < record_schema.field_count; ++i) {
-            const auto field_schema =
-                schema.find_field(record_index, static_cast<std::uint16_t>(i));
-            if (!field_schema.has_value()) {
-                set_error(error, GenericBrfError::invalid_slot);
-                return std::nullopt;
-            }
-            used[field_schema->presence_bit_index / 8U] |=
-                static_cast<std::uint8_t>(1U << (field_schema->presence_bit_index % 8U));
-        }
-        for (std::size_t i = 0U; i < used.size(); ++i) {
-            if ((bytes[bitmap_begin + i] & static_cast<std::uint8_t>(~used[i])) != 0U) {
-                set_error(error, GenericBrfError::invalid_presence);
-                return std::nullopt;
-            }
-        }
     }
     return result;
 }
