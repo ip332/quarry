@@ -8,6 +8,10 @@
 namespace quarry::runtime {
 namespace {
 
+struct RecordValidationFrame {
+    RecordValidationState state;
+};
+
 std::uint16_t u16(std::span<const std::uint8_t> bytes, std::size_t at) {
     return static_cast<std::uint16_t>((bytes[at] << 8U) | bytes[at + 1U]);
 }
@@ -498,9 +502,6 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
         set_error(error, GenericBrfError::invalid_header);
         return std::nullopt;
     }
-    RecordValidationState state;
-    state.qbs_record_index = record_index;
-    state.record_bytes = bytes;
     std::uint64_t work = 0U;
     auto validation_cache = std::make_shared<detail::ValidationCache>(limits);
     const auto root_node = validation_cache->add_node(record_index, 0U, bytes.size());
@@ -508,18 +509,25 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
         set_error(error, GenericBrfError::resource_limit_exceeded);
         return std::nullopt;
     }
-    state.node_index = *root_node;
     ValidatedBrfRecordView result;
     result.schema_ = &schema;
     result.record_index_ = record_index;
     result.record_ = record_schema;
     result.bytes_ = bytes;
     result.validation_cache_ = validation_cache;
-    for (;;) {
-        const auto step = advance_record_validation(schema, record_schema, bytes, state,
-                                                    *validation_cache, result, work, limits, error);
+    std::vector<RecordValidationFrame> stack;
+    RecordValidationState root_state;
+    root_state.qbs_record_index = record_index;
+    root_state.node_index = *root_node;
+    root_state.record_bytes = bytes;
+    stack.push_back({root_state});
+    while (!stack.empty()) {
+        auto& frame = stack.back();
+        const auto step =
+            advance_record_validation(schema, record_schema, frame.state.record_bytes, frame.state,
+                                      *validation_cache, result, work, limits, error);
         if (step == RecordValidationStep::Complete)
-            break;
+            stack.pop_back();
         if (step == RecordValidationStep::Error)
             return std::nullopt;
     }
