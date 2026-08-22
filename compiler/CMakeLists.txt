@@ -270,8 +270,12 @@ add_library(quarry_compiler_qbs
     qbs/qbs.cpp
     qbs/parser.cpp
     qbs/serializer.cpp
+    ${CMAKE_SOURCE_DIR}/include/quarry/runtime/qbs_brf_reader.cpp
 )
-target_include_directories(quarry_compiler_qbs PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
+target_include_directories(quarry_compiler_qbs PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_SOURCE_DIR}/include
+)
 target_link_libraries(quarry_compiler_qbs
     PUBLIC
         quarry_compiler_layout
