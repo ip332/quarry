@@ -53,3 +53,26 @@ the cumulative bytes materialized for memoized type-identity vectors.
 `max_identity_key_bytes` bounds that temporary allocation; it is a resource
 guard, not a change to the canonical identity encoding. The resulting
 `ValidatedQbsView` borrows the input span and must not outlive it.
+
+# Lookup and introspection
+
+Validated metadata can be queried without exposing BRF payload access:
+
+```cpp
+auto record = view.find_record_by_identity("foo.DeviceState");
+if (record) {
+    auto field = view.find_field(0, 3);
+    auto type = field ? view.type(field->type_index) : QbsTypeView{};
+}
+```
+
+Record FQN and enum FQN lookup use the canonical lexical table order and binary
+search. Record-ID lookup is a linear scan because IDs are not required to be
+numerically ordered. Field lookup is bounded by the owning record's field
+span. Reflective field-name lookup returns no result for minimal images; core
+semantic lookup uses ISS identities and does not depend on display names.
+
+Returned metadata and strings are read-only views tied to the lifetime of the
+validated input buffer. Record IDs are valid within the parsed image, but are
+not yet a persistent cross-version identity guarantee. This layer does not
+decode or encode BRF record payloads.
