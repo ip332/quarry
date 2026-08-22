@@ -49,6 +49,39 @@ SchemaIR nested_schema_ir() {
     return schema;
 }
 
+SchemaIR variable_nested_schema_ir() {
+    SchemaIR schema;
+    schema.set_schema_ir_version(1U);
+    schema.mutable_root_namespace()->set_ir_id(1U);
+    auto add_record = [&](std::uint64_t ir_id, std::uint32_t record_id, std::string_view fqn) {
+        auto* record = schema.mutable_root_namespace()->add_records();
+        record->set_ir_id(ir_id);
+        record->set_record_id(record_id);
+        record->set_name(std::string(fqn));
+        record->set_fqn(std::string(fqn));
+        return record;
+    };
+    auto* child = add_record(2U, 2U, "Child");
+    auto* value = child->add_fields();
+    value->set_name("value");
+    value->set_field_index(0U);
+    value->mutable_type()->set_primitive(quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    auto* name = child->add_fields();
+    name->set_name("name");
+    name->set_field_index(1U);
+    name->mutable_type()->mutable_string()->set_max_bytes(16U);
+    auto* parent = add_record(1U, 1U, "Parent");
+    auto* state = parent->add_fields();
+    state->set_name("state");
+    state->set_field_index(0U);
+    state->mutable_type()->set_primitive(quarry::schema_ir::PRIMITIVE_TYPE_U16);
+    auto* child_field = parent->add_fields();
+    child_field->set_name("child");
+    child_field->set_field_index(1U);
+    child_field->mutable_type()->mutable_record()->set_target_record_ir_id(2U);
+    return schema;
+}
+
 std::vector<std::uint8_t> qbs_image() {
     constexpr std::string_view hex =
         "51425300010000280101001068a731750346a0ad2e665f81260ea18300040000000000280000012d"
@@ -153,6 +186,112 @@ TEST(QbsBrfReaderTest, ReadsThreeLevelFixedNestedRecordsFromNormalPipeline) {
     wrong_id[17U + 7U] = 9U;
     EXPECT_FALSE(validate_brf_record(*schema, *parent_schema, wrong_id, {}, &error));
     EXPECT_EQ(error, GenericBrfError::unexpected_record_id);
+}
+
+TEST(QbsBrfReaderTest, ReadsVariableNestedRecordFromNormalPipeline) {
+    const auto ir = variable_nested_schema_ir();
+    DiagnosticCollection diagnostics;
+    quarry::compiler::layout::LayoutComputer computer;
+    const auto layout = computer.compute(ir, diagnostics);
+    ASSERT_TRUE(diagnostics.empty());
+    const auto model =
+        QbsModelBuilder{}.build(ir, layout, {.mode = BuildMode::Minimal}, diagnostics);
+    ASSERT_TRUE(model.has_value());
+    for (const auto& record : model->records)
+        EXPECT_TRUE(record.variable_size);
+    const auto* child_layout = layout.find_record("Child");
+    const auto* parent_layout = layout.find_record("Parent");
+    ASSERT_NE(child_layout, nullptr);
+    ASSERT_NE(parent_layout, nullptr);
+    EXPECT_EQ(child_layout->classification,
+              quarry::compiler::layout::RecordClassification::VariableSize);
+    EXPECT_EQ(parent_layout->classification,
+              quarry::compiler::layout::RecordClassification::VariableSize);
+    ASSERT_EQ(child_layout->fields.size(), 2U);
+    ASSERT_EQ(parent_layout->fields.size(), 2U);
+    const auto image = serialize_qbs(*model, diagnostics);
+    ASSERT_TRUE(image.has_value());
+    const auto schema = parse_qbs(image->bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto child_schema = schema->find_record_by_identity("Child");
+    const auto parent_schema = schema->find_record_by_identity("Parent");
+    ASSERT_TRUE(child_schema.has_value());
+    ASSERT_TRUE(parent_schema.has_value());
+    EXPECT_TRUE(child_schema->variable_size);
+    EXPECT_TRUE(parent_schema->variable_size);
+
+    const auto put_u16 = [](std::vector<std::uint8_t>& bytes, std::size_t offset,
+                            std::uint16_t value) {
+        bytes[offset] = static_cast<std::uint8_t>(value >> 8U);
+        bytes[offset + 1U] = static_cast<std::uint8_t>(value);
+    };
+    const auto put_u32 = [](std::vector<std::uint8_t>& bytes, std::size_t offset,
+                            std::uint32_t value) {
+        bytes[offset] = static_cast<std::uint8_t>(value >> 24U);
+        bytes[offset + 1U] = static_cast<std::uint8_t>(value >> 16U);
+        bytes[offset + 2U] = static_cast<std::uint8_t>(value >> 8U);
+        bytes[offset + 3U] = static_cast<std::uint8_t>(value);
+    };
+    const auto make_header = [&](std::vector<std::uint8_t>& bytes, std::uint32_t record_id,
+                                 std::uint32_t fixed_size) {
+        bytes[0] = 2U;
+        put_u16(bytes, 2U, 16U);
+        put_u32(bytes, 4U, record_id);
+        put_u32(bytes, 8U, fixed_size);
+        put_u32(bytes, 12U, static_cast<std::uint32_t>(bytes.size()));
+    };
+
+    constexpr std::size_t name_size = 3U;
+    const auto child_tail = static_cast<std::size_t>(16U + child_layout->fixed_region_size);
+    std::vector<std::uint8_t> child_bytes(child_tail + name_size, 0U);
+    make_header(child_bytes, child_layout->record_id, child_layout->fixed_region_size);
+    child_bytes[16U] = 0x03U;
+    put_u32(child_bytes, child_layout->fields[0].location.byte_offset, 7U);
+    put_u32(child_bytes, child_layout->fields[1].location.byte_offset,
+            static_cast<std::uint32_t>(child_tail));
+    put_u32(child_bytes, child_layout->fields[1].location.byte_offset + 4U,
+            static_cast<std::uint32_t>(name_size));
+    std::copy_n(std::string_view("abc").begin(), name_size,
+                child_bytes.begin() + static_cast<std::ptrdiff_t>(child_tail));
+
+    const auto parent_tail = static_cast<std::size_t>(16U + parent_layout->fixed_region_size);
+    std::vector<std::uint8_t> parent_bytes(parent_tail + child_bytes.size(), 0U);
+    make_header(parent_bytes, parent_layout->record_id, parent_layout->fixed_region_size);
+    parent_bytes[16U] = 0x03U;
+    put_u16(parent_bytes, parent_layout->fields[0].location.byte_offset, 2U);
+    put_u32(parent_bytes, parent_layout->fields[1].location.byte_offset,
+            static_cast<std::uint32_t>(parent_tail));
+    put_u32(parent_bytes, parent_layout->fields[1].location.byte_offset + 4U,
+            static_cast<std::uint32_t>(child_bytes.size()));
+    std::copy(child_bytes.begin(), child_bytes.end(),
+              parent_bytes.begin() + static_cast<std::ptrdiff_t>(parent_tail));
+
+    GenericBrfError error = GenericBrfError::none;
+    const auto view = validate_brf_record(*schema, *parent_schema, parent_bytes, {}, &error);
+    ASSERT_TRUE(view.has_value());
+    ASSERT_EQ(error, GenericBrfError::none);
+    ASSERT_EQ(view->field(0U)->as_unsigned(), 2U);
+    const auto nested = view->nested_record(1U);
+    ASSERT_TRUE(nested.has_value());
+    ASSERT_EQ(nested->field(0U)->as_unsigned(), 7U);
+    ASSERT_EQ(*nested->field(1U)->as_string(), "abc");
+
+    auto child_relative_error = parent_bytes;
+    put_u32(child_relative_error, parent_tail + child_layout->fields[1].location.byte_offset,
+            static_cast<std::uint32_t>(parent_tail));
+    EXPECT_FALSE(validate_brf_record(*schema, *parent_schema, child_relative_error, {}, &error));
+    EXPECT_EQ(error, GenericBrfError::invalid_variable_range);
+
+    auto empty_child = parent_bytes;
+    put_u32(empty_child, parent_layout->fields[1].location.byte_offset + 4U, 0U);
+    EXPECT_FALSE(validate_brf_record(*schema, *parent_schema, empty_child, {}, &error));
+    EXPECT_EQ(error, GenericBrfError::invalid_variable_range);
+
+    auto parent_gap = parent_bytes;
+    put_u32(parent_gap, parent_layout->fields[1].location.byte_offset,
+            static_cast<std::uint32_t>(parent_tail + 1U));
+    EXPECT_FALSE(validate_brf_record(*schema, *parent_schema, parent_gap, {}, &error));
+    EXPECT_EQ(error, GenericBrfError::invalid_variable_range);
 }
 
 TEST(QbsBrfReaderTest, ReadsCanonicalExampleWithoutGeneratedCode) {

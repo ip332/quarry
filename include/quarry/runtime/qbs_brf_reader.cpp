@@ -268,22 +268,39 @@ bool validate_next_field(const quarry::compiler::qbs::ValidatedQbsView& schema,
         return false;
     }
     if (type.code == 15U) {
-        if (field_schema->storage == 2U) {
-            set_error(error, GenericBrfError::unsupported_type);
-            return false;
-        }
         if (type.reference >= schema.record_count()) {
             set_error(error, GenericBrfError::invalid_slot);
             return false;
         }
         const auto child_schema = schema.record(type.reference);
-        if (child_schema.variable_size || child_schema.complete_fixed_record_size == 0U ||
-            field_schema->slot_size != child_schema.complete_fixed_record_size ||
-            type.encoded_width != child_schema.complete_fixed_record_size) {
-            set_error(error, GenericBrfError::invalid_fixed_region);
-            return false;
+        if (field_schema->storage == 2U) {
+            if (!child_schema.variable_size) {
+                set_error(error, GenericBrfError::invalid_fixed_region);
+                return false;
+            }
+            if (present) {
+                if (value.size() < 16U) {
+                    set_error(error, GenericBrfError::invalid_variable_range);
+                    return false;
+                }
+                const auto child_offset = state.record_offset + u32(slot, 0U);
+                if (child_offset < state.record_offset) {
+                    set_error(error, GenericBrfError::invalid_variable_range);
+                    return false;
+                }
+                child_request = PendingChildValidation{
+                    type.reference, child_offset, value.size(), 0U, field_schema->field_index,
+                    std::nullopt};
+            }
+        } else {
+            if (child_schema.variable_size || child_schema.complete_fixed_record_size == 0U ||
+                field_schema->slot_size != child_schema.complete_fixed_record_size ||
+                type.encoded_width != child_schema.complete_fixed_record_size) {
+                set_error(error, GenericBrfError::invalid_fixed_region);
+                return false;
+            }
         }
-        if (present) {
+        if (present && field_schema->storage != 2U) {
             const auto child_offset = state.record_offset + field_schema->byte_offset;
             if (child_offset < state.record_offset ||
                 child_schema.complete_fixed_record_size >
