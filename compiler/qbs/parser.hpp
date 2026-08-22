@@ -86,6 +86,17 @@ public:
     QbsFieldView field(std::size_t index) const;
     QbsTypeView type(std::size_t index) const;
     QbsEnumView enum_type(std::size_t index) const;
+    [[nodiscard]] std::optional<QbsRecordView> find_record_by_id(std::uint32_t record_id) const;
+    [[nodiscard]] std::optional<QbsRecordView>
+    find_record_by_identity(std::string_view identity) const;
+    [[nodiscard]] std::optional<QbsFieldView> find_field(std::size_t record_index,
+                                                         std::uint16_t field_index) const;
+    [[nodiscard]] std::optional<QbsFieldView> find_field_by_name(std::size_t record_index,
+                                                                 std::string_view name) const;
+    [[nodiscard]] std::optional<QbsEnumView> find_enum_by_identity(std::string_view identity) const;
+    [[nodiscard]] std::optional<QbsTypeView> element_type(std::size_t type_index) const;
+    [[nodiscard]] std::optional<QbsRecordView> referenced_record(std::size_t type_index) const;
+    [[nodiscard]] bool has_reflective_strings() const { return strings_offset_ != 0U; }
     std::string_view identity_at_offset(std::uint32_t offset) const;
     std::string_view string(std::size_t index) const;
 

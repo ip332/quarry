@@ -314,6 +314,10 @@ TEST(QbsSerializerTest, ReflectiveImageHasCanonicalStringSectionButSameSchemaId)
     ASSERT_TRUE(parsed_minimal.has_value());
     ASSERT_TRUE(parsed_reflective.has_value());
     EXPECT_EQ(parsed_minimal->header().schema_id, parsed_reflective->header().schema_id);
+    EXPECT_TRUE(parsed_reflective->has_reflective_strings());
+    EXPECT_EQ(parsed_reflective->find_record_by_identity("Example")->identity, "Example");
+    EXPECT_EQ(parsed_reflective->find_field_by_name(0U, "name")->field_index, 1U);
+    EXPECT_FALSE(parsed_minimal->find_field_by_name(0U, "name").has_value());
 }
 
 TEST(QbsSerializerTest, RejectsInvalidTableReference) {

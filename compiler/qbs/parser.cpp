@@ -211,6 +211,101 @@ QbsEnumView ValidatedQbsView::enum_type(std::size_t index) const {
         string(u16(bytes_, at + 12U + header_.identity_offset_width)), std::move(values)};
 }
 
+std::optional<QbsRecordView> ValidatedQbsView::find_record_by_id(std::uint32_t record_id) const {
+    for (std::size_t i = 0U; i < record_count_; ++i) {
+        const auto candidate = record(i);
+        if (candidate.record_id == record_id)
+            return candidate;
+    }
+    return std::nullopt;
+}
+
+std::optional<QbsRecordView>
+ValidatedQbsView::find_record_by_identity(std::string_view identity) const {
+    std::size_t begin = 0U;
+    std::size_t end = record_count_;
+    while (begin < end) {
+        const auto middle = begin + (end - begin) / 2U;
+        const auto candidate = record(middle);
+        if (candidate.identity < identity)
+            begin = middle + 1U;
+        else
+            end = middle;
+    }
+    if (begin < record_count_) {
+        const auto candidate = record(begin);
+        if (candidate.identity == identity)
+            return candidate;
+    }
+    return std::nullopt;
+}
+
+std::optional<QbsFieldView> ValidatedQbsView::find_field(std::size_t record_index,
+                                                         std::uint16_t field_index) const {
+    if (record_index >= record_count_)
+        return std::nullopt;
+    const auto owner = record(record_index);
+    for (std::uint32_t i = 0U; i < owner.field_count; ++i) {
+        const auto candidate = field(owner.field_start + i);
+        if (candidate.field_index == field_index)
+            return candidate;
+    }
+    return std::nullopt;
+}
+
+std::optional<QbsFieldView> ValidatedQbsView::find_field_by_name(std::size_t record_index,
+                                                                 std::string_view name) const {
+    if (!has_reflective_strings() || record_index >= record_count_)
+        return std::nullopt;
+    const auto owner = record(record_index);
+    for (std::uint32_t i = 0U; i < owner.field_count; ++i) {
+        const auto candidate = field(owner.field_start + i);
+        if (candidate.name == name)
+            return candidate;
+    }
+    return std::nullopt;
+}
+
+std::optional<QbsEnumView>
+ValidatedQbsView::find_enum_by_identity(std::string_view identity) const {
+    std::size_t begin = 0U;
+    std::size_t end = enum_count_;
+    while (begin < end) {
+        const auto middle = begin + (end - begin) / 2U;
+        const auto candidate = enum_type(middle);
+        if (candidate.identity < identity)
+            begin = middle + 1U;
+        else
+            end = middle;
+    }
+    if (begin < enum_count_) {
+        const auto candidate = enum_type(begin);
+        if (candidate.identity == identity)
+            return candidate;
+    }
+    return std::nullopt;
+}
+
+std::optional<QbsTypeView> ValidatedQbsView::element_type(std::size_t type_index) const {
+    const auto candidate = type(type_index);
+    if (candidate.code != 16U)
+        return std::nullopt;
+    return type(candidate.reference);
+}
+
+std::optional<QbsRecordView> ValidatedQbsView::referenced_record(std::size_t type_index) const {
+    auto candidate = type(type_index);
+    if (candidate.code == 16U) {
+        const auto element = element_type(type_index);
+        if (!element.has_value())
+            return std::nullopt;
+        candidate = *element;
+    }
+    if (candidate.code != 15U)
+        return std::nullopt;
+    return record(candidate.reference);
+}
+
 std::string_view ValidatedQbsView::identity_at_offset(std::uint32_t offset) const {
     if (offset >= iss_size_) {
         return {};

@@ -65,6 +65,18 @@ TEST(QbsParserTest, ParsesSerializerOutputAndExposesIdentity) {
     EXPECT_EQ(view->record(0).identity, "Example");
     EXPECT_EQ(view->field(0).type_index, 1U);
     EXPECT_EQ(view->type(1).encoded_width, 4U);
+    EXPECT_FALSE(view->has_reflective_strings());
+    EXPECT_TRUE(view->find_record_by_id(1U).has_value());
+    EXPECT_TRUE(view->find_record_by_identity("Example").has_value());
+    EXPECT_FALSE(view->find_record_by_id(99U).has_value());
+    EXPECT_FALSE(view->find_record_by_identity("Missing").has_value());
+    EXPECT_FALSE(view->find_enum_by_identity("Missing").has_value());
+    EXPECT_TRUE(view->find_field(0U, 0U).has_value());
+    EXPECT_FALSE(view->find_field(0U, 9U).has_value());
+    EXPECT_FALSE(view->find_field_by_name(0U, "field").has_value());
+    ASSERT_TRUE(view->element_type(3U).has_value());
+    EXPECT_EQ(view->element_type(3U)->encoded_width, 2U);
+    EXPECT_FALSE(view->referenced_record(1U).has_value());
 }
 
 TEST(QbsParserTest, RejectsHostileHeaderAndIdentityReferences) {
