@@ -62,4 +62,22 @@ TEST(BrfValidationCacheTest, RelationsUseStableIndexesAcrossGrowth) {
     EXPECT_EQ(cache.nodes().size(), 33U);
 }
 
+TEST(BrfValidationCacheTest, FieldRangesRemainStableAcrossGrowth) {
+    BrfReadLimits limits;
+    limits.max_nested_records = 128U;
+    limits.max_work_items = 4096U;
+    ValidationCache cache(limits);
+    const auto root = cache.add_node(0U, 0U, 10U);
+    ASSERT_TRUE(root.has_value());
+    ASSERT_TRUE(cache.begin_fields(*root).has_value());
+    for (std::size_t i = 0U; i < 32U; ++i)
+        ASSERT_TRUE(cache.add_field(*root, {.qbs_field_index = i, .present = i % 2U != 0U}));
+    ASSERT_EQ(cache.nodes()[*root].first_validated_field, 0U);
+    ASSERT_EQ(cache.nodes()[*root].validated_field_count, 32U);
+    EXPECT_EQ(cache.fields()[cache.nodes()[*root].first_validated_field + 31U].qbs_field_index,
+              31U);
+    EXPECT_TRUE(cache.complete_node(*root));
+    EXPECT_TRUE(cache.nodes()[*root].complete);
+}
+
 } // namespace

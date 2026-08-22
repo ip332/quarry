@@ -330,8 +330,9 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
     state.variable_region_start = state.fixed_region_end;
     state.variable_tail_cursor = state.variable_region_start;
     std::uint64_t work = 0U;
-    detail::ValidationCache validation_cache(limits);
-    if (!validation_cache.add_node(record_index, 0U, bytes.size()).has_value()) {
+    auto validation_cache = std::make_shared<detail::ValidationCache>(limits);
+    const auto root_node = validation_cache->add_node(record_index, 0U, bytes.size());
+    if (!root_node.has_value() || !validation_cache->begin_fields(*root_node).has_value()) {
         set_error(error, GenericBrfError::resource_limit_exceeded);
         return std::nullopt;
     }
@@ -340,13 +341,14 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
     result.record_index_ = record_index;
     result.record_ = record_schema;
     result.bytes_ = bytes;
+    result.validation_cache_ = validation_cache;
     for (std::uint32_t i = 0U; i < record_schema.field_count; ++i) {
         state.field_cursor = i;
         if (++work > limits.max_work_items) {
             set_error(error, GenericBrfError::resource_limit_exceeded);
             return std::nullopt;
         }
-        if (!validation_cache.account_work()) {
+        if (!validation_cache->account_work()) {
             set_error(error, GenericBrfError::resource_limit_exceeded);
             return std::nullopt;
         }
@@ -410,6 +412,28 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
                 set_error(error, GenericBrfError::malformed_array);
             return std::nullopt;
         }
+        detail::ValidatedFieldState field_state;
+        field_state.qbs_field_index = field_schema->field_index;
+        field_state.present = present;
+        field_state.fixed_offset = field_schema->byte_offset;
+        field_state.fixed_length = field_schema->slot_size;
+        if (present && field_schema->storage == 2U) {
+            field_state.payload_offset = u32(slot, 0U);
+            field_state.payload_length = value.size();
+        }
+        if (present && type.code == 16U) {
+            std::size_t array_cursor = 0U;
+            const auto count = varuint(value, array_cursor);
+            if (!count.has_value()) {
+                set_error(error, GenericBrfError::malformed_array);
+                return std::nullopt;
+            }
+            field_state.array_count = *count;
+        }
+        if (!validation_cache->add_field(*root_node, field_state)) {
+            set_error(error, GenericBrfError::resource_limit_exceeded);
+            return std::nullopt;
+        }
         result.fields_.push_back({field_schema->field_index, value, present});
     }
     if (record_schema.presence_bitmap_size != 0U) {
@@ -433,6 +457,10 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
     }
     if (state.variable_tail_cursor != bytes.size()) {
         set_error(error, GenericBrfError::noncanonical_tail);
+        return std::nullopt;
+    }
+    if (!validation_cache->complete_node(*root_node)) {
+        set_error(error, GenericBrfError::resource_limit_exceeded);
         return std::nullopt;
     }
     return result;

@@ -3,12 +3,17 @@
 #include "compiler/qbs/parser.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string_view>
 #include <vector>
 
 namespace quarry::runtime {
+
+namespace detail {
+class ValidationCache;
+}
 
 enum class GenericBrfError {
     none,
@@ -116,6 +121,7 @@ private:
     quarry::compiler::qbs::QbsRecordView record_;
     std::span<const std::uint8_t> bytes_;
     std::vector<FieldSpan> fields_;
+    std::shared_ptr<const void> validation_cache_;
 };
 
 // Internal single-record validation state. Offsets and the variable tail are

@@ -19,6 +19,20 @@ struct ValidatedRecordNode {
     std::size_t array_begin = 0U;
     std::size_t array_count = 0U;
     std::size_t validated_fields = 0U;
+    std::size_t first_validated_field = 0U;
+    std::size_t validated_field_count = 0U;
+    bool complete = false;
+};
+
+struct ValidatedFieldState {
+    std::size_t qbs_field_index = 0U;
+    bool present = false;
+    std::size_t fixed_offset = 0U;
+    std::size_t fixed_length = 0U;
+    std::size_t payload_offset = 0U;
+    std::size_t payload_length = 0U;
+    std::size_t array_count = 0U;
+    std::size_t child_relation = 0U;
 };
 
 struct ChildRelation {
@@ -59,8 +73,12 @@ public:
     bool account_work(std::size_t amount = 1U);
     bool begin_node(std::size_t node_index);
     bool reuse_node(std::size_t node_index);
+    std::optional<std::size_t> begin_fields(std::size_t node_index);
+    bool add_field(std::size_t node_index, ValidatedFieldState field);
+    bool complete_node(std::size_t node_index);
 
     const std::vector<ValidatedRecordNode>& nodes() const { return nodes_; }
+    const std::vector<ValidatedFieldState>& fields() const { return fields_; }
     const std::vector<ChildRelation>& children() const { return children_; }
     const std::vector<RecordArrayRelation>& arrays() const { return arrays_; }
     const std::vector<std::size_t>& array_children() const { return array_children_; }
@@ -70,6 +88,7 @@ public:
 private:
     BrfReadLimits limits_;
     std::vector<ValidatedRecordNode> nodes_;
+    std::vector<ValidatedFieldState> fields_;
     std::vector<ChildRelation> children_;
     std::vector<RecordArrayRelation> arrays_;
     std::vector<std::size_t> array_children_;

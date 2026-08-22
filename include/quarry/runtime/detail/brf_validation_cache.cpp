@@ -64,6 +64,30 @@ bool ValidationCache::reuse_node(std::size_t node_index) {
     return node_index < nodes_.size() && account_work();
 }
 
+std::optional<std::size_t> ValidationCache::begin_fields(std::size_t node_index) {
+    if (node_index >= nodes_.size())
+        return std::nullopt;
+    nodes_[node_index].first_validated_field = fields_.size();
+    nodes_[node_index].validated_field_count = 0U;
+    return fields_.size();
+}
+
+bool ValidationCache::add_field(std::size_t node_index, ValidatedFieldState field) {
+    if (node_index >= nodes_.size() || !account_work())
+        return false;
+    fields_.push_back(field);
+    ++nodes_[node_index].validated_field_count;
+    nodes_[node_index].validated_fields = nodes_[node_index].validated_field_count;
+    return true;
+}
+
+bool ValidationCache::complete_node(std::size_t node_index) {
+    if (node_index >= nodes_.size() || !account_work())
+        return false;
+    nodes_[node_index].complete = true;
+    return true;
+}
+
 bool validate_synthetic_work_graph(std::span<const std::size_t> parent_nodes, BrfReadLimits limits,
                                    ValidationCache& cache) {
     std::vector<ValidationWorkFrame> stack;
