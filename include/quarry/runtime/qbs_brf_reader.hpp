@@ -25,6 +25,8 @@ enum class GenericBrfError {
     noncanonical_tail,
     invalid_bool,
     invalid_utf8,
+    invalid_enum,
+    malformed_array,
     bounds_exceeded,
     resource_limit_exceeded,
 };
@@ -32,6 +34,8 @@ enum class GenericBrfError {
 struct BrfReadLimits {
     std::size_t max_record_bytes = 64U * 1024U * 1024U;
     std::size_t max_work_items = 1U << 20U;
+    std::size_t max_nested_records = 1024U;
+    std::size_t max_array_elements_traversed = 1U << 20U;
 };
 
 enum class GenericBrfValueKind {
@@ -58,12 +62,28 @@ public:
 
 private:
     friend class ValidatedBrfRecordView;
+    friend class BrfArrayView;
     FieldValueView(GenericBrfValueKind kind, std::span<const std::uint8_t> bytes,
                    std::uint16_t width)
         : kind_(kind), bytes_(bytes), width_(width) {}
     GenericBrfValueKind kind_;
     std::span<const std::uint8_t> bytes_;
     std::uint16_t width_;
+};
+
+class BrfArrayView {
+public:
+    std::size_t size() const { return count_; }
+    std::optional<FieldValueView> element(std::size_t index) const;
+
+private:
+    friend class ValidatedBrfRecordView;
+    BrfArrayView(quarry::compiler::qbs::QbsTypeView element_type,
+                 std::span<const std::uint8_t> bytes, std::size_t count)
+        : element_type_(element_type), bytes_(bytes), count_(count) {}
+    quarry::compiler::qbs::QbsTypeView element_type_;
+    std::span<const std::uint8_t> bytes_;
+    std::size_t count_;
 };
 
 class ValidatedBrfRecordView {
@@ -73,6 +93,8 @@ public:
     bool is_present(const quarry::compiler::qbs::QbsFieldView& field) const;
     std::optional<FieldValueView> field(const quarry::compiler::qbs::QbsFieldView& field) const;
     std::optional<FieldValueView> field(std::uint16_t field_index) const;
+    std::optional<BrfArrayView> array(const quarry::compiler::qbs::QbsFieldView& field) const;
+    std::optional<BrfArrayView> array(std::uint16_t field_index) const;
 
 private:
     friend std::optional<ValidatedBrfRecordView>

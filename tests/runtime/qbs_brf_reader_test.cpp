@@ -104,4 +104,46 @@ TEST(QbsBrfReaderTest, RejectsMalformedHeaderAndCanonicalPresence) {
     EXPECT_EQ(error, GenericBrfError::invalid_presence);
 }
 
+TEST(QbsBrfReaderTest, ReadsPrimitiveArrayAndRejectsInvalidEnum) {
+    auto qbs = qbs_image();
+    DiagnosticCollection diagnostics;
+    const auto schema = parse_qbs(qbs, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_id(1U);
+    ASSERT_TRUE(record.has_value());
+    std::vector<std::uint8_t> brf(47U, 0U);
+    brf[0] = 2U;
+    brf[3] = 16U;
+    brf[7] = 1U;
+    brf[11] = 23U;
+    brf[15] = 47U;
+    brf[16] = 0x0fU;
+    brf[20] = 1U;
+    brf[24] = 39U;
+    brf[28] = 3U;
+    brf[30] = 2U;
+    brf[34] = 42U;
+    brf[38] = 5U;
+    brf[39] = 'a';
+    brf[40] = 'b';
+    brf[41] = 'c';
+    brf[42] = 2U;
+    brf[44] = 10U;
+    brf[46] = 20U;
+
+    GenericBrfError error = GenericBrfError::none;
+    const auto view = validate_brf_record(*schema, *record, brf, {}, &error);
+    ASSERT_TRUE(view.has_value());
+    const auto array = view->array(3U);
+    ASSERT_TRUE(array.has_value());
+    ASSERT_EQ(array->size(), 2U);
+    EXPECT_EQ(array->element(0U)->as_unsigned(), 10U);
+    EXPECT_EQ(array->element(1U)->as_unsigned(), 20U);
+
+    auto malformed = brf;
+    malformed[42] = 3U;
+    EXPECT_FALSE(validate_brf_record(*schema, *record, malformed, {}, &error));
+    EXPECT_EQ(error, GenericBrfError::malformed_array);
+}
+
 } // namespace
