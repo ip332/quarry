@@ -74,10 +74,27 @@ TEST(BrfValidationCacheTest, FieldRangesRemainStableAcrossGrowth) {
         ASSERT_TRUE(cache.add_field(*root, {.qbs_field_index = i, .present = i % 2U != 0U}));
     ASSERT_EQ(cache.nodes()[*root].first_validated_field, 0U);
     ASSERT_EQ(cache.nodes()[*root].validated_field_count, 32U);
+    EXPECT_FALSE(cache.fields()[0].child_relation.has_value());
     EXPECT_EQ(cache.fields()[cache.nodes()[*root].first_validated_field + 31U].qbs_field_index,
               31U);
     EXPECT_TRUE(cache.complete_node(*root));
     EXPECT_TRUE(cache.nodes()[*root].complete);
+}
+
+TEST(BrfValidationCacheTest, ChildRelationZeroIsRepresentable) {
+    BrfReadLimits limits;
+    limits.max_nested_records = 8U;
+    limits.max_work_items = 128U;
+    ValidationCache cache(limits);
+    const auto root = cache.add_node(0U, 0U, 16U);
+    ASSERT_TRUE(root.has_value());
+    ASSERT_TRUE(cache.begin_fields(*root).has_value());
+    ASSERT_TRUE(cache.add_field(*root, {.qbs_field_index = 0U, .present = true}));
+    const auto relation = cache.add_child_relation(*root, 0U, 1U, 16U, 16U);
+    ASSERT_TRUE(relation.has_value());
+    ASSERT_TRUE(cache.set_child_relation(0U, relation->second));
+    ASSERT_TRUE(cache.fields()[0].child_relation.has_value());
+    EXPECT_EQ(*cache.fields()[0].child_relation, 0U);
 }
 
 } // namespace

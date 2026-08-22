@@ -10,6 +10,8 @@ namespace {
 
 struct RecordValidationFrame {
     RecordValidationState state;
+    quarry::compiler::qbs::QbsRecordView record_schema;
+    ValidatedBrfRecordView result;
 };
 
 std::uint16_t u16(std::span<const std::uint8_t> bytes, std::size_t at) {
@@ -246,6 +248,7 @@ bool validate_next_field(const quarry::compiler::qbs::ValidatedQbsView& schema,
         state.variable_tail_cursor += length;
     }
     const auto type = schema.type(field_schema->type_index);
+    std::optional<PendingChildValidation> child_request;
     if (present && type.code == 1U && (value.size() != 1U || value[0] > 1U)) {
         set_error(error, GenericBrfError::invalid_bool);
         return false;
@@ -264,9 +267,37 @@ bool validate_next_field(const quarry::compiler::qbs::ValidatedQbsView& schema,
         set_error(error, GenericBrfError::invalid_enum);
         return false;
     }
-    if (present && type.code == 15U) {
-        set_error(error, GenericBrfError::unsupported_type);
-        return false;
+    if (type.code == 15U) {
+        if (field_schema->storage == 2U) {
+            set_error(error, GenericBrfError::unsupported_type);
+            return false;
+        }
+        if (type.reference >= schema.record_count()) {
+            set_error(error, GenericBrfError::invalid_slot);
+            return false;
+        }
+        const auto child_schema = schema.record(type.reference);
+        if (child_schema.variable_size || child_schema.complete_fixed_record_size == 0U ||
+            field_schema->slot_size != child_schema.complete_fixed_record_size ||
+            type.encoded_width != child_schema.complete_fixed_record_size) {
+            set_error(error, GenericBrfError::invalid_fixed_region);
+            return false;
+        }
+        if (present) {
+            const auto child_offset = state.record_offset + field_schema->byte_offset;
+            if (child_offset < state.record_offset ||
+                child_schema.complete_fixed_record_size >
+                    bytes.size() - field_schema->byte_offset) {
+                set_error(error, GenericBrfError::invalid_slot);
+                return false;
+            }
+            child_request = PendingChildValidation{type.reference,
+                                                   child_offset,
+                                                   child_schema.complete_fixed_record_size,
+                                                   0U,
+                                                   field_schema->field_index,
+                                                   std::nullopt};
+        }
     }
     if (present && type.code == 16U && !validate_array(schema, type, value, limits, work, error)) {
         if (error != nullptr && *error == GenericBrfError::none)
@@ -295,7 +326,13 @@ bool validate_next_field(const quarry::compiler::qbs::ValidatedQbsView& schema,
         set_error(error, GenericBrfError::resource_limit_exceeded);
         return false;
     }
+    if (child_request.has_value()) {
+        child_request->field_cache_index = cache.fields().size() - 1U;
+        state.pending_child = *child_request;
+    }
     result.fields_.push_back({field_schema->field_index, value, present});
+    if (present && type.code == 15U)
+        return true;
     ++state.field_cursor;
     return true;
 }
@@ -381,12 +418,27 @@ advance_record_validation(const quarry::compiler::qbs::ValidatedQbsView& schema,
         return RecordValidationStep::Continue;
     }
     if (state.phase == RecordValidationState::Phase::Fields) {
+        if (state.pending_child.has_value()) {
+            auto& pending = *state.pending_child;
+            if (!pending.child_relation.has_value())
+                return RecordValidationStep::NeedChild;
+            if (!cache.set_child_relation(pending.field_cache_index, *pending.child_relation)) {
+                set_error(error, GenericBrfError::resource_limit_exceeded);
+                state.phase = RecordValidationState::Phase::Failed;
+                return RecordValidationStep::Error;
+            }
+            state.pending_child.reset();
+            ++state.field_cursor;
+            return RecordValidationStep::Continue;
+        }
         if (state.field_cursor < record_schema.field_count) {
             if (!validate_next_field(schema, record_schema, bytes, state, cache, result, work,
                                      limits, error)) {
                 state.phase = RecordValidationState::Phase::Failed;
                 return RecordValidationStep::Error;
             }
+            if (state.pending_child.has_value())
+                return RecordValidationStep::NeedChild;
             return RecordValidationStep::Continue;
         }
         state.phase = RecordValidationState::Phase::FinalizeTail;
@@ -483,6 +535,47 @@ std::optional<BrfArrayView> ValidatedBrfRecordView::array(std::uint16_t field_in
     return field_schema.has_value() ? array(*field_schema) : std::nullopt;
 }
 
+std::optional<ValidatedBrfRecordView> ValidatedBrfRecordView::nested_record(
+    const quarry::compiler::qbs::QbsFieldView& field_schema) const {
+    const auto owned = schema_->find_field(record_index_, field_schema.field_index);
+    if (!owned.has_value() || owned->type_index != field_schema.type_index || !validation_cache_ ||
+        node_index_ >= validation_cache_->nodes().size())
+        return std::nullopt;
+    const auto& node = validation_cache_->nodes()[node_index_];
+    for (std::size_t i = 0U; i < node.validated_field_count; ++i) {
+        const auto& field = validation_cache_->fields()[node.first_validated_field + i];
+        if (field.qbs_field_index != field_schema.field_index || !field.present ||
+            !field.child_relation.has_value())
+            continue;
+        const auto relation_index = *field.child_relation;
+        if (relation_index >= validation_cache_->children().size())
+            return std::nullopt;
+        const auto& relation = validation_cache_->children()[relation_index];
+        if (relation.child_node >= validation_cache_->nodes().size() ||
+            relation.brf_offset > bytes_.size() ||
+            relation.brf_length > bytes_.size() - relation.brf_offset)
+            return std::nullopt;
+        const auto& child = validation_cache_->nodes()[relation.child_node];
+        if (!child.complete || child.qbs_record_index >= schema_->record_count())
+            return std::nullopt;
+        ValidatedBrfRecordView result;
+        result.schema_ = schema_;
+        result.record_index_ = child.qbs_record_index;
+        result.node_index_ = relation.child_node;
+        result.record_ = schema_->record(child.qbs_record_index);
+        result.bytes_ = bytes_.subspan(relation.brf_offset, relation.brf_length);
+        result.validation_cache_ = validation_cache_;
+        return result;
+    }
+    return std::nullopt;
+}
+
+std::optional<ValidatedBrfRecordView>
+ValidatedBrfRecordView::nested_record(std::uint16_t field_index) const {
+    const auto field_schema = schema_->find_field(record_index_, field_index);
+    return field_schema.has_value() ? nested_record(*field_schema) : std::nullopt;
+}
+
 std::optional<ValidatedBrfRecordView>
 validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
                      const quarry::compiler::qbs::QbsRecordView& record_schema,
@@ -509,25 +602,70 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
         set_error(error, GenericBrfError::resource_limit_exceeded);
         return std::nullopt;
     }
-    ValidatedBrfRecordView result;
-    result.schema_ = &schema;
-    result.record_index_ = record_index;
-    result.record_ = record_schema;
-    result.bytes_ = bytes;
-    result.validation_cache_ = validation_cache;
     std::vector<RecordValidationFrame> stack;
     RecordValidationState root_state;
     root_state.qbs_record_index = record_index;
     root_state.node_index = *root_node;
     root_state.record_bytes = bytes;
-    stack.push_back({root_state});
+    root_state.record_offset = 0U;
+    RecordValidationFrame root_frame{root_state, record_schema, {}};
+    root_frame.result.schema_ = &schema;
+    root_frame.result.record_index_ = record_index;
+    root_frame.result.node_index_ = *root_node;
+    root_frame.result.record_ = record_schema;
+    root_frame.result.bytes_ = bytes;
+    root_frame.result.validation_cache_ = validation_cache;
+    stack.push_back(std::move(root_frame));
+    ValidatedBrfRecordView result;
     while (!stack.empty()) {
         auto& frame = stack.back();
-        const auto step =
-            advance_record_validation(schema, record_schema, frame.state.record_bytes, frame.state,
-                                      *validation_cache, result, work, limits, error);
-        if (step == RecordValidationStep::Complete)
+        const auto step = advance_record_validation(
+            schema, frame.record_schema, frame.state.record_bytes, frame.state, *validation_cache,
+            frame.result, work, limits, error);
+        if (step == RecordValidationStep::NeedChild) {
+            if (!frame.state.pending_child.has_value()) {
+                set_error(error, GenericBrfError::invalid_slot);
+                return std::nullopt;
+            }
+            const auto request = *frame.state.pending_child;
+            if (request.brf_offset > bytes.size() ||
+                request.brf_length > bytes.size() - request.brf_offset ||
+                request.qbs_record_index >= schema.record_count()) {
+                set_error(error, GenericBrfError::invalid_slot);
+                return std::nullopt;
+            }
+            const auto relation = validation_cache->add_child_relation(
+                frame.state.node_index, request.parent_field_index, request.qbs_record_index,
+                request.brf_offset, request.brf_length);
+            if (!relation.has_value() ||
+                !validation_cache->set_child_relation(request.field_cache_index,
+                                                      relation->second) ||
+                !validation_cache->begin_fields(relation->first).has_value()) {
+                set_error(error, GenericBrfError::resource_limit_exceeded);
+                return std::nullopt;
+            }
+            frame.state.pending_child->child_relation = relation->second;
+            const auto child_schema = schema.record(request.qbs_record_index);
+            const auto child_bytes = bytes.subspan(request.brf_offset, request.brf_length);
+            RecordValidationState child_state;
+            child_state.qbs_record_index = request.qbs_record_index;
+            child_state.node_index = relation->first;
+            child_state.record_offset = request.brf_offset;
+            child_state.record_bytes = child_bytes;
+            RecordValidationFrame child_frame{child_state, child_schema, {}};
+            child_frame.result.schema_ = &schema;
+            child_frame.result.record_index_ = request.qbs_record_index;
+            child_frame.result.record_ = child_schema;
+            child_frame.result.bytes_ = child_bytes;
+            child_frame.result.validation_cache_ = validation_cache;
+            stack.push_back(std::move(child_frame));
+            continue;
+        }
+        if (step == RecordValidationStep::Complete) {
+            if (stack.size() == 1U)
+                result = std::move(frame.result);
             stack.pop_back();
+        }
         if (step == RecordValidationStep::Error)
             return std::nullopt;
     }

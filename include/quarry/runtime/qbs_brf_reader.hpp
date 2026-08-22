@@ -18,6 +18,15 @@ class ValidationCache;
 struct RecordValidationState;
 enum class RecordValidationStep;
 
+struct PendingChildValidation {
+    std::size_t qbs_record_index = 0U;
+    std::size_t brf_offset = 0U;
+    std::size_t brf_length = 0U;
+    std::size_t field_cache_index = 0U;
+    std::size_t parent_field_index = 0U;
+    std::optional<std::size_t> child_relation;
+};
+
 enum class GenericBrfError {
     none,
     truncated_header,
@@ -104,6 +113,9 @@ public:
     std::optional<FieldValueView> field(std::uint16_t field_index) const;
     std::optional<BrfArrayView> array(const quarry::compiler::qbs::QbsFieldView& field) const;
     std::optional<BrfArrayView> array(std::uint16_t field_index) const;
+    std::optional<ValidatedBrfRecordView>
+    nested_record(const quarry::compiler::qbs::QbsFieldView& field) const;
+    std::optional<ValidatedBrfRecordView> nested_record(std::uint16_t field_index) const;
 
 private:
     friend bool validate_next_field(const quarry::compiler::qbs::ValidatedQbsView&,
@@ -130,10 +142,11 @@ private:
     };
     const quarry::compiler::qbs::ValidatedQbsView* schema_ = nullptr;
     std::size_t record_index_ = 0U;
+    std::size_t node_index_ = 0U;
     quarry::compiler::qbs::QbsRecordView record_;
     std::span<const std::uint8_t> bytes_;
     std::vector<FieldSpan> fields_;
-    std::shared_ptr<const void> validation_cache_;
+    std::shared_ptr<const detail::ValidationCache> validation_cache_;
 };
 
 // Internal single-record validation state. Offsets and the variable tail are
@@ -144,12 +157,14 @@ struct RecordValidationState {
     Phase phase = Phase::Header;
     std::size_t qbs_record_index = 0U;
     std::size_t node_index = 0U;
+    std::size_t record_offset = 0U;
     std::span<const std::uint8_t> record_bytes;
     std::size_t fixed_region_end = 0U;
     std::size_t variable_region_start = 0U;
     std::size_t variable_tail_cursor = 0U;
     std::size_t field_cursor = 0U;
     std::size_t work_items = 0U;
+    std::optional<PendingChildValidation> pending_child;
 };
 
 [[nodiscard]] bool validate_next_field(const quarry::compiler::qbs::ValidatedQbsView& schema,
@@ -159,7 +174,7 @@ struct RecordValidationState {
                                        ValidatedBrfRecordView& result, std::uint64_t& work,
                                        BrfReadLimits limits, GenericBrfError* error);
 
-enum class RecordValidationStep { Continue, Complete, Error };
+enum class RecordValidationStep { Continue, NeedChild, Complete, Error };
 
 [[nodiscard]] RecordValidationStep
 advance_record_validation(const quarry::compiler::qbs::ValidatedQbsView& schema,

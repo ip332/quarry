@@ -19,6 +19,15 @@ std::optional<std::size_t> ValidationCache::add_child(std::size_t parent_node,
                                                       std::size_t qbs_record_index,
                                                       std::size_t brf_offset,
                                                       std::size_t brf_length) {
+    const auto relation =
+        add_child_relation(parent_node, parent_field, qbs_record_index, brf_offset, brf_length);
+    return relation.has_value() ? std::optional<std::size_t>(relation->first) : std::nullopt;
+}
+
+std::optional<std::pair<std::size_t, std::size_t>>
+ValidationCache::add_child_relation(std::size_t parent_node, std::size_t parent_field,
+                                    std::size_t qbs_record_index, std::size_t brf_offset,
+                                    std::size_t brf_length) {
     if (parent_node >= nodes_.size() || !account_work())
         return std::nullopt;
     const auto child = add_node(qbs_record_index, brf_offset, brf_length);
@@ -26,7 +35,7 @@ std::optional<std::size_t> ValidationCache::add_child(std::size_t parent_node,
         return std::nullopt;
     children_.push_back({parent_node, parent_field, *child, brf_offset, brf_length});
     ++nodes_[parent_node].child_count;
-    return child;
+    return std::pair{*child, children_.size() - 1U};
 }
 
 std::optional<std::size_t> ValidationCache::add_array(std::size_t parent_node,
@@ -78,6 +87,13 @@ bool ValidationCache::add_field(std::size_t node_index, ValidatedFieldState fiel
     fields_.push_back(field);
     ++nodes_[node_index].validated_field_count;
     nodes_[node_index].validated_fields = nodes_[node_index].validated_field_count;
+    return true;
+}
+
+bool ValidationCache::set_child_relation(std::size_t field_index, std::size_t relation_index) {
+    if (field_index >= fields_.size())
+        return false;
+    fields_[field_index].child_relation = relation_index;
     return true;
 }
 
