@@ -1,4 +1,7 @@
+#include "compiler/layout/layout.hpp"
 #include "compiler/qbs/parser.hpp"
+#include "compiler/qbs/qbs.hpp"
+#include "compiler/qbs/serializer.hpp"
 #include "quarry/runtime/qbs_brf_reader.hpp"
 
 #include <gtest/gtest.h>
@@ -11,8 +14,40 @@
 namespace {
 
 using quarry::compiler::diagnostics::DiagnosticCollection;
+using quarry::schema_ir::SchemaIR;
 using namespace quarry::compiler::qbs;
 using namespace quarry::runtime;
+
+SchemaIR nested_schema_ir() {
+    SchemaIR schema;
+    schema.set_schema_ir_version(1U);
+    schema.mutable_root_namespace()->set_ir_id(1U);
+    const auto add_record = [&](std::uint64_t ir_id, std::uint32_t record_id,
+                                std::string_view name) {
+        auto* record = schema.mutable_root_namespace()->add_records();
+        record->set_ir_id(ir_id);
+        record->set_record_id(record_id);
+        record->set_name(std::string(name));
+        record->set_fqn(std::string(name));
+        return record;
+    };
+    auto* grandchild = add_record(3U, 3U, "Grandchild");
+    auto* value = grandchild->add_fields();
+    value->set_name("value");
+    value->set_field_index(0U);
+    value->mutable_type()->set_primitive(quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    auto* child = add_record(2U, 2U, "Child");
+    auto* grandchild_field = child->add_fields();
+    grandchild_field->set_name("grandchild");
+    grandchild_field->set_field_index(0U);
+    grandchild_field->mutable_type()->mutable_record()->set_target_record_ir_id(3U);
+    auto* parent = add_record(1U, 1U, "Parent");
+    auto* child_field = parent->add_fields();
+    child_field->set_name("child");
+    child_field->set_field_index(0U);
+    child_field->mutable_type()->mutable_record()->set_target_record_ir_id(2U);
+    return schema;
+}
 
 std::vector<std::uint8_t> qbs_image() {
     constexpr std::string_view hex =
@@ -32,6 +67,92 @@ std::vector<std::uint8_t> qbs_image() {
         bytes.push_back(static_cast<std::uint8_t>((digit(hex[i]) << 4U) | digit(hex[i + 1U])));
     }
     return bytes;
+}
+
+TEST(QbsBrfReaderTest, ReadsThreeLevelFixedNestedRecordsFromNormalPipeline) {
+    const auto ir = nested_schema_ir();
+    quarry::compiler::diagnostics::DiagnosticCollection diagnostics;
+    quarry::compiler::layout::LayoutComputer computer;
+    const auto layout = computer.compute(ir, diagnostics);
+    ASSERT_TRUE(diagnostics.empty());
+    const auto model =
+        QbsModelBuilder{}.build(ir, layout, {.mode = BuildMode::Minimal}, diagnostics);
+    ASSERT_TRUE(model.has_value());
+    for (const auto& record : model->records) {
+        EXPECT_FALSE(record.variable_size);
+        ASSERT_TRUE(record.complete_fixed_record_size.has_value());
+    }
+    const auto image = serialize_qbs(*model, diagnostics);
+    ASSERT_TRUE(image.has_value());
+    const auto schema = parse_qbs(image->bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    for (std::size_t i = 0U; i < schema->record_count(); ++i)
+        EXPECT_FALSE(schema->record(i).variable_size);
+
+    const auto make_record = [](std::uint32_t id, std::uint32_t fixed_size,
+                                std::uint32_t total_size, std::span<const std::uint8_t> child,
+                                std::uint8_t value) {
+        std::vector<std::uint8_t> bytes(total_size, 0U);
+        bytes[0] = 2U;
+        bytes[3] = 16U;
+        bytes[4] = static_cast<std::uint8_t>(id >> 24U);
+        bytes[5] = static_cast<std::uint8_t>(id >> 16U);
+        bytes[6] = static_cast<std::uint8_t>(id >> 8U);
+        bytes[7] = static_cast<std::uint8_t>(id);
+        bytes[11] = static_cast<std::uint8_t>(fixed_size);
+        bytes[15] = static_cast<std::uint8_t>(total_size);
+        bytes[16] = 1U;
+        if (!child.empty())
+            std::copy(child.begin(), child.end(), bytes.begin() + 17U);
+        else
+            bytes[20] = value;
+        return bytes;
+    };
+    const auto* grandchild_layout = layout.find_record("Grandchild");
+    const auto* child_layout = layout.find_record("Child");
+    const auto* parent_layout = layout.find_record("Parent");
+    ASSERT_NE(grandchild_layout, nullptr);
+    ASSERT_NE(child_layout, nullptr);
+    ASSERT_NE(parent_layout, nullptr);
+    const auto grandchild_bytes =
+        make_record(3U, grandchild_layout->fixed_region_size,
+                    *grandchild_layout->complete_fixed_record_size, {}, 7U);
+    const auto child_bytes =
+        make_record(2U, child_layout->fixed_region_size, *child_layout->complete_fixed_record_size,
+                    grandchild_bytes, 0U);
+    const auto parent_bytes =
+        make_record(1U, parent_layout->fixed_region_size,
+                    *parent_layout->complete_fixed_record_size, child_bytes, 0U);
+
+    const auto parent_schema = schema->find_record_by_identity("Parent");
+    ASSERT_TRUE(parent_schema.has_value());
+    GenericBrfError error = GenericBrfError::none;
+    const auto view = validate_brf_record(*schema, *parent_schema, parent_bytes, {}, &error);
+    ASSERT_TRUE(view.has_value());
+    ASSERT_EQ(error, GenericBrfError::none);
+    const auto child_view = view->nested_record(0U);
+    ASSERT_TRUE(child_view.has_value());
+    const auto grandchild_view = child_view->nested_record(0U);
+    ASSERT_TRUE(grandchild_view.has_value());
+    ASSERT_EQ(grandchild_view->field(0U)->as_unsigned(), 7U);
+
+    auto absent_parent = make_record(1U, parent_layout->fixed_region_size,
+                                     *parent_layout->complete_fixed_record_size, {}, 0U);
+    absent_parent[16] = 0U;
+    EXPECT_TRUE(
+        validate_brf_record(*schema, *parent_schema, absent_parent, {}, &error).has_value());
+    const auto absent_view =
+        validate_brf_record(*schema, *parent_schema, absent_parent, {}, &error);
+    ASSERT_TRUE(absent_view.has_value());
+    EXPECT_FALSE(absent_view->nested_record(0U).has_value());
+    absent_parent[17] = 1U;
+    EXPECT_FALSE(validate_brf_record(*schema, *parent_schema, absent_parent, {}, &error));
+    EXPECT_EQ(error, GenericBrfError::invalid_presence);
+
+    auto wrong_id = parent_bytes;
+    wrong_id[17U + 7U] = 9U;
+    EXPECT_FALSE(validate_brf_record(*schema, *parent_schema, wrong_id, {}, &error));
+    EXPECT_EQ(error, GenericBrfError::unexpected_record_id);
 }
 
 TEST(QbsBrfReaderTest, ReadsCanonicalExampleWithoutGeneratedCode) {

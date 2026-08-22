@@ -552,8 +552,8 @@ std::optional<ValidatedBrfRecordView> ValidatedBrfRecordView::nested_record(
             return std::nullopt;
         const auto& relation = validation_cache_->children()[relation_index];
         if (relation.child_node >= validation_cache_->nodes().size() ||
-            relation.brf_offset > bytes_.size() ||
-            relation.brf_length > bytes_.size() - relation.brf_offset)
+            relation.brf_offset > root_bytes_.size() ||
+            relation.brf_length > root_bytes_.size() - relation.brf_offset)
             return std::nullopt;
         const auto& child = validation_cache_->nodes()[relation.child_node];
         if (!child.complete || child.qbs_record_index >= schema_->record_count())
@@ -563,8 +563,32 @@ std::optional<ValidatedBrfRecordView> ValidatedBrfRecordView::nested_record(
         result.record_index_ = child.qbs_record_index;
         result.node_index_ = relation.child_node;
         result.record_ = schema_->record(child.qbs_record_index);
-        result.bytes_ = bytes_.subspan(relation.brf_offset, relation.brf_length);
+        result.root_bytes_ = root_bytes_;
+        result.bytes_ = root_bytes_.subspan(relation.brf_offset, relation.brf_length);
         result.validation_cache_ = validation_cache_;
+        for (std::size_t i = 0U; i < child.validated_field_count; ++i) {
+            const auto& field_state = validation_cache_->fields()[child.first_validated_field + i];
+            const auto field_schema = schema_->find_field(
+                child.qbs_record_index, static_cast<std::uint16_t>(field_state.qbs_field_index));
+            if (!field_schema.has_value())
+                return std::nullopt;
+            std::span<const std::uint8_t> field_bytes;
+            if (field_schema->storage == 2U) {
+                if (field_state.payload_offset > relation.brf_length ||
+                    field_state.payload_length > relation.brf_length - field_state.payload_offset)
+                    return std::nullopt;
+                field_bytes = root_bytes_.subspan(child.brf_offset + field_state.payload_offset,
+                                                  field_state.payload_length);
+            } else {
+                if (field_state.fixed_offset > relation.brf_length ||
+                    field_state.fixed_length > relation.brf_length - field_state.fixed_offset)
+                    return std::nullopt;
+                field_bytes = root_bytes_.subspan(child.brf_offset + field_state.fixed_offset,
+                                                  field_state.fixed_length);
+            }
+            result.fields_.push_back({static_cast<std::uint16_t>(field_state.qbs_field_index),
+                                      field_bytes, field_state.present});
+        }
         return result;
     }
     return std::nullopt;
@@ -613,6 +637,7 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
     root_frame.result.record_index_ = record_index;
     root_frame.result.node_index_ = *root_node;
     root_frame.result.record_ = record_schema;
+    root_frame.result.root_bytes_ = bytes;
     root_frame.result.bytes_ = bytes;
     root_frame.result.validation_cache_ = validation_cache;
     stack.push_back(std::move(root_frame));
@@ -656,6 +681,7 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
             child_frame.result.schema_ = &schema;
             child_frame.result.record_index_ = request.qbs_record_index;
             child_frame.result.record_ = child_schema;
+            child_frame.result.root_bytes_ = bytes;
             child_frame.result.bytes_ = child_bytes;
             child_frame.result.validation_cache_ = validation_cache;
             stack.push_back(std::move(child_frame));

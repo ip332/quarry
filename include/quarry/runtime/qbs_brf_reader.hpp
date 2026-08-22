@@ -144,6 +144,7 @@ private:
     std::size_t record_index_ = 0U;
     std::size_t node_index_ = 0U;
     quarry::compiler::qbs::QbsRecordView record_;
+    std::span<const std::uint8_t> root_bytes_;
     std::span<const std::uint8_t> bytes_;
     std::vector<FieldSpan> fields_;
     std::shared_ptr<const detail::ValidationCache> validation_cache_;
