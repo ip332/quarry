@@ -23,7 +23,7 @@ std::optional<std::uint64_t> varuint(std::span<const std::uint8_t> bytes, std::s
     for (unsigned shift = 0U; shift < 64U && cursor < bytes.size(); shift += 7U) {
         const auto byte = bytes[cursor++];
         ++length;
-        if (shift == 63U && (byte & 0x7FU) != 0U)
+        if (shift == 63U && (byte & 0x7FU) > 1U)
             return std::nullopt;
         value |= static_cast<std::uint64_t>(byte & 0x7FU) << shift;
         if ((byte & 0x80U) == 0U &&
@@ -36,12 +36,22 @@ std::optional<std::uint64_t> varuint(std::span<const std::uint8_t> bytes, std::s
 bool utf8(std::string_view value) {
     for (std::size_t i = 0U; i < value.size();) {
         const auto c = static_cast<unsigned char>(value[i]);
-        const std::size_t length = c < 0x80U ? 1U : c < 0xE0U ? 2U : c < 0xF0U ? 3U : 4U;
-        if ((length == 1U && c >= 0x80U) || length > value.size() - i)
+        if (c <= 0x7FU) {
+            ++i;
+            continue;
+        }
+        const std::size_t length = c <= 0xDFU ? 2U : c <= 0xEFU ? 3U : c <= 0xF4U ? 4U : 0U;
+        if (length == 0U || length > value.size() - i)
             return false;
-        for (std::size_t j = 1U; j < length; ++j)
-            if ((static_cast<unsigned char>(value[i + j]) & 0xC0U) != 0x80U)
-                return false;
+        const auto c1 = static_cast<unsigned char>(value[i + 1U]);
+        if ((c1 & 0xC0U) != 0x80U ||
+            (length >= 3U && (static_cast<unsigned char>(value[i + 2U]) & 0xC0U) != 0x80U) ||
+            (length == 4U && (static_cast<unsigned char>(value[i + 3U]) & 0xC0U) != 0x80U))
+            return false;
+        if ((length == 2U && c < 0xC2U) ||
+            (length == 3U && ((c == 0xE0U && c1 < 0xA0U) || (c == 0xEDU && c1 >= 0xA0U))) ||
+            (length == 4U && ((c == 0xF0U && c1 < 0x90U) || (c == 0xF4U && c1 > 0x8FU))))
+            return false;
         i += length;
     }
     return true;

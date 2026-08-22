@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -220,6 +222,88 @@ TEST(QbsBrfReaderTest, EnforcesReaderWorkAndArrayLimits) {
     one_element.max_array_elements_traversed = 1U;
     EXPECT_FALSE(validate_brf_record(*schema, *record, brf, one_element, &error));
     EXPECT_EQ(error, GenericBrfError::bounds_exceeded);
+}
+
+std::vector<std::uint8_t> string_record(std::string_view value) {
+    std::vector<std::uint8_t> bytes(39U + value.size(), 0U);
+    bytes[0] = 2U;
+    bytes[3] = 16U;
+    bytes[7] = 1U;
+    bytes[11] = 23U;
+    bytes[15] = static_cast<std::uint8_t>(bytes.size());
+    bytes[16] = 0x02U;
+    bytes[24] = 39U;
+    bytes[28] = static_cast<std::uint8_t>(value.size());
+    std::copy(value.begin(), value.end(), bytes.begin() + 39U);
+    return bytes;
+}
+
+TEST(QbsBrfReaderTest, ValidatesUnicodeScalarValueBoundaries) {
+    auto qbs = qbs_image();
+    DiagnosticCollection diagnostics;
+    const auto schema = parse_qbs(qbs, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_id(1U);
+    ASSERT_TRUE(record.has_value());
+    const std::vector<std::string> valid = {
+        "ASCII", "\xC2\xA2",     "\xE2\x82\xAC", "\xF0\x9F\x92\xA9",
+        "\x00",  "\xED\x9F\xBF", "\xEE\x80\x80", "\xF4\x8F\xBF\xBF"};
+    for (const auto& value : valid) {
+        GenericBrfError error = GenericBrfError::none;
+        EXPECT_TRUE(validate_brf_record(*schema, *record, string_record(value), {}, &error));
+    }
+    const std::vector<std::string> invalid = {"\x80",
+                                              "\xC2",
+                                              "\xE2\x82",
+                                              "\xF0\x9F\x92",
+                                              "\xC0\x80",
+                                              "\xC1\xBF",
+                                              "\xE0\x80\x80",
+                                              "\xED\xA0\x80",
+                                              "\xED\xBF\xBF",
+                                              "\xF0\x80\x80\x80",
+                                              "\xF4\x90\x80\x80",
+                                              "\xF5\x80\x80\x80",
+                                              "\xFF"};
+    for (const auto& value : invalid) {
+        GenericBrfError error = GenericBrfError::none;
+        EXPECT_FALSE(validate_brf_record(*schema, *record, string_record(value), {}, &error));
+        EXPECT_EQ(error, GenericBrfError::invalid_utf8);
+    }
+}
+
+TEST(QbsBrfReaderTest, AcceptsTenByteVaruintPayloadBeforeSchemaBoundsCheck) {
+    auto qbs = qbs_image();
+    DiagnosticCollection diagnostics;
+    const auto schema = parse_qbs(qbs, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_id(1U);
+    ASSERT_TRUE(record.has_value());
+    auto make = [](std::uint8_t final_payload) {
+        std::vector<std::uint8_t> bytes(49U, 0U);
+        bytes[0] = 2U;
+        bytes[3] = 16U;
+        bytes[7] = 1U;
+        bytes[11] = 23U;
+        bytes[15] = 49U;
+        bytes[16] = 0x08U;
+        bytes[34] = 39U;
+        bytes[38] = 10U;
+        for (std::size_t i = 39U; i < 48U; ++i)
+            bytes[i] = 0x80U;
+        bytes[48] = final_payload;
+        return bytes;
+    };
+    GenericBrfError error = GenericBrfError::none;
+    // A zero tenth payload is only valid when the preceding payload already
+    // requires the tenth byte; this all-zero prefix is correctly rejected as
+    // an overlong encoding.
+    EXPECT_FALSE(validate_brf_record(*schema, *record, make(0U), {}, &error));
+    EXPECT_EQ(error, GenericBrfError::malformed_array);
+    EXPECT_FALSE(validate_brf_record(*schema, *record, make(1U), {}, &error));
+    EXPECT_EQ(error, GenericBrfError::bounds_exceeded);
+    EXPECT_FALSE(validate_brf_record(*schema, *record, make(2U), {}, &error));
+    EXPECT_EQ(error, GenericBrfError::malformed_array);
 }
 
 } // namespace
