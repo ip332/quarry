@@ -19,12 +19,15 @@ std::uint32_t u32(std::span<const std::uint8_t> bytes, std::size_t at) {
 
 std::optional<std::uint64_t> varuint(std::span<const std::uint8_t> bytes, std::size_t& cursor) {
     std::uint64_t value = 0U;
+    unsigned length = 0U;
     for (unsigned shift = 0U; shift < 64U && cursor < bytes.size(); shift += 7U) {
         const auto byte = bytes[cursor++];
+        ++length;
         if (shift == 63U && (byte & 0x7FU) != 0U)
             return std::nullopt;
         value |= static_cast<std::uint64_t>(byte & 0x7FU) << shift;
-        if ((byte & 0x80U) == 0U)
+        if ((byte & 0x80U) == 0U &&
+            (length == 1U || value >= (std::uint64_t{1} << (7U * (length - 1U)))))
             return value;
     }
     return std::nullopt;
@@ -87,19 +90,28 @@ bool valid_enum(const quarry::compiler::qbs::ValidatedQbsView& schema,
 bool validate_array(const quarry::compiler::qbs::ValidatedQbsView& schema,
                     const quarry::compiler::qbs::QbsTypeView& array_type,
                     std::span<const std::uint8_t> bytes, const BrfReadLimits& limits,
-                    std::uint64_t& work) {
+                    std::uint64_t& work, GenericBrfError* error) {
     std::size_t cursor = 0U;
     const auto count = varuint(bytes, cursor);
-    if (!count.has_value() || *count > array_type.max_elements ||
-        *count > limits.max_array_elements_traversed)
+    if (!count.has_value())
         return false;
+    if (*count > array_type.max_elements || *count > limits.max_array_elements_traversed) {
+        set_error(error, GenericBrfError::bounds_exceeded);
+        return false;
+    }
     if (*count >
-        limits.max_work_items - std::min(work, static_cast<std::uint64_t>(limits.max_work_items)))
+        limits.max_work_items - std::min(work, static_cast<std::uint64_t>(limits.max_work_items))) {
+        set_error(error, GenericBrfError::resource_limit_exceeded);
         return false;
+    }
     work += *count;
     if (array_type.reference >= schema.type_count())
         return false;
     const auto element = schema.type(array_type.reference);
+    if (element.code == 15U || element.code == 16U) {
+        set_error(error, GenericBrfError::unsupported_type);
+        return false;
+    }
     if (element.code == 13U || element.code == 14U || element.code == 15U) {
         for (std::uint64_t i = 0U; i < *count; ++i) {
             const auto length = varuint(bytes, cursor);
@@ -348,16 +360,27 @@ validate_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
             return std::nullopt;
         }
         if (present && type.code == 13U &&
-            !utf8({reinterpret_cast<const char*>(value.data()), value.size()})) {
+            (value.size() > type.max_bytes ||
+             !utf8({reinterpret_cast<const char*>(value.data()), value.size()}))) {
             set_error(error, GenericBrfError::invalid_utf8);
+            return std::nullopt;
+        }
+        if (present && type.code == 14U && value.size() > type.max_bytes) {
+            set_error(error, GenericBrfError::bounds_exceeded);
             return std::nullopt;
         }
         if (present && type.code == 12U && !valid_enum(schema, type, value)) {
             set_error(error, GenericBrfError::invalid_enum);
             return std::nullopt;
         }
-        if (present && type.code == 16U && !validate_array(schema, type, value, limits, work)) {
-            set_error(error, GenericBrfError::malformed_array);
+        if (present && type.code == 15U) {
+            set_error(error, GenericBrfError::unsupported_type);
+            return std::nullopt;
+        }
+        if (present && type.code == 16U &&
+            !validate_array(schema, type, value, limits, work, error)) {
+            if (error != nullptr && *error == GenericBrfError::none)
+                set_error(error, GenericBrfError::malformed_array);
             return std::nullopt;
         }
         result.fields_.push_back({field_schema->field_index, value, present});

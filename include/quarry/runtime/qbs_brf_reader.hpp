@@ -27,6 +27,7 @@ enum class GenericBrfError {
     invalid_utf8,
     invalid_enum,
     malformed_array,
+    unsupported_type,
     bounds_exceeded,
     resource_limit_exceeded,
 };

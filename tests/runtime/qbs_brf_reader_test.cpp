@@ -146,4 +146,80 @@ TEST(QbsBrfReaderTest, ReadsPrimitiveArrayAndRejectsInvalidEnum) {
     EXPECT_EQ(error, GenericBrfError::malformed_array);
 }
 
+TEST(QbsBrfReaderTest, DistinguishesAbsentAndPresentEmptyVariableValues) {
+    auto qbs = qbs_image();
+    DiagnosticCollection diagnostics;
+    const auto schema = parse_qbs(qbs, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_id(1U);
+    ASSERT_TRUE(record.has_value());
+
+    std::vector<std::uint8_t> empty_string(39U, 0U);
+    empty_string[0] = 2U;
+    empty_string[3] = 16U;
+    empty_string[7] = 1U;
+    empty_string[11] = 23U;
+    empty_string[15] = 39U;
+    empty_string[16] = 0x07U;
+    empty_string[20] = 1U;
+    empty_string[24] = 39U;
+    empty_string[30] = 2U;
+    GenericBrfError error = GenericBrfError::none;
+    const auto string_view = validate_brf_record(*schema, *record, empty_string, {}, &error);
+    ASSERT_TRUE(string_view.has_value());
+    ASSERT_TRUE(string_view->field(1U).has_value());
+    EXPECT_EQ(*string_view->field(1U)->as_string(), "");
+
+    std::vector<std::uint8_t> empty_array(40U, 0U);
+    empty_array[0] = 2U;
+    empty_array[3] = 16U;
+    empty_array[7] = 1U;
+    empty_array[11] = 23U;
+    empty_array[15] = 40U;
+    empty_array[16] = 0x0fU;
+    empty_array[20] = 1U;
+    empty_array[24] = 39U;
+    empty_array[30] = 2U;
+    empty_array[34] = 39U;
+    empty_array[38] = 1U;
+    const auto array_view = validate_brf_record(*schema, *record, empty_array, {}, &error);
+    ASSERT_TRUE(array_view.has_value());
+    ASSERT_TRUE(array_view->array(3U).has_value());
+    EXPECT_EQ(array_view->array(3U)->size(), 0U);
+}
+
+TEST(QbsBrfReaderTest, EnforcesReaderWorkAndArrayLimits) {
+    auto qbs = qbs_image();
+    DiagnosticCollection diagnostics;
+    const auto schema = parse_qbs(qbs, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_id(1U);
+    ASSERT_TRUE(record.has_value());
+    std::vector<std::uint8_t> brf(47U, 0U);
+    brf[0] = 2U;
+    brf[3] = 16U;
+    brf[7] = 1U;
+    brf[11] = 23U;
+    brf[15] = 47U;
+    brf[16] = 0x0fU;
+    brf[20] = 1U;
+    brf[24] = 39U;
+    brf[28] = 3U;
+    brf[30] = 2U;
+    brf[34] = 42U;
+    brf[38] = 5U;
+    brf[42] = 2U;
+    brf[44] = 10U;
+    brf[46] = 20U;
+    GenericBrfError error = GenericBrfError::none;
+    BrfReadLimits no_work;
+    no_work.max_work_items = 0U;
+    EXPECT_FALSE(validate_brf_record(*schema, *record, brf, no_work, &error));
+    EXPECT_EQ(error, GenericBrfError::resource_limit_exceeded);
+    BrfReadLimits one_element;
+    one_element.max_array_elements_traversed = 1U;
+    EXPECT_FALSE(validate_brf_record(*schema, *record, brf, one_element, &error));
+    EXPECT_EQ(error, GenericBrfError::bounds_exceeded);
+}
+
 } // namespace
