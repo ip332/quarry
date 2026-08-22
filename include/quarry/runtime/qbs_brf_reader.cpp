@@ -685,7 +685,7 @@ std::optional<BrfRecordArrayView> ValidatedBrfRecordView::record_array(
             const auto relation = *field.array_relation;
             if (relation >= validation_cache_->arrays().size())
                 return std::nullopt;
-            return BrfRecordArrayView(this, relation, validation_cache_->arrays()[relation].count);
+            return BrfRecordArrayView(*this, relation, validation_cache_->arrays()[relation].count);
         }
     }
     return std::nullopt;
@@ -734,16 +734,16 @@ ValidatedBrfRecordView::view_for_node(std::size_t node_index) const {
 }
 
 std::optional<ValidatedBrfRecordView> BrfRecordArrayView::element(std::size_t index) const {
-    if (owner_ == nullptr || index >= count_ || !owner_->validation_cache_ ||
-        relation_ >= owner_->validation_cache_->arrays().size())
+    if (index >= count_ || !owner_.validation_cache_ ||
+        relation_ >= owner_.validation_cache_->arrays().size())
         return std::nullopt;
-    const auto& relation = owner_->validation_cache_->arrays()[relation_];
+    const auto& relation = owner_.validation_cache_->arrays()[relation_];
     if (index >= relation.count ||
-        relation.child_begin > owner_->validation_cache_->array_children().size() ||
-        index >= owner_->validation_cache_->array_children().size() - relation.child_begin)
+        relation.child_begin > owner_.validation_cache_->array_children().size() ||
+        index >= owner_.validation_cache_->array_children().size() - relation.child_begin)
         return std::nullopt;
-    return owner_->view_for_node(
-        owner_->validation_cache_->array_children()[relation.child_begin + index]);
+    return owner_.view_for_node(
+        owner_.validation_cache_->array_children()[relation.child_begin + index]);
 }
 
 std::optional<ValidatedBrfRecordView> ValidatedBrfRecordView::nested_record(

@@ -176,9 +176,9 @@ public:
 
 private:
     friend class ValidatedBrfRecordView;
-    BrfRecordArrayView(const ValidatedBrfRecordView* owner, std::size_t relation, std::size_t count)
+    BrfRecordArrayView(const ValidatedBrfRecordView& owner, std::size_t relation, std::size_t count)
         : owner_(owner), relation_(relation), count_(count) {}
-    const ValidatedBrfRecordView* owner_;
+    ValidatedBrfRecordView owner_;
     std::size_t relation_;
     std::size_t count_;
 };
