@@ -15,6 +15,8 @@ namespace detail {
 class ValidationCache;
 }
 
+struct RecordValidationState;
+
 enum class GenericBrfError {
     none,
     truncated_header,
@@ -103,6 +105,11 @@ public:
     std::optional<BrfArrayView> array(std::uint16_t field_index) const;
 
 private:
+    friend bool validate_next_field(const quarry::compiler::qbs::ValidatedQbsView&,
+                                    const quarry::compiler::qbs::QbsRecordView&,
+                                    std::span<const std::uint8_t>, RecordValidationState&,
+                                    detail::ValidationCache&, ValidatedBrfRecordView&,
+                                    std::uint64_t&, BrfReadLimits, GenericBrfError*);
     friend std::optional<ValidatedBrfRecordView>
     validate_record_span(const quarry::compiler::qbs::ValidatedQbsView&,
                          const quarry::compiler::qbs::QbsRecordView&, std::span<const std::uint8_t>,
@@ -129,6 +136,7 @@ private:
 // child records without changing the public reader API.
 struct RecordValidationState {
     std::size_t qbs_record_index = 0U;
+    std::size_t node_index = 0U;
     std::span<const std::uint8_t> record_bytes;
     std::size_t fixed_region_end = 0U;
     std::size_t variable_region_start = 0U;
@@ -136,6 +144,13 @@ struct RecordValidationState {
     std::size_t field_cursor = 0U;
     std::size_t work_items = 0U;
 };
+
+[[nodiscard]] bool validate_next_field(const quarry::compiler::qbs::ValidatedQbsView& schema,
+                                       const quarry::compiler::qbs::QbsRecordView& record_schema,
+                                       std::span<const std::uint8_t> bytes,
+                                       RecordValidationState& state, detail::ValidationCache& cache,
+                                       ValidatedBrfRecordView& result, std::uint64_t& work,
+                                       BrfReadLimits limits, GenericBrfError* error);
 
 [[nodiscard]] std::optional<ValidatedBrfRecordView>
 validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,

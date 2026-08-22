@@ -198,6 +198,104 @@ std::optional<std::string_view> FieldValueView::as_string() const {
     return std::string_view(reinterpret_cast<const char*>(bytes_.data()), bytes_.size());
 }
 
+bool validate_next_field(const quarry::compiler::qbs::ValidatedQbsView& schema,
+                         const quarry::compiler::qbs::QbsRecordView& record_schema,
+                         std::span<const std::uint8_t> bytes, RecordValidationState& state,
+                         detail::ValidationCache& cache, ValidatedBrfRecordView& result,
+                         std::uint64_t& work, BrfReadLimits limits, GenericBrfError* error) {
+    if (state.field_cursor >= record_schema.field_count)
+        return false;
+    const auto i = static_cast<std::uint32_t>(state.field_cursor);
+    if (++work > limits.max_work_items || !cache.account_work()) {
+        set_error(error, GenericBrfError::resource_limit_exceeded);
+        return false;
+    }
+    const auto field_schema =
+        schema.find_field(state.qbs_record_index, static_cast<std::uint16_t>(i));
+    if (!field_schema.has_value() || field_schema->byte_offset > state.fixed_region_end ||
+        field_schema->slot_size > state.fixed_region_end - field_schema->byte_offset ||
+        field_schema->presence_bit_index / 8U >= record_schema.presence_bitmap_size) {
+        set_error(error, GenericBrfError::invalid_slot);
+        return false;
+    }
+    const bool present = (bytes[16U + field_schema->presence_bit_index / 8U] &
+                          (1U << (field_schema->presence_bit_index % 8U))) != 0U;
+    const auto slot = bytes.subspan(field_schema->byte_offset, field_schema->slot_size);
+    if (!present && std::any_of(slot.begin(), slot.end(), [](auto value) { return value != 0U; })) {
+        set_error(error, GenericBrfError::invalid_presence);
+        return false;
+    }
+    std::span<const std::uint8_t> value = slot;
+    if (present && field_schema->storage == 2U) {
+        if (slot.size() != 8U) {
+            set_error(error, GenericBrfError::invalid_descriptor);
+            return false;
+        }
+        const auto offset = u32(slot, 0U);
+        const auto length = u32(slot, 4U);
+        if (offset != state.variable_tail_cursor || offset > bytes.size() ||
+            length > bytes.size() - offset) {
+            set_error(error, GenericBrfError::invalid_variable_range);
+            return false;
+        }
+        value = bytes.subspan(offset, length);
+        state.variable_tail_cursor += length;
+    }
+    const auto type = schema.type(field_schema->type_index);
+    if (present && type.code == 1U && (value.size() != 1U || value[0] > 1U)) {
+        set_error(error, GenericBrfError::invalid_bool);
+        return false;
+    }
+    if (present && type.code == 13U &&
+        (value.size() > type.max_bytes ||
+         !utf8({reinterpret_cast<const char*>(value.data()), value.size()}))) {
+        set_error(error, GenericBrfError::invalid_utf8);
+        return false;
+    }
+    if (present && type.code == 14U && value.size() > type.max_bytes) {
+        set_error(error, GenericBrfError::bounds_exceeded);
+        return false;
+    }
+    if (present && type.code == 12U && !valid_enum(schema, type, value)) {
+        set_error(error, GenericBrfError::invalid_enum);
+        return false;
+    }
+    if (present && type.code == 15U) {
+        set_error(error, GenericBrfError::unsupported_type);
+        return false;
+    }
+    if (present && type.code == 16U && !validate_array(schema, type, value, limits, work, error)) {
+        if (error != nullptr && *error == GenericBrfError::none)
+            set_error(error, GenericBrfError::malformed_array);
+        return false;
+    }
+    detail::ValidatedFieldState field_state;
+    field_state.qbs_field_index = field_schema->field_index;
+    field_state.present = present;
+    field_state.fixed_offset = field_schema->byte_offset;
+    field_state.fixed_length = field_schema->slot_size;
+    if (present && field_schema->storage == 2U) {
+        field_state.payload_offset = u32(slot, 0U);
+        field_state.payload_length = value.size();
+    }
+    if (present && type.code == 16U) {
+        std::size_t array_cursor = 0U;
+        const auto count = varuint(value, array_cursor);
+        if (!count.has_value()) {
+            set_error(error, GenericBrfError::malformed_array);
+            return false;
+        }
+        field_state.array_count = *count;
+    }
+    if (!cache.add_field(state.node_index, field_state)) {
+        set_error(error, GenericBrfError::resource_limit_exceeded);
+        return false;
+    }
+    result.fields_.push_back({field_schema->field_index, value, present});
+    ++state.field_cursor;
+    return true;
+}
+
 std::optional<FieldValueView> BrfArrayView::element(std::size_t index) const {
     if (index >= count_)
         return std::nullopt;
@@ -336,105 +434,18 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
         set_error(error, GenericBrfError::resource_limit_exceeded);
         return std::nullopt;
     }
+    state.node_index = *root_node;
     ValidatedBrfRecordView result;
     result.schema_ = &schema;
     result.record_index_ = record_index;
     result.record_ = record_schema;
     result.bytes_ = bytes;
     result.validation_cache_ = validation_cache;
-    for (std::uint32_t i = 0U; i < record_schema.field_count; ++i) {
-        state.field_cursor = i;
-        if (++work > limits.max_work_items) {
-            set_error(error, GenericBrfError::resource_limit_exceeded);
+    while (state.field_cursor < record_schema.field_count) {
+        if (!validate_next_field(schema, record_schema, bytes, state, *validation_cache, result,
+                                 work, limits, error))
             return std::nullopt;
-        }
-        if (!validation_cache->account_work()) {
-            set_error(error, GenericBrfError::resource_limit_exceeded);
-            return std::nullopt;
-        }
-        const auto field_schema = schema.find_field(record_index, static_cast<std::uint16_t>(i));
-        if (!field_schema.has_value() || field_schema->byte_offset > 16U + fixed_size ||
-            field_schema->slot_size > 16U + fixed_size - field_schema->byte_offset ||
-            field_schema->presence_bit_index / 8U >= record_schema.presence_bitmap_size) {
-            set_error(error, GenericBrfError::invalid_slot);
-            return std::nullopt;
-        }
-        const bool present = (bytes[bitmap_begin + field_schema->presence_bit_index / 8U] &
-                              (1U << (field_schema->presence_bit_index % 8U))) != 0U;
-        const auto slot = bytes.subspan(field_schema->byte_offset, field_schema->slot_size);
-        if (!present &&
-            std::any_of(slot.begin(), slot.end(), [](auto value) { return value != 0U; })) {
-            set_error(error, GenericBrfError::invalid_presence);
-            return std::nullopt;
-        }
-        std::span<const std::uint8_t> value = slot;
-        if (present && field_schema->storage == 2U) {
-            if (slot.size() != 8U) {
-                set_error(error, GenericBrfError::invalid_descriptor);
-                return std::nullopt;
-            }
-            const auto offset = u32(slot, 0U);
-            const auto length = u32(slot, 4U);
-            if (offset != state.variable_tail_cursor || offset > bytes.size() ||
-                length > bytes.size() - offset) {
-                set_error(error, GenericBrfError::invalid_variable_range);
-                return std::nullopt;
-            }
-            value = bytes.subspan(offset, length);
-            state.variable_tail_cursor += length;
-        }
-        const auto type = schema.type(field_schema->type_index);
-        if (present && type.code == 1U && (value.size() != 1U || value[0] > 1U)) {
-            set_error(error, GenericBrfError::invalid_bool);
-            return std::nullopt;
-        }
-        if (present && type.code == 13U &&
-            (value.size() > type.max_bytes ||
-             !utf8({reinterpret_cast<const char*>(value.data()), value.size()}))) {
-            set_error(error, GenericBrfError::invalid_utf8);
-            return std::nullopt;
-        }
-        if (present && type.code == 14U && value.size() > type.max_bytes) {
-            set_error(error, GenericBrfError::bounds_exceeded);
-            return std::nullopt;
-        }
-        if (present && type.code == 12U && !valid_enum(schema, type, value)) {
-            set_error(error, GenericBrfError::invalid_enum);
-            return std::nullopt;
-        }
-        if (present && type.code == 15U) {
-            set_error(error, GenericBrfError::unsupported_type);
-            return std::nullopt;
-        }
-        if (present && type.code == 16U &&
-            !validate_array(schema, type, value, limits, work, error)) {
-            if (error != nullptr && *error == GenericBrfError::none)
-                set_error(error, GenericBrfError::malformed_array);
-            return std::nullopt;
-        }
-        detail::ValidatedFieldState field_state;
-        field_state.qbs_field_index = field_schema->field_index;
-        field_state.present = present;
-        field_state.fixed_offset = field_schema->byte_offset;
-        field_state.fixed_length = field_schema->slot_size;
-        if (present && field_schema->storage == 2U) {
-            field_state.payload_offset = u32(slot, 0U);
-            field_state.payload_length = value.size();
-        }
-        if (present && type.code == 16U) {
-            std::size_t array_cursor = 0U;
-            const auto count = varuint(value, array_cursor);
-            if (!count.has_value()) {
-                set_error(error, GenericBrfError::malformed_array);
-                return std::nullopt;
-            }
-            field_state.array_count = *count;
-        }
-        if (!validation_cache->add_field(*root_node, field_state)) {
-            set_error(error, GenericBrfError::resource_limit_exceeded);
-            return std::nullopt;
-        }
-        result.fields_.push_back({field_schema->field_index, value, present});
+        continue;
     }
     if (record_schema.presence_bitmap_size != 0U) {
         std::vector<std::uint8_t> used(record_schema.presence_bitmap_size, 0U);
