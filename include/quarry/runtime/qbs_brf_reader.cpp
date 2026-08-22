@@ -1,4 +1,5 @@
 #include "quarry/runtime/qbs_brf_reader.hpp"
+#include "quarry/runtime/detail/brf_validation_cache.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -324,6 +325,11 @@ validate_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
     }
     std::uint64_t work = 0U;
     std::uint64_t tail = 16U + fixed_size;
+    detail::ValidationCache validation_cache(limits);
+    if (!validation_cache.add_node(record_index, 0U, bytes.size()).has_value()) {
+        set_error(error, GenericBrfError::resource_limit_exceeded);
+        return std::nullopt;
+    }
     ValidatedBrfRecordView result;
     result.schema_ = &schema;
     result.record_index_ = record_index;
@@ -331,6 +337,10 @@ validate_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
     result.bytes_ = bytes;
     for (std::uint32_t i = 0U; i < record_schema.field_count; ++i) {
         if (++work > limits.max_work_items) {
+            set_error(error, GenericBrfError::resource_limit_exceeded);
+            return std::nullopt;
+        }
+        if (!validation_cache.account_work()) {
             set_error(error, GenericBrfError::resource_limit_exceeded);
             return std::nullopt;
         }
