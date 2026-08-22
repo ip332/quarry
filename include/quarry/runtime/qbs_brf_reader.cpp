@@ -276,10 +276,10 @@ std::optional<BrfArrayView> ValidatedBrfRecordView::array(std::uint16_t field_in
 }
 
 std::optional<ValidatedBrfRecordView>
-validate_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
-                    const quarry::compiler::qbs::QbsRecordView& record_schema,
-                    std::span<const std::uint8_t> bytes, BrfReadLimits limits,
-                    GenericBrfError* error) {
+validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
+                     const quarry::compiler::qbs::QbsRecordView& record_schema,
+                     std::span<const std::uint8_t> bytes, BrfReadLimits limits,
+                     GenericBrfError* error) {
     set_error(error, GenericBrfError::none);
     if (bytes.size() > limits.max_record_bytes || bytes.size() < 16U) {
         set_error(error, bytes.size() < 16U ? GenericBrfError::truncated_header
@@ -323,8 +323,13 @@ validate_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
         set_error(error, GenericBrfError::invalid_header);
         return std::nullopt;
     }
+    RecordValidationState state;
+    state.qbs_record_index = record_index;
+    state.record_bytes = bytes;
+    state.fixed_region_end = 16U + fixed_size;
+    state.variable_region_start = state.fixed_region_end;
+    state.variable_tail_cursor = state.variable_region_start;
     std::uint64_t work = 0U;
-    std::uint64_t tail = 16U + fixed_size;
     detail::ValidationCache validation_cache(limits);
     if (!validation_cache.add_node(record_index, 0U, bytes.size()).has_value()) {
         set_error(error, GenericBrfError::resource_limit_exceeded);
@@ -336,6 +341,7 @@ validate_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
     result.record_ = record_schema;
     result.bytes_ = bytes;
     for (std::uint32_t i = 0U; i < record_schema.field_count; ++i) {
+        state.field_cursor = i;
         if (++work > limits.max_work_items) {
             set_error(error, GenericBrfError::resource_limit_exceeded);
             return std::nullopt;
@@ -367,12 +373,13 @@ validate_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
             }
             const auto offset = u32(slot, 0U);
             const auto length = u32(slot, 4U);
-            if (offset != tail || offset > bytes.size() || length > bytes.size() - offset) {
+            if (offset != state.variable_tail_cursor || offset > bytes.size() ||
+                length > bytes.size() - offset) {
                 set_error(error, GenericBrfError::invalid_variable_range);
                 return std::nullopt;
             }
             value = bytes.subspan(offset, length);
-            tail += length;
+            state.variable_tail_cursor += length;
         }
         const auto type = schema.type(field_schema->type_index);
         if (present && type.code == 1U && (value.size() != 1U || value[0] > 1U)) {
@@ -424,11 +431,19 @@ validate_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
             }
         }
     }
-    if (tail != bytes.size()) {
+    if (state.variable_tail_cursor != bytes.size()) {
         set_error(error, GenericBrfError::noncanonical_tail);
         return std::nullopt;
     }
     return result;
+}
+
+std::optional<ValidatedBrfRecordView>
+validate_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
+                    const quarry::compiler::qbs::QbsRecordView& record_schema,
+                    std::span<const std::uint8_t> bytes, BrfReadLimits limits,
+                    GenericBrfError* error) {
+    return validate_record_span(schema, record_schema, bytes, limits, error);
 }
 
 } // namespace quarry::runtime

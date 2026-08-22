@@ -306,4 +306,23 @@ TEST(QbsBrfReaderTest, AcceptsTenByteVaruintPayloadBeforeSchemaBoundsCheck) {
     EXPECT_EQ(error, GenericBrfError::malformed_array);
 }
 
+TEST(QbsBrfReaderTest, InternalRecordSpanUsesLocalOffsets) {
+    auto qbs = qbs_image();
+    DiagnosticCollection diagnostics;
+    const auto schema = parse_qbs(qbs, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_id(1U);
+    ASSERT_TRUE(record.has_value());
+    auto record_bytes = string_record("local");
+    std::vector<std::uint8_t> enclosing(17U + record_bytes.size() + 9U, 0xA5U);
+    std::copy(record_bytes.begin(), record_bytes.end(), enclosing.begin() + 17U);
+    GenericBrfError error = GenericBrfError::none;
+    const auto view = validate_record_span(
+        *schema, *record,
+        std::span<const std::uint8_t>(enclosing).subspan(17U, record_bytes.size()), {}, &error);
+    ASSERT_TRUE(view.has_value());
+    ASSERT_TRUE(view->field(1U).has_value());
+    EXPECT_EQ(*view->field(1U)->as_string(), "local");
+}
+
 } // namespace
