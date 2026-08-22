@@ -296,6 +296,44 @@ bool validate_next_field(const quarry::compiler::qbs::ValidatedQbsView& schema,
     return true;
 }
 
+RecordValidationStep
+advance_record_validation(const quarry::compiler::qbs::ValidatedQbsView& schema,
+                          const quarry::compiler::qbs::QbsRecordView& record_schema,
+                          std::span<const std::uint8_t> bytes, RecordValidationState& state,
+                          detail::ValidationCache& cache, ValidatedBrfRecordView& result,
+                          std::uint64_t& work, BrfReadLimits limits, GenericBrfError* error) {
+    if (state.phase == RecordValidationState::Phase::Complete)
+        return RecordValidationStep::Complete;
+    if (state.phase == RecordValidationState::Phase::Failed) {
+        set_error(error, GenericBrfError::invalid_header);
+        return RecordValidationStep::Error;
+    }
+    if (state.phase == RecordValidationState::Phase::Fields) {
+        if (state.field_cursor < record_schema.field_count) {
+            if (!validate_next_field(schema, record_schema, bytes, state, cache, result, work,
+                                     limits, error)) {
+                state.phase = RecordValidationState::Phase::Failed;
+                return RecordValidationStep::Error;
+            }
+            return RecordValidationStep::Continue;
+        }
+        state.phase = RecordValidationState::Phase::FinalizeTail;
+        return RecordValidationStep::Continue;
+    }
+    if (state.phase == RecordValidationState::Phase::FinalizeTail) {
+        if (state.variable_tail_cursor != bytes.size() || !cache.complete_node(state.node_index)) {
+            set_error(error, state.variable_tail_cursor != bytes.size()
+                                 ? GenericBrfError::noncanonical_tail
+                                 : GenericBrfError::resource_limit_exceeded);
+            state.phase = RecordValidationState::Phase::Failed;
+            return RecordValidationStep::Error;
+        }
+        state.phase = RecordValidationState::Phase::Complete;
+        return RecordValidationStep::Complete;
+    }
+    return RecordValidationStep::Error;
+}
+
 std::optional<FieldValueView> BrfArrayView::element(std::size_t index) const {
     if (index >= count_)
         return std::nullopt;
@@ -441,11 +479,14 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
     result.record_ = record_schema;
     result.bytes_ = bytes;
     result.validation_cache_ = validation_cache;
-    while (state.field_cursor < record_schema.field_count) {
-        if (!validate_next_field(schema, record_schema, bytes, state, *validation_cache, result,
-                                 work, limits, error))
+    state.phase = RecordValidationState::Phase::Fields;
+    for (;;) {
+        const auto step = advance_record_validation(schema, record_schema, bytes, state,
+                                                    *validation_cache, result, work, limits, error);
+        if (step == RecordValidationStep::Complete)
+            break;
+        if (step == RecordValidationStep::Error)
             return std::nullopt;
-        continue;
     }
     if (record_schema.presence_bitmap_size != 0U) {
         std::vector<std::uint8_t> used(record_schema.presence_bitmap_size, 0U);
@@ -465,14 +506,6 @@ validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
                 return std::nullopt;
             }
         }
-    }
-    if (state.variable_tail_cursor != bytes.size()) {
-        set_error(error, GenericBrfError::noncanonical_tail);
-        return std::nullopt;
-    }
-    if (!validation_cache->complete_node(*root_node)) {
-        set_error(error, GenericBrfError::resource_limit_exceeded);
-        return std::nullopt;
     }
     return result;
 }

@@ -16,6 +16,7 @@ class ValidationCache;
 }
 
 struct RecordValidationState;
+enum class RecordValidationStep;
 
 enum class GenericBrfError {
     none,
@@ -110,6 +111,10 @@ private:
                                     std::span<const std::uint8_t>, RecordValidationState&,
                                     detail::ValidationCache&, ValidatedBrfRecordView&,
                                     std::uint64_t&, BrfReadLimits, GenericBrfError*);
+    friend RecordValidationStep advance_record_validation(
+        const quarry::compiler::qbs::ValidatedQbsView&, const quarry::compiler::qbs::QbsRecordView&,
+        std::span<const std::uint8_t>, RecordValidationState&, detail::ValidationCache&,
+        ValidatedBrfRecordView&, std::uint64_t&, BrfReadLimits, GenericBrfError*);
     friend std::optional<ValidatedBrfRecordView>
     validate_record_span(const quarry::compiler::qbs::ValidatedQbsView&,
                          const quarry::compiler::qbs::QbsRecordView&, std::span<const std::uint8_t>,
@@ -135,6 +140,8 @@ private:
 // always relative to the record span, so this routine is reusable for future
 // child records without changing the public reader API.
 struct RecordValidationState {
+    enum class Phase { Header, Presence, Fields, FinalizeTail, Complete, Failed };
+    Phase phase = Phase::Fields;
     std::size_t qbs_record_index = 0U;
     std::size_t node_index = 0U;
     std::span<const std::uint8_t> record_bytes;
@@ -151,6 +158,15 @@ struct RecordValidationState {
                                        RecordValidationState& state, detail::ValidationCache& cache,
                                        ValidatedBrfRecordView& result, std::uint64_t& work,
                                        BrfReadLimits limits, GenericBrfError* error);
+
+enum class RecordValidationStep { Continue, Complete, Error };
+
+[[nodiscard]] RecordValidationStep
+advance_record_validation(const quarry::compiler::qbs::ValidatedQbsView& schema,
+                          const quarry::compiler::qbs::QbsRecordView& record_schema,
+                          std::span<const std::uint8_t> bytes, RecordValidationState& state,
+                          detail::ValidationCache& cache, ValidatedBrfRecordView& result,
+                          std::uint64_t& work, BrfReadLimits limits, GenericBrfError* error);
 
 [[nodiscard]] std::optional<ValidatedBrfRecordView>
 validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
