@@ -4,6 +4,20 @@ This module owns generic runtime support for Quarry binary records.
 
 ### BRF v2 primitives
 
+### QBS-driven read-only access
+
+`quarry/runtime/qbs_brf_reader.hpp` provides a read-only bridge from a
+validated `ValidatedQbsView` to an untrusted BRF v2 record. Callers validate a
+record once with `validate_brf_record`; the resulting
+`ValidatedBrfRecordView` exposes presence and zero-copy scalar, string, bytes,
+and primitive-array views. Supported arrays include boolean and enum elements,
+which are validated against the QBS metadata. The view borrows both the QBS
+input and BRF input buffers, and its `BrfReadLimits` bound record size, array
+work, and validation work. Nested records and record arrays intentionally
+return an explicit unsupported-type failure in this PR; they require a
+separate cached graph-validation architecture. This layer does not encode or
+mutate BRF records.
+
 BRF v2 support is available through the header-only
 `quarry/runtime/binary_record_v2.hpp` API and is intentionally separate from
 the existing BRF v1 runtime. A compiler-owned Layout IR can be adapted with

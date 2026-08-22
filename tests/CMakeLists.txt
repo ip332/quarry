@@ -148,6 +148,8 @@ add_quarry_gtest(runtime_binary_record_v2_test runtime/binary_record_v2_test.cpp
                       quarry_runtime)
 target_link_libraries(runtime_binary_record_v2_test PRIVATE quarry_compiler_layout)
 target_link_libraries(runtime_binary_record_v2_test PRIVATE quarry_schema_ir_warning_tweaks)
+add_quarry_gtest(runtime_qbs_brf_reader_test runtime/qbs_brf_reader_test.cpp
+                      quarry_compiler_qbs)
 add_quarry_gtest(runtime_c_binary_record_test runtime_c/binary_record_test.cpp
                       quarry_runtime_c)
 target_compile_definitions(runtime_c_binary_record_test PRIVATE
