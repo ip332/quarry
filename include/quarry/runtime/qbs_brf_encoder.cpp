@@ -492,11 +492,11 @@ encode_brf_record_impl(const quarry::compiler::qbs::ValidatedQbsView& schema,
         }
         tail_size += variable_payloads[i].size();
     }
-    result.resize(fixed_end + tail_size, 0U);
-    if (result.size() > limits.max_record_bytes) {
+    if (fixed_end > limits.max_record_bytes || tail_size > limits.max_record_bytes - fixed_end) {
         set_error(error, GenericBrfEncodeError::overflow);
         return std::nullopt;
     }
+    result.resize(fixed_end + tail_size, 0U);
     result[0] = 2U;
     put16(result, 2U, 16U);
     put32(result, 4U, record_schema.record_id);

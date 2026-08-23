@@ -517,4 +517,32 @@ TEST(QbsBrfEncoderTest, EncodesFixedAndVariableRecordArrays) {
     }
 }
 
+TEST(QbsBrfEncoderTest, PresentEmptyRecordArrayHasCanonicalZeroCount) {
+    DiagnosticCollection diagnostics;
+    const auto source = record_array_schema(false);
+    const auto layout = quarry::compiler::layout::LayoutComputer{}.compute(source, diagnostics);
+    ASSERT_TRUE(diagnostics.empty());
+    const auto model =
+        QbsModelBuilder{}.build(source, layout, {.mode = BuildMode::Minimal}, diagnostics);
+    ASSERT_TRUE(model.has_value());
+    const auto image = serialize_qbs(*model, diagnostics);
+    ASSERT_TRUE(image.has_value());
+    const auto schema = parse_qbs(image->bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto parent = schema->find_record_by_identity("Parent");
+    ASSERT_TRUE(parent.has_value());
+    auto children = std::make_shared<std::vector<BrfNestedRecordValue>>();
+    const std::vector<std::optional<BrfEncodeValue>> fields{
+        BrfEncodeValue{BrfRecordArrayValue{children}}};
+    GenericBrfEncodeError error = GenericBrfEncodeError::none;
+    const auto bytes = encode_brf_record(*schema, *parent, fields, &error);
+    ASSERT_TRUE(bytes.has_value());
+    ASSERT_EQ(error, GenericBrfEncodeError::none);
+    GenericBrfError read_error = GenericBrfError::none;
+    const auto view = validate_brf_record(*schema, *parent, *bytes, {}, &read_error);
+    ASSERT_TRUE(view.has_value());
+    ASSERT_TRUE(view->record_array(0U).has_value());
+    EXPECT_EQ(view->record_array(0U)->size(), 0U);
+}
+
 } // namespace
