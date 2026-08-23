@@ -3,6 +3,7 @@
 #include "compiler/qbs/parser.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -83,39 +84,66 @@ enum class GenericBrfValueKind {
     record,
 };
 
+using BrfValueKind = GenericBrfValueKind;
+
+class BrfArrayView;
+class BrfArrayValueView;
+class ValidatedBrfRecordView;
+
 class FieldValueView {
 public:
     GenericBrfValueKind kind() const { return kind_; }
+    quarry::compiler::qbs::QbsTypeView type() const { return type_; }
     std::span<const std::uint8_t> bytes() const { return bytes_; }
     std::optional<bool> as_bool() const;
     std::optional<std::uint64_t> as_unsigned() const;
     std::optional<std::int64_t> as_signed() const;
     std::optional<std::string_view> as_string() const;
+    std::optional<std::span<const std::uint8_t>> as_bytes() const;
+    std::optional<float> as_float32() const;
+    std::optional<double> as_float64() const;
+    std::optional<std::uint64_t> as_enum() const;
+    std::optional<BrfArrayValueView> as_array() const;
+    std::optional<ValidatedBrfRecordView> as_record() const;
 
 private:
     friend class ValidatedBrfRecordView;
     friend class BrfArrayView;
+    friend class BrfArrayValueView;
     FieldValueView(GenericBrfValueKind kind, std::span<const std::uint8_t> bytes,
                    std::uint16_t width)
         : kind_(kind), bytes_(bytes), width_(width) {}
     GenericBrfValueKind kind_;
     std::span<const std::uint8_t> bytes_;
     std::uint16_t width_;
+    quarry::compiler::qbs::QbsTypeView type_;
+    const ValidatedBrfRecordView* owner_ = nullptr;
+    std::uint16_t field_index_ = 0U;
+    std::shared_ptr<const ValidatedBrfRecordView> record_value_;
+};
+
+using BrfValueView = FieldValueView;
+struct BrfFieldValueView {
+    quarry::compiler::qbs::QbsFieldView field;
+    bool present = false;
+    std::optional<BrfValueView> value;
 };
 
 class BrfArrayView {
 public:
     std::size_t size() const { return count_; }
+    quarry::compiler::qbs::QbsTypeView element_type() const { return element_type_; }
     std::optional<FieldValueView> element(std::size_t index) const;
 
 private:
     friend class ValidatedBrfRecordView;
     BrfArrayView(quarry::compiler::qbs::QbsTypeView element_type,
-                 std::span<const std::uint8_t> bytes, std::size_t count)
-        : element_type_(element_type), bytes_(bytes), count_(count) {}
+                 std::span<const std::uint8_t> bytes, std::size_t count, std::size_t data_start)
+        : element_type_(element_type), bytes_(bytes), count_(count), data_start_(data_start) {}
     quarry::compiler::qbs::QbsTypeView element_type_;
     std::span<const std::uint8_t> bytes_;
     std::size_t count_;
+    std::size_t data_start_;
 };
 
 class ValidatedBrfRecordView {
@@ -127,12 +155,17 @@ public:
     std::optional<FieldValueView> field(std::uint16_t field_index) const;
     std::optional<BrfArrayView> array(const quarry::compiler::qbs::QbsFieldView& field) const;
     std::optional<BrfArrayView> array(std::uint16_t field_index) const;
+    std::optional<quarry::compiler::qbs::QbsTypeView>
+    array_element_type(std::uint16_t field_index) const;
     std::optional<BrfRecordArrayView>
     record_array(const quarry::compiler::qbs::QbsFieldView& field) const;
     std::optional<BrfRecordArrayView> record_array(std::uint16_t field_index) const;
     std::optional<ValidatedBrfRecordView>
     nested_record(const quarry::compiler::qbs::QbsFieldView& field) const;
     std::optional<ValidatedBrfRecordView> nested_record(std::uint16_t field_index) const;
+    std::optional<quarry::compiler::qbs::QbsFieldView>
+    field_metadata(std::uint16_t field_index) const;
+    std::vector<BrfFieldValueView> fields() const;
 
 private:
     friend class BrfRecordArrayView;
@@ -182,6 +215,62 @@ private:
     std::size_t relation_;
     std::size_t count_;
 };
+
+class BrfArrayValueView {
+public:
+    BrfArrayValueView() = default;
+    std::size_t size() const {
+        return primitive_.has_value() ? primitive_->size() : records_->size();
+    }
+    quarry::compiler::qbs::QbsTypeView element_type() const {
+        return primitive_.has_value() ? primitive_->element_type() : element_type_;
+    }
+    std::optional<BrfValueView> element(std::size_t index) const;
+
+private:
+    friend class ValidatedBrfRecordView;
+    friend class FieldValueView;
+    BrfArrayValueView(BrfArrayView primitive) : primitive_(std::move(primitive)) {}
+    BrfArrayValueView(BrfRecordArrayView records, quarry::compiler::qbs::QbsTypeView element_type)
+        : records_(std::move(records)), element_type_(element_type) {}
+    std::optional<BrfArrayView> primitive_;
+    std::optional<BrfRecordArrayView> records_;
+    quarry::compiler::qbs::QbsTypeView element_type_;
+};
+
+enum class BrfTraversalEventKind {
+    record_begin,
+    record_end,
+    field,
+    scalar,
+    array_begin,
+    array_element,
+    array_end,
+};
+
+struct BrfTraversalEvent {
+    BrfTraversalEventKind kind = BrfTraversalEventKind::field;
+    quarry::compiler::qbs::QbsFieldView field;
+    bool present = false;
+    std::size_t index = 0U;
+    std::size_t depth = 0U;
+    std::optional<BrfValueView> value;
+    std::optional<BrfArrayValueView> array;
+    std::optional<ValidatedBrfRecordView> record;
+};
+
+enum class BrfTraversalControl { Continue, Stop };
+enum class BrfTraversalResult { completed, stopped, work_limit, depth_limit, internal_error };
+using BrfTraversalVisitor = std::function<BrfTraversalControl(const BrfTraversalEvent&)>;
+
+struct BrfTraversalLimits {
+    std::size_t max_work_items = 1U << 20U;
+    std::size_t max_depth = 1024U;
+};
+
+[[nodiscard]] BrfTraversalResult traverse_brf(const ValidatedBrfRecordView& root,
+                                              const BrfTraversalVisitor& visitor,
+                                              BrfTraversalLimits limits = {});
 
 // Internal single-record validation state. Offsets and the variable tail are
 // always relative to the record span, so this routine is reusable for future
