@@ -2,6 +2,7 @@
 #include "compiler/qbs/parser.hpp"
 #include "compiler/qbs/qbs.hpp"
 #include "compiler/qbs/serializer.hpp"
+#include "quarry/runtime/qbs_brf_encoder.hpp"
 #include "quarry/runtime/qbs_brf_reader.hpp"
 
 #include <gtest/gtest.h>
@@ -82,6 +83,65 @@ SchemaIR variable_nested_schema_ir() {
     return schema;
 }
 
+SchemaIR relation_composition_schema_ir(bool reverse_fields = false,
+                                        bool multiple_children = false) {
+    SchemaIR schema;
+    schema.set_schema_ir_version(1U);
+    schema.mutable_root_namespace()->set_ir_id(1U);
+    auto add_record = [&](std::uint64_t ir_id, std::uint32_t record_id, const char* name) {
+        auto* record = schema.mutable_root_namespace()->add_records();
+        record->set_ir_id(ir_id);
+        record->set_record_id(record_id);
+        record->set_name(name);
+        record->set_fqn(name);
+        return record;
+    };
+    auto* child = add_record(2U, 2U, "Child");
+    auto* child_value = child->add_fields();
+    child_value->set_name("value");
+    child_value->set_field_index(0U);
+    child_value->mutable_type()->set_primitive(quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    auto* item = add_record(3U, 3U, "Item");
+    auto* item_value = item->add_fields();
+    item_value->set_name("value");
+    item_value->set_field_index(0U);
+    item_value->mutable_type()->set_primitive(quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    auto* item_child = item->add_fields();
+    item_child->set_name("child");
+    item_child->set_field_index(1U);
+    item_child->mutable_type()->mutable_record()->set_target_record_ir_id(2U);
+    auto* parent = add_record(1U, 1U, "Parent");
+    auto add_child_field = [&](std::uint16_t index, const char* name) {
+        auto* field = parent->add_fields();
+        field->set_name(name);
+        field->set_field_index(index);
+        field->mutable_type()->mutable_record()->set_target_record_ir_id(2U);
+    };
+    auto add_items_field = [&](std::uint16_t index) {
+        auto* field = parent->add_fields();
+        field->set_name("items");
+        field->set_field_index(index);
+        field->mutable_type()->mutable_array()->set_max_elements(4U);
+        field->mutable_type()
+            ->mutable_array()
+            ->mutable_element_type()
+            ->mutable_record()
+            ->set_target_record_ir_id(3U);
+    };
+    if (reverse_fields) {
+        add_items_field(multiple_children ? 2U : 0U);
+        if (multiple_children)
+            add_child_field(1U, "child2");
+        add_child_field(multiple_children ? 0U : 1U, multiple_children ? "child1" : "child");
+    } else {
+        add_child_field(0U, "child1");
+        if (multiple_children)
+            add_child_field(1U, "child2");
+        add_items_field(multiple_children ? 2U : 1U);
+    }
+    return schema;
+}
+
 SchemaIR record_array_schema_ir(bool variable_item) {
     SchemaIR schema;
     schema.set_schema_ir_version(1U);
@@ -133,6 +193,148 @@ std::vector<std::uint8_t> qbs_image() {
         bytes.push_back(static_cast<std::uint8_t>((digit(hex[i]) << 4U) | digit(hex[i + 1U])));
     }
     return bytes;
+}
+
+TEST(QbsBrfReaderTest, KeepsParentRelationsStableAcrossNestedAndRecordArrayValidation) {
+    for (const bool reverse : {false, true}) {
+        DiagnosticCollection diagnostics;
+        const auto source = relation_composition_schema_ir(reverse);
+        const auto layout = quarry::compiler::layout::LayoutComputer{}.compute(source, diagnostics);
+        ASSERT_TRUE(diagnostics.empty());
+        const auto model =
+            QbsModelBuilder{}.build(source, layout, {.mode = BuildMode::Reflective}, diagnostics);
+        ASSERT_TRUE(model.has_value());
+        const auto image = serialize_qbs(*model, diagnostics);
+        ASSERT_TRUE(image.has_value());
+        const auto schema = parse_qbs(image->bytes, diagnostics);
+        ASSERT_TRUE(schema.has_value());
+        const auto parent = schema->find_record_by_identity("Parent");
+        const auto child_schema = schema->find_record_by_identity("Child");
+        const auto item_schema = schema->find_record_by_identity("Item");
+        ASSERT_TRUE(parent.has_value());
+        ASSERT_TRUE(child_schema.has_value());
+        ASSERT_TRUE(item_schema.has_value());
+        auto child = std::make_shared<BrfRecordInput>();
+        child->record_id = child_schema->record_id;
+        child->identity = std::string(child_schema->identity);
+        child->fields = {BrfEncodeValue{std::uint64_t{10U}}};
+        auto first = std::make_shared<BrfRecordInput>();
+        first->record_id = item_schema->record_id;
+        first->identity = std::string(item_schema->identity);
+        first->fields = {BrfEncodeValue{std::uint64_t{20U}}, BrfEncodeValue{child}};
+        auto second = std::make_shared<BrfRecordInput>(*first);
+        second->fields = {BrfEncodeValue{std::uint64_t{30U}}, BrfEncodeValue{child}};
+        auto items = std::make_shared<std::vector<BrfNestedRecordValue>>();
+        items->push_back(first);
+        items->push_back(second);
+        const auto child_only =
+            reverse
+                ? std::vector<std::optional<BrfEncodeValue>>{std::nullopt, BrfEncodeValue{child}}
+                : std::vector<std::optional<BrfEncodeValue>>{BrfEncodeValue{child}, std::nullopt};
+        const auto items_only =
+            reverse
+                ? std::vector<std::optional<BrfEncodeValue>>{BrfEncodeValue{items}, std::nullopt}
+                : std::vector<std::optional<BrfEncodeValue>>{std::nullopt, BrfEncodeValue{items}};
+        const auto child_only_bytes = encode_brf_record(*schema, *parent, child_only);
+        const auto items_only_bytes = encode_brf_record(*schema, *parent, items_only);
+        ASSERT_TRUE(child_only_bytes.has_value());
+        ASSERT_TRUE(items_only_bytes.has_value());
+        const auto child_only_view = validate_brf_record(*schema, *parent, *child_only_bytes);
+        const auto items_only_view = validate_brf_record(*schema, *parent, *items_only_bytes);
+        ASSERT_TRUE(child_only_view.has_value());
+        ASSERT_TRUE(items_only_view.has_value());
+        EXPECT_TRUE(child_only_view->nested_record(reverse ? 1U : 0U).has_value());
+        EXPECT_TRUE(items_only_view->record_array(reverse ? 0U : 1U).has_value());
+        const auto both = reverse
+                              ? std::vector<std::optional<BrfEncodeValue>>{BrfEncodeValue{items},
+                                                                           BrfEncodeValue{child}}
+                              : std::vector<std::optional<BrfEncodeValue>>{BrfEncodeValue{child},
+                                                                           BrfEncodeValue{items}};
+        const auto bytes = encode_brf_record(*schema, *parent, both);
+        ASSERT_TRUE(bytes.has_value());
+        const auto view = validate_brf_record(*schema, *parent, *bytes);
+        ASSERT_TRUE(view.has_value());
+        const auto child_index = reverse ? 1U : 0U;
+        const auto items_index = reverse ? 0U : 1U;
+        ASSERT_TRUE(view->nested_record(child_index).has_value());
+        ASSERT_TRUE(view->record_array(items_index).has_value());
+        EXPECT_EQ(view->nested_record(child_index)->field(0U)->as_unsigned(), 10U);
+        EXPECT_EQ(view->record_array(items_index)->element(0U)->field(0U)->as_unsigned(), 20U);
+        EXPECT_EQ(view->record_array(items_index)->element(1U)->field(0U)->as_unsigned(), 30U);
+        ASSERT_TRUE(view->record_array(items_index)->element(0U)->nested_record(1U).has_value());
+        EXPECT_EQ(view->record_array(items_index)
+                      ->element(1U)
+                      ->nested_record(1U)
+                      ->field(0U)
+                      ->as_unsigned(),
+                  10U);
+    }
+}
+
+TEST(QbsBrfReaderTest, KeepsMultipleParentChildrenAndRecordArrayStable) {
+    DiagnosticCollection diagnostics;
+    const auto source = relation_composition_schema_ir(false, true);
+    const auto layout = quarry::compiler::layout::LayoutComputer{}.compute(source, diagnostics);
+    ASSERT_TRUE(diagnostics.empty());
+    const auto model =
+        QbsModelBuilder{}.build(source, layout, {.mode = BuildMode::Reflective}, diagnostics);
+    ASSERT_TRUE(model.has_value());
+    const auto image = serialize_qbs(*model, diagnostics);
+    ASSERT_TRUE(image.has_value());
+    const auto schema = parse_qbs(image->bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto parent = schema->find_record_by_identity("Parent");
+    const auto child_schema = schema->find_record_by_identity("Child");
+    const auto item_schema = schema->find_record_by_identity("Item");
+    ASSERT_TRUE(parent.has_value());
+    ASSERT_TRUE(child_schema.has_value());
+    ASSERT_TRUE(item_schema.has_value());
+
+    auto make_child = [&](std::uint64_t value) {
+        auto child = std::make_shared<BrfRecordInput>();
+        child->record_id = child_schema->record_id;
+        child->identity = std::string(child_schema->identity);
+        child->fields = {BrfEncodeValue{value}};
+        return child;
+    };
+    auto make_item = [&](std::uint64_t value) {
+        auto item = std::make_shared<BrfRecordInput>();
+        item->record_id = item_schema->record_id;
+        item->identity = std::string(item_schema->identity);
+        item->fields = {BrfEncodeValue{value}, BrfEncodeValue{make_child(value + 100U)}};
+        return item;
+    };
+    auto items = std::make_shared<std::vector<BrfNestedRecordValue>>();
+    items->push_back(make_item(20U));
+    items->push_back(make_item(30U));
+    const std::vector<std::optional<BrfEncodeValue>> fields{
+        BrfEncodeValue{make_child(10U)}, BrfEncodeValue{make_child(11U)}, BrfEncodeValue{items}};
+    const auto bytes = encode_brf_record(*schema, *parent, fields);
+    ASSERT_TRUE(bytes.has_value());
+    const auto view = validate_brf_record(*schema, *parent, *bytes);
+    ASSERT_TRUE(view.has_value());
+    ASSERT_TRUE(view->nested_record(0U).has_value());
+    ASSERT_TRUE(view->nested_record(1U).has_value());
+    ASSERT_TRUE(view->record_array(2U).has_value());
+    EXPECT_EQ(view->nested_record(0U)->field(0U)->as_unsigned(), 10U);
+    EXPECT_EQ(view->nested_record(1U)->field(0U)->as_unsigned(), 11U);
+    EXPECT_EQ(view->record_array(2U)->element(1U)->field(0U)->as_unsigned(), 30U);
+    EXPECT_EQ(view->record_array(2U)->element(1U)->nested_record(1U)->field(0U)->as_unsigned(),
+              130U);
+
+    std::vector<std::pair<BrfTraversalEventKind, std::uint16_t>> events;
+    const auto traversal = traverse_brf(*view, [&](const BrfTraversalEvent& event) {
+        events.emplace_back(
+            event.kind, event.kind == BrfTraversalEventKind::field ? event.field.field_index : 0U);
+        return BrfTraversalControl::Continue;
+    });
+    EXPECT_EQ(traversal, BrfTraversalResult::completed);
+    EXPECT_EQ(std::count_if(events.begin(), events.end(),
+                            [](const auto& event) {
+                                return event.first == BrfTraversalEventKind::record_begin;
+                            }),
+              7U);
+    EXPECT_EQ(events.front().first, BrfTraversalEventKind::record_begin);
 }
 
 TEST(QbsBrfReaderTest, ReadsThreeLevelFixedNestedRecordsFromNormalPipeline) {

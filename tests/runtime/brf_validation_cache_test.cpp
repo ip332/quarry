@@ -82,6 +82,8 @@ TEST(BrfValidationCacheTest, FieldRangesRemainStableAcrossGrowth) {
               31U);
     EXPECT_TRUE(cache.complete_node(*root));
     EXPECT_TRUE(cache.nodes()[*root].complete);
+    ASSERT_EQ(cache.field_indexes(*root).size(), 32U);
+    EXPECT_EQ(cache.fields()[cache.field_indexes(*root)[31U]].qbs_field_index, 31U);
 }
 
 TEST(BrfValidationCacheTest, ChildRelationZeroIsRepresentable) {

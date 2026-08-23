@@ -11,6 +11,7 @@ std::optional<std::size_t> ValidationCache::add_node(std::size_t qbs_record_inde
     if (nodes_.size() >= limits_.max_nested_records + 1U || !account_work())
         return std::nullopt;
     nodes_.push_back({qbs_record_index, brf_offset, brf_length});
+    field_indexes_.emplace_back();
     return nodes_.size() - 1U;
 }
 
@@ -99,6 +100,7 @@ std::optional<std::size_t> ValidationCache::begin_fields(std::size_t node_index)
         return std::nullopt;
     nodes_[node_index].first_validated_field = fields_.size();
     nodes_[node_index].validated_field_count = 0U;
+    field_indexes_[node_index].clear();
     return fields_.size();
 }
 
@@ -106,6 +108,7 @@ bool ValidationCache::add_field(std::size_t node_index, ValidatedFieldState fiel
     if (node_index >= nodes_.size() || !account_work())
         return false;
     fields_.push_back(field);
+    field_indexes_[node_index].push_back(fields_.size() - 1U);
     ++nodes_[node_index].validated_field_count;
     nodes_[node_index].validated_fields = nodes_[node_index].validated_field_count;
     return true;

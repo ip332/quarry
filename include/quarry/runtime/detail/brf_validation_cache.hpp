@@ -19,6 +19,9 @@ struct ValidatedRecordNode {
     std::size_t child_count = 0U;
     std::size_t array_begin = 0U;
     std::size_t array_count = 0U;
+    // These counters describe append activity only.  They are not a logical
+    // field lookup range: child validation may interleave entries in the
+    // global append-only field-state vector.
     std::size_t validated_fields = 0U;
     std::size_t first_validated_field = 0U;
     std::size_t validated_field_count = 0U;
@@ -90,6 +93,12 @@ public:
 
     const std::vector<ValidatedRecordNode>& nodes() const { return nodes_; }
     const std::vector<ValidatedFieldState>& fields() const { return fields_; }
+    // Field-state storage is global and append-only.  Per-node logical field
+    // lookup is defined by this stable mapping; physical contiguity in
+    // fields() is deliberately not required.
+    const std::vector<std::size_t>& field_indexes(std::size_t node_index) const {
+        return field_indexes_[node_index];
+    }
     const std::vector<ChildRelation>& children() const { return children_; }
     const std::vector<RecordArrayRelation>& arrays() const { return arrays_; }
     const std::vector<std::size_t>& array_children() const { return array_children_; }
@@ -100,6 +109,7 @@ private:
     BrfReadLimits limits_;
     std::vector<ValidatedRecordNode> nodes_;
     std::vector<ValidatedFieldState> fields_;
+    std::vector<std::vector<std::size_t>> field_indexes_;
     std::vector<ChildRelation> children_;
     std::vector<RecordArrayRelation> arrays_;
     std::vector<std::size_t> array_children_;
