@@ -3,12 +3,43 @@
 #include "compiler/qbs/parser.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string_view>
 #include <vector>
 
 namespace quarry::runtime {
+
+namespace detail {
+class ValidationCache;
+}
+
+struct RecordValidationState;
+enum class RecordValidationStep;
+class BrfRecordArrayView;
+
+struct PendingChildValidation {
+    std::size_t qbs_record_index = 0U;
+    std::size_t brf_offset = 0U;
+    std::size_t brf_length = 0U;
+    std::size_t field_cache_index = 0U;
+    std::size_t parent_field_index = 0U;
+    std::optional<std::size_t> child_relation;
+    std::optional<std::size_t> array_relation;
+};
+
+struct PendingRecordArrayValidation {
+    std::size_t field_cache_index = 0U;
+    std::size_t array_relation = 0U;
+    std::size_t element_type = 0U;
+    std::size_t count = 0U;
+    std::size_t current = 0U;
+    std::size_t cursor = 0U;
+    std::size_t end = 0U;
+    bool variable_elements = false;
+    std::optional<std::size_t> child_relation;
+};
 
 enum class GenericBrfError {
     none,
@@ -96,8 +127,28 @@ public:
     std::optional<FieldValueView> field(std::uint16_t field_index) const;
     std::optional<BrfArrayView> array(const quarry::compiler::qbs::QbsFieldView& field) const;
     std::optional<BrfArrayView> array(std::uint16_t field_index) const;
+    std::optional<BrfRecordArrayView>
+    record_array(const quarry::compiler::qbs::QbsFieldView& field) const;
+    std::optional<BrfRecordArrayView> record_array(std::uint16_t field_index) const;
+    std::optional<ValidatedBrfRecordView>
+    nested_record(const quarry::compiler::qbs::QbsFieldView& field) const;
+    std::optional<ValidatedBrfRecordView> nested_record(std::uint16_t field_index) const;
 
 private:
+    friend class BrfRecordArrayView;
+    friend bool validate_next_field(const quarry::compiler::qbs::ValidatedQbsView&,
+                                    const quarry::compiler::qbs::QbsRecordView&,
+                                    std::span<const std::uint8_t>, RecordValidationState&,
+                                    detail::ValidationCache&, ValidatedBrfRecordView&,
+                                    std::uint64_t&, BrfReadLimits, GenericBrfError*);
+    friend RecordValidationStep advance_record_validation(
+        const quarry::compiler::qbs::ValidatedQbsView&, const quarry::compiler::qbs::QbsRecordView&,
+        std::span<const std::uint8_t>, RecordValidationState&, detail::ValidationCache&,
+        ValidatedBrfRecordView&, std::uint64_t&, BrfReadLimits, GenericBrfError*);
+    friend std::optional<ValidatedBrfRecordView>
+    validate_record_span(const quarry::compiler::qbs::ValidatedQbsView&,
+                         const quarry::compiler::qbs::QbsRecordView&, std::span<const std::uint8_t>,
+                         BrfReadLimits, GenericBrfError*);
     friend std::optional<ValidatedBrfRecordView>
     validate_brf_record(const quarry::compiler::qbs::ValidatedQbsView&,
                         const quarry::compiler::qbs::QbsRecordView&, std::span<const std::uint8_t>,
@@ -109,10 +160,69 @@ private:
     };
     const quarry::compiler::qbs::ValidatedQbsView* schema_ = nullptr;
     std::size_t record_index_ = 0U;
+    std::size_t node_index_ = 0U;
     quarry::compiler::qbs::QbsRecordView record_;
+    std::span<const std::uint8_t> root_bytes_;
     std::span<const std::uint8_t> bytes_;
     std::vector<FieldSpan> fields_;
+    std::shared_ptr<const detail::ValidationCache> validation_cache_;
+    std::optional<ValidatedBrfRecordView> view_for_node(std::size_t node_index) const;
 };
+
+class BrfRecordArrayView {
+public:
+    std::size_t size() const { return count_; }
+    std::optional<ValidatedBrfRecordView> element(std::size_t index) const;
+
+private:
+    friend class ValidatedBrfRecordView;
+    BrfRecordArrayView(const ValidatedBrfRecordView& owner, std::size_t relation, std::size_t count)
+        : owner_(owner), relation_(relation), count_(count) {}
+    ValidatedBrfRecordView owner_;
+    std::size_t relation_;
+    std::size_t count_;
+};
+
+// Internal single-record validation state. Offsets and the variable tail are
+// always relative to the record span, so this routine is reusable for future
+// child records without changing the public reader API.
+struct RecordValidationState {
+    enum class Phase { Header, Presence, Fields, FinalizeTail, Complete, Failed };
+    Phase phase = Phase::Header;
+    std::size_t qbs_record_index = 0U;
+    std::size_t node_index = 0U;
+    std::size_t record_offset = 0U;
+    std::span<const std::uint8_t> record_bytes;
+    std::size_t fixed_region_end = 0U;
+    std::size_t variable_region_start = 0U;
+    std::size_t variable_tail_cursor = 0U;
+    std::size_t field_cursor = 0U;
+    std::size_t work_items = 0U;
+    std::optional<PendingChildValidation> pending_child;
+    std::optional<PendingRecordArrayValidation> pending_array;
+};
+
+[[nodiscard]] bool validate_next_field(const quarry::compiler::qbs::ValidatedQbsView& schema,
+                                       const quarry::compiler::qbs::QbsRecordView& record_schema,
+                                       std::span<const std::uint8_t> bytes,
+                                       RecordValidationState& state, detail::ValidationCache& cache,
+                                       ValidatedBrfRecordView& result, std::uint64_t& work,
+                                       BrfReadLimits limits, GenericBrfError* error);
+
+enum class RecordValidationStep { Continue, NeedChild, Complete, Error };
+
+[[nodiscard]] RecordValidationStep
+advance_record_validation(const quarry::compiler::qbs::ValidatedQbsView& schema,
+                          const quarry::compiler::qbs::QbsRecordView& record_schema,
+                          std::span<const std::uint8_t> bytes, RecordValidationState& state,
+                          detail::ValidationCache& cache, ValidatedBrfRecordView& result,
+                          std::uint64_t& work, BrfReadLimits limits, GenericBrfError* error);
+
+[[nodiscard]] std::optional<ValidatedBrfRecordView>
+validate_record_span(const quarry::compiler::qbs::ValidatedQbsView& schema,
+                     const quarry::compiler::qbs::QbsRecordView& record_schema,
+                     std::span<const std::uint8_t> bytes, BrfReadLimits limits = {},
+                     GenericBrfError* error = nullptr);
 
 [[nodiscard]] std::optional<ValidatedBrfRecordView>
 validate_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,

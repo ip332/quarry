@@ -6,6 +6,12 @@ This module owns generic runtime support for Quarry binary records.
 
 ### QBS-driven read-only access
 
+The nested-reader Phase A substrate is kept in
+`runtime/detail/brf_validation_cache.hpp`. It uses stable integer indexes for
+validated record nodes and relations, plus an explicit work stack. Public
+nested-record and record-array access remains disabled until the subsequent
+phase wires complete BRF child validation through this cache.
+
 `quarry/runtime/qbs_brf_reader.hpp` provides a read-only bridge from a
 validated `ValidatedQbsView` to an untrusted BRF v2 record. Callers validate a
 record once with `validate_brf_record`; the resulting
