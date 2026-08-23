@@ -71,7 +71,10 @@ TEST(BrfValidationCacheTest, FieldRangesRemainStableAcrossGrowth) {
     ASSERT_TRUE(root.has_value());
     ASSERT_TRUE(cache.begin_fields(*root).has_value());
     for (std::size_t i = 0U; i < 32U; ++i)
-        ASSERT_TRUE(cache.add_field(*root, {.qbs_field_index = i, .present = i % 2U != 0U}));
+        ASSERT_TRUE(cache.add_field(*root, {.qbs_field_index = i,
+                                            .present = i % 2U != 0U,
+                                            .child_relation = std::nullopt,
+                                            .array_relation = std::nullopt}));
     ASSERT_EQ(cache.nodes()[*root].first_validated_field, 0U);
     ASSERT_EQ(cache.nodes()[*root].validated_field_count, 32U);
     EXPECT_FALSE(cache.fields()[0].child_relation.has_value());
@@ -89,7 +92,10 @@ TEST(BrfValidationCacheTest, ChildRelationZeroIsRepresentable) {
     const auto root = cache.add_node(0U, 0U, 16U);
     ASSERT_TRUE(root.has_value());
     ASSERT_TRUE(cache.begin_fields(*root).has_value());
-    ASSERT_TRUE(cache.add_field(*root, {.qbs_field_index = 0U, .present = true}));
+    ASSERT_TRUE(cache.add_field(*root, {.qbs_field_index = 0U,
+                                        .present = true,
+                                        .child_relation = std::nullopt,
+                                        .array_relation = std::nullopt}));
     const auto relation = cache.add_child_relation(*root, 0U, 1U, 16U, 16U);
     ASSERT_TRUE(relation.has_value());
     ASSERT_TRUE(cache.set_child_relation(0U, relation->second));
