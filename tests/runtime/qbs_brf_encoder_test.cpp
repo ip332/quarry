@@ -51,6 +51,20 @@ SchemaIR fixed_schema() {
     return schema;
 }
 
+SchemaIR variable_schema() {
+    auto schema = fixed_schema();
+    auto* packet = schema.mutable_root_namespace()->mutable_records(0);
+    auto* name = packet->add_fields();
+    name->set_name("name");
+    name->set_field_index(3U);
+    name->mutable_type()->mutable_string()->set_max_bytes(32U);
+    auto* payload = packet->add_fields();
+    payload->set_name("payload");
+    payload->set_field_index(4U);
+    payload->mutable_type()->mutable_bytes()->set_max_bytes(32U);
+    return schema;
+}
+
 TEST(QbsBrfEncoderTest, EncodesFixedScalarsBoolAndEnum) {
     DiagnosticCollection diagnostics;
     quarry::compiler::layout::LayoutComputer computer;
@@ -149,6 +163,61 @@ TEST(QbsBrfEncoderTest, LeavesAbsentFixedSlotsZeroAndClearsPresence) {
     GenericBrfError read_error = GenericBrfError::none;
     ASSERT_TRUE(validate_brf_record(*schema, *record, *bytes, {}, &read_error).has_value());
     EXPECT_EQ(read_error, GenericBrfError::none);
+}
+
+TEST(QbsBrfEncoderTest, EncodesStringsBytesAndCanonicalVariableTail) {
+    DiagnosticCollection diagnostics;
+    quarry::compiler::layout::LayoutComputer computer;
+    const auto source = variable_schema();
+    const auto layout = computer.compute(source, diagnostics);
+    ASSERT_TRUE(diagnostics.empty());
+    const auto model =
+        QbsModelBuilder{}.build(source, layout, {.mode = BuildMode::Minimal}, diagnostics);
+    ASSERT_TRUE(model.has_value());
+    const auto image = serialize_qbs(*model, diagnostics);
+    ASSERT_TRUE(image.has_value());
+    const auto schema = parse_qbs(image->bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_identity("Packet");
+    ASSERT_TRUE(record.has_value());
+    ASSERT_TRUE(record->variable_size);
+
+    const std::vector<std::optional<BrfEncodeValue>> fields{
+        BrfEncodeValue{true}, BrfEncodeValue{std::uint64_t{42}}, BrfEncodeValue{std::uint64_t{1}},
+        BrfEncodeValue{std::string("abc")},
+        BrfEncodeValue{std::vector<std::uint8_t>{0x10U, 0x20U, 0x30U}}};
+    GenericBrfEncodeError error = GenericBrfEncodeError::none;
+    const auto bytes = encode_brf_record(*schema, *record, fields, &error);
+    ASSERT_TRUE(bytes.has_value());
+    ASSERT_EQ(error, GenericBrfEncodeError::none);
+
+    GenericBrfError read_error = GenericBrfError::none;
+    const auto view = validate_brf_record(*schema, *record, *bytes, {}, &read_error);
+    ASSERT_TRUE(view.has_value());
+    ASSERT_EQ(read_error, GenericBrfError::none);
+    ASSERT_EQ(view->field(3U)->as_string(), std::optional<std::string_view>("abc"));
+    ASSERT_EQ(view->field(4U)->bytes().size(), 3U);
+    EXPECT_EQ(view->field(4U)->bytes()[0], 0x10U);
+    EXPECT_EQ(view->field(4U)->bytes()[1], 0x20U);
+    EXPECT_EQ(view->field(4U)->bytes()[2], 0x30U);
+
+    const auto name_field = schema->find_field(0U, 3U);
+    const auto payload_field = schema->find_field(0U, 4U);
+    ASSERT_TRUE(name_field.has_value());
+    ASSERT_TRUE(payload_field.has_value());
+    const auto name_offset =
+        (static_cast<std::uint32_t>((*bytes)[name_field->byte_offset]) << 24U) |
+        (static_cast<std::uint32_t>((*bytes)[name_field->byte_offset + 1U]) << 16U) |
+        (static_cast<std::uint32_t>((*bytes)[name_field->byte_offset + 2U]) << 8U) |
+        (*bytes)[name_field->byte_offset + 3U];
+    const auto payload_offset =
+        (static_cast<std::uint32_t>((*bytes)[payload_field->byte_offset]) << 24U) |
+        (static_cast<std::uint32_t>((*bytes)[payload_field->byte_offset + 1U]) << 16U) |
+        (static_cast<std::uint32_t>((*bytes)[payload_field->byte_offset + 2U]) << 8U) |
+        (*bytes)[payload_field->byte_offset + 3U];
+    EXPECT_LT(name_offset, payload_offset);
+    EXPECT_EQ(payload_offset - name_offset, 3U);
+    EXPECT_EQ(bytes->size(), payload_offset + 3U);
 }
 
 } // namespace

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <bit>
 #include <limits>
+#include <string_view>
 
 namespace quarry::runtime {
 namespace {
@@ -47,6 +48,44 @@ bool signed_range(std::int64_t value, std::uint16_t width) {
 bool unsigned_range(std::uint64_t value, std::uint16_t width) {
     return width != 0U && width <= 8U &&
            (width == 8U || value <= (std::uint64_t{1} << (width * 8U)) - 1U);
+}
+
+bool valid_utf8(std::string_view value) {
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(value.data());
+    std::size_t i = 0U;
+    while (i < value.size()) {
+        const auto first = bytes[i++];
+        if (first <= 0x7FU)
+            continue;
+        std::uint32_t code_point = 0U;
+        std::size_t continuation_count = 0U;
+        if (first >= 0xC2U && first <= 0xDFU) {
+            code_point = first & 0x1FU;
+            continuation_count = 1U;
+        } else if (first >= 0xE0U && first <= 0xEFU) {
+            code_point = first & 0x0FU;
+            continuation_count = 2U;
+        } else if (first >= 0xF0U && first <= 0xF4U) {
+            code_point = first & 0x07U;
+            continuation_count = 3U;
+        } else {
+            return false;
+        }
+        if (value.size() - i < continuation_count)
+            return false;
+        for (std::size_t j = 0U; j < continuation_count; ++j) {
+            const auto next = bytes[i++];
+            if ((next & 0xC0U) != 0x80U)
+                return false;
+            code_point = (code_point << 6U) | (next & 0x3FU);
+        }
+        if ((continuation_count == 1U && code_point < 0x80U) ||
+            (continuation_count == 2U && code_point < 0x800U) ||
+            (continuation_count == 3U && code_point < 0x10000U) || code_point > 0x10FFFFU ||
+            (code_point >= 0xD800U && code_point <= 0xDFFFU))
+            return false;
+    }
+    return true;
 }
 
 bool write_scalar(const quarry::compiler::qbs::ValidatedQbsView& schema,
@@ -118,6 +157,35 @@ bool write_scalar(const quarry::compiler::qbs::ValidatedQbsView& schema,
     return false;
 }
 
+bool write_variable(const quarry::compiler::qbs::QbsTypeView& type, const BrfEncodeValue& value,
+                    std::vector<std::uint8_t>& payload, GenericBrfEncodeError* error) {
+    if (type.code == 13U) {
+        if (!std::holds_alternative<std::string>(value) ||
+            !valid_utf8(std::get<std::string>(value)) ||
+            std::get<std::string>(value).size() > type.max_bytes) {
+            set_error(error, GenericBrfEncodeError::invalid_value);
+            return false;
+        }
+        const auto& string = std::get<std::string>(value);
+        payload.assign(string.begin(), string.end());
+        return true;
+    }
+    if (type.code == 14U) {
+        if (!std::holds_alternative<std::vector<std::uint8_t>>(value)) {
+            set_error(error, GenericBrfEncodeError::invalid_value);
+            return false;
+        }
+        payload = std::get<std::vector<std::uint8_t>>(value);
+        if (payload.size() > type.max_bytes) {
+            set_error(error, GenericBrfEncodeError::invalid_value);
+            return false;
+        }
+        return true;
+    }
+    set_error(error, GenericBrfEncodeError::unsupported_type);
+    return false;
+}
+
 } // namespace
 
 std::optional<std::vector<std::uint8_t>>
@@ -126,20 +194,13 @@ encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
                   std::span<const std::optional<BrfEncodeValue>> fields,
                   GenericBrfEncodeError* error) {
     set_error(error, GenericBrfEncodeError::none);
-    if (record_schema.variable_size || fields.size() != record_schema.field_count ||
+    if (fields.size() != record_schema.field_count ||
         record_schema.fixed_region_size > std::numeric_limits<std::uint32_t>::max() - 16U) {
         set_error(error, fields.size() != record_schema.field_count
                              ? GenericBrfEncodeError::field_count_mismatch
                              : GenericBrfEncodeError::invalid_schema);
         return std::nullopt;
     }
-    const auto total = static_cast<std::size_t>(16U) + record_schema.fixed_region_size;
-    std::vector<std::uint8_t> result(total, 0U);
-    result[0] = 2U;
-    put16(result, 2U, 16U);
-    put32(result, 4U, record_schema.record_id);
-    put32(result, 8U, record_schema.fixed_region_size);
-    put32(result, 12U, static_cast<std::uint32_t>(total));
     std::size_t record_index = schema.record_count();
     for (std::size_t i = 0U; i < schema.record_count(); ++i) {
         const auto candidate = schema.record(i);
@@ -153,18 +214,22 @@ encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
         set_error(error, GenericBrfEncodeError::invalid_schema);
         return std::nullopt;
     }
+    const auto fixed_end = static_cast<std::size_t>(16U) + record_schema.fixed_region_size;
+    std::vector<std::uint8_t> result(fixed_end, 0U);
+    std::vector<std::vector<std::uint8_t>> variable_payloads(fields.size());
+    std::vector<bool> variable_present(fields.size(), false);
     for (std::size_t i = 0U; i < fields.size(); ++i) {
         const auto field_schema = schema.find_field(record_index, static_cast<std::uint16_t>(i));
         if (!field_schema.has_value()) {
             set_error(error, GenericBrfEncodeError::invalid_schema);
             return std::nullopt;
         }
-        if (field_schema->storage == 2U || field_schema->type_index >= schema.type_count()) {
+        if (field_schema->type_index >= schema.type_count()) {
             set_error(error, GenericBrfEncodeError::unsupported_type);
             return std::nullopt;
         }
         const auto type = schema.type(field_schema->type_index);
-        if (type.code == 13U || type.code == 14U || type.code == 15U || type.code == 16U) {
+        if (type.code == 15U || type.code == 16U) {
             set_error(error, GenericBrfEncodeError::unsupported_type);
             return std::nullopt;
         }
@@ -175,8 +240,19 @@ encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
             set_error(error, GenericBrfEncodeError::invalid_schema);
             return std::nullopt;
         }
-        if (!fields[i].has_value())
+        if (!fields[i].has_value()) {
             continue;
+        }
+        if (field_schema->storage == 2U) {
+            if (!write_variable(type, *fields[i], variable_payloads[i], error))
+                return std::nullopt;
+            variable_present[i] = true;
+            continue;
+        }
+        if (type.code == 13U || type.code == 14U) {
+            set_error(error, GenericBrfEncodeError::invalid_schema);
+            return std::nullopt;
+        }
         result[16U + field_schema->presence_bit_index / 8U] |=
             static_cast<std::uint8_t>(1U << (field_schema->presence_bit_index % 8U));
         if (!write_scalar(schema, type, *fields[i],
@@ -184,6 +260,38 @@ encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
                                                                   field_schema->slot_size),
                           error))
             return std::nullopt;
+    }
+    std::size_t tail_size = 0U;
+    for (std::size_t i = 0U; i < fields.size(); ++i) {
+        if (!variable_present[i])
+            continue;
+        if (variable_payloads[i].size() > std::numeric_limits<std::uint32_t>::max() - tail_size ||
+            fixed_end > std::numeric_limits<std::uint32_t>::max() - tail_size -
+                            variable_payloads[i].size()) {
+            set_error(error, GenericBrfEncodeError::overflow);
+            return std::nullopt;
+        }
+        tail_size += variable_payloads[i].size();
+    }
+    result.resize(fixed_end + tail_size, 0U);
+    result[0] = 2U;
+    put16(result, 2U, 16U);
+    put32(result, 4U, record_schema.record_id);
+    put32(result, 8U, record_schema.fixed_region_size);
+    put32(result, 12U, static_cast<std::uint32_t>(result.size()));
+    std::size_t tail_cursor = fixed_end;
+    for (std::size_t i = 0U; i < fields.size(); ++i) {
+        if (!variable_present[i])
+            continue;
+        const auto field_schema = schema.find_field(record_index, static_cast<std::uint16_t>(i));
+        put32(result, field_schema->byte_offset, static_cast<std::uint32_t>(tail_cursor));
+        put32(result, field_schema->byte_offset + 4U,
+              static_cast<std::uint32_t>(variable_payloads[i].size()));
+        std::copy(variable_payloads[i].begin(), variable_payloads[i].end(),
+                  result.begin() + static_cast<std::ptrdiff_t>(tail_cursor));
+        tail_cursor += variable_payloads[i].size();
+        result[16U + field_schema->presence_bit_index / 8U] |=
+            static_cast<std::uint8_t>(1U << (field_schema->presence_bit_index % 8U));
     }
     return result;
 }
