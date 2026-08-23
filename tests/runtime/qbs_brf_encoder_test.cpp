@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -62,6 +63,39 @@ SchemaIR variable_schema() {
     payload->set_name("payload");
     payload->set_field_index(4U);
     payload->mutable_type()->mutable_bytes()->set_max_bytes(32U);
+    return schema;
+}
+
+SchemaIR array_schema() {
+    auto schema = fixed_schema();
+    auto* packet = schema.mutable_root_namespace()->mutable_records(0);
+    auto* samples = packet->add_fields();
+    samples->set_name("samples");
+    samples->set_field_index(3U);
+    samples->mutable_type()->mutable_array()->set_max_elements(4U);
+    samples->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
+        quarry::schema_ir::PRIMITIVE_TYPE_U16);
+    auto* flags = packet->add_fields();
+    flags->set_name("flags");
+    flags->set_field_index(4U);
+    flags->mutable_type()->mutable_array()->set_max_elements(4U);
+    flags->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
+        quarry::schema_ir::PRIMITIVE_TYPE_BOOL);
+    auto* states = packet->add_fields();
+    states->set_name("states");
+    states->set_field_index(5U);
+    states->mutable_type()->mutable_array()->set_max_elements(4U);
+    states->mutable_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->mutable_enum_type()
+        ->set_target_enum_ir_id(2U);
+    auto* ratios = packet->add_fields();
+    ratios->set_name("ratios");
+    ratios->set_field_index(6U);
+    ratios->mutable_type()->mutable_array()->set_max_elements(4U);
+    ratios->mutable_type()->mutable_array()->mutable_element_type()->set_primitive(
+        quarry::schema_ir::PRIMITIVE_TYPE_F32);
     return schema;
 }
 
@@ -218,6 +252,76 @@ TEST(QbsBrfEncoderTest, EncodesStringsBytesAndCanonicalVariableTail) {
     EXPECT_LT(name_offset, payload_offset);
     EXPECT_EQ(payload_offset - name_offset, 3U);
     EXPECT_EQ(bytes->size(), payload_offset + 3U);
+}
+
+TEST(QbsBrfEncoderTest, EncodesPrimitiveArraysWithCanonicalVaruint) {
+    DiagnosticCollection diagnostics;
+    quarry::compiler::layout::LayoutComputer computer;
+    const auto source = array_schema();
+    const auto layout = computer.compute(source, diagnostics);
+    ASSERT_TRUE(diagnostics.empty());
+    const auto model =
+        QbsModelBuilder{}.build(source, layout, {.mode = BuildMode::Minimal}, diagnostics);
+    ASSERT_TRUE(model.has_value());
+    const auto image = serialize_qbs(*model, diagnostics);
+    ASSERT_TRUE(image.has_value());
+    const auto schema = parse_qbs(image->bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_identity("Packet");
+    ASSERT_TRUE(record.has_value());
+
+    const std::vector<std::optional<BrfEncodeValue>> fields{
+        BrfEncodeValue{true},
+        BrfEncodeValue{std::uint64_t{42}},
+        BrfEncodeValue{std::uint64_t{1}},
+        BrfEncodeValue{BrfEncodeArray{BrfUnsignedArray{10U, 20U, 65535U}}},
+        BrfEncodeValue{BrfEncodeArray{BrfBoolArray{true, false, true}}},
+        BrfEncodeValue{BrfEncodeArray{BrfUnsignedArray{0U, 1U}}},
+        BrfEncodeValue{BrfEncodeArray{BrfFloat32Array{1.5F, -2.0F}}}};
+    GenericBrfEncodeError error = GenericBrfEncodeError::none;
+    const auto bytes = encode_brf_record(*schema, *record, fields, &error);
+    ASSERT_TRUE(bytes.has_value());
+    ASSERT_EQ(error, GenericBrfEncodeError::none);
+
+    GenericBrfError read_error = GenericBrfError::none;
+    const auto view = validate_brf_record(*schema, *record, *bytes, {}, &read_error);
+    ASSERT_TRUE(view.has_value());
+    ASSERT_EQ(read_error, GenericBrfError::none);
+    const auto array = view->array(3U);
+    ASSERT_TRUE(array.has_value());
+    ASSERT_EQ(array->size(), 3U);
+    EXPECT_EQ(array->element(0U)->as_unsigned(), 10U);
+    EXPECT_EQ(array->element(1U)->as_unsigned(), 20U);
+    EXPECT_EQ(array->element(2U)->as_unsigned(), 65535U);
+    ASSERT_TRUE(view->array(4U).has_value());
+    EXPECT_TRUE(view->array(4U)->element(0U)->as_bool().value());
+    EXPECT_FALSE(view->array(4U)->element(1U)->as_bool().value());
+    ASSERT_TRUE(view->array(5U).has_value());
+    EXPECT_EQ(view->array(5U)->element(1U)->as_unsigned(), 1U);
+    ASSERT_TRUE(view->array(6U).has_value());
+    EXPECT_EQ(view->array(6U)->element(0U)->kind(), GenericBrfValueKind::float32);
+
+    auto too_many = fields;
+    too_many[3U] = BrfEncodeValue{BrfEncodeArray{BrfUnsignedArray{1U, 2U, 3U, 4U, 5U}}};
+    error = GenericBrfEncodeError::none;
+    EXPECT_FALSE(encode_brf_record(*schema, *record, too_many, &error));
+    EXPECT_EQ(error, GenericBrfEncodeError::invalid_value);
+
+    auto invalid_enum = fields;
+    const auto enum_array_field = schema->find_field(0U, 5U);
+    ASSERT_TRUE(enum_array_field.has_value());
+    ASSERT_EQ(enum_array_field->storage, 2U);
+    const auto enum_array_type = schema->type(enum_array_field->type_index);
+    ASSERT_EQ(enum_array_type.code, 16U);
+    ASSERT_EQ(schema->type(enum_array_type.reference).code, 12U);
+    EXPECT_EQ(enum_array_type.max_elements, 4U);
+    invalid_enum[5U] = BrfEncodeValue{BrfEncodeArray{BrfUnsignedArray{0U, 999U}}};
+    ASSERT_TRUE(std::holds_alternative<BrfEncodeArray>(*invalid_enum[5U]));
+    ASSERT_TRUE(
+        std::holds_alternative<BrfUnsignedArray>(std::get<BrfEncodeArray>(*invalid_enum[5U])));
+    error = GenericBrfEncodeError::none;
+    EXPECT_FALSE(encode_brf_record(*schema, *record, invalid_enum, &error));
+    EXPECT_EQ(error, GenericBrfEncodeError::invalid_enum);
 }
 
 } // namespace

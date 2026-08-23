@@ -35,6 +35,14 @@ void put_integer(std::span<std::uint8_t> bytes, std::uint64_t value) {
         bytes[i] = static_cast<std::uint8_t>(value >> ((bytes.size() - 1U - i) * 8U));
 }
 
+void append_varuint(std::vector<std::uint8_t>& bytes, std::uint64_t value) {
+    while (value >= 0x80U) {
+        bytes.push_back(static_cast<std::uint8_t>(value) | 0x80U);
+        value >>= 7U;
+    }
+    bytes.push_back(static_cast<std::uint8_t>(value));
+}
+
 bool signed_range(std::int64_t value, std::uint16_t width) {
     if (width == 0U || width > 8U)
         return false;
@@ -186,6 +194,115 @@ bool write_variable(const quarry::compiler::qbs::QbsTypeView& type, const BrfEnc
     return false;
 }
 
+bool write_array(const quarry::compiler::qbs::ValidatedQbsView& schema,
+                 const quarry::compiler::qbs::QbsTypeView& array_type, const BrfEncodeValue& value,
+                 std::vector<std::uint8_t>& payload, GenericBrfEncodeError* error) {
+    if (!std::holds_alternative<BrfEncodeArray>(value) ||
+        array_type.reference >= schema.type_count()) {
+        set_error(error, GenericBrfEncodeError::invalid_value);
+        return false;
+    }
+    const auto& array = std::get<BrfEncodeArray>(value);
+    const auto element = schema.type(array_type.reference);
+    const auto append_integer = [&](std::uint64_t item) {
+        std::vector<std::uint8_t> encoded(element.encoded_width);
+        put_integer(encoded, item);
+        payload.insert(payload.end(), encoded.begin(), encoded.end());
+    };
+    const auto append_float = [&](std::uint64_t item, std::size_t width) {
+        std::vector<std::uint8_t> encoded(width);
+        put_integer(encoded, item);
+        payload.insert(payload.end(), encoded.begin(), encoded.end());
+    };
+    std::size_t count = 0U;
+    if (std::holds_alternative<BrfBoolArray>(array)) {
+        if (element.code != 1U) {
+            set_error(error, GenericBrfEncodeError::invalid_value);
+            return false;
+        }
+        const auto& values = std::get<BrfBoolArray>(array);
+        count = values.size();
+        if (count > array_type.max_elements) {
+            set_error(error, GenericBrfEncodeError::invalid_value);
+            return false;
+        }
+        append_varuint(payload, count);
+        for (const auto item : values)
+            payload.push_back(item ? 1U : 0U);
+        return true;
+    }
+    if (std::holds_alternative<BrfSignedArray>(array)) {
+        const auto& values = std::get<BrfSignedArray>(array);
+        const auto signed_type =
+            element.code == 2U || element.code == 4U || element.code == 6U || element.code == 8U;
+        if (!signed_type || values.size() > array_type.max_elements) {
+            set_error(error, GenericBrfEncodeError::invalid_value);
+            return false;
+        }
+        append_varuint(payload, values.size());
+        for (const auto item : values) {
+            if (!signed_range(item, element.encoded_width)) {
+                set_error(error, GenericBrfEncodeError::invalid_value);
+                return false;
+            }
+            append_integer(static_cast<std::uint64_t>(item));
+        }
+        return true;
+    }
+    if (std::holds_alternative<BrfUnsignedArray>(array)) {
+        const auto& values = std::get<BrfUnsignedArray>(array);
+        const auto unsigned_type =
+            element.code == 3U || element.code == 5U || element.code == 7U || element.code == 9U;
+        const auto enum_type = element.code == 12U;
+        if ((!unsigned_type && !enum_type) || values.size() > array_type.max_elements) {
+            set_error(error, enum_type ? GenericBrfEncodeError::invalid_enum
+                                       : GenericBrfEncodeError::invalid_value);
+            return false;
+        }
+        append_varuint(payload, values.size());
+        for (const auto item : values) {
+            if (!unsigned_range(item, element.encoded_width)) {
+                set_error(error, enum_type ? GenericBrfEncodeError::invalid_enum
+                                           : GenericBrfEncodeError::invalid_value);
+                return false;
+            }
+            if (enum_type && (element.reference >= schema.enum_count() ||
+                              std::find(schema.enum_type(element.reference).values.begin(),
+                                        schema.enum_type(element.reference).values.end(), item) ==
+                                  schema.enum_type(element.reference).values.end())) {
+                set_error(error, GenericBrfEncodeError::invalid_enum);
+                return false;
+            }
+            append_integer(item);
+        }
+        return true;
+    }
+    if (std::holds_alternative<BrfFloat32Array>(array) && element.code == 10U) {
+        const auto& values = std::get<BrfFloat32Array>(array);
+        if (values.size() > array_type.max_elements) {
+            set_error(error, GenericBrfEncodeError::invalid_value);
+            return false;
+        }
+        append_varuint(payload, values.size());
+        for (const auto item : values)
+            append_float(std::bit_cast<std::uint32_t>(item), 4U);
+        return true;
+    }
+    if (std::holds_alternative<BrfFloat64Array>(array) && element.code == 11U) {
+        const auto& values = std::get<BrfFloat64Array>(array);
+        if (values.size() > array_type.max_elements) {
+            set_error(error, GenericBrfEncodeError::invalid_value);
+            return false;
+        }
+        append_varuint(payload, values.size());
+        for (const auto item : values)
+            append_float(std::bit_cast<std::uint64_t>(item), 8U);
+        return true;
+    }
+    set_error(error, GenericBrfEncodeError::invalid_value);
+    return false;
+}
+
 } // namespace
 
 std::optional<std::vector<std::uint8_t>>
@@ -229,7 +346,7 @@ encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
             return std::nullopt;
         }
         const auto type = schema.type(field_schema->type_index);
-        if (type.code == 15U || type.code == 16U) {
+        if (type.code == 15U) {
             set_error(error, GenericBrfEncodeError::unsupported_type);
             return std::nullopt;
         }
@@ -244,12 +361,15 @@ encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
             continue;
         }
         if (field_schema->storage == 2U) {
-            if (!write_variable(type, *fields[i], variable_payloads[i], error))
+            const auto ok = type.code == 16U
+                                ? write_array(schema, type, *fields[i], variable_payloads[i], error)
+                                : write_variable(type, *fields[i], variable_payloads[i], error);
+            if (!ok)
                 return std::nullopt;
             variable_present[i] = true;
             continue;
         }
-        if (type.code == 13U || type.code == 14U) {
+        if (type.code == 13U || type.code == 14U || type.code == 16U) {
             set_error(error, GenericBrfEncodeError::invalid_schema);
             return std::nullopt;
         }
