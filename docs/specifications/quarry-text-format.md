@@ -34,6 +34,62 @@ present fields. A present empty value is still emitted.
 
 The v1 scalar forms are:
 
+## Lexical grammar
+
+The future v1 parser accepts space, horizontal tab, carriage return, and
+newline as whitespace between tokens. Canonical export uses only newline for
+line endings and does not emit tabs or carriage returns except inside escaped
+strings. A carriage-return/line-feed pair is one line ending when parsing.
+
+The punctuation tokens are `{`, `}`, `[`, `]`, `:`, and `,`. Reflective field
+identifiers use `[A-Za-z_][A-Za-z0-9_]*`; QBS field names are constrained to
+this identifier form. Minimal identifiers use `@` followed by one or more
+decimal digits, with no sign or leading zeroes except `@0`. The digits denote
+the exact stable QBS field index in the owning record and must name an
+existing field.
+
+Integer tokens are `0`, a nonzero decimal digit followed by decimal digits,
+or `-` followed by one of those forms. A leading `+`, hexadecimal, octal,
+binary, and unnecessary leading zeroes are not canonical. The QBS type
+controls signedness and range checking; enum tokens use this same decimal
+grammar and must be members of the QBS enum.
+
+Finite float tokens use the locale-independent shortest round-trip decimal
+form produced by `std::to_chars` with general formatting. `nan`, `inf`, and
+`-inf` are reserved float tokens. The exporter preserves negative zero as
+`-0`; NaN payload and sign bits are not represented by QTF v1.
+
+Quoted strings contain UTF-8 and the escapes listed below. A bytes token is
+`hex"` followed by zero or more pairs of hexadecimal digits and a closing
+`"`; parsers should accept either hex case, while canonical output is
+lowercase. Odd-length byte tokens are invalid.
+
+Records contain fields separated by whitespace; commas are not allowed
+between record fields. Primitive arrays and record arrays require commas
+between elements. Trailing commas are invalid in all arrays and are never
+canonical. Empty arrays use `[]`. Unknown fields and duplicate fields are
+parser errors. A parser must use the selected QBS record to resolve every
+field and reject a field whose identifier is not present in that record.
+
+Comments are not part of QTF v1 and are invalid input; this keeps the lexer
+small and the canonical grammar unambiguous.
+
+The grammar is intentionally schema-driven. In compact EBNF, the structural
+forms are:
+
+```text
+record       = "{" , { field } , "}" ;
+field        = identifier , ":" , value ;
+value        = scalar | record | array ;
+array        = "[" , [ value , { "," , value } ] , "]" ;
+identifier   = name | "@" , decimal-index ;
+```
+
+The lexer must distinguish `-inf`/`nan` from numeric tokens using the selected
+QBS float type. A string or bytes literal ends only at its unescaped closing
+quote. Whitespace is never significant inside a quoted string or bytes
+literal.
+
 | QBS value | Canonical QTF |
 |---|---|
 | boolean | `true` or `false` |
@@ -80,6 +136,16 @@ one object per element, preserve logical element order, and use commas between
 objects. Nested records use a field followed by a multi-line record body.
 Absent arrays and records are omitted; present-empty arrays are emitted as
 `[]`.
+
+A present empty nested record is emitted as:
+
+```qtf
+child: {
+  }
+```
+
+The closing brace is indented at the nested record's structural depth. An
+empty root record is exactly `{\n}\n`.
 
 The exporter emits no comments. Comment syntax is reserved for a future
 parser and is not part of QTF v1 canonical output.

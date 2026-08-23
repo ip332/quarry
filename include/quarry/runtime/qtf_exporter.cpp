@@ -221,7 +221,7 @@ QtfExportResult export_qtf(const ValidatedBrfRecordView& record, BrfTraversalLim
                         writer.record_is_last.pop_back();
                     }
                 } else {
-                    writer.output += indent(event.depth + 1U);
+                    writer.output += indent(event.depth);
                     writer.output += last ? "}" : "},";
                     writer.output.push_back('\n');
                     writer.record_from_array.pop_back();
@@ -233,8 +233,9 @@ QtfExportResult export_qtf(const ValidatedBrfRecordView& record, BrfTraversalLim
             return writer.failed ? BrfTraversalControl::Stop : BrfTraversalControl::Continue;
         },
         limits);
-    if (writer.failed || result == BrfTraversalResult::internal_error)
+    if (writer.failed || result == BrfTraversalResult::internal_error) {
         return {std::nullopt, QtfExportError::invalid_value};
+    }
     if (result == BrfTraversalResult::work_limit || result == BrfTraversalResult::depth_limit)
         return {std::nullopt, QtfExportError::traversal_limit};
     if (result == BrfTraversalResult::stopped)
