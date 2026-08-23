@@ -537,6 +537,87 @@ TEST(QbsBrfReaderTest, ReadsCanonicalExampleWithoutGeneratedCode) {
     EXPECT_FALSE(entries[1].value->as_unsigned().has_value());
 }
 
+TEST(QbsBrfReaderTest, TraversesValidatedValuesInDeterministicDepthFirstOrder) {
+    auto qbs = qbs_image();
+    DiagnosticCollection diagnostics;
+    const auto schema = parse_qbs(qbs, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_identity("Example");
+    ASSERT_TRUE(record.has_value());
+    std::vector<std::uint8_t> brf(42U, 0U);
+    brf[0] = 2U;
+    brf[3] = 16U;
+    brf[7] = 1U;
+    brf[11] = 23U;
+    brf[15] = 42U;
+    brf[16] = 0x07U;
+    brf[20] = 1U;
+    brf[24] = 39U;
+    brf[28] = 3U;
+    brf[30] = 2U;
+    brf[39] = 'a';
+    brf[40] = 'b';
+    brf[41] = 'c';
+    const auto view = validate_brf_record(*schema, *record, brf);
+    ASSERT_TRUE(view.has_value());
+    std::vector<BrfTraversalEventKind> events;
+    std::vector<std::uint16_t> fields;
+    const auto result = traverse_brf(*view, [&](const BrfTraversalEvent& event) {
+        events.push_back(event.kind);
+        if (event.kind == BrfTraversalEventKind::field)
+            fields.push_back(event.field.field_index);
+        return BrfTraversalControl::Continue;
+    });
+    EXPECT_EQ(result, BrfTraversalResult::completed);
+    EXPECT_EQ(fields, (std::vector<std::uint16_t>{0U, 1U, 2U, 3U}));
+    EXPECT_EQ(events.front(), BrfTraversalEventKind::record_begin);
+    EXPECT_EQ(events.back(), BrfTraversalEventKind::record_end);
+    EXPECT_EQ(std::count(events.begin(), events.end(), BrfTraversalEventKind::scalar), 3);
+
+    const auto second = traverse_brf(
+        *view, [&](const BrfTraversalEvent&) { return BrfTraversalControl::Continue; },
+        BrfTraversalLimits{9U, 16U});
+    EXPECT_EQ(second, BrfTraversalResult::completed);
+    const auto limited = traverse_brf(
+        *view, [&](const BrfTraversalEvent&) { return BrfTraversalControl::Continue; },
+        BrfTraversalLimits{8U, 16U});
+    EXPECT_EQ(limited, BrfTraversalResult::work_limit);
+}
+
+TEST(QbsBrfReaderTest, TraversalStopsWithoutVisitingLaterFields) {
+    auto qbs = qbs_image();
+    DiagnosticCollection diagnostics;
+    const auto schema = parse_qbs(qbs, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_identity("Example");
+    ASSERT_TRUE(record.has_value());
+    std::vector<std::uint8_t> brf(42U, 0U);
+    brf[0] = 2U;
+    brf[3] = 16U;
+    brf[7] = 1U;
+    brf[11] = 23U;
+    brf[15] = 42U;
+    brf[16] = 0x07U;
+    brf[20] = 1U;
+    brf[24] = 39U;
+    brf[28] = 3U;
+    brf[30] = 2U;
+    brf[39] = 'a';
+    brf[40] = 'b';
+    brf[41] = 'c';
+    const auto view = validate_brf_record(*schema, *record, brf);
+    ASSERT_TRUE(view.has_value());
+    std::size_t callbacks = 0U;
+    const auto result = traverse_brf(*view, [&](const BrfTraversalEvent& event) {
+        ++callbacks;
+        return event.kind == BrfTraversalEventKind::field && event.field.field_index == 0U
+                   ? BrfTraversalControl::Stop
+                   : BrfTraversalControl::Continue;
+    });
+    EXPECT_EQ(result, BrfTraversalResult::stopped);
+    EXPECT_EQ(callbacks, 2U);
+}
+
 TEST(QbsBrfReaderTest, RejectsMalformedHeaderAndCanonicalPresence) {
     auto qbs = qbs_image();
     DiagnosticCollection diagnostics;

@@ -3,6 +3,7 @@
 #include "compiler/qbs/parser.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -162,6 +163,8 @@ public:
     std::optional<ValidatedBrfRecordView>
     nested_record(const quarry::compiler::qbs::QbsFieldView& field) const;
     std::optional<ValidatedBrfRecordView> nested_record(std::uint16_t field_index) const;
+    std::optional<quarry::compiler::qbs::QbsFieldView>
+    field_metadata(std::uint16_t field_index) const;
     std::vector<BrfFieldValueView> fields() const;
 
 private:
@@ -215,6 +218,7 @@ private:
 
 class BrfArrayValueView {
 public:
+    BrfArrayValueView() = default;
     std::size_t size() const {
         return primitive_.has_value() ? primitive_->size() : records_->size();
     }
@@ -233,6 +237,40 @@ private:
     std::optional<BrfRecordArrayView> records_;
     quarry::compiler::qbs::QbsTypeView element_type_;
 };
+
+enum class BrfTraversalEventKind {
+    record_begin,
+    record_end,
+    field,
+    scalar,
+    array_begin,
+    array_element,
+    array_end,
+};
+
+struct BrfTraversalEvent {
+    BrfTraversalEventKind kind = BrfTraversalEventKind::field;
+    quarry::compiler::qbs::QbsFieldView field;
+    bool present = false;
+    std::size_t index = 0U;
+    std::size_t depth = 0U;
+    std::optional<BrfValueView> value;
+    std::optional<BrfArrayValueView> array;
+    std::optional<ValidatedBrfRecordView> record;
+};
+
+enum class BrfTraversalControl { Continue, Stop };
+enum class BrfTraversalResult { completed, stopped, work_limit, depth_limit, internal_error };
+using BrfTraversalVisitor = std::function<BrfTraversalControl(const BrfTraversalEvent&)>;
+
+struct BrfTraversalLimits {
+    std::size_t max_work_items = 1U << 20U;
+    std::size_t max_depth = 1024U;
+};
+
+[[nodiscard]] BrfTraversalResult traverse_brf(const ValidatedBrfRecordView& root,
+                                              const BrfTraversalVisitor& visitor,
+                                              BrfTraversalLimits limits = {});
 
 // Internal single-record validation state. Offsets and the variable tail are
 // always relative to the record span, so this routine is reusable for future

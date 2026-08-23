@@ -703,6 +703,136 @@ std::optional<BrfValueView> BrfArrayValueView::element(std::size_t index) const 
     return value;
 }
 
+namespace {
+struct TraversalFrame {
+    enum class Kind { record, array } kind;
+    ValidatedBrfRecordView record;
+    BrfArrayValueView array;
+    std::size_t next = 0U;
+    std::size_t depth = 0U;
+    bool began = false;
+    TraversalFrame(const ValidatedBrfRecordView& value, std::size_t at_depth)
+        : kind(Kind::record), record(value), depth(at_depth) {}
+    TraversalFrame(const BrfArrayValueView& value, std::size_t at_depth)
+        : kind(Kind::array), array(value), depth(at_depth), began(true) {}
+};
+} // namespace
+
+BrfTraversalResult traverse_brf(const ValidatedBrfRecordView& root,
+                                const BrfTraversalVisitor& visitor, BrfTraversalLimits limits) {
+    std::vector<TraversalFrame> stack;
+    stack.emplace_back(root, 0U);
+    std::size_t work = 0U;
+    const auto emit = [&](const BrfTraversalEvent& event) {
+        if (work >= limits.max_work_items)
+            return BrfTraversalControl::Stop;
+        ++work;
+        return visitor(event);
+    };
+    while (!stack.empty()) {
+        auto& frame = stack.back();
+        if (frame.kind == TraversalFrame::Kind::record) {
+            if (!frame.began) {
+                frame.began = true;
+                BrfTraversalEvent event;
+                event.kind = BrfTraversalEventKind::record_begin;
+                event.depth = frame.depth;
+                event.record = frame.record;
+                if (emit(event) == BrfTraversalControl::Stop)
+                    return work >= limits.max_work_items ? BrfTraversalResult::work_limit
+                                                         : BrfTraversalResult::stopped;
+            }
+            if (frame.next >= frame.record.schema().field_count) {
+                BrfTraversalEvent event;
+                event.kind = BrfTraversalEventKind::record_end;
+                event.depth = frame.depth;
+                event.record = frame.record;
+                if (emit(event) == BrfTraversalControl::Stop)
+                    return work >= limits.max_work_items ? BrfTraversalResult::work_limit
+                                                         : BrfTraversalResult::stopped;
+                stack.pop_back();
+                continue;
+            }
+            const auto index = static_cast<std::uint16_t>(frame.next++);
+            const auto field = frame.record.field_metadata(index);
+            if (!field.has_value())
+                return BrfTraversalResult::internal_error;
+            const auto value = frame.record.field(*field);
+            BrfTraversalEvent event;
+            event.kind = BrfTraversalEventKind::field;
+            event.field = *field;
+            event.present = value.has_value();
+            event.value = value;
+            event.depth = frame.depth;
+            if (emit(event) == BrfTraversalControl::Stop)
+                return work >= limits.max_work_items ? BrfTraversalResult::work_limit
+                                                     : BrfTraversalResult::stopped;
+            if (!value.has_value())
+                continue;
+            if (value->kind() != GenericBrfValueKind::array &&
+                value->kind() != GenericBrfValueKind::record) {
+                event.kind = BrfTraversalEventKind::scalar;
+                if (emit(event) == BrfTraversalControl::Stop)
+                    return work >= limits.max_work_items ? BrfTraversalResult::work_limit
+                                                         : BrfTraversalResult::stopped;
+                continue;
+            }
+            if (value->kind() == GenericBrfValueKind::record) {
+                const auto child = value->as_record();
+                if (!child.has_value())
+                    return BrfTraversalResult::internal_error;
+                if (frame.depth == limits.max_depth)
+                    return BrfTraversalResult::depth_limit;
+                stack.emplace_back(*child, frame.depth + 1U);
+                continue;
+            }
+            const auto array = value->as_array();
+            if (!array.has_value())
+                return BrfTraversalResult::internal_error;
+            event.kind = BrfTraversalEventKind::array_begin;
+            event.array = array;
+            if (emit(event) == BrfTraversalControl::Stop)
+                return work >= limits.max_work_items ? BrfTraversalResult::work_limit
+                                                     : BrfTraversalResult::stopped;
+            stack.emplace_back(*array, frame.depth);
+            continue;
+        }
+
+        if (frame.next >= frame.array.size()) {
+            BrfTraversalEvent event;
+            event.kind = BrfTraversalEventKind::array_end;
+            event.depth = frame.depth;
+            event.array = frame.array;
+            if (emit(event) == BrfTraversalControl::Stop)
+                return work >= limits.max_work_items ? BrfTraversalResult::work_limit
+                                                     : BrfTraversalResult::stopped;
+            stack.pop_back();
+            continue;
+        }
+        const auto index = frame.next++;
+        const auto value = frame.array.element(index);
+        if (!value.has_value())
+            return BrfTraversalResult::internal_error;
+        BrfTraversalEvent event;
+        event.kind = BrfTraversalEventKind::array_element;
+        event.index = index;
+        event.depth = frame.depth;
+        event.value = value;
+        if (emit(event) == BrfTraversalControl::Stop)
+            return work >= limits.max_work_items ? BrfTraversalResult::work_limit
+                                                 : BrfTraversalResult::stopped;
+        if (value->kind() == GenericBrfValueKind::record) {
+            const auto child = value->as_record();
+            if (!child.has_value())
+                return BrfTraversalResult::internal_error;
+            if (frame.depth == limits.max_depth)
+                return BrfTraversalResult::depth_limit;
+            stack.emplace_back(*child, frame.depth + 1U);
+        }
+    }
+    return BrfTraversalResult::completed;
+}
+
 std::vector<BrfFieldValueView> ValidatedBrfRecordView::fields() const {
     std::vector<BrfFieldValueView> result;
     result.reserve(record_.field_count);
@@ -712,6 +842,13 @@ std::vector<BrfFieldValueView> ValidatedBrfRecordView::fields() const {
         result.push_back({schema_field, is_present(schema_field), field(schema_field)});
     }
     return result;
+}
+
+std::optional<quarry::compiler::qbs::QbsFieldView>
+ValidatedBrfRecordView::field_metadata(std::uint16_t field_index) const {
+    if (field_index >= record_.field_count)
+        return std::nullopt;
+    return schema_->field(record_.field_start + field_index);
 }
 
 std::optional<FieldValueView> ValidatedBrfRecordView::field(std::uint16_t field_index) const {

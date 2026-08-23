@@ -36,7 +36,18 @@ The view borrows both the QBS input and BRF input buffers, and its
 records and record arrays reuse the validated cache and are never reparsed.
 Inspection is read-only and does not encode or mutate BRF records.
 Field views are zero-copy, preserve QBS order, and work with minimal QBS;
-iterative visitor traversal and formatting are intentionally deferred.
+formatting is intentionally deferred.
+
+`traverse_brf` is the iterative traversal layer. It emits record begin/end,
+field, scalar, array begin/end, and array-element events in depth-first QBS
+field and logical array order. Absent fields emit only a field event;
+present-empty arrays emit array begin/end. Events borrow the validated root.
+The implementation uses an explicit record/array frame stack: root records
+have depth zero, nested records increment depth, and primitive arrays do not.
+`BrfTraversalLimits` bounds event work and record depth, while a visitor may
+return `Stop` without treating that as an error. The API is intended for
+future JSON, diagnostics, and logging consumers; those consumers are not part
+of this layer.
 
 BRF v2 support is available through the header-only
 `quarry/runtime/binary_record_v2.hpp` API and is intentionally separate from
