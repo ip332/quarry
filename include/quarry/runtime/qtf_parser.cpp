@@ -37,6 +37,50 @@ struct Token {
     std::size_t offset = 0U;
 };
 
+bool valid_utf8(std::string_view value) {
+    const auto* bytes = reinterpret_cast<const unsigned char*>(value.data());
+    std::size_t i = 0U;
+    while (i < value.size()) {
+        const auto first = bytes[i++];
+        if (first <= 0x7FU)
+            continue;
+        const std::size_t continuation = first >= 0xC2U && first <= 0xDFU   ? 1U
+                                         : first >= 0xE0U && first <= 0xEFU ? 2U
+                                         : first >= 0xF0U && first <= 0xF4U ? 3U
+                                                                            : 0U;
+        if (continuation == 0U || value.size() - i < continuation)
+            return false;
+        std::uint32_t code_point = first & ((1U << (7U - continuation)) - 1U);
+        for (std::size_t j = 0U; j < continuation; ++j) {
+            const auto next = bytes[i++];
+            if ((next & 0xC0U) != 0x80U)
+                return false;
+            code_point = (code_point << 6U) | (next & 0x3FU);
+        }
+        if ((continuation == 1U && code_point < 0x80U) ||
+            (continuation == 2U && code_point < 0x800U) ||
+            (continuation == 3U && code_point < 0x10000U) || code_point > 0x10FFFFU ||
+            (code_point >= 0xD800U && code_point <= 0xDFFFU))
+            return false;
+    }
+    return true;
+}
+
+bool signed_range(std::int64_t value, std::uint16_t width) {
+    if (width == 0U || width > 8U)
+        return false;
+    if (width == 8U)
+        return true;
+    const auto bits = static_cast<unsigned>(width) * 8U;
+    return value >= -(std::int64_t{1} << (bits - 1U)) &&
+           value <= (std::int64_t{1} << (bits - 1U)) - 1;
+}
+
+bool unsigned_range(std::uint64_t value, std::uint16_t width) {
+    return width != 0U && width <= 8U &&
+           (width == 8U || value <= (std::uint64_t{1} << (width * 8U)) - 1U);
+}
+
 template <typename T> bool parse_float(std::string_view text, T& value) {
     std::string owned(text);
     char* end = nullptr;
@@ -107,8 +151,17 @@ private:
         std::string value;
         while (pos_ < text_.size()) {
             const char c = text_[pos_++];
-            if (c == '"')
+            if (c == '"') {
+                if (!valid_utf8(value)) {
+                    error(diagnostics_, start, "invalid UTF-8 string");
+                    return {};
+                }
                 return {Kind::string, std::move(value), start};
+            }
+            if (static_cast<unsigned char>(c) < 0x20U) {
+                error(diagnostics_, pos_ - 1U, "unescaped control character in string");
+                return {};
+            }
             if (c != '\\') {
                 value.push_back(c);
                 continue;
@@ -268,11 +321,19 @@ private:
         if (type.code == 16U)
             return parse_array(type, depth);
         if (type.code == 13U && current_.kind == Kind::string) {
+            if (current_.text.size() > type.max_bytes) {
+                error(diagnostics_, current_.offset, "string exceeds QBS max_bytes");
+                return std::nullopt;
+            }
             auto value = current_.text;
             advance();
             return BrfEncodeValue{std::move(value)};
         }
         if (type.code == 14U && current_.kind == Kind::bytes) {
+            if (current_.text.size() / 2U > type.max_bytes) {
+                error(diagnostics_, current_.offset, "bytes exceed QBS max_bytes");
+                return std::nullopt;
+            }
             std::vector<std::uint8_t> bytes;
             if (current_.text.size() % 2U) {
                 error(diagnostics_, current_.offset, "odd byte literal");
@@ -332,6 +393,7 @@ private:
             std::uint64_t v{};
             auto [p, e] = std::from_chars(text.data(), text.data() + text.size(), v);
             if (e == std::errc{} && p == text.data() + text.size() &&
+                unsigned_range(v, type.encoded_width) &&
                 (type.code != 12U || std::find(schema_.enum_type(type.reference).values.begin(),
                                                schema_.enum_type(type.reference).values.end(), v) !=
                                          schema_.enum_type(type.reference).values.end()))
@@ -340,7 +402,8 @@ private:
         if (type.code == 2U || type.code == 4U || type.code == 6U || type.code == 8U) {
             std::int64_t v{};
             auto [p, e] = std::from_chars(text.data(), text.data() + text.size(), v);
-            if (e == std::errc{} && p == text.data() + text.size())
+            if (e == std::errc{} && p == text.data() + text.size() &&
+                signed_range(v, type.encoded_width))
                 return BrfEncodeValue{v};
         }
         error(diagnostics_, current_.offset, "invalid scalar for QBS type");
@@ -361,8 +424,13 @@ private:
                     records->push_back(std::make_shared<const BrfRecordInput>(*child));
                     if (current_.kind == Kind::right_bracket)
                         break;
-                    if (!take(Kind::comma, ",") || records->size() > type.max_elements)
+                    if (!take(Kind::comma, ","))
                         return std::nullopt;
+                    if (records->size() >= type.max_elements) {
+                        error(diagnostics_, current_.offset,
+                              "record array exceeds QBS max_elements");
+                        return std::nullopt;
+                    }
                 }
             if (!take(Kind::right_bracket, "]"))
                 return std::nullopt;
@@ -400,8 +468,10 @@ private:
                             std::get<BrfFloat64Array>(array).push_back(x);
                     },
                     *v);
-                if (std::visit([](auto const& a) { return a.size(); }, array) > type.max_elements)
+                if (std::visit([](auto const& a) { return a.size(); }, array) > type.max_elements) {
+                    error(diagnostics_, current_.offset, "array exceeds QBS max_elements");
                     return std::nullopt;
+                }
                 if (current_.kind == Kind::right_bracket)
                     break;
                 if (!take(Kind::comma, ","))

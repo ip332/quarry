@@ -79,4 +79,49 @@ TEST(QtfParserTest, RejectsDuplicateAndUnknownFields) {
     diagnostics.clear();
     EXPECT_FALSE(parse_qtf("{ missing: 1 }", *schema, *record, diagnostics).has_value());
 }
+
+TEST(QtfParserTest, ValidatesUtf8AndEscapedControls) {
+    DiagnosticCollection diagnostics;
+    const auto ir = schema_ir();
+    const auto layout = quarry::compiler::layout::LayoutComputer{}.compute(ir, diagnostics);
+    const auto model =
+        QbsModelBuilder{}.build(ir, layout, {.mode = BuildMode::Reflective}, diagnostics);
+    ASSERT_TRUE(model.has_value());
+    const auto image = serialize_qbs(*model, diagnostics);
+    ASSERT_TRUE(image.has_value());
+    const auto schema = parse_qbs(image->bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_identity("Root");
+    ASSERT_TRUE(record.has_value());
+    for (const std::string_view value : {"ascii", "\xC2\xA2", "\xE2\x82\xAC", "\xF0\x90\x8D\x88"}) {
+        diagnostics.clear();
+        const auto input = parse_qtf(std::string("{ name: \"") + std::string(value) + "\" }",
+                                     *schema, *record, diagnostics);
+        ASSERT_TRUE(input.has_value()) << value;
+    }
+    diagnostics.clear();
+    EXPECT_FALSE(parse_qtf("{ name: \"\xC0\x80\" }", *schema, *record, diagnostics).has_value());
+    diagnostics.clear();
+    const std::string raw_control = std::string("{ name: \"raw") + '\n' + "line\" }";
+    EXPECT_FALSE(parse_qtf(raw_control, *schema, *record, diagnostics).has_value());
+}
+
+TEST(QtfParserTest, RejectsIntegerAndArrayOverflow) {
+    DiagnosticCollection diagnostics;
+    const auto ir = schema_ir();
+    const auto layout = quarry::compiler::layout::LayoutComputer{}.compute(ir, diagnostics);
+    const auto model =
+        QbsModelBuilder{}.build(ir, layout, {.mode = BuildMode::Reflective}, diagnostics);
+    ASSERT_TRUE(model.has_value());
+    const auto image = serialize_qbs(*model, diagnostics);
+    ASSERT_TRUE(image.has_value());
+    const auto schema = parse_qbs(image->bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_identity("Root");
+    ASSERT_TRUE(record.has_value());
+    diagnostics.clear();
+    EXPECT_FALSE(parse_qtf("{ value: 4294967296 }", *schema, *record, diagnostics).has_value());
+    diagnostics.clear();
+    EXPECT_FALSE(parse_qtf("{ value: -1 }", *schema, *record, diagnostics).has_value());
+}
 } // namespace
