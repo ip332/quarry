@@ -99,6 +99,37 @@ SchemaIR array_schema() {
     return schema;
 }
 
+SchemaIR nested_schema(bool variable_child) {
+    SchemaIR schema;
+    schema.set_schema_ir_version(1U);
+    schema.mutable_root_namespace()->set_ir_id(1U);
+    auto* child = schema.mutable_root_namespace()->add_records();
+    child->set_ir_id(2U);
+    child->set_record_id(2U);
+    child->set_name("Child");
+    child->set_fqn("Child");
+    auto* value = child->add_fields();
+    value->set_name("value");
+    value->set_field_index(0U);
+    value->mutable_type()->set_primitive(quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    if (variable_child) {
+        auto* name = child->add_fields();
+        name->set_name("name");
+        name->set_field_index(1U);
+        name->mutable_type()->mutable_string()->set_max_bytes(16U);
+    }
+    auto* parent = schema.mutable_root_namespace()->add_records();
+    parent->set_ir_id(1U);
+    parent->set_record_id(1U);
+    parent->set_name("Parent");
+    parent->set_fqn("Parent");
+    auto* nested = parent->add_fields();
+    nested->set_name("child");
+    nested->set_field_index(0U);
+    nested->mutable_type()->mutable_record()->set_target_record_ir_id(2U);
+    return schema;
+}
+
 TEST(QbsBrfEncoderTest, EncodesFixedScalarsBoolAndEnum) {
     DiagnosticCollection diagnostics;
     quarry::compiler::layout::LayoutComputer computer;
@@ -322,6 +353,76 @@ TEST(QbsBrfEncoderTest, EncodesPrimitiveArraysWithCanonicalVaruint) {
     error = GenericBrfEncodeError::none;
     EXPECT_FALSE(encode_brf_record(*schema, *record, invalid_enum, &error));
     EXPECT_EQ(error, GenericBrfEncodeError::invalid_enum);
+}
+
+TEST(QbsBrfEncoderTest, EncodesFixedNestedRecord) {
+    DiagnosticCollection diagnostics;
+    const auto source = nested_schema(false);
+    const auto layout = quarry::compiler::layout::LayoutComputer{}.compute(source, diagnostics);
+    ASSERT_TRUE(diagnostics.empty());
+    const auto model =
+        QbsModelBuilder{}.build(source, layout, {.mode = BuildMode::Minimal}, diagnostics);
+    ASSERT_TRUE(model.has_value());
+    const auto image = serialize_qbs(*model, diagnostics);
+    ASSERT_TRUE(image.has_value());
+    const auto schema = parse_qbs(image->bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto child = schema->find_record_by_identity("Child");
+    const auto parent = schema->find_record_by_identity("Parent");
+    ASSERT_TRUE(child.has_value());
+    ASSERT_TRUE(parent.has_value());
+    auto child_value = std::make_shared<BrfRecordInput>();
+    child_value->record_id = child->record_id;
+    child_value->identity = std::string(child->identity);
+    child_value->fields = {BrfEncodeValue{std::uint64_t{42U}}};
+    const std::vector<std::optional<BrfEncodeValue>> fields{
+        BrfEncodeValue{BrfNestedRecordValue{child_value}}};
+    GenericBrfEncodeError error = GenericBrfEncodeError::none;
+    const auto bytes = encode_brf_record(*schema, *parent, fields, &error);
+    ASSERT_TRUE(bytes.has_value());
+    ASSERT_EQ(error, GenericBrfEncodeError::none);
+    GenericBrfError read_error = GenericBrfError::none;
+    const auto view = validate_brf_record(*schema, *parent, *bytes, {}, &read_error);
+    ASSERT_TRUE(view.has_value());
+    const auto nested = view->nested_record(0U);
+    ASSERT_TRUE(nested.has_value());
+    EXPECT_EQ(nested->field(0U)->as_unsigned(), 42U);
+}
+
+TEST(QbsBrfEncoderTest, EncodesVariableNestedRecordWithChildLocalTail) {
+    DiagnosticCollection diagnostics;
+    const auto source = nested_schema(true);
+    const auto layout = quarry::compiler::layout::LayoutComputer{}.compute(source, diagnostics);
+    ASSERT_TRUE(diagnostics.empty());
+    const auto model =
+        QbsModelBuilder{}.build(source, layout, {.mode = BuildMode::Minimal}, diagnostics);
+    ASSERT_TRUE(model.has_value());
+    const auto image = serialize_qbs(*model, diagnostics);
+    ASSERT_TRUE(image.has_value());
+    const auto schema = parse_qbs(image->bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto child = schema->find_record_by_identity("Child");
+    const auto parent = schema->find_record_by_identity("Parent");
+    ASSERT_TRUE(child.has_value());
+    ASSERT_TRUE(parent.has_value());
+    ASSERT_TRUE(parent->variable_size);
+    auto child_value = std::make_shared<BrfRecordInput>();
+    child_value->record_id = child->record_id;
+    child_value->identity = std::string(child->identity);
+    child_value->fields = {BrfEncodeValue{std::uint64_t{7U}}, BrfEncodeValue{std::string("kid")}};
+    const std::vector<std::optional<BrfEncodeValue>> fields{
+        BrfEncodeValue{BrfNestedRecordValue{child_value}}};
+    GenericBrfEncodeError error = GenericBrfEncodeError::none;
+    const auto bytes = encode_brf_record(*schema, *parent, fields, &error);
+    ASSERT_TRUE(bytes.has_value());
+    ASSERT_EQ(error, GenericBrfEncodeError::none);
+    GenericBrfError read_error = GenericBrfError::none;
+    const auto view = validate_brf_record(*schema, *parent, *bytes, {}, &read_error);
+    ASSERT_TRUE(view.has_value());
+    const auto nested = view->nested_record(0U);
+    ASSERT_TRUE(nested.has_value());
+    EXPECT_EQ(nested->field(0U)->as_unsigned(), 7U);
+    EXPECT_EQ(nested->field(1U)->as_string(), std::optional<std::string_view>("kid"));
 }
 
 } // namespace

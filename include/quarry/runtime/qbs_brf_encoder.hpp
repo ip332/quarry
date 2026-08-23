@@ -3,6 +3,7 @@
 #include "quarry/runtime/qbs_brf_reader.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -10,6 +11,9 @@
 #include <vector>
 
 namespace quarry::runtime {
+
+struct BrfRecordInput;
+using BrfNestedRecordValue = std::shared_ptr<const BrfRecordInput>;
 
 using BrfBoolArray = std::vector<bool>;
 using BrfSignedArray = std::vector<std::int64_t>;
@@ -29,8 +33,15 @@ enum class GenericBrfEncodeError {
     overflow,
 };
 
-using BrfEncodeValue = std::variant<bool, std::int64_t, std::uint64_t, float, double, std::string,
-                                    std::vector<std::uint8_t>, BrfEncodeArray>;
+using BrfEncodeValue =
+    std::variant<bool, std::int64_t, std::uint64_t, float, double, std::string,
+                 std::vector<std::uint8_t>, BrfEncodeArray, BrfNestedRecordValue>;
+
+struct BrfRecordInput {
+    std::uint32_t record_id = 0U;
+    std::string identity;
+    std::vector<std::optional<BrfEncodeValue>> fields;
+};
 
 [[nodiscard]] std::optional<std::vector<std::uint8_t>>
 encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,

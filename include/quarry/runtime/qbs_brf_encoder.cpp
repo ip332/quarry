@@ -303,6 +303,27 @@ bool write_array(const quarry::compiler::qbs::ValidatedQbsView& schema,
     return false;
 }
 
+bool encode_nested(const quarry::compiler::qbs::ValidatedQbsView& schema,
+                   const quarry::compiler::qbs::QbsTypeView& type, const BrfEncodeValue& value,
+                   std::vector<std::uint8_t>& bytes, GenericBrfEncodeError* error) {
+    if (!std::holds_alternative<BrfNestedRecordValue>(value) ||
+        !std::get<BrfNestedRecordValue>(value) || type.reference >= schema.record_count()) {
+        set_error(error, GenericBrfEncodeError::invalid_value);
+        return false;
+    }
+    const auto& input = *std::get<BrfNestedRecordValue>(value);
+    const auto child_schema = schema.record(type.reference);
+    if (input.record_id != child_schema.record_id || input.identity != child_schema.identity) {
+        set_error(error, GenericBrfEncodeError::invalid_schema);
+        return false;
+    }
+    const auto child = encode_brf_record(schema, child_schema, input.fields, error);
+    if (!child.has_value())
+        return false;
+    bytes = *child;
+    return true;
+}
+
 } // namespace
 
 std::optional<std::vector<std::uint8_t>>
@@ -346,8 +367,8 @@ encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
             return std::nullopt;
         }
         const auto type = schema.type(field_schema->type_index);
-        if (type.code == 15U) {
-            set_error(error, GenericBrfEncodeError::unsupported_type);
+        if (type.code == 15U && type.reference >= schema.record_count()) {
+            set_error(error, GenericBrfEncodeError::invalid_schema);
             return std::nullopt;
         }
         if (field_schema->presence_bit_index / 8U >= record_schema.presence_bitmap_size ||
@@ -361,9 +382,12 @@ encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
             continue;
         }
         if (field_schema->storage == 2U) {
-            const auto ok = type.code == 16U
-                                ? write_array(schema, type, *fields[i], variable_payloads[i], error)
-                                : write_variable(type, *fields[i], variable_payloads[i], error);
+            const auto ok =
+                type.code == 16U
+                    ? write_array(schema, type, *fields[i], variable_payloads[i], error)
+                : type.code == 15U
+                    ? encode_nested(schema, type, *fields[i], variable_payloads[i], error)
+                    : write_variable(type, *fields[i], variable_payloads[i], error);
             if (!ok)
                 return std::nullopt;
             variable_present[i] = true;
@@ -372,6 +396,19 @@ encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
         if (type.code == 13U || type.code == 14U || type.code == 16U) {
             set_error(error, GenericBrfEncodeError::invalid_schema);
             return std::nullopt;
+        }
+        if (type.code == 15U) {
+            std::vector<std::uint8_t> child;
+            if (!encode_nested(schema, type, *fields[i], child, error))
+                return std::nullopt;
+            if (child.size() != field_schema->slot_size) {
+                set_error(error, GenericBrfEncodeError::invalid_schema);
+                return std::nullopt;
+            }
+            std::copy(child.begin(), child.end(), result.begin() + field_schema->byte_offset);
+            result[16U + field_schema->presence_bit_index / 8U] |=
+                static_cast<std::uint8_t>(1U << (field_schema->presence_bit_index % 8U));
+            continue;
         }
         result[16U + field_schema->presence_bit_index / 8U] |=
             static_cast<std::uint8_t>(1U << (field_schema->presence_bit_index % 8U));
