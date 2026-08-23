@@ -90,6 +90,9 @@ public:
 
     const std::vector<ValidatedRecordNode>& nodes() const { return nodes_; }
     const std::vector<ValidatedFieldState>& fields() const { return fields_; }
+    const std::vector<std::size_t>& field_indexes(std::size_t node_index) const {
+        return field_indexes_[node_index];
+    }
     const std::vector<ChildRelation>& children() const { return children_; }
     const std::vector<RecordArrayRelation>& arrays() const { return arrays_; }
     const std::vector<std::size_t>& array_children() const { return array_children_; }
@@ -100,6 +103,7 @@ private:
     BrfReadLimits limits_;
     std::vector<ValidatedRecordNode> nodes_;
     std::vector<ValidatedFieldState> fields_;
+    std::vector<std::vector<std::size_t>> field_indexes_;
     std::vector<ChildRelation> children_;
     std::vector<RecordArrayRelation> arrays_;
     std::vector<std::size_t> array_children_;

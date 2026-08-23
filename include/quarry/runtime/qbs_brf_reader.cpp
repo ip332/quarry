@@ -915,9 +915,8 @@ std::optional<BrfRecordArrayView> ValidatedBrfRecordView::record_array(
     if (type.code != 16U || type.reference >= schema_->type_count() ||
         schema_->type(type.reference).code != 15U)
         return std::nullopt;
-    const auto& node = validation_cache_->nodes()[node_index_];
-    for (std::size_t i = 0U; i < node.validated_field_count; ++i) {
-        const auto& field = validation_cache_->fields()[node.first_validated_field + i];
+    for (const auto field_index : validation_cache_->field_indexes(node_index_)) {
+        const auto& field = validation_cache_->fields()[field_index];
         if (field.qbs_field_index == field_schema.field_index && field.present &&
             field.array_relation.has_value()) {
             const auto relation = *field.array_relation;
@@ -952,8 +951,8 @@ ValidatedBrfRecordView::view_for_node(std::size_t node_index) const {
     result.root_bytes_ = root_bytes_;
     result.bytes_ = root_bytes_.subspan(child.brf_offset, child.brf_length);
     result.validation_cache_ = validation_cache_;
-    for (std::size_t i = 0U; i < child.validated_field_count; ++i) {
-        const auto& field_state = validation_cache_->fields()[child.first_validated_field + i];
+    for (const auto field_index : validation_cache_->field_indexes(node_index)) {
+        const auto& field_state = validation_cache_->fields()[field_index];
         const auto field_schema = schema_->find_field(
             child.qbs_record_index, static_cast<std::uint16_t>(field_state.qbs_field_index));
         if (!field_schema.has_value())
@@ -990,9 +989,8 @@ std::optional<ValidatedBrfRecordView> ValidatedBrfRecordView::nested_record(
     if (!owned.has_value() || owned->type_index != field_schema.type_index || !validation_cache_ ||
         node_index_ >= validation_cache_->nodes().size())
         return std::nullopt;
-    const auto& node = validation_cache_->nodes()[node_index_];
-    for (std::size_t i = 0U; i < node.validated_field_count; ++i) {
-        const auto& field = validation_cache_->fields()[node.first_validated_field + i];
+    for (const auto field_index : validation_cache_->field_indexes(node_index_)) {
+        const auto& field = validation_cache_->fields()[field_index];
         if (field.qbs_field_index != field_schema.field_index || !field.present ||
             !field.child_relation.has_value())
             continue;
@@ -1015,8 +1013,8 @@ std::optional<ValidatedBrfRecordView> ValidatedBrfRecordView::nested_record(
         result.root_bytes_ = root_bytes_;
         result.bytes_ = root_bytes_.subspan(relation.brf_offset, relation.brf_length);
         result.validation_cache_ = validation_cache_;
-        for (std::size_t i = 0U; i < child.validated_field_count; ++i) {
-            const auto& field_state = validation_cache_->fields()[child.first_validated_field + i];
+        for (const auto field_index : validation_cache_->field_indexes(relation.child_node)) {
+            const auto& field_state = validation_cache_->fields()[field_index];
             const auto field_schema = schema_->find_field(
                 child.qbs_record_index, static_cast<std::uint16_t>(field_state.qbs_field_index));
             if (!field_schema.has_value())
