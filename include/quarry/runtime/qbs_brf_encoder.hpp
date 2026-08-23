@@ -1,0 +1,59 @@
+#pragma once
+
+#include "quarry/runtime/qbs_brf_reader.hpp"
+
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <span>
+#include <string>
+#include <variant>
+#include <vector>
+
+namespace quarry::runtime {
+
+struct BrfRecordInput;
+using BrfNestedRecordValue = std::shared_ptr<const BrfRecordInput>;
+using BrfRecordArrayValue = std::shared_ptr<const std::vector<BrfNestedRecordValue>>;
+
+using BrfBoolArray = std::vector<bool>;
+using BrfSignedArray = std::vector<std::int64_t>;
+using BrfUnsignedArray = std::vector<std::uint64_t>;
+using BrfFloat32Array = std::vector<float>;
+using BrfFloat64Array = std::vector<double>;
+using BrfEncodeArray =
+    std::variant<BrfBoolArray, BrfSignedArray, BrfUnsignedArray, BrfFloat32Array, BrfFloat64Array>;
+
+enum class GenericBrfEncodeError {
+    none,
+    invalid_schema,
+    field_count_mismatch,
+    unsupported_type,
+    invalid_value,
+    invalid_enum,
+    overflow,
+};
+
+struct BrfEncodeLimits {
+    std::size_t max_record_bytes = 64U * 1024U * 1024U;
+    std::size_t max_work_items = 1U << 20U;
+    std::size_t max_nested_records = 1024U;
+};
+
+using BrfEncodeValue = std::variant<bool, std::int64_t, std::uint64_t, float, double, std::string,
+                                    std::vector<std::uint8_t>, BrfEncodeArray, BrfNestedRecordValue,
+                                    BrfRecordArrayValue>;
+
+struct BrfRecordInput {
+    std::uint32_t record_id = 0U;
+    std::string identity;
+    std::vector<std::optional<BrfEncodeValue>> fields;
+};
+
+[[nodiscard]] std::optional<std::vector<std::uint8_t>>
+encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
+                  const quarry::compiler::qbs::QbsRecordView& record_schema,
+                  std::span<const std::optional<BrfEncodeValue>> fields,
+                  GenericBrfEncodeError* error = nullptr, BrfEncodeLimits limits = {});
+
+} // namespace quarry::runtime

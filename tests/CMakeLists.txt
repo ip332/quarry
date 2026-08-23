@@ -150,6 +150,8 @@ target_link_libraries(runtime_binary_record_v2_test PRIVATE quarry_compiler_layo
 target_link_libraries(runtime_binary_record_v2_test PRIVATE quarry_schema_ir_warning_tweaks)
 add_quarry_gtest(runtime_qbs_brf_reader_test runtime/qbs_brf_reader_test.cpp
                       quarry_compiler_qbs)
+add_quarry_gtest(runtime_qbs_brf_encoder_test runtime/qbs_brf_encoder_test.cpp
+                      quarry_compiler_qbs)
 add_quarry_gtest(runtime_brf_validation_cache_test runtime/brf_validation_cache_test.cpp
                       quarry_compiler_qbs)
 add_quarry_gtest(runtime_c_binary_record_test runtime_c/binary_record_test.cpp
@@ -237,6 +239,7 @@ add_quarry_gtest(python_cpp_c_codec_interop_test
 target_link_libraries(python_cpp_c_codec_interop_test PRIVATE quarry_compiler_backend)
 target_link_libraries(python_cpp_c_codec_interop_test PRIVATE quarry_compiler_backend_c)
 target_link_libraries(python_cpp_c_codec_interop_test PRIVATE quarry_compiler_backend_python)
+target_link_libraries(python_cpp_c_codec_interop_test PRIVATE quarry_compiler_qbs)
 target_link_libraries(python_cpp_c_codec_interop_test PRIVATE quarry_compiler_schema_ir)
 target_link_libraries(python_cpp_c_codec_interop_test PRIVATE quarry_schema_ir_warning_tweaks)
 add_dependencies(python_cpp_c_codec_interop_test quarry_schema_compiler)
