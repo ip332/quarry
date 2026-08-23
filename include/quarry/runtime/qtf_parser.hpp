@@ -10,6 +10,14 @@
 
 namespace quarry::runtime {
 
+struct QtfSourceLocation {
+    std::size_t byte_offset = 0U;
+    std::size_t line = 1U;
+    std::size_t column = 1U;
+};
+
+[[nodiscard]] QtfSourceLocation qtf_source_location(std::string_view text, std::size_t byte_offset);
+
 struct QtfParseLimits {
     std::size_t max_input_bytes = 64U * 1024U * 1024U;
     std::size_t max_depth = 1024U;

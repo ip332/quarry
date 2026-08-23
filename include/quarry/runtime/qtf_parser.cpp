@@ -91,8 +91,26 @@ template <typename T> bool parse_float(std::string_view text, T& value) {
     return end == owned.c_str() + owned.size();
 }
 
+QtfSourceLocation qtf_source_location(std::string_view text, std::size_t byte_offset) {
+    QtfSourceLocation location{std::min(byte_offset, text.size()), 1U, 1U};
+    for (std::size_t i = 0U; i < location.byte_offset; ++i) {
+        if (text[i] == '\n') {
+            ++location.line;
+            location.column = 1U;
+        } else {
+            ++location.column;
+        }
+    }
+    return location;
+}
+
+thread_local std::string_view diagnostic_source;
+
 void error(DiagnosticCollection& diagnostics, std::size_t offset, std::string message) {
-    message += " at byte " + std::to_string(offset);
+    const auto location = qtf_source_location(diagnostic_source, offset);
+    message += " at line " + std::to_string(location.line) + ", column " +
+               std::to_string(location.column) + " (byte " + std::to_string(location.byte_offset) +
+               ")";
     diagnostics.add(
         Diagnostic::create(DiagnosticId("qtf.parse"), Severity::Error, std::move(message)).build());
 }
@@ -498,10 +516,14 @@ std::optional<BrfRecordInput>
 parse_qtf(std::string_view text, const quarry::compiler::qbs::ValidatedQbsView& schema,
           const quarry::compiler::qbs::QbsRecordView& record,
           quarry::compiler::diagnostics::DiagnosticCollection& diagnostics, QtfParseLimits limits) {
+    diagnostic_source = text;
     if (text.size() > limits.max_input_bytes) {
         error(diagnostics, 0, "QTF input exceeds limit");
+        diagnostic_source = {};
         return std::nullopt;
     }
-    return Parser(text, schema, diagnostics, limits).root(record);
+    auto result = Parser(text, schema, diagnostics, limits).root(record);
+    diagnostic_source = {};
+    return result;
 }
 } // namespace quarry::runtime

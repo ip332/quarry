@@ -124,4 +124,11 @@ TEST(QtfParserTest, RejectsIntegerAndArrayOverflow) {
     diagnostics.clear();
     EXPECT_FALSE(parse_qtf("{ value: -1 }", *schema, *record, diagnostics).has_value());
 }
+
+TEST(QtfParserTest, TracksOneBasedByteLocations) {
+    const auto location = qtf_source_location("{\n  value: 1\n}", 11U);
+    EXPECT_EQ(location.byte_offset, 11U);
+    EXPECT_EQ(location.line, 2U);
+    EXPECT_EQ(location.column, 10U);
+}
 } // namespace
