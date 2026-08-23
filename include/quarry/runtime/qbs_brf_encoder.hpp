@@ -14,6 +14,7 @@ namespace quarry::runtime {
 
 struct BrfRecordInput;
 using BrfNestedRecordValue = std::shared_ptr<const BrfRecordInput>;
+using BrfRecordArrayValue = std::shared_ptr<const std::vector<BrfNestedRecordValue>>;
 
 using BrfBoolArray = std::vector<bool>;
 using BrfSignedArray = std::vector<std::int64_t>;
@@ -39,9 +40,9 @@ struct BrfEncodeLimits {
     std::size_t max_nested_records = 1024U;
 };
 
-using BrfEncodeValue =
-    std::variant<bool, std::int64_t, std::uint64_t, float, double, std::string,
-                 std::vector<std::uint8_t>, BrfEncodeArray, BrfNestedRecordValue>;
+using BrfEncodeValue = std::variant<bool, std::int64_t, std::uint64_t, float, double, std::string,
+                                    std::vector<std::uint8_t>, BrfEncodeArray, BrfNestedRecordValue,
+                                    BrfRecordArrayValue>;
 
 struct BrfRecordInput {
     std::uint32_t record_id = 0U;

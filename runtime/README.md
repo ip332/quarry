@@ -12,12 +12,11 @@ views. The first generic write phase is provided by
 `quarry/runtime/qbs_brf_encoder.hpp`: it constructs canonical fixed-size BRF
 records from a `ValidatedQbsView`, including the header, presence bitmap,
 fixed-region layout, scalar integers, floating-point values, booleans,
-declared enum values, strings, and bytes. Its result is an owning byte vector
-primitive arrays, and variable payloads are rebuilt in canonical QBS field
-order. Fixed nested records are copied into inline slots and variable nested
-records are emitted as complete child BRF objects in the parent tail. Record
-arrays remain explicitly unsupported; the encoder does not mutate existing
-records or perform schema exchange.
+declared enum values, strings, bytes, primitive arrays, and nested records. Its
+result is an owning byte vector, and variable payloads are rebuilt in canonical
+QBS field order. Record arrays use canonical count framing (and per-element
+lengths for variable children). The encoder does not mutate existing records
+or perform schema exchange.
 
 The nested-reader Phase A substrate is kept in
 `runtime/detail/brf_validation_cache.hpp`. It uses stable integer indexes for

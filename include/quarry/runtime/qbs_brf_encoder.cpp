@@ -14,6 +14,11 @@ encode_brf_record_impl(const quarry::compiler::qbs::ValidatedQbsView&,
                        std::span<const std::optional<BrfEncodeValue>>, GenericBrfEncodeError*,
                        BrfEncodeLimits, std::size_t);
 
+bool encode_nested(const quarry::compiler::qbs::ValidatedQbsView&,
+                   const quarry::compiler::qbs::QbsTypeView&, const BrfEncodeValue&,
+                   std::vector<std::uint8_t>&, GenericBrfEncodeError*, BrfEncodeLimits,
+                   std::size_t);
+
 void set_error(GenericBrfEncodeError* error, GenericBrfEncodeError value) {
     if (error != nullptr)
         *error = value;
@@ -202,14 +207,53 @@ bool write_variable(const quarry::compiler::qbs::QbsTypeView& type, const BrfEnc
 
 bool write_array(const quarry::compiler::qbs::ValidatedQbsView& schema,
                  const quarry::compiler::qbs::QbsTypeView& array_type, const BrfEncodeValue& value,
-                 std::vector<std::uint8_t>& payload, GenericBrfEncodeError* error) {
-    if (!std::holds_alternative<BrfEncodeArray>(value) ||
-        array_type.reference >= schema.type_count()) {
+                 std::vector<std::uint8_t>& payload, GenericBrfEncodeError* error,
+                 BrfEncodeLimits limits, std::size_t depth) {
+    if (array_type.reference >= schema.type_count()) {
+        set_error(error, GenericBrfEncodeError::invalid_value);
+        return false;
+    }
+    const auto element = schema.type(array_type.reference);
+
+    if (element.code == 15U) {
+        if (!std::holds_alternative<BrfRecordArrayValue>(value) ||
+            !std::get<BrfRecordArrayValue>(value) ||
+            std::get<BrfRecordArrayValue>(value)->size() > array_type.max_elements ||
+            element.reference >= schema.record_count()) {
+            set_error(error, GenericBrfEncodeError::invalid_value);
+            return false;
+        }
+        const auto& children = *std::get<BrfRecordArrayValue>(value);
+        const auto child_schema = schema.record(element.reference);
+        append_varuint(payload, children.size());
+        for (std::size_t i = 0U; i < children.size(); ++i) {
+            if (i >= limits.max_work_items) {
+                set_error(error, GenericBrfEncodeError::overflow);
+                return false;
+            }
+            BrfEncodeValue child_value{children[i]};
+            std::vector<std::uint8_t> child_bytes;
+            if (!encode_nested(schema, element, child_value, child_bytes, error, limits, depth))
+                return false;
+            if (child_bytes.empty() ||
+                child_bytes.size() > std::numeric_limits<std::uint32_t>::max() ||
+                (!child_schema.variable_size &&
+                 (child_schema.complete_fixed_record_size == 0U ||
+                  child_bytes.size() != child_schema.complete_fixed_record_size))) {
+                set_error(error, GenericBrfEncodeError::overflow);
+                return false;
+            }
+            if (child_schema.variable_size)
+                append_varuint(payload, child_bytes.size());
+            payload.insert(payload.end(), child_bytes.begin(), child_bytes.end());
+        }
+        return true;
+    }
+    if (!std::holds_alternative<BrfEncodeArray>(value)) {
         set_error(error, GenericBrfEncodeError::invalid_value);
         return false;
     }
     const auto& array = std::get<BrfEncodeArray>(value);
-    const auto element = schema.type(array_type.reference);
     const auto append_integer = [&](std::uint64_t item) {
         std::vector<std::uint8_t> encoded(element.encoded_width);
         put_integer(encoded, item);
@@ -400,12 +444,12 @@ encode_brf_record_impl(const quarry::compiler::qbs::ValidatedQbsView& schema,
             continue;
         }
         if (field_schema->storage == 2U) {
-            const auto ok = type.code == 16U
-                                ? write_array(schema, type, *fields[i], variable_payloads[i], error)
-                            : type.code == 15U
-                                ? encode_nested(schema, type, *fields[i], variable_payloads[i],
-                                                error, limits, depth)
-                                : write_variable(type, *fields[i], variable_payloads[i], error);
+            const auto ok =
+                type.code == 16U   ? write_array(schema, type, *fields[i], variable_payloads[i],
+                                                 error, limits, depth)
+                : type.code == 15U ? encode_nested(schema, type, *fields[i], variable_payloads[i],
+                                                   error, limits, depth)
+                                   : write_variable(type, *fields[i], variable_payloads[i], error);
             if (!ok)
                 return std::nullopt;
             variable_present[i] = true;

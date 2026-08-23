@@ -130,6 +130,42 @@ SchemaIR nested_schema(bool variable_child) {
     return schema;
 }
 
+SchemaIR record_array_schema(bool variable_item) {
+    SchemaIR schema;
+    schema.set_schema_ir_version(1U);
+    schema.mutable_root_namespace()->set_ir_id(1U);
+    auto* item = schema.mutable_root_namespace()->add_records();
+    item->set_ir_id(2U);
+    item->set_record_id(2U);
+    item->set_name("Item");
+    item->set_fqn("Item");
+    auto* value = item->add_fields();
+    value->set_name("value");
+    value->set_field_index(0U);
+    value->mutable_type()->set_primitive(quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    if (variable_item) {
+        auto* name = item->add_fields();
+        name->set_name("name");
+        name->set_field_index(1U);
+        name->mutable_type()->mutable_string()->set_max_bytes(16U);
+    }
+    auto* parent = schema.mutable_root_namespace()->add_records();
+    parent->set_ir_id(1U);
+    parent->set_record_id(1U);
+    parent->set_name("Parent");
+    parent->set_fqn("Parent");
+    auto* items = parent->add_fields();
+    items->set_name("items");
+    items->set_field_index(0U);
+    items->mutable_type()->mutable_array()->set_max_elements(3U);
+    items->mutable_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->mutable_record()
+        ->set_target_record_ir_id(2U);
+    return schema;
+}
+
 TEST(QbsBrfEncoderTest, EncodesFixedScalarsBoolAndEnum) {
     DiagnosticCollection diagnostics;
     quarry::compiler::layout::LayoutComputer computer;
@@ -428,6 +464,57 @@ TEST(QbsBrfEncoderTest, EncodesVariableNestedRecordWithChildLocalTail) {
     ASSERT_TRUE(nested.has_value());
     EXPECT_EQ(nested->field(0U)->as_unsigned(), 7U);
     EXPECT_EQ(nested->field(1U)->as_string(), std::optional<std::string_view>("kid"));
+}
+
+TEST(QbsBrfEncoderTest, EncodesFixedAndVariableRecordArrays) {
+    for (const bool variable : {false, true}) {
+        DiagnosticCollection diagnostics;
+        const auto source = record_array_schema(variable);
+        const auto layout = quarry::compiler::layout::LayoutComputer{}.compute(source, diagnostics);
+        ASSERT_TRUE(diagnostics.empty());
+        const auto model =
+            QbsModelBuilder{}.build(source, layout, {.mode = BuildMode::Minimal}, diagnostics);
+        ASSERT_TRUE(model.has_value());
+        const auto image = serialize_qbs(*model, diagnostics);
+        ASSERT_TRUE(image.has_value());
+        const auto schema = parse_qbs(image->bytes, diagnostics);
+        ASSERT_TRUE(schema.has_value());
+        const auto item = schema->find_record_by_identity("Item");
+        const auto parent = schema->find_record_by_identity("Parent");
+        ASSERT_TRUE(item.has_value());
+        ASSERT_TRUE(parent.has_value());
+        auto first = std::make_shared<BrfRecordInput>();
+        first->record_id = item->record_id;
+        first->identity = std::string(item->identity);
+        first->fields = {BrfEncodeValue{std::uint64_t{1U}}};
+        auto second = std::make_shared<BrfRecordInput>(*first);
+        second->fields[0] = BrfEncodeValue{std::uint64_t{2U}};
+        if (variable) {
+            first->fields.push_back(BrfEncodeValue{std::string("one")});
+            second->fields.push_back(BrfEncodeValue{std::string("two")});
+        }
+        auto children = std::make_shared<std::vector<BrfNestedRecordValue>>();
+        children->push_back(first);
+        children->push_back(second);
+        const std::vector<std::optional<BrfEncodeValue>> fields{
+            BrfEncodeValue{BrfRecordArrayValue{children}}};
+        GenericBrfEncodeError error = GenericBrfEncodeError::none;
+        const auto bytes = encode_brf_record(*schema, *parent, fields, &error);
+        ASSERT_TRUE(bytes.has_value());
+        ASSERT_EQ(error, GenericBrfEncodeError::none);
+        GenericBrfError read_error = GenericBrfError::none;
+        const auto view = validate_brf_record(*schema, *parent, *bytes, {}, &read_error);
+        ASSERT_TRUE(view.has_value());
+        const auto array = view->record_array(0U);
+        ASSERT_TRUE(array.has_value());
+        ASSERT_EQ(array->size(), 2U);
+        EXPECT_EQ(array->element(0U)->field(0U)->as_unsigned(), 1U);
+        EXPECT_EQ(array->element(1U)->field(0U)->as_unsigned(), 2U);
+        if (variable) {
+            EXPECT_EQ(array->element(1U)->field(1U)->as_string(),
+                      std::optional<std::string_view>("two"));
+        }
+    }
 }
 
 } // namespace
