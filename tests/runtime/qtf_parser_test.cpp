@@ -38,7 +38,8 @@ TEST(QtfParserTest, ParsesAndImportsSchemaDrivenValues) {
     const auto ir = schema_ir();
     const auto layout = quarry::compiler::layout::LayoutComputer{}.compute(ir, diagnostics);
     ASSERT_TRUE(diagnostics.empty());
-    const auto model = QbsModelBuilder{}.build(ir, layout, {.mode = BuildMode::Reflective}, diagnostics);
+    const auto model =
+        QbsModelBuilder{}.build(ir, layout, {.mode = BuildMode::Reflective}, diagnostics);
     ASSERT_TRUE(model.has_value());
     const auto image = serialize_qbs(*model, diagnostics);
     ASSERT_TRUE(image.has_value());
@@ -46,10 +47,12 @@ TEST(QtfParserTest, ParsesAndImportsSchemaDrivenValues) {
     ASSERT_TRUE(schema.has_value());
     const auto record = schema->find_record_by_identity("Root");
     ASSERT_TRUE(record.has_value());
-    const auto input = parse_qtf("{ value: 42 name: \"hi\\nthere\" }", *schema, *record, diagnostics);
+    const auto input =
+        parse_qtf("{ value: 42 name: \"hi\\nthere\" }", *schema, *record, diagnostics);
     ASSERT_TRUE(input.has_value());
     ASSERT_EQ(input->fields.size(), 2U);
-    const auto bytes = import_qtf("{ value: 42 name: \"hi\\nthere\" }", *schema, *record, diagnostics);
+    const auto bytes =
+        import_qtf("{ value: 42 name: \"hi\\nthere\" }", *schema, *record, diagnostics);
     ASSERT_TRUE(bytes.has_value());
     const auto view = validate_brf_record(*schema, *record, *bytes);
     ASSERT_TRUE(view.has_value());
@@ -62,7 +65,8 @@ TEST(QtfParserTest, RejectsDuplicateAndUnknownFields) {
     DiagnosticCollection diagnostics;
     const auto ir = schema_ir();
     const auto layout = quarry::compiler::layout::LayoutComputer{}.compute(ir, diagnostics);
-    const auto model = QbsModelBuilder{}.build(ir, layout, {.mode = BuildMode::Reflective}, diagnostics);
+    const auto model =
+        QbsModelBuilder{}.build(ir, layout, {.mode = BuildMode::Reflective}, diagnostics);
     ASSERT_TRUE(model.has_value());
     const auto image = serialize_qbs(*model, diagnostics);
     ASSERT_TRUE(image.has_value());

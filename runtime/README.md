@@ -397,6 +397,18 @@ consumer ever depended on one (verified during PR-104's investigation) and
 this project has not yet tagged a release that could have created such a
 dependency.
 
+## QTF import
+
+QTF v1 can be parsed and imported with `parse_qtf()` and `import_qtf()` from
+`quarry/runtime/qtf_parser.hpp` and `quarry/runtime/qtf_importer.hpp`. The
+selected QBS record supplies all type information: omitted fields remain
+absent, while empty strings, bytes, arrays, and records remain present.
+Unknown and duplicate fields are rejected. Import produces BRF through the
+generic encoder; it does not write BRF framing directly.
+
+QTF is inspired by protobuf TextFormat but is not protobuf-compatible. QBS is
+required for both parsing and importing.
+
 ## Fuzzing
 
 BRF parser fuzz targets are available behind the opt-in

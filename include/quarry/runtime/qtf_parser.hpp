@@ -16,10 +16,10 @@ struct QtfParseLimits {
     std::size_t max_tokens = 1U << 20U;
 };
 
-[[nodiscard]] std::optional<BrfRecordInput> parse_qtf(
-    std::string_view text, const quarry::compiler::qbs::ValidatedQbsView& schema,
-    const quarry::compiler::qbs::QbsRecordView& record,
-    quarry::compiler::diagnostics::DiagnosticCollection& diagnostics,
-    QtfParseLimits limits = {});
+[[nodiscard]] std::optional<BrfRecordInput>
+parse_qtf(std::string_view text, const quarry::compiler::qbs::ValidatedQbsView& schema,
+          const quarry::compiler::qbs::QbsRecordView& record,
+          quarry::compiler::diagnostics::DiagnosticCollection& diagnostics,
+          QtfParseLimits limits = {});
 
 } // namespace quarry::runtime
