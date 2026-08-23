@@ -8,6 +8,12 @@
 namespace quarry::runtime {
 namespace {
 
+std::optional<std::vector<std::uint8_t>>
+encode_brf_record_impl(const quarry::compiler::qbs::ValidatedQbsView&,
+                       const quarry::compiler::qbs::QbsRecordView&,
+                       std::span<const std::optional<BrfEncodeValue>>, GenericBrfEncodeError*,
+                       BrfEncodeLimits, std::size_t);
+
 void set_error(GenericBrfEncodeError* error, GenericBrfEncodeError value) {
     if (error != nullptr)
         *error = value;
@@ -305,7 +311,8 @@ bool write_array(const quarry::compiler::qbs::ValidatedQbsView& schema,
 
 bool encode_nested(const quarry::compiler::qbs::ValidatedQbsView& schema,
                    const quarry::compiler::qbs::QbsTypeView& type, const BrfEncodeValue& value,
-                   std::vector<std::uint8_t>& bytes, GenericBrfEncodeError* error) {
+                   std::vector<std::uint8_t>& bytes, GenericBrfEncodeError* error,
+                   BrfEncodeLimits limits, std::size_t depth) {
     if (!std::holds_alternative<BrfNestedRecordValue>(value) ||
         !std::get<BrfNestedRecordValue>(value) || type.reference >= schema.record_count()) {
         set_error(error, GenericBrfEncodeError::invalid_value);
@@ -317,21 +324,24 @@ bool encode_nested(const quarry::compiler::qbs::ValidatedQbsView& schema,
         set_error(error, GenericBrfEncodeError::invalid_schema);
         return false;
     }
-    const auto child = encode_brf_record(schema, child_schema, input.fields, error);
+    const auto child =
+        encode_brf_record_impl(schema, child_schema, input.fields, error, limits, depth + 1U);
     if (!child.has_value())
         return false;
     bytes = *child;
     return true;
 }
 
-} // namespace
-
 std::optional<std::vector<std::uint8_t>>
-encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
-                  const quarry::compiler::qbs::QbsRecordView& record_schema,
-                  std::span<const std::optional<BrfEncodeValue>> fields,
-                  GenericBrfEncodeError* error) {
+encode_brf_record_impl(const quarry::compiler::qbs::ValidatedQbsView& schema,
+                       const quarry::compiler::qbs::QbsRecordView& record_schema,
+                       std::span<const std::optional<BrfEncodeValue>> fields,
+                       GenericBrfEncodeError* error, BrfEncodeLimits limits, std::size_t depth) {
     set_error(error, GenericBrfEncodeError::none);
+    if (depth > limits.max_nested_records) {
+        set_error(error, GenericBrfEncodeError::overflow);
+        return std::nullopt;
+    }
     if (fields.size() != record_schema.field_count ||
         record_schema.fixed_region_size > std::numeric_limits<std::uint32_t>::max() - 16U) {
         set_error(error, fields.size() != record_schema.field_count
@@ -353,10 +363,18 @@ encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
         return std::nullopt;
     }
     const auto fixed_end = static_cast<std::size_t>(16U) + record_schema.fixed_region_size;
+    if (fixed_end > limits.max_record_bytes) {
+        set_error(error, GenericBrfEncodeError::overflow);
+        return std::nullopt;
+    }
     std::vector<std::uint8_t> result(fixed_end, 0U);
     std::vector<std::vector<std::uint8_t>> variable_payloads(fields.size());
     std::vector<bool> variable_present(fields.size(), false);
     for (std::size_t i = 0U; i < fields.size(); ++i) {
+        if (i >= limits.max_work_items) {
+            set_error(error, GenericBrfEncodeError::overflow);
+            return std::nullopt;
+        }
         const auto field_schema = schema.find_field(record_index, static_cast<std::uint16_t>(i));
         if (!field_schema.has_value()) {
             set_error(error, GenericBrfEncodeError::invalid_schema);
@@ -382,12 +400,12 @@ encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
             continue;
         }
         if (field_schema->storage == 2U) {
-            const auto ok =
-                type.code == 16U
-                    ? write_array(schema, type, *fields[i], variable_payloads[i], error)
-                : type.code == 15U
-                    ? encode_nested(schema, type, *fields[i], variable_payloads[i], error)
-                    : write_variable(type, *fields[i], variable_payloads[i], error);
+            const auto ok = type.code == 16U
+                                ? write_array(schema, type, *fields[i], variable_payloads[i], error)
+                            : type.code == 15U
+                                ? encode_nested(schema, type, *fields[i], variable_payloads[i],
+                                                error, limits, depth)
+                                : write_variable(type, *fields[i], variable_payloads[i], error);
             if (!ok)
                 return std::nullopt;
             variable_present[i] = true;
@@ -399,7 +417,7 @@ encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
         }
         if (type.code == 15U) {
             std::vector<std::uint8_t> child;
-            if (!encode_nested(schema, type, *fields[i], child, error))
+            if (!encode_nested(schema, type, *fields[i], child, error, limits, depth))
                 return std::nullopt;
             if (child.size() != field_schema->slot_size) {
                 set_error(error, GenericBrfEncodeError::invalid_schema);
@@ -431,6 +449,10 @@ encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
         tail_size += variable_payloads[i].size();
     }
     result.resize(fixed_end + tail_size, 0U);
+    if (result.size() > limits.max_record_bytes) {
+        set_error(error, GenericBrfEncodeError::overflow);
+        return std::nullopt;
+    }
     result[0] = 2U;
     put16(result, 2U, 16U);
     put32(result, 4U, record_schema.record_id);
@@ -451,6 +473,16 @@ encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
             static_cast<std::uint8_t>(1U << (field_schema->presence_bit_index % 8U));
     }
     return result;
+}
+
+} // namespace
+
+std::optional<std::vector<std::uint8_t>>
+encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
+                  const quarry::compiler::qbs::QbsRecordView& record_schema,
+                  std::span<const std::optional<BrfEncodeValue>> fields,
+                  GenericBrfEncodeError* error, BrfEncodeLimits limits) {
+    return encode_brf_record_impl(schema, record_schema, fields, error, limits, 0U);
 }
 
 } // namespace quarry::runtime

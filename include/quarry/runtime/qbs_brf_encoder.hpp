@@ -33,6 +33,12 @@ enum class GenericBrfEncodeError {
     overflow,
 };
 
+struct BrfEncodeLimits {
+    std::size_t max_record_bytes = 64U * 1024U * 1024U;
+    std::size_t max_work_items = 1U << 20U;
+    std::size_t max_nested_records = 1024U;
+};
+
 using BrfEncodeValue =
     std::variant<bool, std::int64_t, std::uint64_t, float, double, std::string,
                  std::vector<std::uint8_t>, BrfEncodeArray, BrfNestedRecordValue>;
@@ -47,6 +53,6 @@ struct BrfRecordInput {
 encode_brf_record(const quarry::compiler::qbs::ValidatedQbsView& schema,
                   const quarry::compiler::qbs::QbsRecordView& record_schema,
                   std::span<const std::optional<BrfEncodeValue>> fields,
-                  GenericBrfEncodeError* error = nullptr);
+                  GenericBrfEncodeError* error = nullptr, BrfEncodeLimits limits = {});
 
 } // namespace quarry::runtime

@@ -387,6 +387,11 @@ TEST(QbsBrfEncoderTest, EncodesFixedNestedRecord) {
     const auto nested = view->nested_record(0U);
     ASSERT_TRUE(nested.has_value());
     EXPECT_EQ(nested->field(0U)->as_unsigned(), 42U);
+    BrfEncodeLimits shallow_limits;
+    shallow_limits.max_nested_records = 0U;
+    error = GenericBrfEncodeError::none;
+    EXPECT_FALSE(encode_brf_record(*schema, *parent, fields, &error, shallow_limits));
+    EXPECT_EQ(error, GenericBrfEncodeError::overflow);
 }
 
 TEST(QbsBrfEncoderTest, EncodesVariableNestedRecordWithChildLocalTail) {
