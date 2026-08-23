@@ -28,13 +28,15 @@ phase wires complete BRF child validation through this cache.
 validated `ValidatedQbsView` to an untrusted BRF v2 record. Callers validate a
 record once with `validate_brf_record`; the resulting
 `ValidatedBrfRecordView` exposes presence and zero-copy scalar, string, bytes,
-and primitive-array views. Supported arrays include boolean and enum elements,
-which are validated against the QBS metadata. The view borrows both the QBS
-input and BRF input buffers, and its `BrfReadLimits` bound record size, array
-work, and validation work. Nested records and record arrays intentionally
-return an explicit unsupported-type failure in this PR; they require a
-separate cached graph-validation architecture. This layer does not encode or
-mutate BRF records.
+and primitive-array views. Structured inspection adds schema-order `fields()`
+entries, explicit presence, typed `BrfValueView` accessors, and aliases the
+stable value kinds as `BrfValueKind`. Wrong accessors return `std::nullopt`.
+The view borrows both the QBS input and BRF input buffers, and its
+`BrfReadLimits` bound record size, array work, and validation work. Nested
+records and record arrays reuse the validated cache and are never reparsed.
+Inspection is read-only and does not encode or mutate BRF records.
+Field views are zero-copy, preserve QBS order, and work with minimal QBS;
+iterative visitor traversal and formatting are intentionally deferred.
 
 BRF v2 support is available through the header-only
 `quarry/runtime/binary_record_v2.hpp` API and is intentionally separate from

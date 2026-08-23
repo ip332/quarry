@@ -523,6 +523,18 @@ TEST(QbsBrfReaderTest, ReadsCanonicalExampleWithoutGeneratedCode) {
     EXPECT_EQ(view->field(2U)->as_unsigned(), 2U);
     EXPECT_FALSE(view->is_present(*schema->find_field(0U, 3U)));
     EXPECT_FALSE(view->field(3U).has_value());
+
+    const auto entries = view->fields();
+    ASSERT_EQ(entries.size(), record->field_count);
+    EXPECT_EQ(entries[0].field.field_index, 0U);
+    EXPECT_TRUE(entries[0].present);
+    EXPECT_EQ(entries[0].value->kind(), GenericBrfValueKind::unsigned_integer);
+    EXPECT_EQ(entries[1].value->kind(), GenericBrfValueKind::string);
+    EXPECT_EQ(entries[2].value->kind(), GenericBrfValueKind::unsigned_integer);
+    EXPECT_FALSE(entries[3].present);
+    EXPECT_FALSE(entries[3].value.has_value());
+    EXPECT_FALSE(entries[0].value->as_string().has_value());
+    EXPECT_FALSE(entries[1].value->as_unsigned().has_value());
 }
 
 TEST(QbsBrfReaderTest, RejectsMalformedHeaderAndCanonicalPresence) {

@@ -204,6 +204,49 @@ std::optional<std::string_view> FieldValueView::as_string() const {
     return std::string_view(reinterpret_cast<const char*>(bytes_.data()), bytes_.size());
 }
 
+std::optional<std::span<const std::uint8_t>> FieldValueView::as_bytes() const {
+    return kind_ == GenericBrfValueKind::bytes ? std::optional(bytes_) : std::nullopt;
+}
+
+std::optional<float> FieldValueView::as_float32() const {
+    if (kind_ != GenericBrfValueKind::float32 || bytes_.size() != 4U)
+        return std::nullopt;
+    return std::bit_cast<float>(static_cast<std::uint32_t>(bytes_[0]) << 24U |
+                                static_cast<std::uint32_t>(bytes_[1]) << 16U |
+                                static_cast<std::uint32_t>(bytes_[2]) << 8U | bytes_[3]);
+}
+
+std::optional<double> FieldValueView::as_float64() const {
+    if (kind_ != GenericBrfValueKind::float64 || bytes_.size() != 8U)
+        return std::nullopt;
+    std::uint64_t value = 0U;
+    for (auto byte : bytes_)
+        value = (value << 8U) | byte;
+    return std::bit_cast<double>(value);
+}
+
+std::optional<std::uint64_t> FieldValueView::as_enum() const {
+    return kind_ == GenericBrfValueKind::enumeration ? as_unsigned() : std::nullopt;
+}
+
+std::optional<BrfArrayValueView> FieldValueView::as_array() const {
+    if (owner_ == nullptr || kind_ != GenericBrfValueKind::array)
+        return std::nullopt;
+    const auto records = owner_->record_array(field_index_);
+    if (records.has_value())
+        return BrfArrayValueView(*records,
+                                 owner_->array_element_type(field_index_).value_or(type_));
+    const auto primitive = owner_->array(field_index_);
+    return primitive.has_value() ? std::optional<BrfArrayValueView>(BrfArrayValueView(*primitive))
+                                 : std::nullopt;
+}
+
+std::optional<ValidatedBrfRecordView> FieldValueView::as_record() const {
+    if (record_value_)
+        return *record_value_;
+    return owner_ == nullptr ? std::nullopt : owner_->nested_record(field_index_);
+}
+
 bool validate_next_field(const quarry::compiler::qbs::ValidatedQbsView& schema,
                          const quarry::compiler::qbs::QbsRecordView& record_schema,
                          std::span<const std::uint8_t> bytes, RecordValidationState& state,
@@ -593,10 +636,7 @@ advance_record_validation(const quarry::compiler::qbs::ValidatedQbsView& schema,
 std::optional<FieldValueView> BrfArrayView::element(std::size_t index) const {
     if (index >= count_)
         return std::nullopt;
-    std::size_t cursor = 0U;
-    const auto count = varuint(bytes_, cursor);
-    if (!count.has_value() || index >= *count)
-        return std::nullopt;
+    std::size_t cursor = data_start_;
     if (element_type_.code == 13U || element_type_.code == 14U || element_type_.code == 15U) {
         for (std::size_t i = 0U; i <= index; ++i) {
             const auto length = varuint(bytes_, cursor);
@@ -605,17 +645,23 @@ std::optional<FieldValueView> BrfArrayView::element(std::size_t index) const {
                 return std::nullopt;
             const auto item = bytes_.subspan(cursor, static_cast<std::size_t>(*length));
             cursor += static_cast<std::size_t>(*length);
-            if (i == index)
-                return FieldValueView(kind(element_type_.code), item, element_type_.encoded_width);
+            if (i == index) {
+                auto result =
+                    FieldValueView(kind(element_type_.code), item, element_type_.encoded_width);
+                result.type_ = element_type_;
+                return result;
+            }
         }
         return std::nullopt;
     }
     const auto offset = cursor + index * element_type_.encoded_width;
     if (offset > bytes_.size() || element_type_.encoded_width > bytes_.size() - offset)
         return std::nullopt;
-    return FieldValueView(kind(element_type_.code),
-                          bytes_.subspan(offset, element_type_.encoded_width),
-                          element_type_.encoded_width);
+    auto result = FieldValueView(kind(element_type_.code),
+                                 bytes_.subspan(offset, element_type_.encoded_width),
+                                 element_type_.encoded_width);
+    result.type_ = element_type_;
+    return result;
 }
 
 bool ValidatedBrfRecordView::is_present(
@@ -634,9 +680,38 @@ ValidatedBrfRecordView::field(const quarry::compiler::qbs::QbsFieldView& field_s
         if (!field_view.present)
             return std::nullopt;
         const auto type = schema_->type(field_schema.type_index);
-        return FieldValueView(kind(type.code), field_view.bytes, type.encoded_width);
+        auto result = FieldValueView(kind(type.code), field_view.bytes, type.encoded_width);
+        result.type_ = type;
+        result.owner_ = this;
+        result.field_index_ = field_schema.field_index;
+        return result;
     }
     return std::nullopt;
+}
+
+std::optional<BrfValueView> BrfArrayValueView::element(std::size_t index) const {
+    if (primitive_.has_value())
+        return primitive_->element(index);
+    if (!records_.has_value())
+        return std::nullopt;
+    const auto record = records_->element(index);
+    if (!record.has_value())
+        return std::nullopt;
+    auto value = FieldValueView(GenericBrfValueKind::record, record->bytes(), 0U);
+    value.type_ = element_type_;
+    value.record_value_ = std::make_shared<const ValidatedBrfRecordView>(*record);
+    return value;
+}
+
+std::vector<BrfFieldValueView> ValidatedBrfRecordView::fields() const {
+    std::vector<BrfFieldValueView> result;
+    result.reserve(record_.field_count);
+    for (std::size_t i = 0U; i < record_.field_count; ++i) {
+        const auto schema_field =
+            schema_->field(record_.field_start + static_cast<std::uint32_t>(i));
+        result.push_back({schema_field, is_present(schema_field), field(schema_field)});
+    }
+    return result;
 }
 
 std::optional<FieldValueView> ValidatedBrfRecordView::field(std::uint16_t field_index) const {
@@ -656,7 +731,7 @@ ValidatedBrfRecordView::array(const quarry::compiler::qbs::QbsFieldView& field_s
         std::size_t cursor = 0U;
         const auto count = varuint(field_view.bytes, cursor);
         return count.has_value() ? std::optional<BrfArrayView>(
-                                       BrfArrayView(element_type, field_view.bytes, *count))
+                                       BrfArrayView(element_type, field_view.bytes, *count, cursor))
                                  : std::nullopt;
     }
     return std::nullopt;
@@ -665,6 +740,17 @@ ValidatedBrfRecordView::array(const quarry::compiler::qbs::QbsFieldView& field_s
 std::optional<BrfArrayView> ValidatedBrfRecordView::array(std::uint16_t field_index) const {
     const auto field_schema = schema_->find_field(record_index_, field_index);
     return field_schema.has_value() ? array(*field_schema) : std::nullopt;
+}
+
+std::optional<quarry::compiler::qbs::QbsTypeView>
+ValidatedBrfRecordView::array_element_type(std::uint16_t field_index) const {
+    const auto field_schema = schema_->find_field(record_index_, field_index);
+    if (!field_schema.has_value())
+        return std::nullopt;
+    const auto array_type = schema_->type(field_schema->type_index);
+    if (array_type.code != 16U)
+        return std::nullopt;
+    return schema_->element_type(field_schema->type_index);
 }
 
 std::optional<BrfRecordArrayView> ValidatedBrfRecordView::record_array(
