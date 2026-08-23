@@ -7,11 +7,10 @@
 // each generated output, and verifies (1) the C and C++ encoders produce
 // identical BRF v2 bytes for identical field values covering every one of
 // PR-119's eleven supported scalar types plus a same-namespace enum field,
-// bounded string/bytes fields, and fixed-width scalar/enum arrays, (2) each language's decoder accepts
-// bytes produced by either of the other two languages, (3) all three
-// languages identically reject a truncated buffer and identically reject
-// extra trailing bytes appended after a valid record, (4) all three
-// languages identically reject a decoded enum byte the schema does not
+// bounded string/bytes fields, and fixed-width scalar/enum arrays, (2) each language's decoder
+// accepts bytes produced by either of the other two languages, (3) all three languages identically
+// reject a truncated buffer and identically reject extra trailing bytes appended after a valid
+// record, (4) all three languages identically reject a decoded enum byte the schema does not
 // define, and (5) all three languages identically reject malformed UTF-8
 // in a string field. PR-123 adds a separate direct Schema IR Python/C++ test
 // for string/bytes arrays because the C backend does not support those
@@ -31,7 +30,12 @@
 #include "compiler/backend/backend.hpp"
 #include "compiler/backend_c/backend_c.hpp"
 #include "compiler/backend_python/backend_python.hpp"
+#include "compiler/layout/layout.hpp"
+#include "compiler/qbs/parser.hpp"
+#include "compiler/qbs/qbs.hpp"
+#include "compiler/qbs/serializer.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
+#include "quarry/runtime/qbs_brf_encoder.hpp"
 
 #include <gtest/gtest.h>
 
@@ -66,9 +70,8 @@ namespace {
 [[nodiscard]] std::filesystem::path make_temp_directory(std::string_view stem) {
     const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
     const std::filesystem::path directory =
-        std::filesystem::temp_directory_path() /
-        (std::string("quarry-python-cpp-c-interop-") + std::string(stem) + "-" +
-         std::to_string(suffix));
+        std::filesystem::temp_directory_path() / (std::string("quarry-python-cpp-c-interop-") +
+                                                  std::string(stem) + "-" + std::to_string(suffix));
     std::filesystem::remove_all(directory);
     std::filesystem::create_directories(directory);
     return directory;
@@ -423,20 +426,19 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     const std::filesystem::path generated_cpp = root / "generated_cpp";
     const std::filesystem::path generated_python = root / "generated_python";
 
-    ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_SCHEMA_COMPILER_TOOL) +
-                                    " --language c --output-directory " +
-                                    shell_quote(generated_c.string()) + " " +
-                                    shell_quote(schema.string())),
-             0);
+    ASSERT_EQ(run_and_get_exit_code(
+                  shell_quote(QUARRY_SCHEMA_COMPILER_TOOL) + " --language c --output-directory " +
+                  shell_quote(generated_c.string()) + " " + shell_quote(schema.string())),
+              0);
     ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_SCHEMA_COMPILER_TOOL) +
                                     " --output-directory " + shell_quote(generated_cpp.string()) +
                                     " " + shell_quote(schema.string())),
-             0);
+              0);
     ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_SCHEMA_COMPILER_TOOL) +
                                     " --language python --output-directory " +
                                     shell_quote(generated_python.string()) + " " +
                                     shell_quote(schema.string())),
-             0);
+              0);
 
     const std::filesystem::path c_harness_source = root / "c_harness.c";
     const std::filesystem::path cpp_harness_source = root / "cpp_harness.cpp";
@@ -448,8 +450,7 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     const std::filesystem::path c_harness_binary = root / "c_harness";
     const std::filesystem::path cpp_harness_binary = root / "cpp_harness";
 
-    const std::filesystem::path generated_c_source =
-        generated_c / "acme" / "telemetry.generated.c";
+    const std::filesystem::path generated_c_source = generated_c / "acme" / "telemetry.generated.c";
     const std::filesystem::path c_harness_object = root / "c_harness.o";
     const std::filesystem::path generated_c_object = root / "telemetry.generated.o";
 
@@ -458,23 +459,25 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     // comment for why (some C++ driver front ends reject -std=c99 for a
     // combined compile+link invocation).
     const std::string compile_c_harness_command =
-        shell_quote(QUARRY_TEST_CXX_COMPILER) + " -x c -std=c99 -Wall -Wextra -Wpedantic -Werror -I" +
-        shell_quote(generated_c.string()) + " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) +
-        " -I" + shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " -c " +
+        shell_quote(QUARRY_TEST_CXX_COMPILER) +
+        " -x c -std=c99 -Wall -Wextra -Wpedantic -Werror -I" + shell_quote(generated_c.string()) +
+        " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
+        shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " -c " +
         shell_quote(c_harness_source.string()) + " -o " + shell_quote(c_harness_object.string());
     ASSERT_EQ(run_and_get_exit_code(compile_c_harness_command), 0) << compile_c_harness_command;
 
     const std::string compile_generated_c_command =
-        shell_quote(QUARRY_TEST_CXX_COMPILER) + " -x c -std=c99 -Wall -Wextra -Wpedantic -Werror -I" +
-        shell_quote(generated_c.string()) + " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) +
-        " -I" + shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " -c " +
-        shell_quote(generated_c_source.string()) + " -o " + shell_quote(generated_c_object.string());
+        shell_quote(QUARRY_TEST_CXX_COMPILER) +
+        " -x c -std=c99 -Wall -Wextra -Wpedantic -Werror -I" + shell_quote(generated_c.string()) +
+        " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
+        shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " -c " +
+        shell_quote(generated_c_source.string()) + " -o " +
+        shell_quote(generated_c_object.string());
     ASSERT_EQ(run_and_get_exit_code(compile_generated_c_command), 0) << compile_generated_c_command;
 
-    const std::string link_c_command = shell_quote(QUARRY_TEST_CXX_COMPILER) + " " +
-                                       shell_quote(c_harness_object.string()) + " " +
-                                       shell_quote(generated_c_object.string()) + " -o " +
-                                       shell_quote(c_harness_binary.string());
+    const std::string link_c_command =
+        shell_quote(QUARRY_TEST_CXX_COMPILER) + " " + shell_quote(c_harness_object.string()) + " " +
+        shell_quote(generated_c_object.string()) + " -o " + shell_quote(c_harness_binary.string());
     ASSERT_EQ(run_and_get_exit_code(link_c_command), 0) << link_c_command;
 
     const std::string compile_cpp_command =
@@ -501,10 +504,10 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
 
     ASSERT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) + " encode " +
                                     shell_quote(c_encoded.string())),
-             0);
+              0);
     ASSERT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) + " encode " +
                                     shell_quote(cpp_encoded.string())),
-             0);
+              0);
     ASSERT_EQ(run_python("encode", python_encoded), 0);
 
     const std::string c_bytes = read_binary_file(c_encoded);
@@ -515,11 +518,12 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     EXPECT_EQ(python_bytes, c_bytes) << "Python BRF v2 encoder diverged from C";
 
     EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) + " decode " +
-                                    shell_quote(c_encoded.string())), 0)
+                                    shell_quote(c_encoded.string())),
+              0)
         << "C failed to decode its BRF v2 bytes";
     EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) + " decode " +
                                     shell_quote(cpp_encoded.string())),
-             0)
+              0)
         << "C++ failed to decode its BRF v2 bytes";
     EXPECT_EQ(run_python("decode", python_encoded), 0)
         << "Python failed to decode its BRF v2 bytes";
@@ -536,11 +540,11 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     }
     EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
                                     " decode_expect_failure " + shell_quote(truncated.string())),
-             0)
+              0)
         << "C did not reject a truncated buffer";
     EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
                                     " decode_expect_failure " + shell_quote(truncated.string())),
-             0)
+              0)
         << "C++ did not reject a truncated buffer";
     EXPECT_EQ(run_python("decode_expect_failure", truncated), 0)
         << "Python did not reject a truncated buffer";
@@ -557,11 +561,11 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     }
     EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
                                     " decode_expect_failure " + shell_quote(trailing.string())),
-             0)
+              0)
         << "C did not reject extra trailing data";
     EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_harness_binary.string()) +
                                     " decode_expect_failure " + shell_quote(trailing.string())),
-             0)
+              0)
         << "C++ did not reject extra trailing data";
     EXPECT_EQ(run_python("decode_expect_failure", trailing), 0)
         << "Python did not reject extra trailing data";
@@ -590,7 +594,7 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     }
     EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
                                     " decode_expect_failure " + shell_quote(unknown_enum.string())),
-             0)
+              0)
         << "C did not reject an out-of-range enum byte";
 
     // Malformed UTF-8: corrupt one byte of the label field's content (the
@@ -607,7 +611,7 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     EXPECT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) +
                                     " decode_expect_failure " +
                                     shell_quote(malformed_utf8.string())),
-             0)
+              0)
         << "C did not reject malformed UTF-8 in the label field";
 }
 
@@ -748,11 +752,9 @@ int main(int argc, char** argv) {
     const std::filesystem::path cpp_binary = root / "cpp_harness";
     write_text_file(cpp_source, cpp_harness);
     const std::string compile_cpp =
-        shell_quote(QUARRY_TEST_CXX_COMPILER) +
-        " -std=c++20 -Wall -Wextra -Wpedantic -Werror -I" +
-        shell_quote(generated_cpp.string()) + " -I" +
-        shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
-        shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
+        shell_quote(QUARRY_TEST_CXX_COMPILER) + " -std=c++20 -Wall -Wextra -Wpedantic -Werror -I" +
+        shell_quote(generated_cpp.string()) + " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) +
+        " -I" + shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
         shell_quote(cpp_source.string()) + " -o " + shell_quote(cpp_binary.string());
     ASSERT_EQ(run_and_get_exit_code(compile_cpp), 0) << compile_cpp;
 
@@ -829,12 +831,11 @@ int main(int argc, char** argv) {
     const std::filesystem::path c_binary = root / "c_harness";
     write_text_file(c_source, c_harness);
     const std::string compile_c =
-        shell_quote(QUARRY_TEST_C_COMPILER) +
-        " -std=c99 -Wall -Wextra -Wpedantic -Werror -I" +
+        shell_quote(QUARRY_TEST_C_COMPILER) + " -std=c99 -Wall -Wextra -Wpedantic -Werror -I" +
         shell_quote(generated_c.string()) + " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) +
         " -I" + shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
-        shell_quote(c_source.string()) + " " + shell_quote(generated_c_source.string()) +
-        " -o " + shell_quote(c_binary.string());
+        shell_quote(c_source.string()) + " " + shell_quote(generated_c_source.string()) + " -o " +
+        shell_quote(c_binary.string());
     ASSERT_EQ(run_and_get_exit_code(compile_c), 0) << compile_c;
 
     constexpr std::string_view python_harness = R"py(
@@ -869,28 +870,30 @@ else:
     const std::string python_path =
         generated_python.string() + ":" + std::string(QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR);
     const auto run_python = [&](std::string_view mode, const std::filesystem::path& path) {
-        return run_and_get_exit_code(
-            "PYTHONPATH=" + shell_quote(python_path) + " " + shell_quote(python3_executable) +
-            " " + shell_quote(python_source.string()) + " " + std::string(mode) + " " +
-            shell_quote(path.string()));
+        return run_and_get_exit_code("PYTHONPATH=" + shell_quote(python_path) + " " +
+                                     shell_quote(python3_executable) + " " +
+                                     shell_quote(python_source.string()) + " " + std::string(mode) +
+                                     " " + shell_quote(path.string()));
     };
 
     const std::filesystem::path cpp_encoded = root / "cpp_encoded.bin";
     const std::filesystem::path python_encoded = root / "python_encoded.bin";
     const std::filesystem::path c_encoded = root / "c_encoded.bin";
     ASSERT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) + " encode " +
-                                    shell_quote(c_encoded.string())), 0);
+                                    shell_quote(c_encoded.string())),
+              0);
     ASSERT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " encode " +
                                     shell_quote(cpp_encoded.string())),
-             0);
+              0);
     ASSERT_EQ(run_python("encode", python_encoded), 0);
     EXPECT_EQ(read_binary_file(cpp_encoded), read_binary_file(c_encoded));
     EXPECT_EQ(read_binary_file(cpp_encoded), read_binary_file(python_encoded));
     EXPECT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) + " decode " +
-                                    shell_quote(c_encoded.string())), 0);
+                                    shell_quote(c_encoded.string())),
+              0);
     EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " decode " +
                                     shell_quote(cpp_encoded.string())),
-             0);
+              0);
     EXPECT_EQ(run_python("decode", python_encoded), 0);
 
     const std::filesystem::path trailing = root / "trailing.bin";
@@ -900,9 +903,9 @@ else:
     trailing_output.write(trailing_bytes.data(),
                           static_cast<std::streamsize>(trailing_bytes.size()));
     trailing_output.close();
-    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) +
-                                    " decode_expect_failure " + shell_quote(trailing.string())),
-             0);
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " decode_expect_failure " +
+                                    shell_quote(trailing.string())),
+              0);
     EXPECT_EQ(run_python("decode_expect_failure", trailing), 0);
 
     const std::string valid_array_prefix =
@@ -915,18 +918,18 @@ else:
     oversized_count[array_prefix] = '\x04';
     const std::filesystem::path oversized_count_file = root / "oversized_count.bin";
     write_text_file(oversized_count_file, oversized_count);
-    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) +
-                                    " decode_expect_failure " + shell_quote(oversized_count_file.string())),
-             0);
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " decode_expect_failure " +
+                                    shell_quote(oversized_count_file.string())),
+              0);
     EXPECT_EQ(run_python("decode_expect_failure", oversized_count_file), 0);
 
     std::string oversized_element = valid_encoded;
     oversized_element[array_prefix + 1U] = '\x09';
     const std::filesystem::path oversized_element_file = root / "oversized_element.bin";
     write_text_file(oversized_element_file, oversized_element);
-    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) +
-                                    " decode_expect_failure " + shell_quote(oversized_element_file.string())),
-             0);
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " decode_expect_failure " +
+                                    shell_quote(oversized_element_file.string())),
+              0);
     EXPECT_EQ(run_python("decode_expect_failure", oversized_element_file), 0);
 }
 
@@ -963,7 +966,11 @@ TEST(PythonCppCCodecInteropTest, NestedRecordsAreByteForByteCompatibleAcrossAllB
     items_field->set_name("items");
     items_field->set_field_index(2);
     items_field->mutable_type()->mutable_array()->set_max_elements(3);
-    items_field->mutable_type()->mutable_array()->mutable_element_type()->mutable_record()->set_target_record_ir_id(3);
+    items_field->mutable_type()
+        ->mutable_array()
+        ->mutable_element_type()
+        ->mutable_record()
+        ->set_target_record_ir_id(3);
 
     auto* child = root_namespace->add_records();
     child->set_ir_id(3);
@@ -1074,16 +1081,16 @@ int main(int argc, char** argv) {
                                         shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " -c ";
     ASSERT_EQ(run_and_get_exit_code(compile_c_flags + shell_quote(c_source.string()) + " -o " +
                                     shell_quote(c_object.string())),
-             0);
+              0);
     ASSERT_EQ(run_and_get_exit_code(compile_c_flags + shell_quote(generated_c_source.string()) +
                                     " -o " + shell_quote(generated_c_object.string())),
-             0);
+              0);
     const std::filesystem::path c_binary = root / "c_harness";
     ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_TEST_CXX_COMPILER) + " " +
                                     shell_quote(c_object.string()) + " " +
                                     shell_quote(generated_c_object.string()) + " -o " +
                                     shell_quote(c_binary.string())),
-             0);
+              0);
 
     constexpr std::string_view cpp_harness = R"cpp(
 #include "schema.generated.hpp"
@@ -1142,14 +1149,13 @@ int main(int argc, char** argv) {
     const std::filesystem::path cpp_source = root / "cpp_harness.cpp";
     const std::filesystem::path cpp_binary = root / "cpp_harness";
     write_text_file(cpp_source, cpp_harness);
-    ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_TEST_CXX_COMPILER) +
-                                    " -std=c++20 -Wall -Wextra -Wpedantic -I" +
-                                    shell_quote(generated_cpp.string()) + " -I" +
-                                    shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
-                                    shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
-                                    shell_quote(cpp_source.string()) + " -o " +
-                                    shell_quote(cpp_binary.string())),
-             0);
+    ASSERT_EQ(run_and_get_exit_code(
+                  shell_quote(QUARRY_TEST_CXX_COMPILER) +
+                  " -std=c++20 -Wall -Wextra -Wpedantic -I" + shell_quote(generated_cpp.string()) +
+                  " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
+                  shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
+                  shell_quote(cpp_source.string()) + " -o " + shell_quote(cpp_binary.string())),
+              0);
 
     const std::filesystem::path python_source = root / "python_harness.py";
     write_text_file(python_source, R"py(
@@ -1192,17 +1198,63 @@ else:
     const std::filesystem::path cpp_encoded = root / "cpp.bin";
     const std::filesystem::path python_encoded = root / "python.bin";
     ASSERT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) + " encode " +
-                                    shell_quote(c_encoded.string())), 0);
+                                    shell_quote(c_encoded.string())),
+              0);
     ASSERT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " encode " +
-                                    shell_quote(cpp_encoded.string())), 0);
+                                    shell_quote(cpp_encoded.string())),
+              0);
     ASSERT_EQ(run_python("encode", python_encoded), 0);
     const std::string c_bytes = read_binary_file(c_encoded);
     EXPECT_EQ(read_binary_file(cpp_encoded), c_bytes);
     EXPECT_EQ(read_binary_file(python_encoded), c_bytes);
+
+    quarry::compiler::diagnostics::DiagnosticCollection qbs_diagnostics;
+    const auto layout =
+        quarry::compiler::layout::LayoutComputer{}.compute(schema_ir, qbs_diagnostics);
+    ASSERT_TRUE(qbs_diagnostics.empty());
+    const auto qbs_model = quarry::compiler::qbs::QbsModelBuilder{}.build(
+        schema_ir, layout, {.mode = quarry::compiler::qbs::BuildMode::Minimal}, qbs_diagnostics);
+    ASSERT_TRUE(qbs_model.has_value());
+    const auto qbs_image = quarry::compiler::qbs::serialize_qbs(*qbs_model, qbs_diagnostics);
+    ASSERT_TRUE(qbs_image.has_value());
+    const auto parsed_qbs = quarry::compiler::qbs::parse_qbs(qbs_image->bytes, qbs_diagnostics);
+    ASSERT_TRUE(parsed_qbs.has_value());
+    const auto generic_parent = parsed_qbs->find_record_by_identity("Parent");
+    const auto generic_child = parsed_qbs->find_record_by_identity("Child");
+    ASSERT_TRUE(generic_parent.has_value());
+    ASSERT_TRUE(generic_child.has_value());
+    auto make_child = [&](std::uint64_t value) {
+        auto child_value = std::make_shared<quarry::runtime::BrfRecordInput>();
+        child_value->record_id = generic_child->record_id;
+        child_value->identity = std::string(generic_child->identity);
+        child_value->fields = {quarry::runtime::BrfEncodeValue{value}};
+        return child_value;
+    };
+    auto items = std::make_shared<std::vector<quarry::runtime::BrfNestedRecordValue>>();
+    items->push_back(make_child(1U));
+    items->push_back(make_child(3U));
+    auto parent_child = make_child(7U);
+    const std::vector<std::optional<quarry::runtime::BrfEncodeValue>> generic_fields{
+        quarry::runtime::BrfEncodeValue{quarry::runtime::BrfNestedRecordValue{parent_child}},
+        quarry::runtime::BrfEncodeValue{std::uint64_t{42U}},
+        quarry::runtime::BrfEncodeValue{quarry::runtime::BrfRecordArrayValue{items}}};
+    quarry::runtime::GenericBrfEncodeError generic_error =
+        quarry::runtime::GenericBrfEncodeError::none;
+    const auto generic_image = quarry::runtime::encode_brf_record(*parsed_qbs, *generic_parent,
+                                                                  generic_fields, &generic_error);
+    ASSERT_TRUE(generic_image.has_value());
+    ASSERT_EQ(generic_error, quarry::runtime::GenericBrfEncodeError::none);
+    const std::string generic_bytes(reinterpret_cast<const char*>(generic_image->data()),
+                                    generic_image->size());
+    EXPECT_EQ(generic_bytes, c_bytes);
+    EXPECT_EQ(generic_bytes, read_binary_file(cpp_encoded));
+    EXPECT_EQ(generic_bytes, read_binary_file(python_encoded));
     EXPECT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) + " decode " +
-                                    shell_quote(c_encoded.string())), 0);
+                                    shell_quote(c_encoded.string())),
+              0);
     EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " decode " +
-                                    shell_quote(cpp_encoded.string())), 0);
+                                    shell_quote(cpp_encoded.string())),
+              0);
     EXPECT_EQ(run_python("decode", python_encoded), 0);
 
     ASSERT_GE(c_bytes.size(), 20U);
@@ -1226,9 +1278,9 @@ else:
     std::ofstream malformed_output(malformed_path, std::ios::binary);
     malformed_output.write(malformed.data(), static_cast<std::streamsize>(malformed.size()));
     malformed_output.close();
-    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) +
-                                    " decode_expect_failure " + shell_quote(malformed_path.string())),
-             0);
+    EXPECT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) + " decode_expect_failure " +
+                                    shell_quote(malformed_path.string())),
+              0);
 }
 
 TEST(PythonCppCCodecInteropTest, CrossNamespaceSchemasAreByteForByteCompatibleAcrossAllBackends) {
@@ -1240,50 +1292,49 @@ TEST(PythonCppCCodecInteropTest, CrossNamespaceSchemasAreByteForByteCompatibleAc
     const std::filesystem::path root = make_temp_directory("cross-namespace");
     const std::filesystem::path shared = root / "shared.brd";
     const std::filesystem::path input = root / "root.brd";
-    write_text_file(shared,
-                    "namespace: acme.shared\n"
-                    "record: Child\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  value:\n"
-                    "    type: uint32\n"
-                    "enums:\n"
-                    "  Status:\n"
-                    "    values:\n"
-                    "      READY: 0\n"
-                    "      BUSY: 1\n");
-    write_text_file(input,
-                    "namespace: acme.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "imports:\n"
-                    "  - shared.brd\n"
-                    "fields:\n"
-                    "  status:\n"
-                    "    type: acme.shared.Status\n"
-                    "  child:\n"
-                    "    type: acme.shared.Child\n"
-                    "  statuses:\n"
-                    "    type: acme.shared.Status[]\n"
-                    "    max_elements: 2\n"
-                    "  children:\n"
-                    "    type: acme.shared.Child[]\n"
-                    "    max_elements: 2\n"
-                    "  label:\n"
-                    "    type: string\n"
-                    "    max_bytes: 16\n"
-                    "  blob:\n"
-                    "    type: bytes\n"
-                    "    max_bytes: 8\n");
+    write_text_file(shared, "namespace: acme.shared\n"
+                            "record: Child\n"
+                            "version: 1\n"
+                            "type: data\n"
+                            "fields:\n"
+                            "  value:\n"
+                            "    type: uint32\n"
+                            "enums:\n"
+                            "  Status:\n"
+                            "    values:\n"
+                            "      READY: 0\n"
+                            "      BUSY: 1\n");
+    write_text_file(input, "namespace: acme.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "imports:\n"
+                           "  - shared.brd\n"
+                           "fields:\n"
+                           "  status:\n"
+                           "    type: acme.shared.Status\n"
+                           "  child:\n"
+                           "    type: acme.shared.Child\n"
+                           "  statuses:\n"
+                           "    type: acme.shared.Status[]\n"
+                           "    max_elements: 2\n"
+                           "  children:\n"
+                           "    type: acme.shared.Child[]\n"
+                           "    max_elements: 2\n"
+                           "  label:\n"
+                           "    type: string\n"
+                           "    max_bytes: 16\n"
+                           "  blob:\n"
+                           "    type: bytes\n"
+                           "    max_bytes: 8\n");
 
     const std::filesystem::path generated_c = root / "generated_c";
     const std::filesystem::path generated_cpp = root / "generated_cpp";
     const std::filesystem::path generated_python = root / "generated_python";
     for (const auto& [language, output] :
          {std::pair<std::string, std::filesystem::path>{"c", generated_c},
-          {"cpp", generated_cpp}, {"python", generated_python}}) {
+          {"cpp", generated_cpp},
+          {"python", generated_python}}) {
         for (const auto& source : {shared, input}) {
             ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_SCHEMA_COMPILER_TOOL) +
                                             " --language " + language + " -o " +
@@ -1423,17 +1474,16 @@ else:
     write_text_file(python_source, python_harness);
     const std::filesystem::path c_binary = root / "cross_namespace_c";
     const std::filesystem::path cpp_binary = root / "cross_namespace_cpp";
-    ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_TEST_C_COMPILER) +
-                                    " -std=c99 -Wall -Wextra -Wpedantic -Werror -I" +
-                                    shell_quote(generated_c.string()) + " -I" +
-                                    shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
-                                    shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
-                                    shell_quote(c_source.string()) + " " +
-                                    shell_quote((generated_c / "acme/telemetry.generated.c").string()) +
-                                    " " +
-                                    shell_quote((generated_c / "acme/shared.generated.c").string()) +
-                                    " -o " + shell_quote(c_binary.string())),
-             0);
+    ASSERT_EQ(
+        run_and_get_exit_code(
+            shell_quote(QUARRY_TEST_C_COMPILER) + " -std=c99 -Wall -Wextra -Wpedantic -Werror -I" +
+            shell_quote(generated_c.string()) + " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) +
+            " -I" + shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
+            shell_quote(c_source.string()) + " " +
+            shell_quote((generated_c / "acme/telemetry.generated.c").string()) + " " +
+            shell_quote((generated_c / "acme/shared.generated.c").string()) + " -o " +
+            shell_quote(c_binary.string())),
+        0);
     ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_TEST_CXX_COMPILER) +
                                     " -std=c++20 -Wall -Wextra -Wpedantic -Werror "
                                     "-Wno-unused-parameter -Wno-unused-variable -I" +
@@ -1442,12 +1492,12 @@ else:
                                     shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
                                     shell_quote(cpp_source.string()) + " -o " +
                                     shell_quote(cpp_binary.string())),
-             0);
+              0);
     const std::filesystem::path c_encoded = root / "c.bin";
     const std::filesystem::path cpp_encoded = root / "cpp.bin";
     const std::filesystem::path python_encoded = root / "python.bin";
-    const std::string python_path = generated_python.string() + ":" +
-                                    std::string(QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR);
+    const std::string python_path =
+        generated_python.string() + ":" + std::string(QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR);
     const auto run_python = [&](const std::filesystem::path& data, std::string_view mode) {
         return run_and_get_exit_code("PYTHONPATH=" + shell_quote(python_path) + " " +
                                      shell_quote(python3_executable) + " " +
@@ -1455,14 +1505,18 @@ else:
                                      " " + shell_quote(data.string()));
     };
     ASSERT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) + " encode " +
-                                    shell_quote(c_encoded.string())), 0);
+                                    shell_quote(c_encoded.string())),
+              0);
     ASSERT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " encode " +
-                                    shell_quote(cpp_encoded.string())), 0);
+                                    shell_quote(cpp_encoded.string())),
+              0);
     ASSERT_EQ(run_python(python_encoded, "encode"), 0);
     EXPECT_EQ(run_and_get_exit_code(shell_quote(c_binary.string()) + " decode " +
-                                    shell_quote(c_encoded.string())), 0);
+                                    shell_quote(c_encoded.string())),
+              0);
     EXPECT_EQ(run_and_get_exit_code(shell_quote(cpp_binary.string()) + " decode " +
-                                    shell_quote(cpp_encoded.string())), 0);
+                                    shell_quote(cpp_encoded.string())),
+              0);
     EXPECT_EQ(run_python(python_encoded, "decode"), 0);
 }
 
