@@ -38,6 +38,21 @@ Inspection is read-only and does not encode or mutate BRF records.
 Field views are zero-copy, preserve QBS order, and work with minimal QBS;
 formatting is intentionally deferred.
 
+QTF v1 export is provided by `quarry/runtime/qtf_exporter.hpp`. It consumes
+the validated traversal and emits deterministic text such as:
+
+```qtf
+{
+  @0: 1
+  @1: "sensor-a"
+  @2: hex"00ff"
+}
+```
+
+QTF is inspired by protobuf TextFormat but is not protobuf TextFormat. It
+uses QBS for types, `[]` for arrays, `hex"..."` for bytes, and omission for
+absence. Parsing/import is intentionally not implemented.
+
 `traverse_brf` is the iterative traversal layer. It emits record begin/end,
 field, scalar, array begin/end, and array-element events in depth-first QBS
 field and logical array order. Each primitive array element emits an

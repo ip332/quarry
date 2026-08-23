@@ -4,6 +4,7 @@
 #include "compiler/qbs/serializer.hpp"
 #include "quarry/runtime/qbs_brf_encoder.hpp"
 #include "quarry/runtime/qbs_brf_reader.hpp"
+#include "quarry/runtime/qtf_exporter.hpp"
 
 #include <gtest/gtest.h>
 
@@ -828,6 +829,34 @@ TEST(QbsBrfReaderTest, TraversalStopsWithoutVisitingLaterFields) {
     EXPECT_EQ(callbacks, 2U);
 }
 
+TEST(QbsBrfReaderTest, ExportsCanonicalQtfAndOmitsAbsentFields) {
+    auto qbs = qbs_image();
+    DiagnosticCollection diagnostics;
+    const auto schema = parse_qbs(qbs, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_identity("Example");
+    ASSERT_TRUE(record.has_value());
+    std::vector<std::uint8_t> brf(42U, 0U);
+    brf[0] = 2U;
+    brf[3] = 16U;
+    brf[7] = 1U;
+    brf[11] = 23U;
+    brf[15] = 42U;
+    brf[16] = 0x07U;
+    brf[20] = 1U;
+    brf[24] = 39U;
+    brf[28] = 3U;
+    brf[30] = 2U;
+    brf[39] = 'a';
+    brf[40] = 'b';
+    brf[41] = 'c';
+    const auto view = validate_brf_record(*schema, *record, brf);
+    ASSERT_TRUE(view.has_value());
+    const auto exported = export_qtf(*view);
+    ASSERT_TRUE(exported.text.has_value());
+    EXPECT_EQ(*exported.text, "{\n  @0: 1\n  @1: \"abc\"\n  @2: 2\n}\n");
+}
+
 TEST(QbsBrfReaderTest, RejectsMalformedHeaderAndCanonicalPresence) {
     auto qbs = qbs_image();
     DiagnosticCollection diagnostics;
@@ -992,6 +1021,31 @@ std::vector<std::uint8_t> string_record(std::string_view value) {
     bytes[28] = static_cast<std::uint8_t>(value.size());
     std::copy(value.begin(), value.end(), bytes.begin() + 39U);
     return bytes;
+}
+
+TEST(QbsBrfReaderTest, QtfEscapesStringsAndKeepsUtf8Readable) {
+    auto qbs = qbs_image();
+    DiagnosticCollection diagnostics;
+    const auto schema = parse_qbs(qbs, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_id(1U);
+    ASSERT_TRUE(record.has_value());
+    std::vector<std::uint8_t> bytes(45U, 0U);
+    bytes[0] = 2U;
+    bytes[3] = 16U;
+    bytes[7] = 1U;
+    bytes[11] = 23U;
+    bytes[15] = 45U;
+    bytes[16] = 0x02U;
+    bytes[24] = 39U;
+    bytes[28] = 6U;
+    const std::string value = "a\"\\\n\r\t";
+    std::copy(value.begin(), value.end(), bytes.begin() + 39U);
+    const auto view = validate_brf_record(*schema, *record, bytes);
+    ASSERT_TRUE(view.has_value());
+    const auto exported = export_qtf(*view);
+    ASSERT_TRUE(exported.text.has_value());
+    EXPECT_EQ(*exported.text, "{\n  @1: \"a\\\"\\\\\\n\\r\\t\"\n}\n");
 }
 
 TEST(QbsBrfReaderTest, ValidatesUnicodeScalarValueBoundaries) {

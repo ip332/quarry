@@ -272,6 +272,7 @@ add_library(quarry_compiler_qbs
     qbs/serializer.cpp
     ${CMAKE_SOURCE_DIR}/include/quarry/runtime/qbs_brf_reader.cpp
     ${CMAKE_SOURCE_DIR}/include/quarry/runtime/qbs_brf_encoder.cpp
+    ${CMAKE_SOURCE_DIR}/include/quarry/runtime/qtf_exporter.cpp
     ${CMAKE_SOURCE_DIR}/include/quarry/runtime/detail/brf_validation_cache.cpp
 )
 target_include_directories(quarry_compiler_qbs PUBLIC
