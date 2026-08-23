@@ -40,7 +40,9 @@ formatting is intentionally deferred.
 
 `traverse_brf` is the iterative traversal layer. It emits record begin/end,
 field, scalar, array begin/end, and array-element events in depth-first QBS
-field and logical array order. Absent fields emit only a field event;
+field and logical array order. Each primitive array element emits an
+array-element event followed by a scalar event; record elements emit an
+array-element event followed by their record begin/end events. Absent fields emit only a field event;
 present-empty arrays emit array begin/end. Events borrow the validated root.
 The implementation uses an explicit record/array frame stack: root records
 have depth zero, nested records increment depth, and primitive arrays do not.

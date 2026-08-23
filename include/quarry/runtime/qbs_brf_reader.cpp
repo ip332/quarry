@@ -720,14 +720,16 @@ struct TraversalFrame {
 
 BrfTraversalResult traverse_brf(const ValidatedBrfRecordView& root,
                                 const BrfTraversalVisitor& visitor, BrfTraversalLimits limits) {
+    enum class EmitResult { continue_, stopped, limited };
     std::vector<TraversalFrame> stack;
     stack.emplace_back(root, 0U);
     std::size_t work = 0U;
     const auto emit = [&](const BrfTraversalEvent& event) {
         if (work >= limits.max_work_items)
-            return BrfTraversalControl::Stop;
+            return EmitResult::limited;
         ++work;
-        return visitor(event);
+        return visitor(event) == BrfTraversalControl::Stop ? EmitResult::stopped
+                                                           : EmitResult::continue_;
     };
     while (!stack.empty()) {
         auto& frame = stack.back();
@@ -738,18 +740,20 @@ BrfTraversalResult traverse_brf(const ValidatedBrfRecordView& root,
                 event.kind = BrfTraversalEventKind::record_begin;
                 event.depth = frame.depth;
                 event.record = frame.record;
-                if (emit(event) == BrfTraversalControl::Stop)
-                    return work >= limits.max_work_items ? BrfTraversalResult::work_limit
-                                                         : BrfTraversalResult::stopped;
+                const auto emitted = emit(event);
+                if (emitted != EmitResult::continue_)
+                    return emitted == EmitResult::limited ? BrfTraversalResult::work_limit
+                                                          : BrfTraversalResult::stopped;
             }
             if (frame.next >= frame.record.schema().field_count) {
                 BrfTraversalEvent event;
                 event.kind = BrfTraversalEventKind::record_end;
                 event.depth = frame.depth;
                 event.record = frame.record;
-                if (emit(event) == BrfTraversalControl::Stop)
-                    return work >= limits.max_work_items ? BrfTraversalResult::work_limit
-                                                         : BrfTraversalResult::stopped;
+                const auto emitted = emit(event);
+                if (emitted != EmitResult::continue_)
+                    return emitted == EmitResult::limited ? BrfTraversalResult::work_limit
+                                                          : BrfTraversalResult::stopped;
                 stack.pop_back();
                 continue;
             }
@@ -764,17 +768,19 @@ BrfTraversalResult traverse_brf(const ValidatedBrfRecordView& root,
             event.present = value.has_value();
             event.value = value;
             event.depth = frame.depth;
-            if (emit(event) == BrfTraversalControl::Stop)
-                return work >= limits.max_work_items ? BrfTraversalResult::work_limit
-                                                     : BrfTraversalResult::stopped;
+            const auto array_emitted = emit(event);
+            if (array_emitted != EmitResult::continue_)
+                return array_emitted == EmitResult::limited ? BrfTraversalResult::work_limit
+                                                            : BrfTraversalResult::stopped;
             if (!value.has_value())
                 continue;
             if (value->kind() != GenericBrfValueKind::array &&
                 value->kind() != GenericBrfValueKind::record) {
                 event.kind = BrfTraversalEventKind::scalar;
-                if (emit(event) == BrfTraversalControl::Stop)
-                    return work >= limits.max_work_items ? BrfTraversalResult::work_limit
-                                                         : BrfTraversalResult::stopped;
+                const auto scalar_emitted = emit(event);
+                if (scalar_emitted != EmitResult::continue_)
+                    return scalar_emitted == EmitResult::limited ? BrfTraversalResult::work_limit
+                                                                 : BrfTraversalResult::stopped;
                 continue;
             }
             if (value->kind() == GenericBrfValueKind::record) {
@@ -791,9 +797,10 @@ BrfTraversalResult traverse_brf(const ValidatedBrfRecordView& root,
                 return BrfTraversalResult::internal_error;
             event.kind = BrfTraversalEventKind::array_begin;
             event.array = array;
-            if (emit(event) == BrfTraversalControl::Stop)
-                return work >= limits.max_work_items ? BrfTraversalResult::work_limit
-                                                     : BrfTraversalResult::stopped;
+            const auto emitted = emit(event);
+            if (emitted != EmitResult::continue_)
+                return emitted == EmitResult::limited ? BrfTraversalResult::work_limit
+                                                      : BrfTraversalResult::stopped;
             stack.emplace_back(*array, frame.depth);
             continue;
         }
@@ -803,9 +810,10 @@ BrfTraversalResult traverse_brf(const ValidatedBrfRecordView& root,
             event.kind = BrfTraversalEventKind::array_end;
             event.depth = frame.depth;
             event.array = frame.array;
-            if (emit(event) == BrfTraversalControl::Stop)
-                return work >= limits.max_work_items ? BrfTraversalResult::work_limit
-                                                     : BrfTraversalResult::stopped;
+            const auto emitted = emit(event);
+            if (emitted != EmitResult::continue_)
+                return emitted == EmitResult::limited ? BrfTraversalResult::work_limit
+                                                      : BrfTraversalResult::stopped;
             stack.pop_back();
             continue;
         }
@@ -818,9 +826,10 @@ BrfTraversalResult traverse_brf(const ValidatedBrfRecordView& root,
         event.index = index;
         event.depth = frame.depth;
         event.value = value;
-        if (emit(event) == BrfTraversalControl::Stop)
-            return work >= limits.max_work_items ? BrfTraversalResult::work_limit
-                                                 : BrfTraversalResult::stopped;
+        const auto emitted = emit(event);
+        if (emitted != EmitResult::continue_)
+            return emitted == EmitResult::limited ? BrfTraversalResult::work_limit
+                                                  : BrfTraversalResult::stopped;
         if (value->kind() == GenericBrfValueKind::record) {
             const auto child = value->as_record();
             if (!child.has_value())
@@ -828,6 +837,12 @@ BrfTraversalResult traverse_brf(const ValidatedBrfRecordView& root,
             if (frame.depth == limits.max_depth)
                 return BrfTraversalResult::depth_limit;
             stack.emplace_back(*child, frame.depth + 1U);
+        } else {
+            event.kind = BrfTraversalEventKind::scalar;
+            const auto scalar_emitted = emit(event);
+            if (scalar_emitted != EmitResult::continue_)
+                return scalar_emitted == EmitResult::limited ? BrfTraversalResult::work_limit
+                                                             : BrfTraversalResult::stopped;
         }
     }
     return BrfTraversalResult::completed;

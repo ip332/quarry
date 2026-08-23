@@ -582,6 +582,14 @@ TEST(QbsBrfReaderTest, TraversesValidatedValuesInDeterministicDepthFirstOrder) {
         *view, [&](const BrfTraversalEvent&) { return BrfTraversalControl::Continue; },
         BrfTraversalLimits{8U, 16U});
     EXPECT_EQ(limited, BrfTraversalResult::work_limit);
+    const auto stop_at_boundary = traverse_brf(
+        *view,
+        [](const BrfTraversalEvent& event) {
+            return event.kind == BrfTraversalEventKind::field ? BrfTraversalControl::Stop
+                                                              : BrfTraversalControl::Continue;
+        },
+        BrfTraversalLimits{2U, 16U});
+    EXPECT_EQ(stop_at_boundary, BrfTraversalResult::stopped);
 }
 
 TEST(QbsBrfReaderTest, TraversalStopsWithoutVisitingLaterFields) {
