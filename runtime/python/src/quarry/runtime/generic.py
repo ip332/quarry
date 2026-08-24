@@ -273,6 +273,40 @@ class FieldValue:
     value: object
 
 
+class PrimitiveArrayView:
+    """Lazy view over a validated fixed-width primitive array payload."""
+    def __init__(self, schema, element_type, payload, count, data_offset):
+        self._schema = schema
+        self.element_type = element_type
+        self._payload = payload
+        self._count = count
+        self._data_offset = data_offset
+
+    def __len__(self): return self._count
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return [self[i] for i in range(*index.indices(self._count))]
+        if index < 0: index += self._count
+        if index < 0 or index >= self._count: raise IndexError(index)
+        width = self.element_type.encoded_width
+        start = self._data_offset + index * width
+        return _decode_scalar(self.element_type, self._payload[start:start + width])
+
+    def __iter__(self):
+        for i in range(self._count): yield self[i]
+
+
+class RecordArrayView:
+    """Read-only sequence of already validated record elements."""
+    def __init__(self, elements): self._elements = tuple(elements)
+    def __len__(self): return len(self._elements)
+    def __getitem__(self, index):
+        if isinstance(index, slice): return list(self._elements[index])
+        return self._elements[index]
+    def __iter__(self): return iter(self._elements)
+
+
 def _varuint(data, p):
     value = 0
     for i in range(10):
@@ -330,9 +364,16 @@ def validate_brf(schema: QbsSchema, record_type: QbsRecord, brf_bytes, limits=Br
         elif t.code is TypeCode.ARRAY:
             count, p = _varuint(value_data, 0)
             if count > t.max_elements or count > limits.max_array_elements: raise BrfError("array limit exceeded")
-            value = tuple(_decode_scalar(schema.types[t.reference], value_data[p + i * schema.types[t.reference].encoded_width:p + (i + 1) * schema.types[t.reference].encoded_width]) for i in range(count))
+            element_type = schema.types[t.reference]
+            if element_type.code is TypeCode.RECORD:
+                raise BrfError("record arrays require the iterative validation phase")
+            width = element_type.encoded_width
+            if p + count * width != len(value_data):
+                raise BrfError("array payload has inconsistent length")
+            for i in range(count):
+                _decode_scalar(element_type, value_data[p + i * width:p + (i + 1) * width])
+            value = PrimitiveArrayView(schema, element_type, value_data, count, p)
         else: value = _decode_scalar(t, value_data)
         states[f.index] = (True, value)
     if tail != len(source): raise BrfError("noncanonical variable tail")
     return ValidatedRecord(schema, record_type, source, states, children)
-
