@@ -91,7 +91,7 @@ template <typename T> bool parse_float(std::string_view text, T& value) {
     return end == owned.c_str() + owned.size();
 }
 
-QtfSourceLocation qtf_source_location(std::string_view text, std::size_t byte_offset) {
+QtfSourceLocation source_location_impl(std::string_view text, std::size_t byte_offset) {
     QtfSourceLocation location{std::min(byte_offset, text.size()), 1U, 1U};
     for (std::size_t i = 0U; i < location.byte_offset; ++i) {
         if (text[i] == '\n') {
@@ -107,7 +107,7 @@ QtfSourceLocation qtf_source_location(std::string_view text, std::size_t byte_of
 thread_local std::string_view diagnostic_source;
 
 void error(DiagnosticCollection& diagnostics, std::size_t offset, std::string message) {
-    const auto location = qtf_source_location(diagnostic_source, offset);
+    const auto location = source_location_impl(diagnostic_source, offset);
     message += " at line " + std::to_string(location.line) + ", column " +
                std::to_string(location.column) + " (byte " + std::to_string(location.byte_offset) +
                ")";
@@ -512,6 +512,11 @@ private:
     Token current_;
 };
 } // namespace
+
+QtfSourceLocation qtf_source_location(std::string_view text, std::size_t byte_offset) {
+    return source_location_impl(text, byte_offset);
+}
+
 std::optional<BrfRecordInput>
 parse_qtf(std::string_view text, const quarry::compiler::qbs::ValidatedQbsView& schema,
           const quarry::compiler::qbs::QbsRecordView& record,
