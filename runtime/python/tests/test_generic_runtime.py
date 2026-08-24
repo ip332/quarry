@@ -128,6 +128,37 @@ class GenericRuntimeTest(unittest.TestCase):
         with self.assertRaises(BrfError):
             validate_brf(schema, schema.records[0], root)
 
+    def test_index_lookup_is_local_to_each_record_without_names(self):
+        schema = _schema()
+        schema.records = tuple(
+            QbsRecord(schema, r.index, r.record_id, r.variable_size, r.presence_bitmap_size,
+                      r.fixed_region_size, r.complete_fixed_record_size, r.identity, None,
+                      r.field_start, r.field_count) for r in schema.records
+        )
+        schema.fields = tuple(
+            QbsField(f.index, f.type_index, f.byte_offset, f.bit_offset, f.bit_width,
+                     f.presence_bit, f.slot_size, f.storage, f.descriptor_kind, None,
+                     schema.records[f.owner.index]) for f in schema.fields
+        )
+        child = _record(2, 7); item = _record(3, 11)
+        array = b"\x01" + item
+        fixed = bytearray(30); fixed[0] = 3; fixed[1:22] = child
+        fixed[22:30] = struct.pack(">II", 46, len(array))
+        root = bytes([2, 0, 0, 16]) + struct.pack(">III", 1, 30, 16 + 30 + len(array)) + fixed + array
+        value = validate_brf(schema, schema.records[0], root)
+        self.assertEqual(value.field_view(0).value.field(0), 7)
+        self.assertEqual(value.field(1)[0].field(0), 11)
+        with self.assertRaises(KeyError):
+            schema.record("Parent")
+
+    def test_qbs_load_rejects_bad_header_and_truncation(self):
+        from quarry.runtime.generic import QbsError, load_qbs
+        with self.assertRaises(QbsError):
+            load_qbs(b"QBS\0")
+        bad = bytearray(40); bad[:4] = b"QBS\0"; bad[4:6] = b"\x02\x00"
+        with self.assertRaises(QbsError):
+            load_qbs(bad)
+
     def test_field_view_preserves_presence(self):
         schema = _schema()
         child = _record(2, 7); item = _record(3, 11)
