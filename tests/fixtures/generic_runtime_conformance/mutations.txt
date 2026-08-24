@@ -1,0 +1,20 @@
+# kind|name|offset|replacement bytes (hex); offsets are in canonical fixture images.
+# BRF offsets: root header 4, enabled 26, state 39, name payload 102,
+# root presence 17, root name descriptor 40, direct child ID 116,
+# record-array count 146.
+BRF|wrong_root_record_id|4|00000063
+BRF|invalid_bool|26|02
+BRF|invalid_enum|39|02
+BRF|invalid_utf8|96|ff
+BRF|invalid_unused_presence_bit|17|97
+BRF|invalid_variable_tail_gap|40|00000061
+BRF|wrong_nested_record_id|116|00000063
+BRF|malformed_record_array_count|146|03
+# QBS offsets: version 4, total-size 8, first section offset 32,
+# first field type reference 0x1a0, first string-table reference 0x3b0.
+QBS|bad_version|4|0002
+QBS|truncation|0|TRUNCATE:32
+QBS|section_bounds_corruption|28|ffffffff
+QBS|invalid_type_reference|404|ffff
+QBS|inconsistent_fixed_metadata|188|ffff
+QBS|invalid_reflective_string_offset|944|ffffffff

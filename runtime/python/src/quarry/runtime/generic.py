@@ -295,7 +295,7 @@ class PrimitiveArrayView:
         if index < 0 or index >= self._count: raise IndexError(index)
         width = self.element_type.encoded_width
         start = self._data_offset + index * width
-        return _decode_scalar(self.element_type, self._payload[start:start + width])
+        return _decode_scalar(self._schema, self.element_type, self._payload[start:start + width])
 
     def __iter__(self):
         for i in range(self._count): yield self[i]
@@ -323,12 +323,17 @@ def _varuint(data, p):
     raise BrfError("array count overflow")
 
 
-def _decode_scalar(t, data):
+def _decode_scalar(schema, t, data):
     if t.code is TypeCode.BOOL:
         if len(data) != 1 or data[0] > 1: raise BrfError("invalid bool")
         return bool(data[0])
     if t.code in (TypeCode.I8, TypeCode.I16, TypeCode.I32, TypeCode.I64): return int.from_bytes(data, "big", signed=True)
-    if t.code in (TypeCode.U8, TypeCode.U16, TypeCode.U32, TypeCode.U64, TypeCode.ENUM): return int.from_bytes(data, "big")
+    if t.code is TypeCode.ENUM:
+        value = int.from_bytes(data, "big")
+        if t.reference >= len(schema.enums) or value not in schema.enums[t.reference][0]:
+            raise BrfError("invalid enum")
+        return value
+    if t.code in (TypeCode.U8, TypeCode.U16, TypeCode.U32, TypeCode.U64): return int.from_bytes(data, "big")
     if t.code is TypeCode.F32: return struct.unpack(">f", data)[0]
     if t.code is TypeCode.F64: return struct.unpack(">d", data)[0]
     if t.code is TypeCode.STRING:
@@ -462,10 +467,10 @@ def validate_brf(schema: QbsSchema, record_type: QbsRecord, brf_bytes, limits=Br
                     continue
                 width = element.encoded_width
                 if p + count * width != len(value_data): raise BrfError("array payload has inconsistent length")
-                for i in range(count): _decode_scalar(element, value_data[p + i * width:p + (i + 1) * width])
+                for i in range(count): _decode_scalar(schema, element, value_data[p + i * width:p + (i + 1) * width])
                 frame.states[field.index] = (True, PrimitiveArrayView(schema, element, value_data, count, p))
                 continue
-            frame.states[field.index] = (True, _decode_scalar(typ, value_data))
+            frame.states[field.index] = (True, _decode_scalar(schema, typ, value_data))
             continue
         if frame.cursor >= 2 and frame.cursor - 2 >= frame.record_type.field_count:
             if frame.tail != len(frame.span): raise BrfError("noncanonical variable tail")
