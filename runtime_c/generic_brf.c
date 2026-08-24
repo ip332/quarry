@@ -332,8 +332,8 @@ quarry_generic_status_t quarry_brf_get_uint(const quarry_brf_record_view_t* r, u
         s = field_value(r, i, &f, &x, &p, &n);
         if (s != QUARRY_GENERIC_OK)
             return s;
-        if (r->qbs->types[f->type_index].code < 3U || r->qbs->types[f->type_index].code > 9U ||
-            r->qbs->types[f->type_index].code == 6U || r->qbs->types[f->type_index].code == 8U)
+        if (r->qbs->types[f->type_index].code != 3U && r->qbs->types[f->type_index].code != 5U &&
+            r->qbs->types[f->type_index].code != 7U && r->qbs->types[f->type_index].code != 9U)
             return QUARRY_GENERIC_TYPE_MISMATCH;
     }
     if (s != QUARRY_GENERIC_OK)
