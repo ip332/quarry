@@ -66,6 +66,15 @@ return `Stop` without treating that as an error. The API is intended for
 future JSON, diagnostics, and logging consumers; those consumers are not part
 of this layer.
 
+The generic Python runtime exposes the same traversal as
+`ValidatedRecord.traverse()`, yielding immutable `BrfTraversalEvent` values.
+It uses an explicit frame stack, preserves record/field/array depth-first
+ordering, emits absent fields and present-empty arrays, and raises
+`ResourceLimitError` when `BrfTraversalLimits.max_depth` or
+`max_work_items` is exceeded. The iterator owns its validated views, so it is
+safe to retain an iterator or nested view after its creating helper returns;
+breaking and restarting traversal is also supported.
+
 BRF v2 support is available through the header-only
 `quarry/runtime/binary_record_v2.hpp` API and is intentionally separate from
 the existing BRF v1 runtime. A compiler-owned Layout IR can be adapted with

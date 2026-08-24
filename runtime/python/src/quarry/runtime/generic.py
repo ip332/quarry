@@ -7,6 +7,7 @@ decoded once and validated BRF views retain the caller's backing buffers.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from enum import IntEnum
 import math
 import struct
@@ -31,6 +32,34 @@ class ResourceLimitError(BrfError):
 
 class TypeAccessError(GenericRuntimeError):
     pass
+
+
+class BrfTraversalEventKind(Enum):
+    RECORD_BEGIN = "record_begin"
+    RECORD_END = "record_end"
+    FIELD = "field"
+    SCALAR = "scalar"
+    ARRAY_BEGIN = "array_begin"
+    ARRAY_ELEMENT = "array_element"
+    ARRAY_END = "array_end"
+
+
+@dataclass(frozen=True)
+class BrfTraversalEvent:
+    kind: BrfTraversalEventKind
+    field: object = None
+    present: object = None
+    index: int = 0
+    depth: int = 0
+    value: object = None
+    array: object = None
+    record: object = None
+
+
+@dataclass(frozen=True)
+class BrfTraversalLimits:
+    max_work_items: int = 1 << 20
+    max_depth: int = 1024
 
 
 class TypeCode(IntEnum):
@@ -268,6 +297,79 @@ class ValidatedRecord:
         for f in self.record_schema.fields:
             present, value = self._states[f.index]
             yield FieldValue(f, present, value)
+
+    def traverse(self, limits=BrfTraversalLimits()):
+        """Iterate over this validated record in C++-compatible DFS order."""
+        stack = [["record", self, 0, 0, False]]
+        work = 0
+
+        def emit(event):
+            nonlocal work
+            if work >= limits.max_work_items:
+                raise ResourceLimitError("BRF traversal work limit exceeded")
+            work += 1
+            return event
+
+        while stack:
+            frame = stack[-1]
+            if frame[0] == "record":
+                _, record, depth, next_index, began = frame
+                if not began:
+                    frame[4] = True
+                    yield emit(BrfTraversalEvent(
+                        BrfTraversalEventKind.RECORD_BEGIN, depth=depth, record=record))
+                    continue
+                if next_index >= len(record.record_schema.fields):
+                    stack.pop()
+                    yield emit(BrfTraversalEvent(
+                        BrfTraversalEventKind.RECORD_END, depth=depth, record=record))
+                    continue
+                frame[3] += 1
+                field = record.record_schema.fields[next_index]
+                field_value = record.field_view(field.index)
+                event = BrfTraversalEvent(
+                    BrfTraversalEventKind.FIELD, field=field, present=field_value.present,
+                    depth=depth, value=field_value.value, record=record)
+                yield emit(event)
+                if not field_value.present:
+                    continue
+                value = field_value.value
+                if isinstance(value, (PrimitiveArrayView, RecordArrayView)):
+                    yield emit(BrfTraversalEvent(
+                        BrfTraversalEventKind.ARRAY_BEGIN, field=field, present=True,
+                        depth=depth, value=value, array=value, record=record))
+                    stack.append(["array", value, depth, 0, field])
+                elif isinstance(value, ValidatedRecord):
+                    if depth == limits.max_depth:
+                        raise ResourceLimitError("BRF traversal depth limit exceeded")
+                    stack.append(["record", value, depth + 1, 0, False])
+                else:
+                    yield emit(BrfTraversalEvent(
+                        BrfTraversalEventKind.SCALAR, field=field, present=True,
+                        depth=depth, value=value, record=record))
+                continue
+
+            _, array, depth, next_index, field = frame
+            if next_index >= len(array):
+                stack.pop()
+                yield emit(BrfTraversalEvent(
+                    BrfTraversalEventKind.ARRAY_END, field=field, present=True,
+                    depth=depth, value=array, array=array))
+                continue
+            index = next_index
+            frame[3] += 1
+            value = array[index]
+            yield emit(BrfTraversalEvent(
+                BrfTraversalEventKind.ARRAY_ELEMENT, field=field, present=True,
+                index=index, depth=depth, value=value, array=array))
+            if isinstance(value, ValidatedRecord):
+                if depth == limits.max_depth:
+                    raise ResourceLimitError("BRF traversal depth limit exceeded")
+                stack.append(["record", value, depth + 1, 0, False])
+            else:
+                yield emit(BrfTraversalEvent(
+                    BrfTraversalEventKind.SCALAR, field=field, present=True,
+                    index=index, depth=depth, value=value, array=array))
 
 
 @dataclass(frozen=True)

@@ -7,7 +7,8 @@ usable when they intentionally omit generic runtime modules.
 _GENERIC_NAMES = {
     "BrfError", "BrfLimits", "FieldValue", "GenericRuntimeError", "QbsError",
     "QbsField", "QbsRecord", "QbsSchema", "QbsType", "ResourceLimitError",
-    "TypeAccessError", "ValidatedRecord", "load_qbs", "validate_brf",
+    "TypeAccessError", "ValidatedRecord", "BrfTraversalEvent",
+    "BrfTraversalEventKind", "BrfTraversalLimits", "load_qbs", "validate_brf",
 }
 
 __all__ = sorted(_GENERIC_NAMES)

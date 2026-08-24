@@ -37,3 +37,24 @@ exact field width.
 `PrimitiveArrayView` decodes fixed-width elements lazily. `RecordArrayView`
 keeps the already validated child wrappers in an immutable tuple: child BRF
 payloads are not copied, validation happens once, and indexed access is O(1).
+
+## Traversal
+
+Validated records provide an iterator matching the C++ generic traversal
+ordering:
+
+```python
+from quarry.runtime import BrfTraversalLimits
+
+for event in record.traverse(BrfTraversalLimits(max_depth=64)):
+    print(event.kind, event.depth, event.value)
+```
+
+Events are immutable `BrfTraversalEvent` values. The iterator emits record
+begin/end, field, scalar, array begin/end, and array-element events in schema
+field and logical array order. Absent fields emit a field event with
+`present == False`; present-empty arrays emit array begin/end without
+elements. Traversal consumes the already validated views, uses an explicit
+stack rather than Python recursion, and raises `ResourceLimitError` when
+`max_depth` or `max_work_items` is exceeded. It is read-only, restartable, and
+safe to retain after the creating record helper returns.
