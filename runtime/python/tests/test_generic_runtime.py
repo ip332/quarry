@@ -1,7 +1,7 @@
 import struct
 import unittest
 
-from quarry.runtime.generic import QbsField, QbsRecord, QbsSchema, QbsType, TypeCode, validate_brf
+from quarry.runtime.generic import BrfError, QbsField, QbsRecord, QbsSchema, QbsType, ResourceLimitError, TypeCode, validate_brf
 
 
 def _schema():
@@ -44,6 +44,40 @@ class GenericRuntimeTest(unittest.TestCase):
         self.assertEqual(value["child"]["value"], 7)
         self.assertEqual([item["value"] for item in value["items"]], [11, 12])
         self.assertIs(value["child"], value["child"])
+
+    def test_nested_and_array_fail_during_root_validation(self):
+        schema = _schema()
+        child = bytearray(_record(2, 7))
+        child[7] = 9  # child record id
+        item = _record(3, 11)
+        array = b"\x01" + item
+        fixed = bytearray(30); fixed[0] = 3; fixed[1:22] = child
+        fixed[22:30] = struct.pack(">II", 46, len(array))
+        root = bytes([2, 0, 0, 16]) + struct.pack(">III", 1, 30, 16 + 30 + len(array)) + fixed + array
+        with self.assertRaises(BrfError):
+            validate_brf(schema, schema.records[0], root)
+
+    def test_array_element_limit_is_checked_before_view_access(self):
+        schema = _schema()
+        schema.types = schema.types[:3] + (QbsType(TypeCode.ARRAY, False, 0, 2, 1, 0),)
+        child = _record(2, 7); item = _record(3, 11)
+        array = b"\x02" + item + item
+        fixed = bytearray(30); fixed[0] = 3; fixed[1:22] = child
+        fixed[22:30] = struct.pack(">II", 46, len(array))
+        root = bytes([2, 0, 0, 16]) + struct.pack(">III", 1, 30, 16 + 30 + len(array)) + fixed + array
+        with self.assertRaises(ResourceLimitError):
+            validate_brf(schema, schema.records[0], root)
+
+    def test_field_view_preserves_presence(self):
+        schema = _schema()
+        child = _record(2, 7); item = _record(3, 11)
+        array = b"\x01" + item
+        fixed = bytearray(30); fixed[0] = 3; fixed[1:22] = child
+        fixed[22:30] = struct.pack(">II", 46, len(array))
+        root = bytes([2, 0, 0, 16]) + struct.pack(">III", 1, 30, 16 + 30 + len(array)) + fixed + array
+        value = validate_brf(schema, schema.records[0], root)
+        self.assertTrue(value.field_view("child").present)
+        self.assertTrue(value.field_view("items").present)
 
 
 if __name__ == "__main__":

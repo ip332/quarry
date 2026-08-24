@@ -259,6 +259,10 @@ class ValidatedRecord:
         f = self.record_schema.field(key)
         present, value = self._states[f.index]
         return value if present else None
+    def field_view(self, key):
+        f = self.record_schema.field(key)
+        present, value = self._states[f.index]
+        return FieldValue(f, present, value)
     def __getitem__(self, key): return self.field(key)
     def fields(self):
         for f in self.record_schema.fields:
