@@ -2,7 +2,7 @@ import struct
 import unittest
 import gc
 
-from quarry.runtime.generic import BrfError, QbsField, QbsRecord, QbsSchema, QbsType, ResourceLimitError, TypeCode, validate_brf
+from quarry.runtime.generic import BrfError, BrfLimits, QbsField, QbsRecord, QbsSchema, QbsType, ResourceLimitError, TypeCode, validate_brf
 
 
 def _schema():
@@ -24,6 +24,23 @@ def _schema():
         QbsField(0, 0, 1, 0, 0, 0, 4, 0, 0, "value", schema.records[2]),
     )
     return schema
+
+
+def _variable_chain(depth):
+    """Build a linear variable-record QBS/BRF chain without recursion."""
+    schema = QbsSchema(b"", [], [], [], [], False)
+    schema.types = tuple(QbsType(TypeCode.RECORD, False, 0, i + 1, 0, 0) for i in range(depth))
+    records = []
+    for i in range(depth + 1):
+        records.append(QbsRecord(schema, i, i + 1, True, 1 if i < depth else 0,
+                                 9 if i < depth else 0, 0, f"R{i}", None, i if i < depth else depth, 1 if i < depth else 0))
+    schema.records = tuple(records)
+    schema.fields = tuple(QbsField(0, i, 1, 0, 0, 0, 8, 2, 1, None, records[i]) for i in range(depth))
+    value = bytes([2, 0, 0, 16]) + struct.pack(">III", depth + 1, 0, 16)
+    for i in range(depth - 1, -1, -1):
+        payload = bytes([1]) + struct.pack(">II", 25, len(value)) + value
+        value = bytes([2, 0, 0, 16]) + struct.pack(">III", i + 1, 9, 25 + len(value)) + payload
+    return schema, value
 
 
 def _record(record_id, value):
@@ -107,6 +124,27 @@ class GenericRuntimeTest(unittest.TestCase):
         root = bytes([2, 0, 0, 16]) + struct.pack(">III", 1, 30, 16 + 30 + len(array)) + fixed + array
         with self.assertRaises(BrfError):
             validate_brf(schema, schema.records[0], root)
+
+    def test_variable_chain_uses_production_frames_at_depth_2048(self):
+        schema, root = _variable_chain(2048)
+        value = validate_brf(schema, schema.records[0], root,
+                             limits=BrfLimits(max_record_bytes=len(root) + 1, max_work_items=2048,
+                                              max_nested_records=2048))
+        for _ in range(8):
+            value = value[0]
+        self.assertIsNotNone(value)
+        with self.assertRaises(ResourceLimitError):
+            validate_brf(schema, schema.records[0], root,
+                         limits=BrfLimits(max_record_bytes=len(root) + 1, max_work_items=2048,
+                                          max_nested_records=2047))
+
+    def test_exact_work_limit_for_two_record_chain(self):
+        schema, root = _variable_chain(2)
+        limits = BrfLimits(max_record_bytes=len(root) + 1, max_work_items=2, max_nested_records=2)
+        validate_brf(schema, schema.records[0], root, limits=limits)
+        limits = BrfLimits(max_record_bytes=len(root) + 1, max_work_items=1, max_nested_records=2)
+        with self.assertRaises(ResourceLimitError):
+            validate_brf(schema, schema.records[0], root, limits=limits)
 
 
 if __name__ == "__main__":
