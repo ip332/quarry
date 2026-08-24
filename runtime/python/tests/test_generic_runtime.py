@@ -86,6 +86,48 @@ class GenericRuntimeTest(unittest.TestCase):
         with self.assertRaises(ResourceLimitError):
             validate_brf(schema, schema.records[0], root)
 
+    def test_record_array_max_elements_exact_boundary(self):
+        schema = _schema()
+        schema.types = schema.types[:3] + (QbsType(TypeCode.ARRAY, False, 0, 2, 2, 0),)
+        child = _record(2, 7); item = _record(3, 11)
+        array = b"\x02" + item + item
+        fixed = bytearray(30); fixed[0] = 3; fixed[1:22] = child
+        fixed[22:30] = struct.pack(">II", 46, len(array))
+        root = bytes([2, 0, 0, 16]) + struct.pack(">III", 1, 30, 16 + 30 + len(array)) + fixed + array
+        value = validate_brf(schema, schema.records[0], root)
+        self.assertEqual(len(value["items"]), 2)
+        array = b"\x03" + item + item + item
+        fixed[22:30] = struct.pack(">II", 46, len(array))
+        root = bytes([2, 0, 0, 16]) + struct.pack(">III", 1, 30, 16 + 30 + len(array)) + fixed + array
+        with self.assertRaises(ResourceLimitError):
+            validate_brf(schema, schema.records[0], root)
+
+    def test_primitive_array_max_elements_exact_boundary(self):
+        schema = _schema()
+        schema.types = schema.types[:3] + (QbsType(TypeCode.ARRAY, False, 0, 0, 2, 0),)
+        values = struct.pack(">II", 10, 20)
+        array = b"\x02" + values
+        fixed = bytearray(30); fixed[0] = 2
+        fixed[22:30] = struct.pack(">II", 46, len(array))
+        root = bytes([2, 0, 0, 16]) + struct.pack(">III", 1, 30, 16 + 30 + len(array)) + fixed + array
+        value = validate_brf(schema, schema.records[0], root)
+        self.assertEqual(list(value["items"]), [10, 20])
+        array = b"\x03" + values + struct.pack(">I", 30)
+        fixed[22:30] = struct.pack(">II", 46, len(array))
+        root = bytes([2, 0, 0, 16]) + struct.pack(">III", 1, 30, 16 + 30 + len(array)) + fixed + array
+        with self.assertRaises(ResourceLimitError):
+            validate_brf(schema, schema.records[0], root)
+
+    def test_noncanonical_record_array_count_is_rejected(self):
+        schema = _schema()
+        child = _record(2, 7); item = _record(3, 11)
+        array = b"\x80\x00" + item
+        fixed = bytearray(30); fixed[0] = 3; fixed[1:22] = child
+        fixed[22:30] = struct.pack(">II", 46, len(array))
+        root = bytes([2, 0, 0, 16]) + struct.pack(">III", 1, 30, 16 + 30 + len(array)) + fixed + array
+        with self.assertRaises(BrfError):
+            validate_brf(schema, schema.records[0], root)
+
     def test_field_view_preserves_presence(self):
         schema = _schema()
         child = _record(2, 7); item = _record(3, 11)

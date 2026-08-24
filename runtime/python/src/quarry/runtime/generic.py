@@ -316,7 +316,10 @@ def _varuint(data, p):
     for i in range(10):
         if p >= len(data): raise BrfError("truncated array count")
         byte = data[p]; p += 1; value |= (byte & 0x7f) << (7 * i)
-        if not byte & 0x80: return value, p
+        if not byte & 0x80:
+            if i and value < (1 << (7 * i)):
+                raise BrfError("noncanonical varuint")
+            return value, p
     raise BrfError("array count overflow")
 
 
