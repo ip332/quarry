@@ -390,6 +390,10 @@ private:
                 return BrfEncodeValue{false};
         }
         if (type.code == 10U || type.code == 11U) {
+            if (text == "INF" || text == "NAN" || text == "+inf" || text == "+INF") {
+                error(diagnostics_, current_.offset, "invalid floating-point spelling");
+                return std::nullopt;
+            }
             if (text == "nan")
                 return type.code == 10U ? BrfEncodeValue{std::numeric_limits<float>::quiet_NaN()}
                                         : BrfEncodeValue{std::numeric_limits<double>::quiet_NaN()};
