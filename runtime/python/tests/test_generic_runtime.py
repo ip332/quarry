@@ -18,10 +18,10 @@ def _schema():
         QbsRecord(schema, 2, 3, False, 1, 5, 21, "Item", "Item", 3, 1),
     )
     schema.fields = (
-        QbsField(0, 1, 1, 0, 0, 0, 21, 0, 0, "child", schema.records[0]),
-        QbsField(1, 3, 22, 0, 0, 1, 8, 2, 1, "items", schema.records[0]),
-        QbsField(0, 0, 1, 0, 0, 0, 4, 0, 0, "value", schema.records[1]),
-        QbsField(0, 0, 1, 0, 0, 0, 4, 0, 0, "value", schema.records[2]),
+        QbsField(0, 1, 17, 0, 0, 0, 21, 0, 0, "child", schema.records[0]),
+        QbsField(1, 3, 38, 0, 0, 1, 8, 2, 1, "items", schema.records[0]),
+        QbsField(0, 0, 17, 0, 0, 0, 4, 0, 0, "value", schema.records[1]),
+        QbsField(0, 0, 17, 0, 0, 0, 4, 0, 0, "value", schema.records[2]),
     )
     return schema
 
@@ -35,7 +35,7 @@ def _variable_chain(depth):
         records.append(QbsRecord(schema, i, i + 1, True, 1 if i < depth else 0,
                                  9 if i < depth else 0, 0, f"R{i}", None, i if i < depth else depth, 1 if i < depth else 0))
     schema.records = tuple(records)
-    schema.fields = tuple(QbsField(0, i, 1, 0, 0, 0, 8, 2, 1, None, records[i]) for i in range(depth))
+    schema.fields = tuple(QbsField(0, i, 17, 0, 0, 0, 8, 2, 1, None, records[i]) for i in range(depth))
     value = bytes([2, 0, 0, 16]) + struct.pack(">III", depth + 1, 0, 16)
     for i in range(depth - 1, -1, -1):
         payload = bytes([1]) + struct.pack(">II", 25, len(value)) + value

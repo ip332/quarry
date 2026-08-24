@@ -425,7 +425,10 @@ def validate_brf(schema: QbsSchema, record_type: QbsRecord, brf_bytes, limits=Br
             field = frame.record_type.fields[ordinal]
             data = frame.span
             present = bool(data[16 + field.presence_bit // 8] & (1 << (field.presence_bit % 8)))
-            slot_start = 16 + field.byte_offset
+            # QBS byte_offset is relative to the complete BRF record span;
+            # presence bits are the only fixed-region metadata addressed from
+            # the header boundary.
+            slot_start = field.byte_offset
             slot = data[slot_start:slot_start + field.slot_size]
             if len(slot) != field.slot_size: raise BrfError("field slot outside fixed region")
             if not present:

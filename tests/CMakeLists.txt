@@ -158,6 +158,13 @@ add_quarry_gtest(runtime_qtf_parser_test runtime/qtf_parser_test.cpp
                       quarry_compiler_qbs)
 add_quarry_gtest(runtime_brf_validation_cache_test runtime/brf_validation_cache_test.cpp
                       quarry_compiler_qbs)
+add_executable(generic_runtime_conformance_fixture_generator
+    fixtures/generic_runtime_conformance/generator.cpp)
+target_link_libraries(generic_runtime_conformance_fixture_generator
+    PRIVATE quarry_compiler_qbs quarry_project_options)
+add_test(NAME generic_runtime_conformance_fixture_check
+    COMMAND generic_runtime_conformance_fixture_generator --check
+            ${CMAKE_SOURCE_DIR}/tests/fixtures/generic_runtime_conformance)
 add_quarry_gtest(runtime_c_binary_record_test runtime_c/binary_record_test.cpp
                       quarry_runtime_c)
 target_compile_definitions(runtime_c_binary_record_test PRIVATE
