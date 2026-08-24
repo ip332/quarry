@@ -174,7 +174,9 @@ These are open questions a future specification would need to resolve, not decis
    packed-field group** in schema syntax, where every sub-field's bit position is assigned
    deterministically only within that group — so an unrelated field added elsewhere in the
    record can never silently shift existing bit offsets. This would need to be weighed against
-   QBS's stated goal of stable field indexes/offsets for compatibility.
+   QBS's stated goal of stable field indexes/offsets for compatibility. See the schema syntax
+   sketch under [Examples](#examples), which takes this further and requires every member's bit
+   position to be stated explicitly rather than auto-assigned even within the group.
 2. **Presence semantics for packed fields.** DBC signals have no per-signal optionality — a
    candidate direction is that packed fields are always non-optional (no presence bit), leaving
    the existing presence-bitmap machinery untouched.
@@ -199,36 +201,107 @@ starting point rather than a blank page.
   declared bit width to its logical type's full width.
 * CAND-BITFIELD-005 — No runtime bit read/write primitive SHOULD depend on native C/C++ compiler
   bitfield layout, struct padding, or host endianness.
+* CAND-BITFIELD-006 — A packed member's `bit` position SHALL be stated explicitly in schema
+  source and SHALL NOT be auto-assigned from declaration order.
+* CAND-BITFIELD-007 — A packed group SHALL carry at most one presence bit for the entire group;
+  individual members SHALL NOT have their own presence bit.
+* CAND-BITFIELD-008 — A packed member's declared `width` SHALL be between 1 and 64 bits
+  inclusive.
+* CAND-BITFIELD-009 — The compiler SHALL reject two packed members of the same group whose
+  `[bit, bit + width)` ranges overlap.
+* CAND-BITFIELD-010 — Initial packed-member type support SHOULD be limited to `uint`, `int`, and
+  `bool`; enum and other member types are deferred.
 
 ## Examples
 
-### Informative Example — a candidate schema sketch (not real syntax)
+### Informative Example — candidate schema syntax sketch
 
-```text
-// Illustrative only. This syntax does not exist and is not proposed for adoption as-is.
-record SensorFrame {
-    packed {
-        uint:3  mode;
-        uint:11 raw_reading;
-        bool    fault;
-        uint:1  reserved;
-    }
-    uint32 timestamp;
-}
+This sketch is illustrative only; it does not exist in [Schema Language](schema-language.md) and
+is not proposed for adoption exactly as written. It follows Quarry's existing `.brd` YAML field
+style rather than inventing a new schema syntax family.
+
+```yaml
+namespace: sensors.frame
+record: SensorFrame
+version: 1
+type: data
+fields:
+  timestamp:
+    type: uint32
+  status_flags:
+    type: packed
+    bits:
+      mode:
+        type: uint
+        width: 3
+        bit: 0
+      raw_reading:
+        type: uint
+        width: 11
+        bit: 3
+      fault:
+        type: bool
+        bit: 14
+      reserved:
+        type: uint
+        width: 1
+        bit: 15
+  battery_mv:
+    type: uint16
 ```
 
-In this sketch, `mode` (3 bits), `raw_reading` (11 bits), `fault` (1 bit), and `reserved` (1 bit)
-would share two bytes, packed LSB-first, entirely independent of `timestamp`'s ordinary
-byte-aligned placement elsewhere in the record.
+Design choices this sketch makes, each a candidate decision rather than a settled one:
+
+* **A packed group is declared like any other field** (`status_flags: { type: packed, ... }`),
+  reusing the existing `fields:` map rather than introducing a new top-level schema section.
+  This keeps the schema-language surface change minimal.
+* **Every member's `bit:` position is explicit, not auto-assigned**, matching DBC's own model
+  (every signal states its own start bit) and avoiding the reorder-fragility of C-style
+  declaration-order bin-packing (see Candidate Design Question 1). Inserting a new member later
+  requires picking an unused bit range explicitly, exactly as inserting a new DBC signal does.
+* **`bit:` is relative to the group's own bit-space, not the record's.** `mode`'s `bit: 0` and
+  some unrelated field elsewhere in the record are never in the same numbering space — this is
+  what makes the group boundary meaningful rather than cosmetic.
+* **The group, not its members, carries the presence bit.** `status_flags` behaves like any
+  other optional Quarry field (`has_status_flags`) at the record level; `mode`, `raw_reading`,
+  `fault`, and `reserved` are mandatory once the group is present, with no individual presence
+  bits of their own — consistent with CAND-BITFIELD-007 and with DBC signals having no
+  per-signal optionality.
+* **Only `uint`, `int`, and `bool` are candidate member types.** These are new type keywords
+  distinct from the existing fixed-width names (`uint32`, etc.) precisely because their width is
+  supplied separately via `width:`; `bool` implies `width: 1` and does not accept an explicit
+  `width:`. Packing an `enum` into a sub-byte width is a plausible future extension, not covered
+  by this sketch.
+* **In memory, members stay ordinary flat fields.** Generated code would expose `mode`,
+  `raw_reading`, `fault`, and `reserved` as normal struct members with normal full-width types
+  (e.g. a plain `uint32_t mode`, not a native C bitfield) — bit-packing would be confined to the
+  wire encode/decode step, mirroring how strings and arrays already keep a simple in-memory
+  representation distinct from their specialized wire encoding.
+
+An alternative considered and set aside for a first version: auto-assigning `bit:` positions in
+declaration order within the group (lower verbosity, closer to native C bitfields). It was set
+aside because it reintroduces exactly the "inserting a field shifts everything after it"
+fragility BRF v2's byte-aligned design already avoids — just scoped down to one group instead of
+the whole record. It remains a plausible lower-verbosity opt-in mode to revisit later, not ruled
+out permanently.
 
 ### Informative Example — candidate `FieldLocation` values for the sketch above
 
+Assuming `status_flags` falls at byte offset 5 in `SensorFrame` (after the presence bitmap and
+`timestamp`):
+
 ```text
-mode        : byte_offset=0, bit_offset=0,  bit_width=3
-raw_reading : byte_offset=0, bit_offset=3,  bit_width=11
-fault       : byte_offset=1, bit_offset=6,  bit_width=1
-reserved    : byte_offset=1, bit_offset=7,  bit_width=1
+status_flags (group) : byte_offset=5, occupies 2 bytes, one shared presence bit
+  mode        : byte_offset=5, bit_offset=0, bit_width=3
+  raw_reading : byte_offset=5, bit_offset=3, bit_width=11
+  fault       : byte_offset=6, bit_offset=6, bit_width=1
+  reserved    : byte_offset=6, bit_offset=7, bit_width=1
 ```
+
+`raw_reading`'s 11 bits span the boundary between byte 5 (bits 3-7, 5 bits) and byte 6 (bits 0-5,
+6 bits) — exactly the cross-byte-boundary case a real implementation's runtime primitives would
+need to handle correctly, and exactly the case DBC has decades of hard-won field experience with
+getting wrong.
 
 ## Candidate Incremental Path
 
