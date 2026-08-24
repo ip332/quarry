@@ -33,3 +33,7 @@ expose explicit presence, so an absent field is distinct from a present-empty
 value or array. Minimal QBS images can use field indexes without reflective
 names. Python `int` is the logical integer carrier; QBS metadata retains the
 exact field width.
+
+`PrimitiveArrayView` decodes fixed-width elements lazily. `RecordArrayView`
+keeps the already validated child wrappers in an immutable tuple: child BRF
+payloads are not copied, validation happens once, and indexed access is O(1).

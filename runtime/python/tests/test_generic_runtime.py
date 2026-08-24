@@ -1,5 +1,6 @@
 import struct
 import unittest
+import gc
 
 from quarry.runtime.generic import BrfError, QbsField, QbsRecord, QbsSchema, QbsType, ResourceLimitError, TypeCode, validate_brf
 
@@ -78,6 +79,34 @@ class GenericRuntimeTest(unittest.TestCase):
         value = validate_brf(schema, schema.records[0], root)
         self.assertTrue(value.field_view("child").present)
         self.assertTrue(value.field_view("items").present)
+
+    def test_record_array_sequence_and_returned_views_survive_parent_collection(self):
+        schema = _schema()
+        child = _record(2, 7); item = _record(3, 11)
+        array = b"\x01" + item
+        fixed = bytearray(30); fixed[0] = 3; fixed[1:22] = child
+        fixed[22:30] = struct.pack(">II", 46, len(array))
+        root = bytes([2, 0, 0, 16]) + struct.pack(">III", 1, 30, 16 + 30 + len(array)) + fixed + array
+        value = validate_brf(schema, schema.records[0], root)
+        child_view, items_view, item_view = value["child"], value["items"], value["items"][0]
+        del value, root
+        gc.collect()
+        self.assertEqual(child_view["value"], 7)
+        self.assertEqual(len(items_view), 1)
+        self.assertEqual(items_view[-1]["value"], 11)
+        self.assertIs(item_view, items_view[0])
+        with self.assertRaises(IndexError):
+            _ = items_view[1]
+
+    def test_record_array_trailing_payload_fails_during_validation(self):
+        schema = _schema()
+        child = _record(2, 7); item = _record(3, 11)
+        array = b"\x01" + item + b"\0"
+        fixed = bytearray(30); fixed[0] = 3; fixed[1:22] = child
+        fixed[22:30] = struct.pack(">II", 46, len(array))
+        root = bytes([2, 0, 0, 16]) + struct.pack(">III", 1, 30, 16 + 30 + len(array)) + fixed + array
+        with self.assertRaises(BrfError):
+            validate_brf(schema, schema.records[0], root)
 
 
 if __name__ == "__main__":
