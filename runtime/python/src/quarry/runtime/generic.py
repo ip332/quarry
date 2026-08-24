@@ -331,49 +331,142 @@ def _decode_scalar(t, data):
     return data
 
 
-def validate_brf(schema: QbsSchema, record_type: QbsRecord, brf_bytes, limits=BrfLimits()):
-    source = memoryview(brf_bytes)
-    if len(source) > limits.max_record_bytes or len(source) < 16: raise BrfError("invalid BRF header")
-    if source[0] != 2 or source[1] != 0 or _u16(source, 2) != 16 or _u32(source, 4) != record_type.record_id or _u32(source, 12) != len(source): raise BrfError("invalid BRF header")
-    fixed = _u32(source, 8)
-    if fixed != record_type.fixed_region_size or fixed > len(source) - 16 or record_type.presence_bitmap_size > fixed: raise BrfError("invalid fixed region")
-    if record_type.field_count > 0 and record_type.presence_bitmap_size:
+@dataclass
+class _Frame:
+    schema: QbsSchema
+    record_type: QbsRecord
+    span: memoryview
+    states: dict
+    children: dict
+    tail: int = 0
+    cursor: int = 0
+    pending: object = None
+
+
+def _check_record_header(frame):
+    data, record_type = frame.span, frame.record_type
+    if len(data) < 16 or data[0] != 2 or data[1] != 0 or _u16(data, 2) != 16:
+        raise BrfError("invalid BRF record header")
+    if _u32(data, 4) != record_type.record_id or _u32(data, 12) != len(data):
+        raise BrfError("invalid nested record identity or size")
+    fixed = _u32(data, 8)
+    if fixed != record_type.fixed_region_size or fixed > len(data) - 16 or record_type.presence_bitmap_size > fixed:
+        raise BrfError("invalid nested fixed region")
+    if record_type.presence_bitmap_size:
         used = 0
-        for f in record_type.fields: used |= 1 << f.presence_bit
-        if int.from_bytes(source[16:16 + record_type.presence_bitmap_size], "little") & ~used: raise BrfError("invalid presence bits")
-    states = {}; children = {}; tail = 16 + fixed; work = 0
-    for f in record_type.fields:
-        work += 1
-        if work > limits.max_work_items: raise ResourceLimitError("BRF work limit exceeded")
-        present = bool(source[16 + f.presence_bit // 8] & (1 << (f.presence_bit % 8)))
-        slot = source[16 + f.byte_offset:16 + f.byte_offset + f.slot_size]
-        if not present:
-            if any(slot): raise BrfError("absent field storage is not zero")
-            states[f.index] = (False, None); continue
-        t = f.type
-        if f.storage == 2:
-            if len(slot) != 8: raise BrfError("invalid variable descriptor")
-            off, size = _u32(slot, 0), _u32(slot, 4)
-            if off != tail or off + size > len(source): raise BrfError("invalid variable range")
-            value_data = source[off:off + size]; tail += size
-        else: value_data = slot
-        if t.code is TypeCode.RECORD:
-            child = schema.records[t.reference]
-            children[f.index] = validate_brf(schema, child, value_data if f.storage == 2 else source[16 + f.byte_offset:16 + f.byte_offset + f.slot_size], limits)
-            value = children[f.index]
-        elif t.code is TypeCode.ARRAY:
-            count, p = _varuint(value_data, 0)
-            if count > t.max_elements or count > limits.max_array_elements: raise BrfError("array limit exceeded")
-            element_type = schema.types[t.reference]
-            if element_type.code is TypeCode.RECORD:
-                raise BrfError("record arrays require the iterative validation phase")
-            width = element_type.encoded_width
-            if p + count * width != len(value_data):
-                raise BrfError("array payload has inconsistent length")
-            for i in range(count):
-                _decode_scalar(element_type, value_data[p + i * width:p + (i + 1) * width])
-            value = PrimitiveArrayView(schema, element_type, value_data, count, p)
-        else: value = _decode_scalar(t, value_data)
-        states[f.index] = (True, value)
-    if tail != len(source): raise BrfError("noncanonical variable tail")
-    return ValidatedRecord(schema, record_type, source, states, children)
+        for field in record_type.fields: used |= 1 << field.presence_bit
+        bits = int.from_bytes(data[16:16 + record_type.presence_bitmap_size], "little")
+        if bits & ~used: raise BrfError("invalid presence bits")
+    frame.tail = 16 + fixed
+
+
+def _child_spans(schema, element_type, payload, count, cursor, limits):
+    """Return child spans while consuming array framing exactly once."""
+    result = []
+    child = schema.records[element_type.reference]
+    variable = child.variable_size
+    for _ in range(count):
+        if variable:
+            length, cursor = _varuint(payload, cursor)
+            if length == 0 or length > len(payload) - cursor: raise BrfError("invalid variable array element")
+            end = cursor + length; result.append(payload[cursor:end]); cursor = end
+        else:
+            length = child.complete_fixed_record_size
+            if not length or length > len(payload) - cursor: raise BrfError("truncated fixed array element")
+            result.append(payload[cursor:cursor + length]); cursor += length
+    if cursor != len(payload): raise BrfError("record array has trailing bytes")
+    return result
+
+
+def validate_brf(schema: QbsSchema, record_type: QbsRecord, brf_bytes, limits=BrfLimits()):
+    """Validate the complete nested BRF graph using an explicit frame stack."""
+    root_source = memoryview(brf_bytes)
+    if len(root_source) > limits.max_record_bytes: raise ResourceLimitError("BRF record limit exceeded")
+    stack = [_Frame(schema, record_type, root_source, {}, {})]
+    completed = {}
+    work = 0
+    while stack:
+        frame = stack[-1]
+        if frame.cursor == 0:
+            _check_record_header(frame)
+            frame.cursor = 1  # Header/presence are complete for this frame.
+        if frame.pending is not None and frame.pending[3] == "record_array":
+            key, element, spans, _ = frame.pending
+            if spans:
+                frame.pending = (key, element, spans[1:], "record_array")
+                stack.append(_Frame(schema, schema.records[element.reference], spans[0], {}, {}))
+                completed[id(stack[-1])] = (frame, key, "record_array")
+            else:
+                frame.pending = None
+                values = frame.children.pop(key, [])
+                frame.states[key] = (True, RecordArrayView(values))
+            continue
+        if frame.pending is not None:
+            key, child_type, child_span, destination = frame.pending
+            frame.pending = None
+            stack.append(_Frame(schema, child_type, child_span, {}, {}))
+            completed[id(stack[-1])] = (frame, key, destination)
+            continue
+        if frame.cursor == 1:
+            if frame.cursor > 1: raise AssertionError("invalid validation phase")
+            frame.cursor = 2
+        if frame.cursor >= 2 and frame.cursor - 2 < frame.record_type.field_count:
+            ordinal = frame.cursor - 2
+            frame.cursor += 1
+            work += 1
+            if work > limits.max_work_items: raise ResourceLimitError("BRF work limit exceeded")
+            field = frame.record_type.fields[ordinal]
+            data = frame.span
+            present = bool(data[16 + field.presence_bit // 8] & (1 << (field.presence_bit % 8)))
+            slot_start = 16 + field.byte_offset
+            slot = data[slot_start:slot_start + field.slot_size]
+            if len(slot) != field.slot_size: raise BrfError("field slot outside fixed region")
+            if not present:
+                if any(slot): raise BrfError("absent field storage is not zero")
+                frame.states[field.index] = (False, None)
+                continue
+            value_data = slot
+            if field.storage == 2:
+                if len(slot) != 8: raise BrfError("invalid variable descriptor")
+                off, size = _u32(slot, 0), _u32(slot, 4)
+                if off != frame.tail or size > len(data) - off: raise BrfError("invalid variable range")
+                value_data = data[off:off + size]; frame.tail += size
+            typ = field.type
+            if typ.code is TypeCode.RECORD:
+                if len(stack) > limits.max_nested_records: raise ResourceLimitError("nested record limit exceeded")
+                child = schema.records[typ.reference]
+                if field.storage == 2 and not child.variable_size: raise BrfError("fixed child uses variable storage")
+                if field.storage != 2 and (child.variable_size or field.slot_size != child.complete_fixed_record_size): raise BrfError("invalid fixed child slot")
+                frame.pending = (field.index, child, value_data, "record")
+                continue
+            if typ.code is TypeCode.ARRAY:
+                count, p = _varuint(value_data, 0)
+                if count > typ.max_elements or count > limits.max_array_elements: raise ResourceLimitError("array element limit exceeded")
+                element = schema.types[typ.reference]
+                if element.code is TypeCode.RECORD:
+                    spans = _child_spans(schema, element, value_data, count, p, limits)
+                    frame.pending = (field.index, element, spans, "record_array")
+                    frame.states[field.index] = (True, [])
+                    # Array children are represented by a small pending list handled below.
+                    frame.pending = (field.index, element, spans, "record_array")
+                    continue
+                width = element.encoded_width
+                if p + count * width != len(value_data): raise BrfError("array payload has inconsistent length")
+                for i in range(count): _decode_scalar(element, value_data[p + i * width:p + (i + 1) * width])
+                frame.states[field.index] = (True, PrimitiveArrayView(schema, element, value_data, count, p))
+                continue
+            frame.states[field.index] = (True, _decode_scalar(typ, value_data))
+            continue
+        if frame.cursor >= 2 and frame.cursor - 2 >= frame.record_type.field_count:
+            if frame.tail != len(frame.span): raise BrfError("noncanonical variable tail")
+            value = ValidatedRecord(schema, frame.record_type, root_source, frame.states, frame.children)
+            stack.pop()
+            if not stack: return value
+            parent, key, destination = completed.pop(id(frame))
+            if destination == "record":
+                parent.children[key] = value; parent.states[key] = (True, value)
+            else:
+                # record-array children are currently finalized by the array branch below.
+                parent.children.setdefault(key, []).append(value)
+            continue
+    raise BrfError("validation did not complete")
