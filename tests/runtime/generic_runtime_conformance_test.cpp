@@ -100,6 +100,37 @@ TEST(GenericRuntimeConformance, ValidFixture) {
     EXPECT_EQ(view->array(12)->size(), 0U);
 }
 
+TEST(GenericRuntimeConformance, TraversalOrderReference) {
+    const auto directory = fixture_dir();
+    const auto qbs_bytes = read_file(directory / "schema.qbs");
+    const auto brf_bytes = read_file(directory / "record.brf");
+    quarry::compiler::diagnostics::DiagnosticCollection diagnostics;
+    const auto schema = parse_qbs(qbs_bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto parent = schema->find_record_by_identity("Parent");
+    ASSERT_TRUE(parent.has_value());
+    const auto view = quarry::runtime::validate_brf_record(*schema, *parent, brf_bytes);
+    ASSERT_TRUE(view.has_value());
+    std::vector<std::pair<quarry::runtime::BrfTraversalEventKind, std::uint16_t>> trace;
+    const auto result = quarry::runtime::traverse_brf(*view, [&](const auto& event) {
+        trace.emplace_back(event.kind,
+                          event.kind == quarry::runtime::BrfTraversalEventKind::field
+                              ? event.field.field_index
+                              : 0U);
+        return quarry::runtime::BrfTraversalControl::Continue;
+    });
+    ASSERT_EQ(result, quarry::runtime::BrfTraversalResult::completed);
+    ASSERT_FALSE(trace.empty());
+    EXPECT_EQ(trace.front().first, quarry::runtime::BrfTraversalEventKind::record_begin);
+    EXPECT_EQ(trace.back().first, quarry::runtime::BrfTraversalEventKind::record_end);
+    std::vector<std::uint16_t> fields;
+    for (const auto& [kind, index] : trace)
+        if (kind == quarry::runtime::BrfTraversalEventKind::field) fields.push_back(index);
+    EXPECT_EQ(fields, (std::vector<std::uint16_t>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+                                                   0, 1, 10, 0, 1, 0, 1, 0, 1, 0, 1,
+                                                   11, 12}));
+}
+
 TEST(GenericRuntimeConformance, MalformedBrfRejected) {
     const auto directory = fixture_dir();
     const auto qbs_bytes = read_file(directory / "schema.qbs");
