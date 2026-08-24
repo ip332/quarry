@@ -826,6 +826,7 @@ BrfTraversalResult traverse_brf(const ValidatedBrfRecordView& root,
         event.index = index;
         event.depth = frame.depth;
         event.value = value;
+        event.array = frame.array;
         const auto emitted = emit(event);
         if (emitted != EmitResult::continue_)
             return emitted == EmitResult::limited ? BrfTraversalResult::work_limit
@@ -839,6 +840,7 @@ BrfTraversalResult traverse_brf(const ValidatedBrfRecordView& root,
             stack.emplace_back(*child, frame.depth + 1U);
         } else {
             event.kind = BrfTraversalEventKind::scalar;
+            event.array = frame.array;
             const auto scalar_emitted = emit(event);
             if (scalar_emitted != EmitResult::continue_)
                 return scalar_emitted == EmitResult::limited ? BrfTraversalResult::work_limit

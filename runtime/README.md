@@ -38,6 +38,21 @@ Inspection is read-only and does not encode or mutate BRF records.
 Field views are zero-copy, preserve QBS order, and work with minimal QBS;
 formatting is intentionally deferred.
 
+QTF v1 export is provided by `quarry/runtime/qtf_exporter.hpp`. It consumes
+the validated traversal and emits deterministic text such as:
+
+```qtf
+{
+  @0: 1
+  @1: "sensor-a"
+  @2: hex"00ff"
+}
+```
+
+QTF is inspired by protobuf TextFormat but is not protobuf TextFormat. It
+uses QBS for types, `[]` for arrays, `hex"..."` for bytes, and omission for
+absence. Parsing/import is intentionally not implemented.
+
 `traverse_brf` is the iterative traversal layer. It emits record begin/end,
 field, scalar, array begin/end, and array-element events in depth-first QBS
 field and logical array order. Each primitive array element emits an
@@ -381,6 +396,18 @@ unprefixed `runtime/binary_record.hpp` compatibility path, since no external
 consumer ever depended on one (verified during PR-104's investigation) and
 this project has not yet tagged a release that could have created such a
 dependency.
+
+## QTF import
+
+QTF v1 can be parsed and imported with `parse_qtf()` and `import_qtf()` from
+`quarry/runtime/qtf_parser.hpp` and `quarry/runtime/qtf_importer.hpp`. The
+selected QBS record supplies all type information: omitted fields remain
+absent, while empty strings, bytes, arrays, and records remain present.
+Unknown and duplicate fields are rejected. Import produces BRF through the
+generic encoder; it does not write BRF framing directly.
+
+QTF is inspired by protobuf TextFormat but is not protobuf-compatible. QBS is
+required for both parsing and importing.
 
 ## Fuzzing
 

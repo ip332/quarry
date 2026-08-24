@@ -152,6 +152,10 @@ add_quarry_gtest(runtime_qbs_brf_reader_test runtime/qbs_brf_reader_test.cpp
                       quarry_compiler_qbs)
 add_quarry_gtest(runtime_qbs_brf_encoder_test runtime/qbs_brf_encoder_test.cpp
                       quarry_compiler_qbs)
+add_quarry_gtest(runtime_qtf_exporter_test runtime/qtf_exporter_test.cpp
+                      quarry_compiler_qbs)
+add_quarry_gtest(runtime_qtf_parser_test runtime/qtf_parser_test.cpp
+                      quarry_compiler_qbs)
 add_quarry_gtest(runtime_brf_validation_cache_test runtime/brf_validation_cache_test.cpp
                       quarry_compiler_qbs)
 add_quarry_gtest(runtime_c_binary_record_test runtime_c/binary_record_test.cpp
