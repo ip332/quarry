@@ -18,13 +18,6 @@ static uint32_t uw(const uint8_t* p, uint8_t width) {
 static bool range(size_t at, size_t length, size_t total) {
     return at <= total && length <= total - at;
 }
-static bool add(size_t a, size_t b, size_t* out) {
-    if (b > SIZE_MAX - a)
-        return false;
-    *out = a + b;
-    return true;
-}
-
 static bool utf8(const uint8_t* p, size_t n) {
     size_t i = 0U;
     while (i < n) {
@@ -81,6 +74,8 @@ static quarry_generic_status_t section(const uint8_t* b, size_t n, uint16_t kind
 quarry_generic_status_t quarry_qbs_parse(const uint8_t* b, size_t n, quarry_qbs_view_t* out,
                                          quarry_workspace_t* w,
                                          const quarry_generic_limits_t* lim) {
+    if (out != NULL)
+        memset(out, 0, sizeof(*out));
     if (b == NULL || out == NULL || w == NULL)
         return QUARRY_GENERIC_INVALID_ARGUMENT;
     if (lim != NULL && n > lim->max_image_size)
@@ -251,6 +246,8 @@ quarry_generic_status_t quarry_brf_validate(const quarry_qbs_view_t* q,
                                             const quarry_qbs_record_view_t* s, const uint8_t* b,
                                             size_t n, quarry_brf_record_view_t* out,
                                             const quarry_generic_limits_t* lim) {
+    if (out != NULL)
+        memset(out, 0, sizeof(*out));
     if (q == NULL || s == NULL || b == NULL || out == NULL || n < 16U)
         return QUARRY_GENERIC_INVALID_ARGUMENT;
     if (lim != NULL && (n > lim->max_record_bytes))
@@ -314,6 +311,7 @@ quarry_generic_status_t quarry_brf_field_is_present(const quarry_brf_record_view
                                                     bool* out) {
     if (r == NULL || out == NULL)
         return QUARRY_GENERIC_INVALID_ARGUMENT;
+    *out = false;
     const quarry_qbs_field_view_t* f;
     quarry_generic_status_t s = quarry_qbs_record_field(r->qbs, r->schema, i, &f);
     if (s != QUARRY_GENERIC_OK)
@@ -323,6 +321,9 @@ quarry_generic_status_t quarry_brf_field_is_present(const quarry_brf_record_view
 }
 quarry_generic_status_t quarry_brf_get_uint(const quarry_brf_record_view_t* r, uint16_t i,
                                             uint64_t* out) {
+    if (out == NULL)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    *out = 0U;
     const uint8_t* p;
     size_t n;
     quarry_generic_status_t s = scalar(r, i, 0U, &p, &n);
@@ -338,13 +339,15 @@ quarry_generic_status_t quarry_brf_get_uint(const quarry_brf_record_view_t* r, u
     }
     if (s != QUARRY_GENERIC_OK)
         return s;
-    *out = 0U;
     for (size_t j = 0; j < n; ++j)
         *out = (*out << 8U) | p[j];
     return QUARRY_GENERIC_OK;
 }
 quarry_generic_status_t quarry_brf_get_int(const quarry_brf_record_view_t* r, uint16_t i,
                                            int64_t* out) {
+    if (out == NULL)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    *out = 0;
     const uint8_t* p;
     size_t n;
     const quarry_qbs_field_view_t* f;
@@ -365,6 +368,9 @@ quarry_generic_status_t quarry_brf_get_int(const quarry_brf_record_view_t* r, ui
 }
 quarry_generic_status_t quarry_brf_get_bool(const quarry_brf_record_view_t* r, uint16_t i,
                                             bool* out) {
+    if (out == NULL)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    *out = false;
     const uint8_t* p;
     size_t n;
     quarry_generic_status_t s = scalar(r, i, 1U, &p, &n);
@@ -375,6 +381,9 @@ quarry_generic_status_t quarry_brf_get_bool(const quarry_brf_record_view_t* r, u
 }
 quarry_generic_status_t quarry_brf_get_float(const quarry_brf_record_view_t* r, uint16_t i,
                                              float* out) {
+    if (out == NULL)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    *out = 0.0F;
     const uint8_t* p;
     size_t n;
     quarry_generic_status_t s = scalar(r, i, 10U, &p, &n);
@@ -386,6 +395,9 @@ quarry_generic_status_t quarry_brf_get_float(const quarry_brf_record_view_t* r, 
 }
 quarry_generic_status_t quarry_brf_get_double(const quarry_brf_record_view_t* r, uint16_t i,
                                               double* out) {
+    if (out == NULL)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    *out = 0.0;
     const uint8_t* p;
     size_t n;
     quarry_generic_status_t s = scalar(r, i, 11U, &p, &n);
@@ -397,6 +409,9 @@ quarry_generic_status_t quarry_brf_get_double(const quarry_brf_record_view_t* r,
 }
 quarry_generic_status_t quarry_brf_get_enum(const quarry_brf_record_view_t* r, uint16_t i,
                                             int64_t* out) {
+    if (out == NULL)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    *out = 0;
     const uint8_t* p;
     size_t n;
     const quarry_qbs_field_view_t* f;
@@ -423,6 +438,8 @@ quarry_generic_status_t quarry_brf_get_string(const quarry_brf_record_view_t* r,
                                               quarry_string_view_t* out) {
     if (out == NULL)
         return QUARRY_GENERIC_INVALID_ARGUMENT;
+    out->data = NULL;
+    out->size = 0U;
     const quarry_qbs_field_view_t* f;
     bool x;
     const uint8_t* p;
@@ -444,6 +461,8 @@ quarry_generic_status_t quarry_brf_get_bytes(const quarry_brf_record_view_t* r, 
                                              quarry_bytes_view_t* out) {
     if (out == NULL)
         return QUARRY_GENERIC_INVALID_ARGUMENT;
+    out->data = NULL;
+    out->size = 0U;
     const quarry_qbs_field_view_t* f;
     bool x;
     const uint8_t* p;

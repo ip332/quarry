@@ -85,6 +85,9 @@ typedef struct {
     size_t enum_value_capacity;
 } quarry_workspace_t;
 
+/* Clears caller-owned workspace entries while preserving capacities. */
+void quarry_workspace_reset(quarry_workspace_t* workspace);
+
 typedef struct {
     const uint8_t* bytes;
     size_t size;

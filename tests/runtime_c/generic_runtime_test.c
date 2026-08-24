@@ -83,6 +83,16 @@ int main(void) {
     if (quarry_qbs_parse(qbs, qbs_size, &schema, &small_workspace, &limits) !=
         QUARRY_GENERIC_WORKSPACE_EXHAUSTED)
         return 1;
+    quarry_workspace_reset(&workspace);
+    if (quarry_qbs_parse(qbs, qbs_size, &schema, &workspace, &limits) != QUARRY_GENERIC_OK)
+        return 1;
+    if (quarry_qbs_parse(NULL, qbs_size, &schema, &workspace, &limits) !=
+        QUARRY_GENERIC_INVALID_ARGUMENT)
+        return 1;
+    if (schema.bytes != NULL || schema.record_count != 0U)
+        return 1;
+    if (quarry_qbs_parse(qbs, qbs_size, &schema, &workspace, &limits) != QUARRY_GENERIC_OK)
+        return 1;
 
     /* Phase 1 deliberately excludes present arrays and records.  Clear those
      * fields in a private test copy to exercise the supported scalar path
@@ -103,11 +113,20 @@ int main(void) {
     scalar_brf[14] = 0U;
     scalar_brf[15] = 105U;
     quarry_brf_record_view_t record;
+    record.bytes = scalar_brf;
+    record.size = 105U;
+    if (quarry_brf_validate(&schema, parent, scalar_brf, 105U, &record, &limits) !=
+        QUARRY_GENERIC_OK)
+        return 1;
     if (expect(quarry_brf_validate(&schema, parent, scalar_brf, 105U, &record, &limits),
                QUARRY_GENERIC_OK) != 0) {
         fprintf(stderr, "brf validate failed\n");
         return 1;
     }
+    if (quarry_brf_get_uint(&record, 0U, NULL) != QUARRY_GENERIC_INVALID_ARGUMENT)
+        return 1;
+    if (quarry_brf_get_string(&record, 6U, NULL) != QUARRY_GENERIC_INVALID_ARGUMENT)
+        return 1;
     uint64_t u;
     int64_t i;
     bool b;

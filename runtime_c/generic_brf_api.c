@@ -1,5 +1,23 @@
 #include "quarry/runtime_c/generic_brf.h"
 
+#include <string.h>
+
+void quarry_workspace_reset(quarry_workspace_t* workspace) {
+    if (workspace == NULL)
+        return;
+    if (workspace->records != NULL)
+        memset(workspace->records, 0, workspace->record_capacity * sizeof(*workspace->records));
+    if (workspace->fields != NULL)
+        memset(workspace->fields, 0, workspace->field_capacity * sizeof(*workspace->fields));
+    if (workspace->types != NULL)
+        memset(workspace->types, 0, workspace->type_capacity * sizeof(*workspace->types));
+    if (workspace->enums != NULL)
+        memset(workspace->enums, 0, workspace->enum_capacity * sizeof(*workspace->enums));
+    if (workspace->enum_values != NULL)
+        memset(workspace->enum_values, 0,
+               workspace->enum_value_capacity * sizeof(*workspace->enum_values));
+}
+
 extern quarry_generic_status_t
 quarry_brf_validate_impl(const quarry_qbs_view_t*, const quarry_qbs_record_view_t*, const uint8_t*,
                          size_t, quarry_brf_record_view_t*, const quarry_generic_limits_t*);

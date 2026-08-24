@@ -178,6 +178,9 @@ add_quarry_gtest(runtime_c_binary_record_v2_test runtime_c/binary_record_v2_test
                       quarry_runtime_c)
 add_executable(generic_c_runtime_test runtime_c/generic_runtime_test.c)
 target_link_libraries(generic_c_runtime_test PRIVATE quarry_runtime_c)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(generic_c_runtime_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
 target_compile_definitions(generic_c_runtime_test PRIVATE
     QUARRY_GENERIC_RUNTIME_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures/generic_runtime_conformance")
 set_target_properties(generic_c_runtime_test PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
