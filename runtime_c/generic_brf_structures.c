@@ -126,15 +126,19 @@ quarry_brf_validate_graph_impl(const quarry_qbs_view_t* q, const quarry_qbs_reco
         quarry_brf_validation_frame_t* f = &w->frames[frame_count - 1U];
         const quarry_qbs_record_view_t* rs = &q->records[f->qbs_record_index];
         if (f->phase == 0U) {
-            if (++work > max_work || f->brf_size < 16U || f->brf_size > size ||
+            ++work;
+            if (work > max_work)
+                return fail_view(out, QUARRY_GENERIC_RESOURCE_LIMIT);
+            if (f->brf_size < 16U || f->brf_size > size ||
                 !span_ok(f->brf_offset, f->brf_size, size) || bytes[f->brf_offset] != 2U ||
                 bytes[f->brf_offset + 1U] != 0U || be16(bytes + f->brf_offset + 2U) != 16U ||
                 be32(bytes + f->brf_offset + 4U) != rs->record_id ||
                 be32(bytes + f->brf_offset + 8U) != rs->fixed_region_size ||
                 be32(bytes + f->brf_offset + 12U) != f->brf_size ||
                 rs->presence_bitmap_size > rs->fixed_region_size ||
-                rs->presence_bitmap_size > f->brf_size - 16U)
+                rs->presence_bitmap_size > f->brf_size - 16U) {
                 return fail_view(out, QUARRY_GENERIC_MALFORMED_BRF);
+            }
             if (limits != NULL && limits->max_nested_records != 0U && node_count > max_nested)
                 return fail_view(out, QUARRY_GENERIC_RESOURCE_LIMIT);
             w->nodes[f->node_index].field_count = rs->field_count;
@@ -186,8 +190,9 @@ quarry_brf_validate_graph_impl(const quarry_qbs_view_t* q, const quarry_qbs_reco
             size_t value_off = qf->byte_offset, value_len = qf->slot_size;
             if (qf->storage == 2U) {
                 if (qf->slot_size != 8U || be32(bytes + fixed) != f->variable_cursor ||
-                    !span_ok(be32(bytes + fixed), be32(bytes + fixed + 4U), f->brf_size))
+                    !span_ok(be32(bytes + fixed), be32(bytes + fixed + 4U), f->brf_size)) {
                     return fail_view(out, QUARRY_GENERIC_MALFORMED_BRF);
+                }
                 value_off = be32(bytes + fixed);
                 value_len = be32(bytes + fixed + 4U);
                 f->variable_cursor += value_len;
