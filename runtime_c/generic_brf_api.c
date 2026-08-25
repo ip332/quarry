@@ -5,6 +5,13 @@
 void quarry_workspace_reset(quarry_workspace_t* workspace) {
     if (workspace == NULL)
         return;
+    workspace->node_count = 0U;
+    workspace->field_state_count = 0U;
+    workspace->field_map_count = 0U;
+    workspace->child_count = 0U;
+    workspace->array_count = 0U;
+    workspace->array_element_count = 0U;
+    workspace->frame_high_water = 0U;
     if (workspace->records != NULL)
         memset(workspace->records, 0, workspace->record_capacity * sizeof(*workspace->records));
     if (workspace->fields != NULL)
@@ -16,11 +23,32 @@ void quarry_workspace_reset(quarry_workspace_t* workspace) {
     if (workspace->enum_values != NULL)
         memset(workspace->enum_values, 0,
                workspace->enum_value_capacity * sizeof(*workspace->enum_values));
+    if (workspace->nodes != NULL)
+        memset(workspace->nodes, 0, workspace->node_capacity * sizeof(*workspace->nodes));
+    if (workspace->field_states != NULL)
+        memset(workspace->field_states, 0,
+               workspace->field_state_capacity * sizeof(*workspace->field_states));
+    if (workspace->field_maps != NULL)
+        memset(workspace->field_maps, 0,
+               workspace->field_map_capacity * sizeof(*workspace->field_maps));
+    if (workspace->children != NULL)
+        memset(workspace->children, 0, workspace->child_capacity * sizeof(*workspace->children));
+    if (workspace->arrays != NULL)
+        memset(workspace->arrays, 0, workspace->array_capacity * sizeof(*workspace->arrays));
+    if (workspace->array_elements != NULL)
+        memset(workspace->array_elements, 0,
+               workspace->array_element_capacity * sizeof(*workspace->array_elements));
+    if (workspace->frames != NULL)
+        memset(workspace->frames, 0, workspace->frame_capacity * sizeof(*workspace->frames));
 }
 
 extern quarry_generic_status_t
 quarry_brf_validate_impl(const quarry_qbs_view_t*, const quarry_qbs_record_view_t*, const uint8_t*,
                          size_t, quarry_brf_record_view_t*, const quarry_generic_limits_t*);
+extern quarry_generic_status_t
+quarry_brf_validate_graph_impl(const quarry_qbs_view_t*, const quarry_qbs_record_view_t*,
+                               const uint8_t*, size_t, quarry_brf_record_view_t*,
+                               quarry_workspace_t*, const quarry_generic_limits_t*);
 
 quarry_generic_status_t quarry_brf_validate(const quarry_qbs_view_t* q,
                                             const quarry_qbs_record_view_t* s, const uint8_t* b,
@@ -64,4 +92,13 @@ quarry_generic_status_t quarry_brf_validate(const quarry_qbs_view_t* q,
             return QUARRY_GENERIC_MALFORMED_BRF;
     }
     return quarry_brf_validate_impl(q, s, b, n, out, limits);
+}
+
+quarry_generic_status_t quarry_brf_validate_with_workspace(const quarry_qbs_view_t* q,
+                                                           const quarry_qbs_record_view_t* s,
+                                                           const uint8_t* b, size_t n,
+                                                           quarry_brf_record_view_t* out,
+                                                           quarry_workspace_t* workspace,
+                                                           const quarry_generic_limits_t* limits) {
+    return quarry_brf_validate_graph_impl(q, s, b, n, out, workspace, limits);
 }

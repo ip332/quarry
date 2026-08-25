@@ -19,11 +19,292 @@ static int read_file(const char* path, uint8_t** out, size_t* size) {
     (void)fclose(file);
     return 0;
 }
+static void put32(uint8_t* p, size_t value) {
+    p[0] = (uint8_t)(value >> 24U);
+    p[1] = (uint8_t)(value >> 16U);
+    p[2] = (uint8_t)(value >> 8U);
+    p[3] = (uint8_t)value;
+}
+
+static int deep_structure_test(void) {
+    /* Exercise the production validator at the full stress depth. */
+    enum { depth = 2048, storage = depth * 2, brf_capacity = depth * 25 + 21 };
+    static quarry_qbs_record_view_t records[depth];
+    static quarry_qbs_field_view_t fields[depth];
+    static quarry_qbs_type_view_t types[depth];
+    static quarry_brf_record_node_t nodes[storage];
+    static quarry_brf_field_state_t states[storage];
+    static uint32_t maps[storage];
+    static quarry_brf_child_relation_t children[storage];
+    static quarry_brf_validation_frame_t frames[storage];
+    static uint8_t brf[brf_capacity];
+    quarry_qbs_view_t qbs = {0};
+    quarry_workspace_t workspace = {0};
+    quarry_generic_limits_t limits = {0U, brf_capacity, depth * 2U, depth, 0U};
+    size_t size = 26U;
+
+    size_t child_size = 26U;
+    bool child_variable = true;
+    for (size_t i = depth; i-- > 0U;) {
+        const bool variable = i + 1U == depth || child_variable;
+        const uint32_t fixed_region = 9U;
+        records[i] = (quarry_qbs_record_view_t){(uint32_t)(i + 1U),
+                                                (uint32_t)i,
+                                                1U,
+                                                (uint8_t)variable,
+                                                1U,
+                                                fixed_region,
+                                                (uint32_t)(variable ? 0U : (16U + fixed_region)),
+                                                0U,
+                                                0U};
+        fields[i] = (quarry_qbs_field_view_t){
+            0U, (uint16_t)i, 17U, (uint32_t)(variable ? 64U : child_size * 8U), 0U, 8U, 2U, 0U, 0U};
+        types[i] = (quarry_qbs_type_view_t){(uint8_t)(i + 1U == depth ? 13U : 15U),
+                                            (uint8_t)!variable,
+                                            (uint16_t)(i + 1U == depth ? 0U : 0U),
+                                            (uint16_t)(i + 1U < depth ? i + 1U : 0U),
+                                            0U,
+                                            (uint32_t)(i + 1U == depth ? 255U : 0U)};
+        child_size = 25U + 1U;
+        child_variable = variable;
+    }
+    for (size_t i = 0U; i < depth; ++i)
+        if (!records[i].variable_size || types[i].fixed != 0U) {
+            fprintf(stderr, "classification %zu\n", i);
+            return 1;
+        }
+    qbs.records = records;
+    qbs.record_count = depth;
+    qbs.fields = fields;
+    qbs.field_count = depth;
+    qbs.types = types;
+    qbs.type_count = depth;
+    workspace.nodes = nodes;
+    workspace.node_capacity = storage;
+    workspace.field_states = states;
+    workspace.field_state_capacity = storage;
+    workspace.field_maps = maps;
+    workspace.field_map_capacity = storage;
+    workspace.children = children;
+    workspace.child_capacity = storage;
+    workspace.frames = frames;
+    workspace.frame_capacity = storage;
+    brf[0] = 2U;
+    brf[1] = 0U;
+    brf[2] = 0U;
+    brf[3] = 16U;
+    put32(brf + 4U, depth);
+    brf[8] = 0U;
+    brf[9] = 0U;
+    brf[10] = 0U;
+    brf[11] = 9U;
+    brf[12] = 0U;
+    brf[13] = 0U;
+    brf[14] = 0U;
+    brf[15] = 26U;
+    brf[16] = 1U;
+    brf[17] = 0U;
+    brf[18] = 0U;
+    brf[19] = 0U;
+    brf[20] = 25U;
+    put32(brf + 21U, 1U);
+    brf[25] = 'x';
+    if (brf[17] != 0U || brf[18] != 0U || brf[19] != 0U || brf[20] != 25U) {
+        fprintf(stderr, "leaf descriptor\n");
+        return 1;
+    }
+    for (size_t level = 1U; level < depth; ++level) {
+        const bool variable = true;
+        const size_t prefix = 25U;
+        memmove(brf + prefix, brf, size);
+        size += prefix;
+        brf[0] = 2U;
+        brf[1] = 0U;
+        brf[2] = 0U;
+        brf[3] = 16U;
+        put32(brf + 4U, depth - level);
+        brf[8] = 0U;
+        brf[9] = 0U;
+        brf[10] = 0U;
+        brf[11] = 9U;
+        put32(brf + 12U, size);
+        brf[16] = 1U;
+        if (variable) {
+            brf[17] = 0U;
+            brf[18] = 0U;
+            brf[19] = 0U;
+            brf[20] = 25U;
+            put32(brf + 21U, size - 25U);
+        }
+    }
+    quarry_brf_record_view_t view;
+    const quarry_generic_status_t deep_status = quarry_brf_validate_with_workspace(
+        &qbs, &records[0], brf, size, &view, &workspace, &limits);
+    if (deep_status != QUARRY_GENERIC_OK || workspace.node_count != depth ||
+        workspace.frame_high_water != depth) {
+        fprintf(stderr, "deep validation %d nodes=%zu frames=%zu size=%zu caps=%zu,%zu,%zu,%zu\n",
+                (int)deep_status, workspace.node_count, workspace.frame_high_water, size,
+                workspace.node_capacity, workspace.field_state_capacity,
+                workspace.field_map_capacity, workspace.frame_capacity);
+        return 1;
+    }
+    quarry_string_view_t text = {0};
+    quarry_brf_record_view_t current = view;
+    for (size_t i = 0U; i < depth - 1U; ++i) {
+        quarry_brf_record_view_t next;
+        if (quarry_brf_get_record(&current, 0U, &next) != QUARRY_GENERIC_OK) {
+            fprintf(stderr, "deep child access %zu\n", i);
+            return 1;
+        }
+        current = next;
+    }
+    if (quarry_brf_get_string(&current, 0U, &text) != QUARRY_GENERIC_OK || text.size != 1U ||
+        text.data[0] != 'x') {
+        fprintf(stderr, "deep leaf access\n");
+        return 1;
+    }
+
+    quarry_generic_limits_t low = limits;
+    low.max_nested_records = depth - 1U;
+    if (quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view, &workspace, &low) !=
+        QUARRY_GENERIC_RESOURCE_LIMIT) {
+        fprintf(stderr, "nested limit\n");
+        return 1;
+    }
+    low = limits;
+    low.max_work_items = depth * 2U - 1U;
+    if (quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view, &workspace, &low) !=
+        QUARRY_GENERIC_RESOURCE_LIMIT) {
+        fprintf(stderr, "work limit\n");
+        return 1;
+    }
+    quarry_generic_status_t capacity_status;
+    workspace.frame_capacity = depth;
+    workspace.node_capacity = depth;
+    workspace.field_state_capacity = depth;
+    workspace.field_map_capacity = depth;
+    workspace.child_capacity = depth - 1U;
+    capacity_status = quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view,
+                                                         &workspace, &limits);
+    if (capacity_status != QUARRY_GENERIC_OK) {
+        fprintf(stderr, "child exact capacity %d\n", (int)capacity_status);
+        return 1;
+    }
+    workspace.child_capacity = depth - 2U;
+    capacity_status = quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view,
+                                                         &workspace, &limits);
+    if (capacity_status != QUARRY_GENERIC_WORKSPACE_EXHAUSTED) {
+        fprintf(stderr, "child capacity %d\n", (int)capacity_status);
+        return 1;
+    }
+    workspace.child_capacity = depth;
+    workspace.field_state_capacity = depth - 1U;
+    capacity_status = quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view,
+                                                         &workspace, &limits);
+    if (capacity_status != QUARRY_GENERIC_WORKSPACE_EXHAUSTED) {
+        fprintf(stderr, "state capacity %d\n", (int)capacity_status);
+        return 1;
+    }
+    workspace.field_state_capacity = depth;
+    workspace.field_map_capacity = depth - 1U;
+    if (quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view, &workspace,
+                                           &limits) != QUARRY_GENERIC_WORKSPACE_EXHAUSTED) {
+        fprintf(stderr, "map capacity\n");
+        return 1;
+    }
+    workspace.frame_capacity = depth - 1U;
+    if (quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view, &workspace,
+                                           &limits) != QUARRY_GENERIC_WORKSPACE_EXHAUSTED) {
+        fprintf(stderr, "frame capacity\n");
+        return 1;
+    }
+    workspace.frame_capacity = storage;
+    workspace.node_capacity = depth - 1U;
+    if (quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view, &workspace,
+                                           &limits) != QUARRY_GENERIC_WORKSPACE_EXHAUSTED) {
+        fprintf(stderr, "node capacity\n");
+        return 1;
+    }
+    return 0;
+}
 
 static int expect(quarry_generic_status_t actual, quarry_generic_status_t wanted) {
     if (actual != wanted)
         (void)fprintf(stderr, "status %d expected %d\n", (int)actual, (int)wanted);
     return actual == wanted ? 0 : 1;
+}
+
+static size_t decode_hex(uint8_t* out, const char* text) {
+    size_t count = 0U;
+    while (text[0] != '\0' && text[1] != '\0') {
+        unsigned value = 0U;
+        if (sscanf(text, "%2x", &value) != 1)
+            return 0U;
+        out[count++] = (uint8_t)value;
+        text += 2;
+    }
+    return count;
+}
+
+static int shared_mutation_test(const char* directory, const uint8_t* qbs, size_t qbs_size,
+                                const uint8_t* brf, size_t brf_size, quarry_qbs_view_t* schema,
+                                const quarry_qbs_record_view_t* parent,
+                                quarry_workspace_t* workspace,
+                                const quarry_generic_limits_t* limits) {
+    char path[512];
+    char line[256];
+    FILE* file;
+    (void)snprintf(path, sizeof(path), "%s/mutations.txt", directory);
+    file = fopen(path, "r");
+    if (file == NULL)
+        return 1;
+    while (fgets(line, sizeof(line), file) != NULL) {
+        char kind[8], name[64], replacement[160];
+        unsigned offset = 0U;
+        uint8_t mutated[2048];
+        uint8_t replacement_bytes[80];
+        size_t replacement_size;
+        quarry_brf_record_view_t rejected_view;
+        if (line[0] == '#' || line[0] == '\n')
+            continue;
+        if (sscanf(line, "%7[^|]|%63[^|]|%u|%159s", kind, name, &offset, replacement) != 4)
+            return 1;
+        if (strcmp(replacement, "TRUNCATE:32") == 0)
+            replacement_size = 0U;
+        else
+            replacement_size = decode_hex(replacement_bytes, replacement);
+        if (strcmp(kind, "BRF") == 0) {
+            if (brf_size > sizeof(mutated) || offset > brf_size ||
+                offset + replacement_size > brf_size)
+                return 1;
+            memcpy(mutated, brf, brf_size);
+            memcpy(mutated + offset, replacement_bytes, replacement_size);
+            quarry_workspace_reset(workspace);
+            if (quarry_brf_validate_with_workspace(schema, parent, mutated, brf_size,
+                                                   &rejected_view, workspace,
+                                                   limits) == QUARRY_GENERIC_OK) {
+                fprintf(stderr, "shared BRF mutation accepted: %s\n", name);
+                (void)fclose(file);
+                return 1;
+            }
+        } else if (strcmp(kind, "QBS") == 0) {
+            size_t mutated_size = replacement_size == 0U ? offset : qbs_size;
+            if (qbs_size > sizeof(mutated) || mutated_size > sizeof(mutated) ||
+                offset + replacement_size > qbs_size)
+                return 1;
+            memcpy(mutated, qbs, qbs_size);
+            memcpy(mutated + offset, replacement_bytes, replacement_size);
+            quarry_workspace_reset(workspace);
+            if (quarry_qbs_parse(mutated, mutated_size, schema, workspace, limits) ==
+                QUARRY_GENERIC_OK) {
+                fprintf(stderr, "shared QBS mutation accepted: %s\n", name);
+                (void)fclose(file);
+                return 1;
+            }
+        }
+    }
+    (void)fclose(file);
+    return 0;
 }
 
 int main(void) {
@@ -38,17 +319,31 @@ int main(void) {
     size_t brf_size = 0U;
     int qread = read_file(qbs_path, &qbs, &qbs_size);
     int bread = read_file(brf_path, &brf, &brf_size);
-    if (qread != 0 || bread != 0)
+    if (qread != 0 || bread != 0) {
+        fprintf(stderr, "fixture read q=%d b=%d path=%s\n", qread, bread, qbs_path);
+        return 1;
+    }
+    if (deep_structure_test() != 0)
         return 1;
     quarry_qbs_record_view_t records[4];
     quarry_qbs_field_view_t fields[32];
     quarry_qbs_type_view_t types[32];
     quarry_qbs_enum_view_t enums[4];
     uint64_t enum_values[8];
-    quarry_workspace_t workspace = {records, 4U,    fields, 32U,         types,
-                                    32U,     enums, 4U,     enum_values, 8U};
+    quarry_brf_record_node_t nodes[64];
+    quarry_brf_field_state_t field_states[256];
+    uint32_t field_maps[256], array_elements[64];
+    quarry_brf_child_relation_t children[64];
+    quarry_brf_record_array_relation_t arrays[32];
+    quarry_brf_validation_frame_t frames[64];
+    quarry_workspace_t workspace = {
+        records,    4U,          fields,   32U,   types,  32U,          enums,
+        4U,         enum_values, 8U,       nodes, 64U,    field_states, 256U,
+        field_maps, 256U,        children, 64U,   arrays, 32U,          array_elements,
+        64U,        frames,      64U,      0U,    0U,     0U,           0U,
+        0U,         0U,          0U};
     quarry_qbs_view_t schema;
-    quarry_generic_limits_t limits = {1024U * 1024U, 1024U * 1024U, 1024U};
+    quarry_generic_limits_t limits = {1024U * 1024U, 1024U * 1024U, 1024U, 64U, 1024U};
     if (expect(quarry_qbs_parse(qbs, qbs_size, &schema, &workspace, &limits), QUARRY_GENERIC_OK) !=
         0) {
         (void)fprintf(stderr, "qbs parse failed\n");
@@ -60,6 +355,75 @@ int main(void) {
         return 1;
     }
     if (parent->field_count != 13U)
+        return 1;
+    quarry_brf_record_view_t structural_record;
+    if (quarry_brf_validate_with_workspace(&schema, parent, brf, brf_size, &structural_record,
+                                           &workspace, &limits) != QUARRY_GENERIC_OK) {
+        fprintf(stderr, "structural validation failed\n");
+        return 1;
+    }
+    quarry_brf_array_view_t samples;
+    if (quarry_brf_get_array(&structural_record, 8U, &samples) != QUARRY_GENERIC_OK ||
+        samples.count != 3U)
+        return 1;
+    uint64_t sample = 0U;
+    if (quarry_brf_array_get_uint(&structural_record, &samples, 2U, &sample) != QUARRY_GENERIC_OK ||
+        sample != 3U)
+        return 1;
+    quarry_brf_array_view_t empty_samples;
+    if (quarry_brf_get_array(&structural_record, 12U, &empty_samples) != QUARRY_GENERIC_OK ||
+        empty_samples.count != 0U)
+        return 1;
+    bool structural_present = true;
+    if (quarry_brf_field_is_present(&structural_record, 11U, &structural_present) !=
+            QUARRY_GENERIC_OK ||
+        structural_present)
+        return 1;
+    quarry_brf_record_view_t child_record;
+    if (quarry_brf_get_record(&structural_record, 9U, &child_record) != QUARRY_GENERIC_OK)
+        return 1;
+    if (quarry_brf_get_uint(&child_record, 0U, &sample) != QUARRY_GENERIC_OK || sample != 100U)
+        return 1;
+    quarry_brf_array_view_t items;
+    if (quarry_brf_get_record_array(&structural_record, 10U, &items) != QUARRY_GENERIC_OK ||
+        items.count != 2U)
+        return 1;
+    quarry_brf_record_view_t item;
+    int64_t item_value = 0;
+    if (quarry_brf_record_array_get(&structural_record, &items, 1U, &item) != QUARRY_GENERIC_OK ||
+        quarry_brf_get_int(&item, 0U, &item_value) != QUARRY_GENERIC_OK || item_value != 8)
+        return 1;
+    const quarry_generic_status_t nested_status = quarry_brf_get_record(&item, 1U, &child_record);
+    const quarry_generic_status_t nested_value_status =
+        nested_status == QUARRY_GENERIC_OK ? quarry_brf_get_uint(&child_record, 0U, &sample)
+                                           : QUARRY_GENERIC_INVALID_ARGUMENT;
+    if (nested_status != QUARRY_GENERIC_OK || nested_value_status != QUARRY_GENERIC_OK ||
+        sample != 202U) {
+        fprintf(stderr, "nested item child failed\n");
+        return 1;
+    }
+    const size_t nodes_after = workspace.node_count;
+    const size_t fields_after = workspace.field_state_count;
+    const size_t maps_after = workspace.field_map_count;
+    const size_t arrays_after = workspace.array_count;
+    if (quarry_brf_get_array(&structural_record, 8U, &samples) != QUARRY_GENERIC_OK ||
+        quarry_brf_get_record(&structural_record, 9U, &child_record) != QUARRY_GENERIC_OK ||
+        quarry_brf_get_record_array(&structural_record, 10U, &items) != QUARRY_GENERIC_OK ||
+        quarry_brf_record_array_get(&structural_record, &items, 0U, &item) != QUARRY_GENERIC_OK ||
+        workspace.node_count != nodes_after || workspace.field_state_count != fields_after ||
+        workspace.field_map_count != maps_after || workspace.array_count != arrays_after)
+        return 1;
+    quarry_generic_limits_t low_nested = limits;
+    low_nested.max_nested_records = 1U;
+    if (quarry_brf_validate_with_workspace(&schema, parent, brf, brf_size, &structural_record,
+                                           &workspace,
+                                           &low_nested) != QUARRY_GENERIC_RESOURCE_LIMIT)
+        return 1;
+    quarry_generic_limits_t low_elements = limits;
+    low_elements.max_array_elements = 2U;
+    if (quarry_brf_validate_with_workspace(&schema, parent, brf, brf_size, &structural_record,
+                                           &workspace,
+                                           &low_elements) != QUARRY_GENERIC_RESOURCE_LIMIT)
         return 1;
     uint8_t bad_qbs[1172];
     (void)memcpy(bad_qbs, qbs, qbs_size);
@@ -78,8 +442,10 @@ int main(void) {
     if (quarry_qbs_parse(bad_qbs, qbs_size, &schema, &workspace, &limits) !=
         QUARRY_GENERIC_MALFORMED_QBS)
         return 1;
-    quarry_workspace_t small_workspace = {records, 0U,    fields, 0U,          types,
-                                          0U,      enums, 0U,     enum_values, 0U};
+    quarry_workspace_t small_workspace = {
+        records,      0U, fields,     0U, types,    0U, enums,  0U, enum_values,    0U, nodes,  0U,
+        field_states, 0U, field_maps, 0U, children, 0U, arrays, 0U, array_elements, 0U, frames, 0U,
+        0U,           0U, 0U,         0U, 0U,       0U, 0U};
     if (quarry_qbs_parse(qbs, qbs_size, &schema, &small_workspace, &limits) !=
         QUARRY_GENERIC_WORKSPACE_EXHAUSTED)
         return 1;
@@ -187,6 +553,9 @@ int main(void) {
         fprintf(stderr, "unsupported\n");
         return 1;
     }
+    if (shared_mutation_test(directory, qbs, qbs_size, brf, brf_size, &schema, parent, &workspace,
+                             &limits) != 0)
+        return 1;
     free(scalar_brf);
     free(brf);
     free(qbs);

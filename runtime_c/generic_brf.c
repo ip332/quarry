@@ -94,6 +94,8 @@ quarry_generic_status_t quarry_qbs_parse(const uint8_t* b, size_t n, quarry_qbs_
     bool has_enum = section(b, n, 4U, &eo, &es) == QUARRY_GENERIC_OK;
     bool has_values = section(b, n, 5U, &vo, &vs) == QUARRY_GENERIC_OK;
     bool has_strings = section(b, n, 7U, &so, &ss) == QUARRY_GENERIC_OK;
+    if (!utf8(b + io, is) || (has_strings && !utf8(b + so, ss)))
+        return QUARRY_GENERIC_MALFORMED_QBS;
     size_t record_stride = 28U + b[9];
     if ((has_enum != has_values) || rs % record_stride != 0U || fs % 28U != 0U || ts % 16U != 0U ||
         (has_enum && es % (16U + b[9]) != 0U))
@@ -157,7 +159,8 @@ quarry_generic_status_t quarry_qbs_parse(const uint8_t* b, size_t n, quarry_qbs_
                                                    uw(p + 24U, b[9]),
                                                    u16(p + 24U + b[9])};
         if ((size_t)w->records[i].field_start + w->records[i].field_count > fc ||
-            w->records[i].presence_bitmap_size > w->records[i].fixed_region_size)
+            w->records[i].presence_bitmap_size > w->records[i].fixed_region_size ||
+            (size_t)w->records[i].identity_offset >= is)
             return QUARRY_GENERIC_MALFORMED_QBS;
     }
     if (has_enum) {
