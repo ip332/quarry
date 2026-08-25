@@ -164,6 +164,13 @@ typedef struct {
     size_t array_element_capacity;
     quarry_brf_validation_frame_t* frames;
     size_t frame_capacity;
+    size_t node_count;
+    size_t field_state_count;
+    size_t field_map_count;
+    size_t child_count;
+    size_t array_count;
+    size_t array_element_count;
+    size_t frame_high_water;
 } quarry_workspace_t;
 
 /* Clears caller-owned workspace entries while preserving capacities. */

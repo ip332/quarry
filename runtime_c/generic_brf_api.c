@@ -5,6 +5,13 @@
 void quarry_workspace_reset(quarry_workspace_t* workspace) {
     if (workspace == NULL)
         return;
+    workspace->node_count = 0U;
+    workspace->field_state_count = 0U;
+    workspace->field_map_count = 0U;
+    workspace->child_count = 0U;
+    workspace->array_count = 0U;
+    workspace->array_element_count = 0U;
+    workspace->frame_high_water = 0U;
     if (workspace->records != NULL)
         memset(workspace->records, 0, workspace->record_capacity * sizeof(*workspace->records));
     if (workspace->fields != NULL)

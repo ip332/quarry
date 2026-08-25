@@ -69,6 +69,13 @@ root validation if malformed; absent structural fields retain Phase 1's
 canonical zero-storage semantics. The implementation uses checked bytewise
 big-endian decoding and is MISRA-oriented, but is not formally MISRA-certified.
 
+For new generic C applications, `quarry_brf_validate_with_workspace()` is the
+recommended entry point even for flat records: it keeps the validation path
+stable when a schema later gains nested or array fields. The original
+`quarry_brf_validate()` remains a lightweight Phase 1 convenience API and
+intentionally rejects present structural fields with
+`QUARRY_GENERIC_UNSUPPORTED_TYPE`.
+
 A structural caller supplies the additional fixed-capacity stores explicitly:
 
 ```c
@@ -86,3 +93,6 @@ quarry_brf_validate_with_workspace(&schema, type, brf, brf_size, &record,
 Insufficient node, field-map, relation, element, or frame capacity returns
 `QUARRY_GENERIC_WORKSPACE_EXHAUSTED`; configured nesting/array/work limits
 return `QUARRY_GENERIC_RESOURCE_LIMIT` or malformed-BRF status as appropriate.
+The workspace count fields are diagnostic usage values written after a
+successful structural validation; callers should treat them as read-only and
+must reset the workspace before reuse.

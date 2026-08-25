@@ -103,6 +103,13 @@ quarry_brf_validate_graph_impl(const quarry_qbs_view_t* q, const quarry_qbs_reco
         return fail_view(out, QUARRY_GENERIC_INVALID_ARGUMENT);
     size_t node_count = 0U, field_count = 0U, map_count = 0U, child_count = 0U;
     size_t array_count = 0U, element_count = 0U, frame_count = 0U, work = 0U;
+    w->node_count = 0U;
+    w->field_state_count = 0U;
+    w->field_map_count = 0U;
+    w->child_count = 0U;
+    w->array_count = 0U;
+    w->array_element_count = 0U;
+    w->frame_high_water = 0U;
     const size_t max_work =
         limits == NULL || limits->max_work_items == 0U ? SIZE_MAX : limits->max_work_items;
     const size_t max_nested =
@@ -114,6 +121,8 @@ quarry_brf_validate_graph_impl(const quarry_qbs_view_t* q, const quarry_qbs_reco
                                                    0U,         0U,         0U, 0U,   0U};
     frame_count = 1U;
     while (frame_count != 0U) {
+        if (frame_count > w->frame_high_water)
+            w->frame_high_water = frame_count;
         quarry_brf_validation_frame_t* f = &w->frames[frame_count - 1U];
         const quarry_qbs_record_view_t* rs = &q->records[f->qbs_record_index];
         if (f->phase == 0U) {
@@ -202,10 +211,11 @@ quarry_brf_validate_graph_impl(const quarry_qbs_view_t* q, const quarry_qbs_reco
                 size_t c = 0U;
                 uint64_t count = 0U;
                 if (!varuint(bytes + f->brf_offset + value_off, value_len, &c, &count) ||
-                    count > t->max_elements ||
-                    (limits != NULL && limits->max_array_elements != 0U &&
-                     count > limits->max_array_elements))
+                    count > t->max_elements)
                     return fail_view(out, QUARRY_GENERIC_MALFORMED_BRF);
+                if (limits != NULL && limits->max_array_elements != 0U &&
+                    count > limits->max_array_elements)
+                    return fail_view(out, QUARRY_GENERIC_RESOURCE_LIMIT);
                 if (array_count >= w->array_capacity)
                     return fail_view(out, QUARRY_GENERIC_WORKSPACE_EXHAUSTED);
                 w->arrays[array_count] = (quarry_brf_record_array_relation_t){
@@ -361,6 +371,12 @@ quarry_brf_validate_graph_impl(const quarry_qbs_view_t* q, const quarry_qbs_reco
     out->tail = size;
     out->workspace = w;
     out->node_index = 0U;
+    w->node_count = node_count;
+    w->field_state_count = field_count;
+    w->field_map_count = map_count;
+    w->child_count = child_count;
+    w->array_count = array_count;
+    w->array_element_count = element_count;
     return QUARRY_GENERIC_OK;
 }
 
