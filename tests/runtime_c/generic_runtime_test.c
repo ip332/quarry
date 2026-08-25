@@ -19,6 +19,221 @@ static int read_file(const char* path, uint8_t** out, size_t* size) {
     (void)fclose(file);
     return 0;
 }
+static void put32(uint8_t* p, size_t value) {
+    p[0] = (uint8_t)(value >> 24U);
+    p[1] = (uint8_t)(value >> 16U);
+    p[2] = (uint8_t)(value >> 8U);
+    p[3] = (uint8_t)value;
+}
+
+static int deep_structure_test(void) {
+    /* Exercise the production validator at the full stress depth. */
+    enum { depth = 2048, storage = depth * 2, brf_capacity = depth * 25 + 21 };
+    static quarry_qbs_record_view_t records[depth];
+    static quarry_qbs_field_view_t fields[depth];
+    static quarry_qbs_type_view_t types[depth];
+    static quarry_brf_record_node_t nodes[storage];
+    static quarry_brf_field_state_t states[storage];
+    static uint32_t maps[storage];
+    static quarry_brf_child_relation_t children[storage];
+    static quarry_brf_validation_frame_t frames[storage];
+    static uint8_t brf[brf_capacity];
+    quarry_qbs_view_t qbs = {0};
+    quarry_workspace_t workspace = {0};
+    quarry_generic_limits_t limits = {0U, brf_capacity, depth * 2U, depth, 0U};
+    size_t size = 26U;
+
+    size_t child_size = 26U;
+    bool child_variable = true;
+    for (size_t i = depth; i-- > 0U;) {
+        const bool variable = i + 1U == depth || child_variable;
+        const uint32_t fixed_region = 9U;
+        records[i] = (quarry_qbs_record_view_t){(uint32_t)(i + 1U),
+                                                (uint32_t)i,
+                                                1U,
+                                                (uint8_t)variable,
+                                                1U,
+                                                fixed_region,
+                                                (uint32_t)(variable ? 0U : (16U + fixed_region)),
+                                                0U,
+                                                0U};
+        fields[i] = (quarry_qbs_field_view_t){0U,
+                                              (uint16_t)i,
+                                              17U,
+                                              (uint32_t)(variable ? 64U : child_size * 8U),
+                                              0U,
+                                              8U,
+                                              2U,
+                                              0U,
+                                              0U};
+        types[i] = (quarry_qbs_type_view_t){(uint8_t)(i + 1U == depth ? 13U : 15U),
+                                            (uint8_t)!variable,
+                                            (uint16_t)(i + 1U == depth ? 0U : 0U),
+                                            (uint16_t)(i + 1U < depth ? i + 1U : 0U),
+                                            0U,
+                                            (uint32_t)(i + 1U == depth ? 255U : 0U)};
+        child_size = 25U + 1U;
+        child_variable = variable;
+    }
+    for (size_t i = 0U; i < depth; ++i)
+        if (!records[i].variable_size || types[i].fixed != 0U) {
+            fprintf(stderr, "classification %zu\n", i);
+            return 1;
+        }
+    qbs.records = records;
+    qbs.record_count = depth;
+    qbs.fields = fields;
+    qbs.field_count = depth;
+    qbs.types = types;
+    qbs.type_count = depth;
+    workspace.nodes = nodes;
+    workspace.node_capacity = storage;
+    workspace.field_states = states;
+    workspace.field_state_capacity = storage;
+    workspace.field_maps = maps;
+    workspace.field_map_capacity = storage;
+    workspace.children = children;
+    workspace.child_capacity = storage;
+    workspace.frames = frames;
+    workspace.frame_capacity = storage;
+    brf[0] = 2U;
+    brf[1] = 0U;
+    brf[2] = 0U;
+    brf[3] = 16U;
+    put32(brf + 4U, depth);
+    brf[8] = 0U;
+    brf[9] = 0U;
+    brf[10] = 0U;
+    brf[11] = 9U;
+    brf[12] = 0U;
+    brf[13] = 0U;
+    brf[14] = 0U;
+    brf[15] = 26U;
+    brf[16] = 1U;
+    brf[17] = 0U;
+    brf[18] = 0U;
+    brf[19] = 0U;
+    brf[20] = 25U;
+    put32(brf + 21U, 1U);
+    brf[25] = 'x';
+    if (brf[17] != 0U || brf[18] != 0U || brf[19] != 0U || brf[20] != 25U) {
+        fprintf(stderr, "leaf descriptor\n");
+        return 1;
+    }
+    for (size_t level = 1U; level < depth; ++level) {
+        const bool variable = true;
+        const size_t prefix = 25U;
+        memmove(brf + prefix, brf, size);
+        size += prefix;
+        brf[0] = 2U;
+        brf[1] = 0U;
+        brf[2] = 0U;
+        brf[3] = 16U;
+        put32(brf + 4U, depth - level);
+        brf[8] = 0U;
+        brf[9] = 0U;
+        brf[10] = 0U;
+        brf[11] = 9U;
+        put32(brf + 12U, size);
+        brf[16] = 1U;
+        if (variable) {
+            brf[17] = 0U;
+            brf[18] = 0U;
+            brf[19] = 0U;
+            brf[20] = 25U;
+            put32(brf + 21U, size - 25U);
+        }
+    }
+    quarry_brf_record_view_t view;
+    const quarry_generic_status_t deep_status = quarry_brf_validate_with_workspace(
+        &qbs, &records[0], brf, size, &view, &workspace, &limits);
+    if (deep_status != QUARRY_GENERIC_OK || workspace.node_count != depth ||
+        workspace.frame_high_water != depth) {
+        fprintf(stderr, "deep validation %d nodes=%zu frames=%zu size=%zu caps=%zu,%zu,%zu,%zu\n",
+                (int)deep_status, workspace.node_count, workspace.frame_high_water, size,
+                workspace.node_capacity, workspace.field_state_capacity,
+                workspace.field_map_capacity, workspace.frame_capacity);
+        return 1;
+    }
+    quarry_string_view_t text = {0};
+    quarry_brf_record_view_t current = view;
+    for (size_t i = 0U; i < depth - 1U; ++i) {
+        quarry_brf_record_view_t next;
+        if (quarry_brf_get_record(&current, 0U, &next) != QUARRY_GENERIC_OK) {
+            fprintf(stderr, "deep child access %zu\n", i);
+            return 1;
+        }
+        current = next;
+    }
+    if (quarry_brf_get_string(&current, 0U, &text) != QUARRY_GENERIC_OK || text.size != 1U ||
+        text.data[0] != 'x') {
+        fprintf(stderr, "deep leaf access\n");
+        return 1;
+    }
+
+    quarry_generic_limits_t low = limits;
+    low.max_nested_records = depth - 1U;
+    if (quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view, &workspace, &low) !=
+        QUARRY_GENERIC_RESOURCE_LIMIT) {
+        fprintf(stderr, "nested limit\n");
+        return 1;
+    }
+    low = limits;
+    low.max_work_items = depth * 2U - 1U;
+    if (quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view, &workspace, &low) !=
+        QUARRY_GENERIC_RESOURCE_LIMIT) {
+        fprintf(stderr, "work limit\n");
+        return 1;
+    }
+    quarry_generic_status_t capacity_status;
+    workspace.frame_capacity = depth;
+    workspace.node_capacity = depth;
+    workspace.field_state_capacity = depth;
+    workspace.field_map_capacity = depth;
+    workspace.child_capacity = depth - 1U;
+    capacity_status = quarry_brf_validate_with_workspace(
+        &qbs, &records[0], brf, size, &view, &workspace, &limits);
+    if (capacity_status != QUARRY_GENERIC_OK) {
+        fprintf(stderr, "child exact capacity %d\n", (int)capacity_status);
+        return 1;
+    }
+    workspace.child_capacity = depth - 2U;
+    capacity_status = quarry_brf_validate_with_workspace(
+        &qbs, &records[0], brf, size, &view, &workspace, &limits);
+    if (capacity_status != QUARRY_GENERIC_WORKSPACE_EXHAUSTED) {
+        fprintf(stderr, "child capacity %d\n", (int)capacity_status);
+        return 1;
+    }
+    workspace.child_capacity = depth;
+    workspace.field_state_capacity = depth - 1U;
+    capacity_status = quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view,
+                                                          &workspace, &limits);
+    if (capacity_status != QUARRY_GENERIC_WORKSPACE_EXHAUSTED) {
+        fprintf(stderr, "state capacity %d\n", (int)capacity_status);
+        return 1;
+    }
+    workspace.field_state_capacity = depth;
+    workspace.field_map_capacity = depth - 1U;
+    if (quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view, &workspace,
+                                           &limits) != QUARRY_GENERIC_WORKSPACE_EXHAUSTED) {
+        fprintf(stderr, "map capacity\n");
+        return 1;
+    }
+    workspace.frame_capacity = depth - 1U;
+    if (quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view, &workspace,
+                                           &limits) != QUARRY_GENERIC_WORKSPACE_EXHAUSTED) {
+        fprintf(stderr, "frame capacity\n");
+        return 1;
+    }
+    workspace.frame_capacity = storage;
+    workspace.node_capacity = depth - 1U;
+    if (quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view, &workspace,
+                                           &limits) != QUARRY_GENERIC_WORKSPACE_EXHAUSTED) {
+        fprintf(stderr, "node capacity\n");
+        return 1;
+    }
+    return 0;
+}
 
 static int expect(quarry_generic_status_t actual, quarry_generic_status_t wanted) {
     if (actual != wanted)
@@ -38,7 +253,11 @@ int main(void) {
     size_t brf_size = 0U;
     int qread = read_file(qbs_path, &qbs, &qbs_size);
     int bread = read_file(brf_path, &brf, &brf_size);
-    if (qread != 0 || bread != 0)
+    if (qread != 0 || bread != 0) {
+        fprintf(stderr, "fixture read q=%d b=%d path=%s\n", qread, bread, qbs_path);
+        return 1;
+    }
+    if (deep_structure_test() != 0)
         return 1;
     quarry_qbs_record_view_t records[4];
     quarry_qbs_field_view_t fields[32];
