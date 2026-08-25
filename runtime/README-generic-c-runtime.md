@@ -55,8 +55,34 @@ Floating-point decoding requires the repository's normal IEEE-754 `float` and
 `double` target model. Decoding is bytewise and does not require alignment or
 type-punning serialized storage.
 
-Phase 1 has no nested-record or array support: a present field of those types
-returns `QUARRY_GENERIC_UNSUPPORTED_TYPE`. Their absent zeroed slots are
-accepted, which permits scalar-only records to be read without copying or
-allocating. The implementation uses checked bytewise big-endian decoding and
-is MISRA-oriented, but is not formally MISRA-certified.
+Phase 2 adds primitive arrays and fixed/variable nested and record-array views.
+Use `quarry_brf_validate_with_workspace()` when structural fields are present;
+the workspace must provide node, field-map, relation, array-element, and frame
+storage. `quarry_brf_get_array()`, `quarry_brf_get_record()`, and
+`quarry_brf_get_record_array()` return zero-copy validated views, and indexed
+access never reparses or revalidates the BRF graph. A structural view remains
+valid until the workspace is reset/reused or its source buffers are released.
+
+The validator uses an explicit frame stack and validates the complete graph
+before returning the root view. Present arrays and records therefore fail at
+root validation if malformed; absent structural fields retain Phase 1's
+canonical zero-storage semantics. The implementation uses checked bytewise
+big-endian decoding and is MISRA-oriented, but is not formally MISRA-certified.
+
+A structural caller supplies the additional fixed-capacity stores explicitly:
+
+```c
+quarry_brf_record_node_t nodes[64];
+quarry_brf_field_state_t field_states[256];
+uint32_t field_maps[256], array_elements[64];
+quarry_brf_child_relation_t children[64];
+quarry_brf_record_array_relation_t arrays[32];
+quarry_brf_validation_frame_t frames[64];
+/* Assign these buffers and capacities in quarry_workspace_t. */
+quarry_brf_validate_with_workspace(&schema, type, brf, brf_size, &record,
+                                   &workspace, &limits);
+```
+
+Insufficient node, field-map, relation, element, or frame capacity returns
+`QUARRY_GENERIC_WORKSPACE_EXHAUSTED`; configured nesting/array/work limits
+return `QUARRY_GENERIC_RESOURCE_LIMIT` or malformed-BRF status as appropriate.

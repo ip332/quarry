@@ -45,10 +45,18 @@ int main(void) {
     quarry_qbs_type_view_t types[32];
     quarry_qbs_enum_view_t enums[4];
     uint64_t enum_values[8];
-    quarry_workspace_t workspace = {records, 4U,    fields, 32U,         types,
-                                    32U,     enums, 4U,     enum_values, 8U};
+    quarry_brf_record_node_t nodes[64];
+    quarry_brf_field_state_t field_states[256];
+    uint32_t field_maps[256], array_elements[64];
+    quarry_brf_child_relation_t children[64];
+    quarry_brf_record_array_relation_t arrays[32];
+    quarry_brf_validation_frame_t frames[64];
+    quarry_workspace_t workspace = {records,      4U,   fields,         32U,  types,    32U,
+                                    enums,        4U,   enum_values,    8U,   nodes,    64U,
+                                    field_states, 256U, field_maps,     256U, children, 64U,
+                                    arrays,       32U,  array_elements, 64U,  frames,   64U};
     quarry_qbs_view_t schema;
-    quarry_generic_limits_t limits = {1024U * 1024U, 1024U * 1024U, 1024U};
+    quarry_generic_limits_t limits = {1024U * 1024U, 1024U * 1024U, 1024U, 64U, 1024U};
     if (expect(quarry_qbs_parse(qbs, qbs_size, &schema, &workspace, &limits), QUARRY_GENERIC_OK) !=
         0) {
         (void)fprintf(stderr, "qbs parse failed\n");
@@ -60,6 +68,64 @@ int main(void) {
         return 1;
     }
     if (parent->field_count != 13U)
+        return 1;
+    quarry_brf_record_view_t structural_record;
+    if (quarry_brf_validate_with_workspace(&schema, parent, brf, brf_size, &structural_record,
+                                           &workspace, &limits) != QUARRY_GENERIC_OK) {
+        fprintf(stderr, "structural validation failed\n");
+        return 1;
+    }
+    quarry_brf_array_view_t samples;
+    if (quarry_brf_get_array(&structural_record, 8U, &samples) != QUARRY_GENERIC_OK ||
+        samples.count != 3U)
+        return 1;
+    uint64_t sample = 0U;
+    if (quarry_brf_array_get_uint(&structural_record, &samples, 2U, &sample) != QUARRY_GENERIC_OK ||
+        sample != 3U)
+        return 1;
+    quarry_brf_array_view_t empty_samples;
+    if (quarry_brf_get_array(&structural_record, 12U, &empty_samples) != QUARRY_GENERIC_OK ||
+        empty_samples.count != 0U)
+        return 1;
+    bool structural_present = true;
+    if (quarry_brf_field_is_present(&structural_record, 11U, &structural_present) !=
+            QUARRY_GENERIC_OK ||
+        structural_present)
+        return 1;
+    quarry_brf_record_view_t child_record;
+    if (quarry_brf_get_record(&structural_record, 9U, &child_record) != QUARRY_GENERIC_OK)
+        return 1;
+    if (quarry_brf_get_uint(&child_record, 0U, &sample) != QUARRY_GENERIC_OK || sample != 100U)
+        return 1;
+    quarry_brf_array_view_t items;
+    if (quarry_brf_get_record_array(&structural_record, 10U, &items) != QUARRY_GENERIC_OK ||
+        items.count != 2U)
+        return 1;
+    quarry_brf_record_view_t item;
+    int64_t item_value = 0;
+    if (quarry_brf_record_array_get(&structural_record, &items, 1U, &item) != QUARRY_GENERIC_OK ||
+        quarry_brf_get_int(&item, 0U, &item_value) != QUARRY_GENERIC_OK || item_value != 8)
+        return 1;
+    const quarry_generic_status_t nested_status = quarry_brf_get_record(&item, 1U, &child_record);
+    const quarry_generic_status_t nested_value_status =
+        nested_status == QUARRY_GENERIC_OK ? quarry_brf_get_uint(&child_record, 0U, &sample)
+                                           : QUARRY_GENERIC_INVALID_ARGUMENT;
+    if (nested_status != QUARRY_GENERIC_OK || nested_value_status != QUARRY_GENERIC_OK ||
+        sample != 202U) {
+        fprintf(stderr, "nested item child failed\n");
+        return 1;
+    }
+    quarry_generic_limits_t low_nested = limits;
+    low_nested.max_nested_records = 1U;
+    if (quarry_brf_validate_with_workspace(&schema, parent, brf, brf_size, &structural_record,
+                                           &workspace,
+                                           &low_nested) != QUARRY_GENERIC_RESOURCE_LIMIT)
+        return 1;
+    quarry_generic_limits_t low_elements = limits;
+    low_elements.max_array_elements = 2U;
+    if (quarry_brf_validate_with_workspace(&schema, parent, brf, brf_size, &structural_record,
+                                           &workspace,
+                                           &low_elements) != QUARRY_GENERIC_MALFORMED_BRF)
         return 1;
     uint8_t bad_qbs[1172];
     (void)memcpy(bad_qbs, qbs, qbs_size);
@@ -78,8 +144,9 @@ int main(void) {
     if (quarry_qbs_parse(bad_qbs, qbs_size, &schema, &workspace, &limits) !=
         QUARRY_GENERIC_MALFORMED_QBS)
         return 1;
-    quarry_workspace_t small_workspace = {records, 0U,    fields, 0U,          types,
-                                          0U,      enums, 0U,     enum_values, 0U};
+    quarry_workspace_t small_workspace = {
+        records,      0U, fields,     0U, types,    0U, enums,  0U, enum_values,    0U, nodes,  0U,
+        field_states, 0U, field_maps, 0U, children, 0U, arrays, 0U, array_elements, 0U, frames, 0U};
     if (quarry_qbs_parse(qbs, qbs_size, &schema, &small_workspace, &limits) !=
         QUARRY_GENERIC_WORKSPACE_EXHAUSTED)
         return 1;
