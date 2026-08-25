@@ -241,6 +241,76 @@ static int expect(quarry_generic_status_t actual, quarry_generic_status_t wanted
     return actual == wanted ? 0 : 1;
 }
 
+static size_t decode_hex(uint8_t* out, const char* text) {
+    size_t count = 0U;
+    while (text[0] != '\0' && text[1] != '\0') {
+        unsigned value = 0U;
+        if (sscanf(text, "%2x", &value) != 1)
+            return 0U;
+        out[count++] = (uint8_t)value;
+        text += 2;
+    }
+    return count;
+}
+
+static int shared_mutation_test(const char* directory, const uint8_t* qbs, size_t qbs_size,
+                                const uint8_t* brf, size_t brf_size, quarry_qbs_view_t* schema,
+                                const quarry_qbs_record_view_t* parent, quarry_workspace_t* workspace,
+                                const quarry_generic_limits_t* limits) {
+    char path[512];
+    char line[256];
+    FILE* file;
+    (void)snprintf(path, sizeof(path), "%s/mutations.txt", directory);
+    file = fopen(path, "r");
+    if (file == NULL)
+        return 1;
+    while (fgets(line, sizeof(line), file) != NULL) {
+        char kind[8], name[64], replacement[160];
+        unsigned offset = 0U;
+        uint8_t mutated[2048];
+        uint8_t replacement_bytes[80];
+        size_t replacement_size;
+        quarry_brf_record_view_t rejected_view;
+        if (line[0] == '#' || line[0] == '\n')
+            continue;
+        if (sscanf(line, "%7[^|]|%63[^|]|%u|%159s", kind, name, &offset, replacement) != 4)
+            return 1;
+        if (strcmp(replacement, "TRUNCATE:32") == 0)
+            replacement_size = 0U;
+        else
+            replacement_size = decode_hex(replacement_bytes, replacement);
+        if (strcmp(kind, "BRF") == 0) {
+            if (brf_size > sizeof(mutated) || offset > brf_size ||
+                offset + replacement_size > brf_size)
+                return 1;
+            memcpy(mutated, brf, brf_size);
+            memcpy(mutated + offset, replacement_bytes, replacement_size);
+            quarry_workspace_reset(workspace);
+            if (quarry_brf_validate_with_workspace(schema, parent, mutated, brf_size, &rejected_view, workspace,
+                                                   limits) == QUARRY_GENERIC_OK) {
+                fprintf(stderr, "shared BRF mutation accepted: %s\n", name);
+                (void)fclose(file);
+                return 1;
+            }
+        } else if (strcmp(kind, "QBS") == 0) {
+            size_t mutated_size = replacement_size == 0U ? offset : qbs_size;
+            if (qbs_size > sizeof(mutated) || mutated_size > sizeof(mutated) ||
+                offset + replacement_size > qbs_size)
+                return 1;
+            memcpy(mutated, qbs, qbs_size);
+            memcpy(mutated + offset, replacement_bytes, replacement_size);
+            quarry_workspace_reset(workspace);
+            if (quarry_qbs_parse(mutated, mutated_size, schema, workspace, limits) == QUARRY_GENERIC_OK) {
+                fprintf(stderr, "shared QBS mutation accepted: %s\n", name);
+                (void)fclose(file);
+                return 1;
+            }
+        }
+    }
+    (void)fclose(file);
+    return 0;
+}
+
 int main(void) {
     const char* directory = QUARRY_GENERIC_RUNTIME_FIXTURE_DIR;
     char qbs_path[512];
@@ -487,6 +557,9 @@ int main(void) {
         fprintf(stderr, "unsupported\n");
         return 1;
     }
+    if (shared_mutation_test(directory, qbs, qbs_size, brf, brf_size, &schema, parent, &workspace,
+                             &limits) != 0)
+        return 1;
     free(scalar_brf);
     free(brf);
     free(qbs);
