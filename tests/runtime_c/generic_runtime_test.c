@@ -57,15 +57,8 @@ static int deep_structure_test(void) {
                                                 (uint32_t)(variable ? 0U : (16U + fixed_region)),
                                                 0U,
                                                 0U};
-        fields[i] = (quarry_qbs_field_view_t){0U,
-                                              (uint16_t)i,
-                                              17U,
-                                              (uint32_t)(variable ? 64U : child_size * 8U),
-                                              0U,
-                                              8U,
-                                              2U,
-                                              0U,
-                                              0U};
+        fields[i] = (quarry_qbs_field_view_t){
+            0U, (uint16_t)i, 17U, (uint32_t)(variable ? 64U : child_size * 8U), 0U, 8U, 2U, 0U, 0U};
         types[i] = (quarry_qbs_type_view_t){(uint8_t)(i + 1U == depth ? 13U : 15U),
                                             (uint8_t)!variable,
                                             (uint16_t)(i + 1U == depth ? 0U : 0U),
@@ -191,15 +184,15 @@ static int deep_structure_test(void) {
     workspace.field_state_capacity = depth;
     workspace.field_map_capacity = depth;
     workspace.child_capacity = depth - 1U;
-    capacity_status = quarry_brf_validate_with_workspace(
-        &qbs, &records[0], brf, size, &view, &workspace, &limits);
+    capacity_status = quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view,
+                                                         &workspace, &limits);
     if (capacity_status != QUARRY_GENERIC_OK) {
         fprintf(stderr, "child exact capacity %d\n", (int)capacity_status);
         return 1;
     }
     workspace.child_capacity = depth - 2U;
-    capacity_status = quarry_brf_validate_with_workspace(
-        &qbs, &records[0], brf, size, &view, &workspace, &limits);
+    capacity_status = quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view,
+                                                         &workspace, &limits);
     if (capacity_status != QUARRY_GENERIC_WORKSPACE_EXHAUSTED) {
         fprintf(stderr, "child capacity %d\n", (int)capacity_status);
         return 1;
@@ -207,7 +200,7 @@ static int deep_structure_test(void) {
     workspace.child_capacity = depth;
     workspace.field_state_capacity = depth - 1U;
     capacity_status = quarry_brf_validate_with_workspace(&qbs, &records[0], brf, size, &view,
-                                                          &workspace, &limits);
+                                                         &workspace, &limits);
     if (capacity_status != QUARRY_GENERIC_WORKSPACE_EXHAUSTED) {
         fprintf(stderr, "state capacity %d\n", (int)capacity_status);
         return 1;
@@ -255,7 +248,8 @@ static size_t decode_hex(uint8_t* out, const char* text) {
 
 static int shared_mutation_test(const char* directory, const uint8_t* qbs, size_t qbs_size,
                                 const uint8_t* brf, size_t brf_size, quarry_qbs_view_t* schema,
-                                const quarry_qbs_record_view_t* parent, quarry_workspace_t* workspace,
+                                const quarry_qbs_record_view_t* parent,
+                                quarry_workspace_t* workspace,
                                 const quarry_generic_limits_t* limits) {
     char path[512];
     char line[256];
@@ -286,7 +280,8 @@ static int shared_mutation_test(const char* directory, const uint8_t* qbs, size_
             memcpy(mutated, brf, brf_size);
             memcpy(mutated + offset, replacement_bytes, replacement_size);
             quarry_workspace_reset(workspace);
-            if (quarry_brf_validate_with_workspace(schema, parent, mutated, brf_size, &rejected_view, workspace,
+            if (quarry_brf_validate_with_workspace(schema, parent, mutated, brf_size,
+                                                   &rejected_view, workspace,
                                                    limits) == QUARRY_GENERIC_OK) {
                 fprintf(stderr, "shared BRF mutation accepted: %s\n", name);
                 (void)fclose(file);
@@ -300,7 +295,8 @@ static int shared_mutation_test(const char* directory, const uint8_t* qbs, size_
             memcpy(mutated, qbs, qbs_size);
             memcpy(mutated + offset, replacement_bytes, replacement_size);
             quarry_workspace_reset(workspace);
-            if (quarry_qbs_parse(mutated, mutated_size, schema, workspace, limits) == QUARRY_GENERIC_OK) {
+            if (quarry_qbs_parse(mutated, mutated_size, schema, workspace, limits) ==
+                QUARRY_GENERIC_OK) {
                 fprintf(stderr, "shared QBS mutation accepted: %s\n", name);
                 (void)fclose(file);
                 return 1;
