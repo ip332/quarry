@@ -177,6 +177,8 @@ quarry_brf_validate_graph_impl(const quarry_qbs_view_t* q, const quarry_qbs_reco
                                   (1U << (qf->presence_bit % 8U))) != 0U;
             const size_t fixed = f->brf_offset + qf->byte_offset;
             if (!present) {
+                if (field_count >= w->field_state_capacity)
+                    return fail_view(out, QUARRY_GENERIC_WORKSPACE_EXHAUSTED);
                 for (size_t z = 0U; z < qf->slot_size; ++z)
                     if (bytes[fixed + z] != 0U)
                         return fail_view(out, QUARRY_GENERIC_MALFORMED_BRF);
@@ -299,6 +301,8 @@ quarry_brf_validate_graph_impl(const quarry_qbs_view_t* q, const quarry_qbs_reco
                         }
                     }
                 }
+                if (field_count >= w->field_state_capacity)
+                    return fail_view(out, QUARRY_GENERIC_WORKSPACE_EXHAUSTED);
                 w->field_maps[map_count++] = (uint32_t)field_count;
                 w->field_states[field_count++] = (quarry_brf_field_state_t){
                     qf->field_index, 1U,        qf->byte_offset, qf->slot_size,
@@ -327,6 +331,8 @@ quarry_brf_validate_graph_impl(const quarry_qbs_view_t* q, const quarry_qbs_reco
                                                                   cs->field_count,
                                                                   0U,
                                                                   0U};
+                if (field_count >= w->field_state_capacity)
+                    return fail_view(out, QUARRY_GENERIC_WORKSPACE_EXHAUSTED);
                 w->field_maps[map_count++] = (uint32_t)field_count;
                 w->field_states[field_count++] = (quarry_brf_field_state_t){
                     qf->field_index, 1U,        qf->byte_offset,       qf->slot_size,
@@ -354,6 +360,8 @@ quarry_brf_validate_graph_impl(const quarry_qbs_view_t* q, const quarry_qbs_reco
                                                     0U};
                 continue;
             }
+            if (field_count >= w->field_state_capacity)
+                return fail_view(out, QUARRY_GENERIC_WORKSPACE_EXHAUSTED);
             w->field_maps[map_count++] = (uint32_t)field_count;
             w->field_states[field_count++] = (quarry_brf_field_state_t){
                 qf->field_index, 1U,        qf->byte_offset, qf->slot_size,
