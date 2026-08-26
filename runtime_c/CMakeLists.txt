@@ -1,4 +1,5 @@
-add_library(quarry_runtime_c STATIC generic_brf.c generic_brf_api.c generic_brf_structures.c)
+add_library(quarry_runtime_c STATIC generic_brf.c generic_brf_api.c generic_brf_structures.c
+    generic_brf_traversal.c)
 add_library(Quarry::runtime_c ALIAS quarry_runtime_c)
 set_target_properties(quarry_runtime_c PROPERTIES EXPORT_NAME runtime_c)
 target_compile_features(quarry_runtime_c INTERFACE c_std_99)
