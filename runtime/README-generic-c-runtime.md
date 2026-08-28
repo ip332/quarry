@@ -96,3 +96,24 @@ return `QUARRY_GENERIC_RESOURCE_LIMIT` or malformed-BRF status as appropriate.
 The workspace count fields are diagnostic usage values written after a
 successful structural validation; callers should treat them as read-only and
 must reset the workspace before reuse.
+
+Traversal is a separate, read-only visitor over an already validated structural
+record. It uses caller-owned frames and does not validate or reparse data:
+
+```c
+quarry_brf_traversal_frame_t traversal_frames[64];
+quarry_brf_traversal_workspace_t traversal = { traversal_frames, 64, 0, 0 };
+quarry_brf_traversal_limits_t traversal_limits = { 1U << 20, 1024 };
+
+quarry_brf_traversal_result_t result = quarry_brf_traverse(
+    &record, visitor_callback, user_context, &traversal, &traversal_limits);
+```
+
+Events follow deterministic depth-first order: record begin, schema-order field
+events, scalar or nested/array events, and record/array end events. Absent
+fields produce a field event with `present == false`; present-empty arrays
+produce begin/end events with no elements. Root depth is zero and arrays do not
+increase record depth. Traversal limits and insufficient traversal frames are
+reported separately, and a visitor STOP result takes precedence over later
+work. Reset the traversal workspace before reuse; the validated record and its
+source buffers must remain alive throughout traversal.

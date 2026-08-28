@@ -258,6 +258,12 @@ quarry_generic_status_t quarry_brf_array_get_double(const quarry_brf_record_view
                                                     const quarry_brf_array_view_t*, size_t, double*);
 quarry_generic_status_t quarry_brf_array_get_enum(const quarry_brf_record_view_t*,
                                                   const quarry_brf_array_view_t*, size_t, int64_t*);
+quarry_generic_status_t quarry_brf_array_get_string(const quarry_brf_record_view_t*,
+                                                    const quarry_brf_array_view_t*, size_t,
+                                                    quarry_string_view_t*);
+quarry_generic_status_t quarry_brf_array_get_bytes(const quarry_brf_record_view_t*,
+                                                   const quarry_brf_array_view_t*, size_t,
+                                                   quarry_bytes_view_t*);
 quarry_generic_status_t quarry_brf_get_record(const quarry_brf_record_view_t*, uint16_t,
                                               quarry_brf_record_view_t*);
 quarry_generic_status_t quarry_brf_get_record_array(const quarry_brf_record_view_t*, uint16_t,
@@ -265,6 +271,93 @@ quarry_generic_status_t quarry_brf_get_record_array(const quarry_brf_record_view
 quarry_generic_status_t quarry_brf_record_array_get(const quarry_brf_record_view_t*,
                                                     const quarry_brf_array_view_t*, size_t,
                                                     quarry_brf_record_view_t*);
+
+typedef enum {
+    QUARRY_BRF_EVENT_RECORD_BEGIN = 0,
+    QUARRY_BRF_EVENT_RECORD_END,
+    QUARRY_BRF_EVENT_FIELD,
+    QUARRY_BRF_EVENT_SCALAR,
+    QUARRY_BRF_EVENT_ARRAY_BEGIN,
+    QUARRY_BRF_EVENT_ARRAY_ELEMENT,
+    QUARRY_BRF_EVENT_ARRAY_END
+} quarry_brf_traversal_event_kind_t;
+
+typedef enum {
+    QUARRY_BRF_SCALAR_UINT = 0,
+    QUARRY_BRF_SCALAR_INT,
+    QUARRY_BRF_SCALAR_BOOL,
+    QUARRY_BRF_SCALAR_FLOAT,
+    QUARRY_BRF_SCALAR_DOUBLE,
+    QUARRY_BRF_SCALAR_ENUM,
+    QUARRY_BRF_SCALAR_STRING,
+    QUARRY_BRF_SCALAR_BYTES
+} quarry_brf_scalar_kind_t;
+
+typedef struct {
+    quarry_brf_scalar_kind_t kind;
+    uint64_t uint_value;
+    int64_t int_value;
+    bool bool_value;
+    float float_value;
+    double double_value;
+    quarry_string_view_t string_value;
+    quarry_bytes_view_t bytes_value;
+} quarry_brf_scalar_t;
+
+typedef struct {
+    quarry_brf_traversal_event_kind_t kind;
+    uint16_t field_index;
+    bool present;
+    size_t index;
+    size_t depth;
+    quarry_brf_scalar_t scalar;
+    quarry_brf_array_view_t array;
+    quarry_brf_record_view_t record;
+} quarry_brf_traversal_event_t;
+
+typedef enum {
+    QUARRY_BRF_TRAVERSAL_CONTINUE = 0,
+    QUARRY_BRF_TRAVERSAL_STOP
+} quarry_brf_traversal_control_t;
+
+typedef enum {
+    QUARRY_BRF_TRAVERSAL_COMPLETED = 0,
+    QUARRY_BRF_TRAVERSAL_STOPPED,
+    QUARRY_BRF_TRAVERSAL_WORK_LIMIT,
+    QUARRY_BRF_TRAVERSAL_DEPTH_LIMIT,
+    QUARRY_BRF_TRAVERSAL_WORKSPACE_EXHAUSTED,
+    QUARRY_BRF_TRAVERSAL_INVALID_ARGUMENT
+} quarry_brf_traversal_result_t;
+
+typedef quarry_brf_traversal_control_t (*quarry_brf_traversal_callback_t)(
+    const quarry_brf_traversal_event_t*, void*);
+
+typedef struct {
+    quarry_brf_record_view_t record;
+    quarry_brf_array_view_t array;
+    uint16_t field_index;
+    size_t next;
+    size_t depth;
+    uint8_t kind;
+    uint8_t began;
+} quarry_brf_traversal_frame_t;
+
+typedef struct {
+    quarry_brf_traversal_frame_t* frames;
+    size_t frame_capacity;
+    size_t frame_high_water;
+    size_t work_count;
+} quarry_brf_traversal_workspace_t;
+
+typedef struct {
+    size_t max_work_items;
+    size_t max_depth;
+} quarry_brf_traversal_limits_t;
+
+void quarry_brf_traversal_workspace_reset(quarry_brf_traversal_workspace_t*);
+quarry_brf_traversal_result_t quarry_brf_traverse(
+    const quarry_brf_record_view_t*, quarry_brf_traversal_callback_t, void*,
+    quarry_brf_traversal_workspace_t*, const quarry_brf_traversal_limits_t*);
 
 #ifdef __cplusplus
 }

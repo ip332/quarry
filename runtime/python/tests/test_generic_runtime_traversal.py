@@ -4,6 +4,7 @@ import unittest
 
 import quarry
 from quarry.runtime import BrfLimits, BrfTraversalEventKind, BrfTraversalLimits, ResourceLimitError
+from quarry.runtime.generic import TypeCode
 from runtime.python.tests.test_generic_runtime import _variable_chain
 
 
@@ -21,6 +22,49 @@ class GenericRuntimeTraversalTest(unittest.TestCase):
         return [(event.kind.value, event.field.index if event.field else None,
                  event.present, event.index, event.depth, event.value)
                 for event in events]
+
+    @staticmethod
+    def normalized_trace(events):
+        result = []
+        for event in events:
+            kind = event.kind.value
+            if kind in ("record_begin", "record_end"):
+                result.append(f"{kind}|{event.depth}")
+            elif kind == "field":
+                result.append(f"field|{event.depth}|{event.field.index}|{int(event.present)}")
+            elif kind in ("array_begin", "array_end"):
+                result.append(f"{kind}|{event.depth}|{event.field.index}" if kind == "array_begin"
+                              else f"{kind}|{event.depth}")
+            elif kind == "array_element":
+                result.append(f"array_element|{event.depth}|{event.index}")
+            else:
+                typ = event.array.element_type if event.array is not None else event.field.type
+                value = event.value
+                if typ.code is TypeCode.ENUM:
+                    encoded = f"e:{value}"
+                elif typ.code is TypeCode.BOOL:
+                    encoded = f"b:{str(value).lower()}"
+                elif typ.code in (TypeCode.I8, TypeCode.I16, TypeCode.I32, TypeCode.I64):
+                    encoded = f"i:{value}"
+                elif typ.code in (TypeCode.U8, TypeCode.U16, TypeCode.U32, TypeCode.U64):
+                    encoded = f"u:{value}"
+                elif typ.code is TypeCode.F32:
+                    encoded = f"f:{value}"
+                elif typ.code is TypeCode.F64:
+                    encoded = f"d:{value}"
+                elif typ.code is TypeCode.STRING:
+                    encoded = f"s:{value.encode().hex()}"
+                else:
+                    encoded = f"x:{bytes(value).hex()}"
+                index = event.index if event.array is not None else "-"
+                field = event.field.index if event.array is None else "-"
+                result.append(f"scalar|{event.depth}|{field}|{index}|{encoded}")
+        return result
+
+    def test_canonical_fixture_matches_neutral_trace(self):
+        expected = (FIXTURE / "traversal_trace.txt").read_text().splitlines()
+        expected = [line for line in expected if line and not line.startswith("#")]
+        self.assertEqual(self.normalized_trace(self.record.traverse()), expected)
 
     def test_canonical_fixture_order_and_values(self):
         events = list(self.record.traverse())
