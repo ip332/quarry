@@ -84,6 +84,14 @@ static quarry_generic_status_t array_scalar(const quarry_brf_record_view_t* reco
         out->kind = QUARRY_BRF_SCALAR_INT;
         return quarry_brf_array_get_int(record, array, index, &out->int_value);
     }
+    if (code == 13U) {
+        out->kind = QUARRY_BRF_SCALAR_STRING;
+        return quarry_brf_array_get_string(record, array, index, &out->string_value);
+    }
+    if (code == 14U) {
+        out->kind = QUARRY_BRF_SCALAR_BYTES;
+        return quarry_brf_array_get_bytes(record, array, index, &out->bytes_value);
+    }
     out->kind = QUARRY_BRF_SCALAR_UINT;
     return quarry_brf_array_get_uint(record, array, index, &out->uint_value);
 }

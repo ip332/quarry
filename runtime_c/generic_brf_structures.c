@@ -598,6 +598,40 @@ quarry_generic_status_t quarry_brf_array_get_enum(const quarry_brf_record_view_t
     return QUARRY_GENERIC_OK;
 }
 
+quarry_generic_status_t quarry_brf_array_get_string(const quarry_brf_record_view_t* r,
+                                                    const quarry_brf_array_view_t* a, size_t i,
+                                                    quarry_string_view_t* out) {
+    if (out == NULL)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    *out = (quarry_string_view_t){NULL, 0U};
+    if (a == NULL || a->element_code != 13U)
+        return QUARRY_GENERIC_TYPE_MISMATCH;
+    const uint8_t* p;
+    size_t n;
+    quarry_generic_status_t s = array_element(r, a, i, &p, &n);
+    if (s != QUARRY_GENERIC_OK)
+        return s;
+    *out = (quarry_string_view_t){(const char*)p, n};
+    return QUARRY_GENERIC_OK;
+}
+
+quarry_generic_status_t quarry_brf_array_get_bytes(const quarry_brf_record_view_t* r,
+                                                   const quarry_brf_array_view_t* a, size_t i,
+                                                   quarry_bytes_view_t* out) {
+    if (out == NULL)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    *out = (quarry_bytes_view_t){NULL, 0U};
+    if (a == NULL || a->element_code != 14U)
+        return QUARRY_GENERIC_TYPE_MISMATCH;
+    const uint8_t* p;
+    size_t n;
+    quarry_generic_status_t s = array_element(r, a, i, &p, &n);
+    if (s != QUARRY_GENERIC_OK)
+        return s;
+    *out = (quarry_bytes_view_t){p, n};
+    return QUARRY_GENERIC_OK;
+}
+
 quarry_generic_status_t quarry_brf_get_record(const quarry_brf_record_view_t* r, uint16_t index,
                                               quarry_brf_record_view_t* out) {
     if (out != NULL)

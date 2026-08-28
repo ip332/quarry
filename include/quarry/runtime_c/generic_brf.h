@@ -258,6 +258,12 @@ quarry_generic_status_t quarry_brf_array_get_double(const quarry_brf_record_view
                                                     const quarry_brf_array_view_t*, size_t, double*);
 quarry_generic_status_t quarry_brf_array_get_enum(const quarry_brf_record_view_t*,
                                                   const quarry_brf_array_view_t*, size_t, int64_t*);
+quarry_generic_status_t quarry_brf_array_get_string(const quarry_brf_record_view_t*,
+                                                    const quarry_brf_array_view_t*, size_t,
+                                                    quarry_string_view_t*);
+quarry_generic_status_t quarry_brf_array_get_bytes(const quarry_brf_record_view_t*,
+                                                   const quarry_brf_array_view_t*, size_t,
+                                                   quarry_bytes_view_t*);
 quarry_generic_status_t quarry_brf_get_record(const quarry_brf_record_view_t*, uint16_t,
                                               quarry_brf_record_view_t*);
 quarry_generic_status_t quarry_brf_get_record_array(const quarry_brf_record_view_t*, uint16_t,
