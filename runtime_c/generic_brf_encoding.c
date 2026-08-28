@@ -14,6 +14,10 @@ static void put32(uint8_t* p, uint32_t v) {
     p[2] = (uint8_t)(v >> 8U);
     p[3] = (uint8_t)v;
 }
+static void put16(uint8_t* p, uint16_t v) {
+    p[0] = (uint8_t)(v >> 8U);
+    p[1] = (uint8_t)v;
+}
 static void putn(uint8_t* p, size_t n, uint64_t v) {
     while (n != 0U) {
         --n;
@@ -139,7 +143,7 @@ quarry_brf_encode(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* r,
         return QUARRY_GENERIC_BUFFER_TOO_SMALL;
     memset(dst, 0, total);
     dst[0] = 2U;
-    put32(dst + 2U, 16U);
+    put16(dst + 2U, 16U);
     put32(dst + 4U, r->record_id);
     put32(dst + 8U, r->fixed_region_size);
     put32(dst + 12U, (uint32_t)total);
