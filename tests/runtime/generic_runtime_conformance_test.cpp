@@ -3,10 +3,11 @@
 
 #include <gtest/gtest.h>
 
-#include <cstdint>
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -39,11 +40,14 @@ std::vector<Mutation> mutations(const std::filesystem::path& path) {
     std::vector<Mutation> result;
     std::string line;
     while (std::getline(input, line)) {
-        if (line.empty() || line[0] == '#') continue;
+        if (line.empty() || line[0] == '#')
+            continue;
         std::stringstream fields(line);
         std::string kind, name, offset, replacement;
-        std::getline(fields, kind, '|'); std::getline(fields, name, '|');
-        std::getline(fields, offset, '|'); std::getline(fields, replacement, '|');
+        std::getline(fields, kind, '|');
+        std::getline(fields, name, '|');
+        std::getline(fields, offset, '|');
+        std::getline(fields, replacement, '|');
         if (replacement.starts_with("TRUNCATE:"))
             result.push_back({kind, name, std::stoul(offset), {}});
         else
@@ -53,13 +57,87 @@ std::vector<Mutation> mutations(const std::filesystem::path& path) {
 }
 
 std::vector<std::uint8_t> mutate(std::vector<std::uint8_t> bytes, const Mutation& mutation) {
-    if (mutation.name == "truncation") return {bytes.begin(), bytes.begin() + mutation.offset};
+    if (mutation.name == "truncation")
+        return {bytes.begin(), bytes.begin() + mutation.offset};
     EXPECT_LE(mutation.offset + mutation.replacement.size(), bytes.size());
-    std::copy(mutation.replacement.begin(), mutation.replacement.end(), bytes.begin() + mutation.offset);
+    std::copy(mutation.replacement.begin(), mutation.replacement.end(),
+              bytes.begin() + mutation.offset);
     return bytes;
 }
 
 std::filesystem::path fixture_dir() { return QUARRY_GENERIC_RUNTIME_FIXTURE_DIR; }
+
+std::vector<std::string> expected_trace(const std::filesystem::path& path) {
+    std::ifstream input(path);
+    std::vector<std::string> result;
+    std::string line;
+    while (std::getline(input, line))
+        if (!line.empty() && line.front() != '#')
+            result.push_back(line);
+    return result;
+}
+
+std::string normalized_event(const quarry::runtime::BrfTraversalEvent& event) {
+    using Kind = quarry::runtime::BrfTraversalEventKind;
+    std::ostringstream out;
+    if (event.kind == Kind::record_begin || event.kind == Kind::record_end) {
+        out << (event.kind == Kind::record_begin ? "record_begin" : "record_end") << '|'
+            << event.depth;
+    } else if (event.kind == Kind::field) {
+        out << "field|" << event.depth << '|' << event.field.field_index << '|'
+            << (event.present ? 1 : 0);
+    } else if (event.kind == Kind::array_begin || event.kind == Kind::array_end) {
+        out << (event.kind == Kind::array_begin ? "array_begin" : "array_end") << '|'
+            << event.depth;
+        if (event.kind == Kind::array_begin)
+            out << '|' << event.field.field_index;
+    } else if (event.kind == Kind::array_element) {
+        out << "array_element|" << event.depth << '|' << event.index;
+    } else {
+        const auto& value = *event.value;
+        out << "scalar|" << event.depth << '|'
+            << (event.array ? "-" : std::to_string(event.field.field_index)) << '|'
+            << (event.array ? std::to_string(event.index) : "-") << '|';
+        switch (value.kind()) {
+        case quarry::runtime::GenericBrfValueKind::unsigned_integer:
+            out << "u:" << *value.as_unsigned();
+            break;
+        case quarry::runtime::GenericBrfValueKind::signed_integer:
+            out << "i:" << *value.as_signed();
+            break;
+        case quarry::runtime::GenericBrfValueKind::boolean:
+            out << "b:" << (*value.as_bool() ? "true" : "false");
+            break;
+        case quarry::runtime::GenericBrfValueKind::float32:
+            out << "f:" << std::setprecision(9) << *value.as_float32();
+            break;
+        case quarry::runtime::GenericBrfValueKind::float64:
+            out << "d:" << std::setprecision(17) << *value.as_float64();
+            break;
+        case quarry::runtime::GenericBrfValueKind::enumeration:
+            out << "e:" << *value.as_enum();
+            break;
+        case quarry::runtime::GenericBrfValueKind::string: {
+            out << "s:";
+            const auto string = value.as_string();
+            for (const auto byte : *string)
+                out << std::hex << std::setw(2) << std::setfill('0')
+                    << static_cast<unsigned>(static_cast<unsigned char>(byte));
+            break;
+        }
+        case quarry::runtime::GenericBrfValueKind::bytes: {
+            out << "x:";
+            const auto bytes = value.as_bytes();
+            for (const auto byte : *bytes)
+                out << std::hex << std::setw(2) << std::setfill('0') << static_cast<unsigned>(byte);
+            break;
+        }
+        default:
+            break;
+        }
+    }
+    return out.str();
+}
 
 TEST(GenericRuntimeConformance, ValidFixture) {
     const auto directory = fixture_dir();
@@ -113,10 +191,9 @@ TEST(GenericRuntimeConformance, TraversalOrderReference) {
     ASSERT_TRUE(view.has_value());
     std::vector<std::pair<quarry::runtime::BrfTraversalEventKind, std::uint16_t>> trace;
     const auto result = quarry::runtime::traverse_brf(*view, [&](const auto& event) {
-        trace.emplace_back(event.kind,
-                          event.kind == quarry::runtime::BrfTraversalEventKind::field
-                              ? event.field.field_index
-                              : 0U);
+        trace.emplace_back(event.kind, event.kind == quarry::runtime::BrfTraversalEventKind::field
+                                           ? event.field.field_index
+                                           : 0U);
         return quarry::runtime::BrfTraversalControl::Continue;
     });
     ASSERT_EQ(result, quarry::runtime::BrfTraversalResult::completed);
@@ -125,10 +202,33 @@ TEST(GenericRuntimeConformance, TraversalOrderReference) {
     EXPECT_EQ(trace.back().first, quarry::runtime::BrfTraversalEventKind::record_end);
     std::vector<std::uint16_t> fields;
     for (const auto& [kind, index] : trace)
-        if (kind == quarry::runtime::BrfTraversalEventKind::field) fields.push_back(index);
-    EXPECT_EQ(fields, (std::vector<std::uint16_t>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
-                                                   0, 1, 10, 0, 1, 0, 1, 0, 1, 0, 1,
-                                                   11, 12}));
+        if (kind == quarry::runtime::BrfTraversalEventKind::field)
+            fields.push_back(index);
+    EXPECT_EQ(fields, (std::vector<std::uint16_t>{0,  1, 2, 3, 4, 5, 6, 7, 8, 9,  0, 1,
+                                                  10, 0, 1, 0, 1, 0, 1, 0, 1, 11, 12}));
+}
+
+TEST(GenericRuntimeConformance, TraversalMatchesNeutralTrace) {
+    const auto directory = fixture_dir();
+    const auto qbs_bytes = read_file(directory / "schema.qbs");
+    const auto brf_bytes = read_file(directory / "record.brf");
+    quarry::compiler::diagnostics::DiagnosticCollection diagnostics;
+    const auto schema = parse_qbs(qbs_bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto parent = schema->find_record_by_identity("Parent");
+    ASSERT_TRUE(parent.has_value());
+    const auto view = quarry::runtime::validate_brf_record(*schema, *parent, brf_bytes);
+    ASSERT_TRUE(view.has_value());
+    std::vector<std::string> actual;
+    const auto result = quarry::runtime::traverse_brf(*view, [&](const auto& event) {
+        actual.push_back(normalized_event(event));
+        return quarry::runtime::BrfTraversalControl::Continue;
+    });
+    ASSERT_EQ(result, quarry::runtime::BrfTraversalResult::completed);
+    const auto expected = expected_trace(directory / "traversal_trace.txt");
+    ASSERT_EQ(actual.size(), expected.size());
+    for (std::size_t i = 0; i < actual.size(); ++i)
+        EXPECT_EQ(actual[i], expected[i]) << "trace index " << i;
 }
 
 TEST(GenericRuntimeConformance, MalformedBrfRejected) {
@@ -141,10 +241,12 @@ TEST(GenericRuntimeConformance, MalformedBrfRejected) {
     const auto parent = schema->find_record_by_identity("Parent");
     ASSERT_TRUE(parent.has_value());
     for (const auto& mutation : mutations(directory / "mutations.txt")) {
-        if (mutation.kind != "BRF") continue;
+        if (mutation.kind != "BRF")
+            continue;
         const auto bytes = mutate(brf_bytes, mutation);
         GenericBrfError error = GenericBrfError::none;
-        EXPECT_FALSE(quarry::runtime::validate_brf_record(*schema, *parent, bytes, {}, &error)) << mutation.name;
+        EXPECT_FALSE(quarry::runtime::validate_brf_record(*schema, *parent, bytes, {}, &error))
+            << mutation.name;
     }
 }
 
@@ -153,10 +255,11 @@ TEST(GenericRuntimeConformance, MalformedQbsRejected) {
     const auto qbs_bytes = read_file(directory / "schema.qbs");
     quarry::compiler::diagnostics::DiagnosticCollection diagnostics;
     for (const auto& mutation : mutations(directory / "mutations.txt")) {
-        if (mutation.kind != "QBS") continue;
+        if (mutation.kind != "QBS")
+            continue;
         const auto bytes = mutate(qbs_bytes, mutation);
         EXPECT_FALSE(parse_qbs(bytes, diagnostics)) << mutation.name;
         diagnostics = {};
     }
 }
-}
+} // namespace

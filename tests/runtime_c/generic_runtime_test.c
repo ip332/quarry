@@ -1,5 +1,6 @@
 #include "quarry/runtime_c/generic_brf.h"
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,8 +34,120 @@ typedef struct {
     quarry_brf_traversal_event_kind_t last;
 } traversal_observer_t;
 
+typedef struct {
+    char lines[80][160];
+    size_t count;
+} trace_observer_t;
+
 static quarry_brf_traversal_control_t observe_traversal(const quarry_brf_traversal_event_t* event,
                                                         void* context);
+
+static quarry_brf_traversal_control_t observe_trace(const quarry_brf_traversal_event_t* event,
+                                                    void* context) {
+    trace_observer_t* trace = (trace_observer_t*)context;
+    char* line;
+    if (trace->count >= (sizeof(trace->lines) / sizeof(trace->lines[0])))
+        return QUARRY_BRF_TRAVERSAL_STOP;
+    line = trace->lines[trace->count++];
+    if (event->kind == QUARRY_BRF_EVENT_RECORD_BEGIN ||
+        event->kind == QUARRY_BRF_EVENT_RECORD_END) {
+        (void)snprintf(line, 160U, "%s|%zu",
+                       event->kind == QUARRY_BRF_EVENT_RECORD_BEGIN ? "record_begin" : "record_end",
+                       event->depth);
+    } else if (event->kind == QUARRY_BRF_EVENT_FIELD) {
+        (void)snprintf(line, 160U, "field|%zu|%u|%u", event->depth, (unsigned)event->field_index,
+                       event->present ? 1U : 0U);
+    } else if (event->kind == QUARRY_BRF_EVENT_ARRAY_BEGIN ||
+               event->kind == QUARRY_BRF_EVENT_ARRAY_END) {
+        (void)snprintf(line, 160U, "%s|%zu%s",
+                       event->kind == QUARRY_BRF_EVENT_ARRAY_BEGIN ? "array_begin" : "array_end",
+                       event->depth, event->kind == QUARRY_BRF_EVENT_ARRAY_BEGIN ? "|" : "");
+        if (event->kind == QUARRY_BRF_EVENT_ARRAY_BEGIN)
+            (void)snprintf(line + strlen(line), 160U - strlen(line), "%u",
+                           (unsigned)event->field_index);
+    } else if (event->kind == QUARRY_BRF_EVENT_ARRAY_ELEMENT) {
+        (void)snprintf(line, 160U, "array_element|%zu|%zu", event->depth, event->index);
+    } else {
+        const quarry_brf_scalar_t* value = &event->scalar;
+        const char* prefix = value->kind == QUARRY_BRF_SCALAR_UINT  ? "u:"
+                             : value->kind == QUARRY_BRF_SCALAR_INT ? "i:"
+                             : value->kind == QUARRY_BRF_SCALAR_BOOL
+                                 ? (value->bool_value ? "b:true" : "b:false")
+                             : value->kind == QUARRY_BRF_SCALAR_FLOAT  ? "f:"
+                             : value->kind == QUARRY_BRF_SCALAR_DOUBLE ? "d:"
+                             : value->kind == QUARRY_BRF_SCALAR_ENUM   ? "e:"
+                             : value->kind == QUARRY_BRF_SCALAR_STRING ? "s:"
+                                                                       : "x:";
+        char index_text[32];
+        const char* index;
+        if (event->array.count != 0U) {
+            (void)snprintf(index_text, sizeof(index_text), "%zu", event->index);
+            index = index_text;
+        } else {
+            index = "-";
+        }
+        char field_text[32];
+        if (event->array.count != 0U) {
+            (void)snprintf(field_text, sizeof(field_text), "-");
+        } else {
+            (void)snprintf(field_text, sizeof(field_text), "%u", (unsigned)event->field_index);
+        }
+        if (value->kind == QUARRY_BRF_SCALAR_UINT)
+            (void)snprintf(line, 160U, "scalar|%zu|%s|%s|u:%" PRIu64, event->depth, field_text,
+                           index, value->uint_value);
+        else if (value->kind == QUARRY_BRF_SCALAR_INT)
+            (void)snprintf(line, 160U, "scalar|%zu|%s|%s|i:%" PRId64, event->depth, field_text,
+                           index, value->int_value);
+        else if (value->kind == QUARRY_BRF_SCALAR_BOOL)
+            (void)snprintf(line, 160U, "scalar|%zu|%s|%s|%s", event->depth, field_text, index,
+                           prefix);
+        else if (value->kind == QUARRY_BRF_SCALAR_FLOAT)
+            (void)snprintf(line, 160U, "scalar|%zu|%s|%s|f:%g", event->depth, field_text, index,
+                           (double)value->float_value);
+        else if (value->kind == QUARRY_BRF_SCALAR_DOUBLE)
+            (void)snprintf(line, 160U, "scalar|%zu|%s|%s|d:%g", event->depth, field_text, index,
+                           value->double_value);
+        else if (value->kind == QUARRY_BRF_SCALAR_ENUM)
+            (void)snprintf(line, 160U, "scalar|%zu|%s|%s|e:%" PRId64, event->depth, field_text,
+                           index, value->int_value);
+        else {
+            size_t i;
+            int at = snprintf(line, 160U, "scalar|%zu|%s|%s|%s", event->depth, field_text, index,
+                              prefix);
+            for (i = 0U; i < (value->kind == QUARRY_BRF_SCALAR_STRING ? value->string_value.size
+                                                                      : value->bytes_value.size) &&
+                         at < 158;
+                 ++i)
+                at += snprintf(line + at, 160U - (size_t)at, "%02x",
+                               (unsigned)(value->kind == QUARRY_BRF_SCALAR_STRING
+                                              ? (unsigned char)value->string_value.data[i]
+                                              : value->bytes_value.data[i]));
+        }
+    }
+    return QUARRY_BRF_TRAVERSAL_CONTINUE;
+}
+
+static int compare_trace(const char* path, const trace_observer_t* trace) {
+    FILE* file = fopen(path, "r");
+    char line[160];
+    size_t index = 0U;
+    if (file == NULL)
+        return 1;
+    while (fgets(line, sizeof(line), file) != NULL) {
+        size_t length = strlen(line);
+        if (length > 0U && line[length - 1U] == '\n')
+            line[length - 1U] = '\0';
+        if (line[0] == '#' || line[0] == '\0')
+            continue;
+        if (index >= trace->count || strcmp(line, trace->lines[index]) != 0) {
+            (void)fclose(file);
+            return 1;
+        }
+        ++index;
+    }
+    (void)fclose(file);
+    return index == trace->count ? 0 : 1;
+}
 
 static int deep_structure_test(void) {
     /* Exercise the production validator at the full stress depth. */
@@ -407,6 +520,13 @@ int main(void) {
         observer.last != QUARRY_BRF_EVENT_RECORD_END)
         return 1;
     const size_t traversal_count = observer.count;
+    trace_observer_t trace = {0};
+    quarry_brf_traversal_workspace_reset(&traversal_workspace);
+    if (quarry_brf_traverse(&structural_record, observe_trace, &trace, &traversal_workspace,
+                            &(quarry_brf_traversal_limits_t){1024U * 1024U, 64U}) !=
+            QUARRY_BRF_TRAVERSAL_COMPLETED ||
+        compare_trace("" QUARRY_GENERIC_RUNTIME_FIXTURE_DIR "/traversal_trace.txt", &trace) != 0)
+        return 1;
     traversal_limits.max_work_items = traversal_count;
     quarry_brf_traversal_workspace_reset(&traversal_workspace);
     observer = (traversal_observer_t){0U, 0U, QUARRY_BRF_EVENT_FIELD, QUARRY_BRF_EVENT_FIELD};
