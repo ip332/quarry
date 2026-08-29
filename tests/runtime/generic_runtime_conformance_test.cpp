@@ -1,5 +1,7 @@
 #include "compiler/qbs/parser.hpp"
+#include "quarry/runtime/qbs_brf_encoder.hpp"
 #include "quarry/runtime/qbs_brf_reader.hpp"
+#include "quarry/runtime_c/generic_brf_encoding.h"
 
 #include <gtest/gtest.h>
 
@@ -176,6 +178,173 @@ TEST(GenericRuntimeConformance, ValidFixture) {
     EXPECT_FALSE(view->is_present(*schema->find_field(parent->record_id, 11U)));
     ASSERT_TRUE(view->array(12));
     EXPECT_EQ(view->array(12)->size(), 0U);
+}
+
+struct CEncodingFixture {
+    quarry_qbs_record_view_t records[8]{};
+    quarry_qbs_field_view_t fields[32]{};
+    quarry_qbs_type_view_t types[32]{};
+    quarry_qbs_enum_view_t enums[4]{};
+    std::uint64_t enum_values[16]{};
+    std::uint64_t enum_values_copy[16]{};
+    quarry_brf_record_node_t nodes[32]{};
+    quarry_brf_field_state_t states[128]{};
+    std::uint32_t maps[128]{};
+    quarry_brf_child_relation_t children[32]{};
+    quarry_brf_record_array_relation_t arrays[16]{};
+    std::uint32_t elements[32]{};
+    quarry_brf_validation_frame_t frames[32]{};
+    quarry_workspace_t qbs_workspace{records,     8U,  fields, 32U, types,    32U,  enums,  4U,
+                                     enum_values, 16U, nodes,  32U, states,   128U, maps,   128U,
+                                     children,    32U, arrays, 16U, elements, 32U,  frames, 32U,
+                                     0U,          0U,  0U,     0U,  0U,       0U,   0U};
+    quarry_brf_encoder_field_t planned[32]{};
+    quarry_brf_encoder_workspace_t encoder_workspace{planned, 32U, 0U, 0U};
+    quarry_qbs_view_t schema{};
+};
+
+struct CProvider {
+    std::vector<quarry_brf_value_t> values;
+    std::vector<std::size_t> calls;
+};
+
+quarry_generic_status_t c_provider_field(const quarry_brf_value_provider_t* provider,
+                                         std::uint16_t index, quarry_brf_value_t* out) {
+    auto* context = static_cast<CProvider*>(const_cast<void*>(provider->context));
+    if (out == nullptr || index >= context->values.size())
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    ++context->calls[index];
+    *out = context->values[index];
+    return QUARRY_GENERIC_OK;
+}
+
+TEST(GenericRuntimeConformance, GenericCEncodingMatchesCppAndDoesNotWriteOnFailure) {
+    const auto directory = fixture_dir();
+    const auto qbs_bytes = read_file(directory / "schema.qbs");
+    quarry::compiler::diagnostics::DiagnosticCollection diagnostics;
+    const auto cpp_schema = parse_qbs(qbs_bytes, diagnostics);
+    ASSERT_TRUE(cpp_schema.has_value());
+    const auto cpp_parent = cpp_schema->find_record_by_identity("Parent");
+    ASSERT_TRUE(cpp_parent.has_value());
+    CEncodingFixture c;
+    quarry_generic_limits_t qbs_limits{1U << 20U, 1U << 20U, 1U << 20U, 1U << 20U, 1U << 20U};
+    ASSERT_EQ(quarry_qbs_parse(qbs_bytes.data(), qbs_bytes.size(), &c.schema, &c.qbs_workspace,
+                               &qbs_limits),
+              QUARRY_GENERIC_OK);
+    const quarry_qbs_record_view_t* c_parent = nullptr;
+    ASSERT_EQ(quarry_qbs_find_record_by_id(&c.schema, cpp_parent->record_id, &c_parent),
+              QUARRY_GENERIC_OK);
+    CProvider context{std::vector<quarry_brf_value_t>(c_parent->field_count),
+                      std::vector<std::size_t>(c_parent->field_count)};
+    context.values[0] = {};
+    context.values[0].kind = QUARRY_BRF_ENCODE_UINT;
+    context.values[0].uint_value = 42U;
+    context.values[1] = {};
+    context.values[1].kind = QUARRY_BRF_ENCODE_INT;
+    context.values[1].int_value = -17;
+    context.values[2] = {};
+    context.values[2].kind = QUARRY_BRF_ENCODE_BOOL;
+    context.values[2].bool_value = true;
+    context.values[3] = {};
+    context.values[3].kind = QUARRY_BRF_ENCODE_FLOAT;
+    context.values[3].float_value = 12.5F;
+    context.values[4] = {};
+    context.values[4].kind = QUARRY_BRF_ENCODE_DOUBLE;
+    context.values[4].double_value = -3.25;
+    context.values[5] = {};
+    context.values[5].kind = QUARRY_BRF_ENCODE_ENUM;
+    context.values[5].int_value = 1;
+    context.values[6] = {};
+    context.values[6].kind = QUARRY_BRF_ENCODE_STRING;
+    context.values[6].string_value = {"quarry", 6U};
+    const std::uint8_t payload[] = {1U, 2U, 0U, 0xffU};
+    context.values[7] = {};
+    context.values[7].kind = QUARRY_BRF_ENCODE_BYTES;
+    context.values[7].bytes_value = {payload, sizeof(payload)};
+    for (std::size_t i = 8U; i < context.values.size(); ++i)
+        context.values[i].kind = QUARRY_BRF_ENCODE_ABSENT;
+    const quarry_brf_value_provider_t provider{c_provider_field, &context};
+    std::vector<std::optional<quarry::runtime::BrfEncodeValue>> cpp_values(cpp_parent->field_count);
+    cpp_values[0] = std::uint64_t{42};
+    cpp_values[1] = std::int64_t{-17};
+    cpp_values[2] = true;
+    cpp_values[3] = 12.5F;
+    cpp_values[4] = -3.25;
+    cpp_values[5] = std::uint64_t{1};
+    cpp_values[6] = std::string("quarry");
+    cpp_values[7] = std::vector<std::uint8_t>{1U, 2U, 0U, 0xffU};
+    quarry::runtime::GenericBrfEncodeError cpp_error = quarry::runtime::GenericBrfEncodeError::none;
+    const auto cpp_bytes = encode_brf_record(*cpp_schema, *cpp_parent, cpp_values, &cpp_error);
+    ASSERT_TRUE(cpp_bytes.has_value());
+    std::vector<std::uint8_t> c_bytes(cpp_bytes->size(), 0xa5U);
+    std::size_t required = 0U;
+    ASSERT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, c_bytes.data(), c_bytes.size(),
+                                &required, &c.encoder_workspace, nullptr),
+              QUARRY_GENERIC_OK);
+    ASSERT_EQ(required, cpp_bytes->size());
+    EXPECT_EQ(c_bytes, *cpp_bytes);
+    EXPECT_EQ(c_bytes[2], 0U);
+    EXPECT_EQ(c_bytes[3], 16U);
+    EXPECT_EQ(c_bytes[4], 0U);
+    EXPECT_EQ(c_bytes[5], 0U);
+    EXPECT_EQ(c_bytes[6], 0U);
+    EXPECT_EQ(c_bytes[7], 1U);
+    for (const auto calls : context.calls)
+        EXPECT_EQ(calls, 1U);
+    std::vector<std::uint8_t> sentinel(required - 1U, 0x5aU);
+    quarry_brf_encoder_workspace_reset(&c.encoder_workspace);
+    EXPECT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, sentinel.data(), sentinel.size(),
+                                &required, &c.encoder_workspace, nullptr),
+              QUARRY_GENERIC_BUFFER_TOO_SMALL);
+    EXPECT_EQ(sentinel, std::vector<std::uint8_t>(sentinel.size(), 0x5aU));
+
+    const auto preserves_output_on_failure = [&](quarry_generic_status_t expected) {
+        std::vector<std::uint8_t> bytes(required, 0x3cU);
+        quarry_brf_encoder_workspace_reset(&c.encoder_workspace);
+        EXPECT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, bytes.data(), bytes.size(),
+                                    &required, &c.encoder_workspace, nullptr),
+                  expected);
+        EXPECT_EQ(bytes, std::vector<std::uint8_t>(bytes.size(), 0x3cU));
+    };
+    context.values[2].kind = QUARRY_BRF_ENCODE_UINT;
+    preserves_output_on_failure(QUARRY_GENERIC_TYPE_MISMATCH);
+    context.values[2].kind = QUARRY_BRF_ENCODE_BOOL;
+    context.values[6].string_value = {"\xc0\x80", 2U};
+    preserves_output_on_failure(QUARRY_GENERIC_INVALID_ARGUMENT);
+
+    context.values[6].string_value = {"quarry", 6U};
+    context.values[0].uint_value = UINT64_C(0xffffffff);
+    EXPECT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, c_bytes.data(), c_bytes.size(),
+                                &required, &c.encoder_workspace, nullptr),
+              QUARRY_GENERIC_OK);
+    context.values[0].uint_value = UINT64_C(0x100000000);
+    preserves_output_on_failure(QUARRY_GENERIC_VALUE_OUT_OF_RANGE);
+    context.values[0].uint_value = 42U;
+
+    context.values[1].int_value = INT64_C(-2147483648);
+    EXPECT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, c_bytes.data(), c_bytes.size(),
+                                &required, &c.encoder_workspace, nullptr),
+              QUARRY_GENERIC_OK);
+    context.values[1].int_value = INT64_C(-2147483649);
+    preserves_output_on_failure(QUARRY_GENERIC_VALUE_OUT_OF_RANGE);
+    context.values[1].int_value = INT64_C(2147483647);
+    EXPECT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, c_bytes.data(), c_bytes.size(),
+                                &required, &c.encoder_workspace, nullptr),
+              QUARRY_GENERIC_OK);
+    context.values[1].int_value = INT64_C(2147483648);
+    preserves_output_on_failure(QUARRY_GENERIC_VALUE_OUT_OF_RANGE);
+    context.values[1].int_value = -17;
+
+    context.values[5].int_value = 0;
+    EXPECT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, c_bytes.data(), c_bytes.size(),
+                                &required, &c.encoder_workspace, nullptr),
+              QUARRY_GENERIC_OK);
+    context.values[5].int_value = 2;
+    preserves_output_on_failure(QUARRY_GENERIC_VALUE_OUT_OF_RANGE);
+    context.values[5].int_value = 1;
+
+    context.values[7].kind = QUARRY_BRF_ENCODE_UINT;
+    preserves_output_on_failure(QUARRY_GENERIC_TYPE_MISMATCH);
 }
 
 TEST(GenericRuntimeConformance, TraversalOrderReference) {

@@ -1,4 +1,5 @@
 #include "quarry/runtime_c/generic_brf.h"
+#include "quarry/runtime_c/generic_brf_encoding.h"
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -38,6 +39,52 @@ typedef struct {
     char lines[80][160];
     size_t count;
 } trace_observer_t;
+
+static quarry_generic_status_t encode_fixture_field(const quarry_brf_value_provider_t* provider,
+                                                    uint16_t index, quarry_brf_value_t* out) {
+    (void)provider;
+    *out = (quarry_brf_value_t){0};
+    switch (index) {
+    case 0U:
+        out->kind = QUARRY_BRF_ENCODE_UINT;
+        out->uint_value = 42U;
+        break;
+    case 1U:
+        out->kind = QUARRY_BRF_ENCODE_INT;
+        out->int_value = -17;
+        break;
+    case 2U:
+        out->kind = QUARRY_BRF_ENCODE_BOOL;
+        out->bool_value = true;
+        break;
+    case 3U:
+        out->kind = QUARRY_BRF_ENCODE_FLOAT;
+        out->float_value = 12.5F;
+        break;
+    case 4U:
+        out->kind = QUARRY_BRF_ENCODE_DOUBLE;
+        out->double_value = -3.25;
+        break;
+    case 5U:
+        out->kind = QUARRY_BRF_ENCODE_ENUM;
+        out->int_value = 1;
+        break;
+    case 6U:
+        out->kind = QUARRY_BRF_ENCODE_STRING;
+        out->string_value = (quarry_string_view_t){"quarry", 6U};
+        break;
+    case 7U: {
+        static const uint8_t bytes[] = {1U, 2U, 0xffU};
+        out->kind = QUARRY_BRF_ENCODE_BYTES;
+        out->bytes_value = (quarry_bytes_view_t){bytes, sizeof(bytes)};
+        break;
+    }
+    default:
+        out->kind = QUARRY_BRF_ENCODE_ABSENT;
+        break;
+    }
+    return QUARRY_GENERIC_OK;
+}
 
 static quarry_brf_traversal_control_t observe_traversal(const quarry_brf_traversal_event_t* event,
                                                         void* context);
@@ -504,6 +551,26 @@ int main(void) {
     }
     if (parent->field_count != 13U)
         return 1;
+    quarry_brf_value_provider_t provider = {encode_fixture_field, NULL};
+    quarry_brf_encoder_field_t encoded_fields[13];
+    quarry_brf_encoder_workspace_t encoder_workspace = {encoded_fields, 13U, 0U, 0U};
+    uint8_t encoded[512];
+    size_t encoded_size = 0U;
+    quarry_generic_status_t encode_status =
+        quarry_brf_encode(&schema, parent, &provider, encoded, sizeof(encoded), &encoded_size,
+                          &encoder_workspace, NULL);
+    if (encode_status != QUARRY_GENERIC_OK || encoded_size == 0U) {
+        fprintf(stderr, "encode failed status=%d size=%zu\n", (int)encode_status, encoded_size);
+        return 1;
+    }
+    quarry_brf_record_view_t encoded_view;
+    quarry_generic_status_t encoded_validation =
+        quarry_brf_validate(&schema, parent, encoded, encoded_size, &encoded_view, NULL);
+    if (encoded_validation != QUARRY_GENERIC_OK) {
+        fprintf(stderr, "encoded validation failed status=%d size=%zu\n", (int)encoded_validation,
+                encoded_size);
+        return 1;
+    }
     quarry_brf_record_view_t structural_record;
     if (quarry_brf_validate_with_workspace(&schema, parent, brf, brf_size, &structural_record,
                                            &workspace, &limits) != QUARRY_GENERIC_OK) {
