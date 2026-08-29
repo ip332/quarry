@@ -113,30 +113,57 @@ quarry_brf_encode(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* r,
         if (t->code == 15U || t->code == 16U)
             return QUARRY_GENERIC_UNSUPPORTED_TYPE;
         if (t->code == 13U || t->code == 14U) {
-            size_t n = t->code == 13U ? v.string_value.size : v.bytes_value.size;
-            if ((t->code == 13U && (v.kind != QUARRY_BRF_ENCODE_STRING ||
-                                    !utf8((const uint8_t*)v.string_value.data, n))) ||
-                (t->code == 14U && v.kind != QUARRY_BRF_ENCODE_BYTES) || n > t->max_bytes)
-                return QUARRY_GENERIC_INVALID_ARGUMENT;
+            size_t n;
+            if (t->code == 13U) {
+                if (v.kind != QUARRY_BRF_ENCODE_STRING)
+                    return QUARRY_GENERIC_TYPE_MISMATCH;
+                n = v.string_value.size;
+                if ((n != 0U && v.string_value.data == NULL) ||
+                    !utf8((const uint8_t*)v.string_value.data, n))
+                    return QUARRY_GENERIC_INVALID_ARGUMENT;
+            } else {
+                if (v.kind != QUARRY_BRF_ENCODE_BYTES)
+                    return QUARRY_GENERIC_TYPE_MISMATCH;
+                n = v.bytes_value.size;
+                if (n != 0U && v.bytes_value.data == NULL)
+                    return QUARRY_GENERIC_INVALID_ARGUMENT;
+            }
+            if (n > t->max_bytes)
+                return QUARRY_GENERIC_VALUE_OUT_OF_RANGE;
             if (!add_ok(tail, n, &total))
                 return QUARRY_GENERIC_RESOURCE_LIMIT;
             w->fields[i].payload_offset = tail;
             w->fields[i].payload_size = n;
             tail = total;
-        } else if (t->code == 1U    ? v.kind != QUARRY_BRF_ENCODE_BOOL
-                   : t->code == 10U ? v.kind != QUARRY_BRF_ENCODE_FLOAT
-                   : t->code == 11U ? v.kind != QUARRY_BRF_ENCODE_DOUBLE
-                   : t->code == 12U ? (v.kind != QUARRY_BRF_ENCODE_ENUM ||
-                                       !urange((uint64_t)v.int_value, t->encoded_width) ||
-                                       !enum_ok(q, t, (uint64_t)v.int_value))
-                   : (t->code == 2U || t->code == 4U || t->code == 6U || t->code == 8U)
-                       ? (v.kind != QUARRY_BRF_ENCODE_INT || !irange(v.int_value, t->encoded_width))
-                       : (v.kind != QUARRY_BRF_ENCODE_UINT ||
-                          !urange(v.uint_value, t->encoded_width)))
-            return QUARRY_GENERIC_VALUE_OUT_OF_RANGE;
+        } else if (t->code == 1U) {
+            if (v.kind != QUARRY_BRF_ENCODE_BOOL)
+                return QUARRY_GENERIC_TYPE_MISMATCH;
+        } else if (t->code == 10U) {
+            if (v.kind != QUARRY_BRF_ENCODE_FLOAT)
+                return QUARRY_GENERIC_TYPE_MISMATCH;
+        } else if (t->code == 11U) {
+            if (v.kind != QUARRY_BRF_ENCODE_DOUBLE)
+                return QUARRY_GENERIC_TYPE_MISMATCH;
+        } else if (t->code == 12U) {
+            if (v.kind != QUARRY_BRF_ENCODE_ENUM)
+                return QUARRY_GENERIC_TYPE_MISMATCH;
+            if (!urange((uint64_t)v.int_value, t->encoded_width) ||
+                !enum_ok(q, t, (uint64_t)v.int_value))
+                return QUARRY_GENERIC_VALUE_OUT_OF_RANGE;
+        } else if (t->code == 2U || t->code == 4U || t->code == 6U || t->code == 8U) {
+            if (v.kind != QUARRY_BRF_ENCODE_INT)
+                return QUARRY_GENERIC_TYPE_MISMATCH;
+            if (!irange(v.int_value, t->encoded_width))
+                return QUARRY_GENERIC_VALUE_OUT_OF_RANGE;
+        } else {
+            if (v.kind != QUARRY_BRF_ENCODE_UINT)
+                return QUARRY_GENERIC_TYPE_MISMATCH;
+            if (!urange(v.uint_value, t->encoded_width))
+                return QUARRY_GENERIC_VALUE_OUT_OF_RANGE;
+        }
     }
     total = tail;
-    if (total > maxb)
+    if (total > maxb || total > UINT32_MAX)
         return QUARRY_GENERIC_RESOURCE_LIMIT;
     *result = total;
     if (dst == NULL || cap < total)

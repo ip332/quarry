@@ -307,10 +307,44 @@ TEST(GenericRuntimeConformance, GenericCEncodingMatchesCppAndDoesNotWriteOnFailu
         EXPECT_EQ(bytes, std::vector<std::uint8_t>(bytes.size(), 0x3cU));
     };
     context.values[2].kind = QUARRY_BRF_ENCODE_UINT;
-    preserves_output_on_failure(QUARRY_GENERIC_VALUE_OUT_OF_RANGE);
+    preserves_output_on_failure(QUARRY_GENERIC_TYPE_MISMATCH);
     context.values[2].kind = QUARRY_BRF_ENCODE_BOOL;
     context.values[6].string_value = {"\xc0\x80", 2U};
     preserves_output_on_failure(QUARRY_GENERIC_INVALID_ARGUMENT);
+
+    context.values[6].string_value = {"quarry", 6U};
+    context.values[0].uint_value = UINT64_C(0xffffffff);
+    EXPECT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, c_bytes.data(), c_bytes.size(),
+                                &required, &c.encoder_workspace, nullptr),
+              QUARRY_GENERIC_OK);
+    context.values[0].uint_value = UINT64_C(0x100000000);
+    preserves_output_on_failure(QUARRY_GENERIC_VALUE_OUT_OF_RANGE);
+    context.values[0].uint_value = 42U;
+
+    context.values[1].int_value = INT64_C(-2147483648);
+    EXPECT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, c_bytes.data(), c_bytes.size(),
+                                &required, &c.encoder_workspace, nullptr),
+              QUARRY_GENERIC_OK);
+    context.values[1].int_value = INT64_C(-2147483649);
+    preserves_output_on_failure(QUARRY_GENERIC_VALUE_OUT_OF_RANGE);
+    context.values[1].int_value = INT64_C(2147483647);
+    EXPECT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, c_bytes.data(), c_bytes.size(),
+                                &required, &c.encoder_workspace, nullptr),
+              QUARRY_GENERIC_OK);
+    context.values[1].int_value = INT64_C(2147483648);
+    preserves_output_on_failure(QUARRY_GENERIC_VALUE_OUT_OF_RANGE);
+    context.values[1].int_value = -17;
+
+    context.values[5].int_value = 0;
+    EXPECT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, c_bytes.data(), c_bytes.size(),
+                                &required, &c.encoder_workspace, nullptr),
+              QUARRY_GENERIC_OK);
+    context.values[5].int_value = 2;
+    preserves_output_on_failure(QUARRY_GENERIC_VALUE_OUT_OF_RANGE);
+    context.values[5].int_value = 1;
+
+    context.values[7].kind = QUARRY_BRF_ENCODE_UINT;
+    preserves_output_on_failure(QUARRY_GENERIC_TYPE_MISMATCH);
 }
 
 TEST(GenericRuntimeConformance, TraversalOrderReference) {
