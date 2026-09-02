@@ -199,7 +199,8 @@ struct CEncodingFixture {
                                      children,    32U, arrays, 16U, elements, 32U,  frames, 32U,
                                      0U,          0U,  0U,     0U,  0U,       0U,   0U};
     quarry_brf_encoder_field_t planned[32]{};
-    quarry_brf_encoder_workspace_t encoder_workspace{planned, 32U, 0U, 0U};
+    quarry_brf_encoder_array_element_t c_elements[32]{};
+    quarry_brf_encoder_workspace_t encoder_workspace{planned, 32U, 0U, 0U, c_elements, 32U, 0U};
     quarry_qbs_view_t schema{};
 };
 
@@ -207,6 +208,20 @@ struct CProvider {
     std::vector<quarry_brf_value_t> values;
     std::vector<std::size_t> calls;
 };
+
+struct CArray {
+    const quarry_brf_value_t* values;
+    std::size_t count;
+};
+
+quarry_generic_status_t c_array_element(const quarry_brf_array_provider_t* provider,
+                                        std::size_t index, quarry_brf_value_t* out) {
+    const auto* array = static_cast<const CArray*>(provider->context);
+    if (out == nullptr || index >= array->count)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    *out = array->values[index];
+    return QUARRY_GENERIC_OK;
+}
 
 quarry_generic_status_t c_provider_field(const quarry_brf_value_provider_t* provider,
                                          std::uint16_t index, quarry_brf_value_t* out) {
@@ -263,6 +278,15 @@ TEST(GenericRuntimeConformance, GenericCEncodingMatchesCppAndDoesNotWriteOnFailu
     context.values[7].bytes_value = {payload, sizeof(payload)};
     for (std::size_t i = 8U; i < context.values.size(); ++i)
         context.values[i].kind = QUARRY_BRF_ENCODE_ABSENT;
+    quarry_brf_value_t array_values[3]{};
+    for (std::size_t i = 0U; i < 3U; ++i) {
+        array_values[i].kind = QUARRY_BRF_ENCODE_UINT;
+        array_values[i].uint_value = i + 1U;
+    }
+    const CArray array_context{array_values, 3U};
+    const quarry_brf_array_provider_t array_provider{c_array_element, 3U, &array_context};
+    context.values[8].kind = QUARRY_BRF_ENCODE_ARRAY;
+    context.values[8].aggregate = &array_provider;
     const quarry_brf_value_provider_t provider{c_provider_field, &context};
     std::vector<std::optional<quarry::runtime::BrfEncodeValue>> cpp_values(cpp_parent->field_count);
     cpp_values[0] = std::uint64_t{42};
@@ -273,6 +297,8 @@ TEST(GenericRuntimeConformance, GenericCEncodingMatchesCppAndDoesNotWriteOnFailu
     cpp_values[5] = std::uint64_t{1};
     cpp_values[6] = std::string("quarry");
     cpp_values[7] = std::vector<std::uint8_t>{1U, 2U, 0U, 0xffU};
+    cpp_values[8] = quarry::runtime::BrfEncodeValue{
+        quarry::runtime::BrfEncodeArray{quarry::runtime::BrfUnsignedArray{1U, 2U, 3U}}};
     quarry::runtime::GenericBrfEncodeError cpp_error = quarry::runtime::GenericBrfEncodeError::none;
     const auto cpp_bytes = encode_brf_record(*cpp_schema, *cpp_parent, cpp_values, &cpp_error);
     ASSERT_TRUE(cpp_bytes.has_value());

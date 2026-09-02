@@ -28,6 +28,12 @@ typedef struct {
     quarry_bytes_view_t bytes_value;
     const void* aggregate;
 } quarry_brf_value_t;
+typedef struct quarry_brf_array_provider {
+    quarry_generic_status_t (*get_element)(const struct quarry_brf_array_provider*, size_t,
+                                           quarry_brf_value_t*);
+    size_t count;
+    const void* context;
+} quarry_brf_array_provider_t;
 typedef struct quarry_brf_value_provider {
     quarry_generic_status_t (*get_field)(const struct quarry_brf_value_provider*, uint16_t,
                                          quarry_brf_value_t*);
@@ -43,12 +49,22 @@ typedef struct {
     size_t payload_offset;
     size_t payload_size;
     uint8_t present;
+    size_t array_start;
+    size_t array_count;
 } quarry_brf_encoder_field_t;
+typedef struct {
+    quarry_brf_value_t value;
+    size_t payload_offset;
+    size_t payload_size;
+} quarry_brf_encoder_array_element_t;
 typedef struct {
     quarry_brf_encoder_field_t* fields;
     size_t field_capacity;
     size_t field_count;
     size_t work_count;
+    quarry_brf_encoder_array_element_t* array_elements;
+    size_t array_element_capacity;
+    size_t array_element_count;
 } quarry_brf_encoder_workspace_t;
 void quarry_brf_encoder_workspace_reset(quarry_brf_encoder_workspace_t*);
 quarry_generic_status_t quarry_brf_encode(const quarry_qbs_view_t*, const quarry_qbs_record_view_t*,
