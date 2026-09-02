@@ -51,6 +51,20 @@ must use the size rather than dereference it. The current QBS integer model is
 I8/U8, I16/U16, I32/U32, and I64/U64; the generic API intentionally exposes
 logical `int64_t`/`uint64_t` carriers rather than width-specific getters.
 
+The generic C encoder accepts primitive arrays through
+`quarry_brf_array_provider_t`. The provider supplies a count and restartable
+indexed element callback, returning the same logical scalar values used by the
+field provider. Elements are snapshotted into caller-owned encoder workspace
+during planning, so the provider is not queried during the write pass. Count,
+range, enum, schema, work, and output-capacity failures occur before the
+destination is modified. Present-empty arrays remain present and encode a zero
+count; absent fields retain canonical zero storage.
+
+E2 supports unsigned and signed integers, bool, float32, float64, and enum
+arrays. String/bytes arrays and arrays of records are deferred because the
+shared C++ generic value model lacks matching string/bytes array variants, and
+record containers require the separate E3 aggregate-value design.
+
 Floating-point decoding requires the repository's normal IEEE-754 `float` and
 `double` target model. Decoding is bytewise and does not require alignment or
 type-punning serialized storage.

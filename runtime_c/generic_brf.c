@@ -18,6 +18,22 @@ static uint32_t uw(const uint8_t* p, uint8_t width) {
 static bool range(size_t at, size_t length, size_t total) {
     return at <= total && length <= total - at;
 }
+static bool read_varuint(const uint8_t* p, size_t n, size_t* cursor, size_t* out) {
+    size_t value = 0U;
+    unsigned shift = 0U;
+    while (*cursor < n && shift < sizeof(size_t) * 8U) {
+        const uint8_t byte = p[(*cursor)++];
+        if (shift >= sizeof(size_t) * 8U - 7U && (byte & 0x7fU) > (SIZE_MAX >> shift))
+            return false;
+        value |= ((size_t)(byte & 0x7fU)) << shift;
+        if ((byte & 0x80U) == 0U) {
+            *out = value;
+            return true;
+        }
+        shift += 7U;
+    }
+    return false;
+}
 static bool utf8(const uint8_t* p, size_t n) {
     size_t i = 0U;
     while (i < n) {
@@ -273,17 +289,48 @@ quarry_generic_status_t quarry_brf_validate(const quarry_qbs_view_t* q,
             continue;
         }
         const quarry_qbs_type_view_t* t = &q->types[f->type_index];
-        if (t->code == 15U || t->code == 16U)
+        if (t->code == 15U)
             return QUARRY_GENERIC_UNSUPPORTED_TYPE;
         if (f->storage == 2U) {
             if (f->slot_size != 8U || !range(f->byte_offset, 8U, n) ||
                 u32(b + f->byte_offset) != tail)
                 return QUARRY_GENERIC_MALFORMED_BRF;
             uint32_t off = u32(b + f->byte_offset), len = u32(b + f->byte_offset + 4U);
-            if (!range(off, len, n) || len > t->max_bytes)
+            if (!range(off, len, n))
                 return QUARRY_GENERIC_MALFORMED_BRF;
-            if (t->code == 13U && !utf8(b + off, len))
-                return QUARRY_GENERIC_MALFORMED_BRF;
+            if (t->code == 16U) {
+                size_t cursor = 0U;
+                const uint8_t* payload = b + off;
+                size_t count = 0U;
+                if (!read_varuint(payload, len, &cursor, &count) || count > t->max_elements ||
+                    t->reference >= q->type_count)
+                    return QUARRY_GENERIC_MALFORMED_BRF;
+                const quarry_qbs_type_view_t* e = &q->types[t->reference];
+                if (e->code == 15U || e->code == 16U)
+                    return QUARRY_GENERIC_UNSUPPORTED_TYPE;
+                if (e->code == 13U || e->code == 14U) {
+                    for (size_t j = 0U; j < count; ++j) {
+                        size_t size = 0U;
+                        if (!read_varuint(payload, len, &cursor, &size) || size > e->max_bytes ||
+                            size > len - cursor)
+                            return QUARRY_GENERIC_MALFORMED_BRF;
+                        if (e->code == 13U && !utf8(payload + cursor, size))
+                            return QUARRY_GENERIC_MALFORMED_BRF;
+                        cursor += size;
+                    }
+                } else {
+                    if (e->encoded_width == 0U || count > (len - cursor) / e->encoded_width)
+                        return QUARRY_GENERIC_MALFORMED_BRF;
+                    cursor += count * e->encoded_width;
+                }
+                if (cursor != len)
+                    return QUARRY_GENERIC_MALFORMED_BRF;
+            } else {
+                if (len > t->max_bytes)
+                    return QUARRY_GENERIC_MALFORMED_BRF;
+                if (t->code == 13U && !utf8(b + off, len))
+                    return QUARRY_GENERIC_MALFORMED_BRF;
+            }
             tail += (size_t)len;
         } else if (t->code == 13U || t->code == 14U)
             return QUARRY_GENERIC_MALFORMED_BRF;

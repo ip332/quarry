@@ -553,7 +553,7 @@ int main(void) {
         return 1;
     quarry_brf_value_provider_t provider = {encode_fixture_field, NULL};
     quarry_brf_encoder_field_t encoded_fields[13];
-    quarry_brf_encoder_workspace_t encoder_workspace = {encoded_fields, 13U, 0U, 0U};
+    quarry_brf_encoder_workspace_t encoder_workspace = {encoded_fields, 13U, 0U, 0U, NULL, 0U, 0U};
     uint8_t encoded[512];
     size_t encoded_size = 0U;
     quarry_generic_status_t encode_status =

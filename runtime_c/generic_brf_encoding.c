@@ -25,6 +25,23 @@ static void putn(uint8_t* p, size_t n, uint64_t v) {
         v >>= 8U;
     }
 }
+static bool varuint_size(size_t v, size_t* out) {
+    size_t n = 1U;
+    while (v >= 0x80U) {
+        v >>= 7U;
+        if (!add_ok(n, 1U, &n))
+            return false;
+    }
+    *out = n;
+    return true;
+}
+static void put_varuint(uint8_t* p, size_t* cursor, size_t v) {
+    while (v >= 0x80U) {
+        p[(*cursor)++] = (uint8_t)((v & 0x7fU) | 0x80U);
+        v >>= 7U;
+    }
+    p[(*cursor)++] = (uint8_t)v;
+}
 static bool utf8(const uint8_t* p, size_t n) {
     size_t i = 0U;
     while (i < n) {
@@ -70,6 +87,7 @@ void quarry_brf_encoder_workspace_reset(quarry_brf_encoder_workspace_t* w) {
     if (w != NULL) {
         w->field_count = 0U;
         w->work_count = 0U;
+        w->array_element_count = 0U;
     }
 }
 
@@ -103,15 +121,104 @@ quarry_brf_encode(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* r,
         if (s != QUARRY_GENERIC_OK)
             return s;
         w->fields[i] =
-            (quarry_brf_encoder_field_t){i, v, 0U, 0U, v.kind != QUARRY_BRF_ENCODE_ABSENT};
+            (quarry_brf_encoder_field_t){i, v, 0U, 0U, v.kind != QUARRY_BRF_ENCODE_ABSENT, 0U, 0U};
         ++w->field_count;
         if (!w->fields[i].present)
             continue;
         if (f->type_index >= q->type_count)
             return QUARRY_GENERIC_MALFORMED_QBS;
         t = &q->types[f->type_index];
-        if (t->code == 15U || t->code == 16U)
+        if (t->code == 15U)
             return QUARRY_GENERIC_UNSUPPORTED_TYPE;
+        if (t->code == 16U) {
+            const quarry_brf_array_provider_t* a = (const quarry_brf_array_provider_t*)v.aggregate;
+            size_t count_size;
+            if (a == NULL || a->get_element == NULL ||
+                (a->count != 0U && w->array_elements == NULL))
+                return QUARRY_GENERIC_TYPE_MISMATCH;
+            if (a->count > t->max_elements || !varuint_size(a->count, &count_size))
+                return QUARRY_GENERIC_VALUE_OUT_OF_RANGE;
+            if (w->array_element_count > w->array_element_capacity ||
+                a->count > w->array_element_capacity - w->array_element_count)
+                return QUARRY_GENERIC_WORKSPACE_EXHAUSTED;
+            w->fields[i].array_start = w->array_element_count;
+            w->fields[i].array_count = a->count;
+            w->array_element_count += a->count;
+            w->fields[i].payload_offset = tail;
+            if (!add_ok(tail, count_size, &total))
+                return QUARRY_GENERIC_RESOURCE_LIMIT;
+            tail = total;
+            if (t->reference >= q->type_count)
+                return QUARRY_GENERIC_MALFORMED_QBS;
+            const quarry_qbs_type_view_t* e = &q->types[t->reference];
+            /* Variable-width and aggregate elements require the shared value model
+             * extensions reserved for a later phase. */
+            if (e->code == 13U || e->code == 14U || e->code == 15U || e->code == 16U)
+                return QUARRY_GENERIC_UNSUPPORTED_TYPE;
+            for (size_t j = 0U; j < a->count; ++j) {
+                quarry_brf_value_t ev = {0};
+                size_t n = 0U;
+                if (w->work_count >= maxw)
+                    return QUARRY_GENERIC_RESOURCE_LIMIT;
+                ++w->work_count;
+                s = a->get_element(a, j, &ev);
+                if (s != QUARRY_GENERIC_OK)
+                    return s;
+                w->array_elements[w->fields[i].array_start + j].value = ev;
+                if (e->code == 13U || e->code == 14U) {
+                    const uint8_t* data;
+                    if (e->code == 13U) {
+                        if (ev.kind != QUARRY_BRF_ENCODE_STRING)
+                            return QUARRY_GENERIC_TYPE_MISMATCH;
+                        data = (const uint8_t*)ev.string_value.data;
+                        n = ev.string_value.size;
+                        if (n != 0U && data == NULL)
+                            return QUARRY_GENERIC_INVALID_ARGUMENT;
+                        if (!utf8(data, n))
+                            return QUARRY_GENERIC_INVALID_ARGUMENT;
+                    } else {
+                        if (ev.kind != QUARRY_BRF_ENCODE_BYTES)
+                            return QUARRY_GENERIC_TYPE_MISMATCH;
+                        data = ev.bytes_value.data;
+                        n = ev.bytes_value.size;
+                        if (n != 0U && data == NULL)
+                            return QUARRY_GENERIC_INVALID_ARGUMENT;
+                    }
+                    if (n > e->max_bytes || !varuint_size(n, &count_size) ||
+                        !add_ok(tail, count_size, &total) || !add_ok(total, n, &tail))
+                        return n > e->max_bytes ? QUARRY_GENERIC_VALUE_OUT_OF_RANGE
+                                                : QUARRY_GENERIC_RESOURCE_LIMIT;
+                    w->array_elements[w->fields[i].array_start + j].payload_offset = total;
+                    w->array_elements[w->fields[i].array_start + j].payload_size = n;
+                } else {
+                    bool valid = false;
+                    if (e->code == 1U)
+                        valid = ev.kind == QUARRY_BRF_ENCODE_BOOL;
+                    else if (e->code == 10U)
+                        valid = ev.kind == QUARRY_BRF_ENCODE_FLOAT;
+                    else if (e->code == 11U)
+                        valid = ev.kind == QUARRY_BRF_ENCODE_DOUBLE;
+                    else if (e->code == 12U)
+                        valid = ev.kind == QUARRY_BRF_ENCODE_ENUM &&
+                                urange((uint64_t)ev.int_value, e->encoded_width);
+                    else if (e->code == 2U || e->code == 4U || e->code == 6U || e->code == 8U)
+                        valid = ev.kind == QUARRY_BRF_ENCODE_INT &&
+                                irange(ev.int_value, e->encoded_width);
+                    else
+                        valid = ev.kind == QUARRY_BRF_ENCODE_UINT &&
+                                urange(ev.uint_value, e->encoded_width);
+                    if (!valid)
+                        return QUARRY_GENERIC_TYPE_MISMATCH;
+                    if (e->code == 12U &&
+                        !enum_ok(q, e, (uint64_t)ev.int_value))
+                        return QUARRY_GENERIC_VALUE_OUT_OF_RANGE;
+                    if (!add_ok(tail, e->encoded_width, &tail))
+                        return QUARRY_GENERIC_RESOURCE_LIMIT;
+                }
+            }
+            w->fields[i].payload_size = tail - w->fields[i].payload_offset;
+            continue;
+        }
         if (t->code == 13U || t->code == 14U) {
             size_t n;
             if (t->code == 13U) {
@@ -181,6 +288,46 @@ quarry_brf_encode(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* r,
             continue;
         dst[16U + f->presence_bit / 8U] |= (uint8_t)(1U << (f->presence_bit % 8U));
         if (f->storage == 2U) {
+            const quarry_qbs_type_view_t* t = &q->types[f->type_index];
+            if (t->code == 16U) {
+                size_t cursor = 0U;
+                const quarry_qbs_type_view_t* e = &q->types[t->reference];
+                const quarry_brf_encoder_field_t* a = &w->fields[i];
+                put32(dst + f->byte_offset, (uint32_t)a->payload_offset);
+                put32(dst + f->byte_offset + 4U, (uint32_t)a->payload_size);
+                put_varuint(dst + a->payload_offset, &cursor, a->array_count);
+                for (size_t j = 0U; j < a->array_count; ++j) {
+                    const quarry_brf_value_t* v = &w->array_elements[a->array_start + j].value;
+                    if (e->code == 13U || e->code == 14U) {
+                        const uint8_t* data = e->code == 13U ? (const uint8_t*)v->string_value.data
+                                                             : v->bytes_value.data;
+                        const size_t n =
+                            e->code == 13U ? v->string_value.size : v->bytes_value.size;
+                        put_varuint(dst + a->payload_offset, &cursor, n);
+                        memcpy(dst + a->payload_offset + cursor, data, n);
+                        cursor += n;
+                    } else if (e->code == 1U) {
+                        dst[a->payload_offset + cursor++] = v->bool_value ? 1U : 0U;
+                    } else if (e->code == 10U || e->code == 11U) {
+                        uint64_t bits = 0U;
+                        const size_t n = e->code == 10U ? 4U : 8U;
+                        memcpy(&bits,
+                               e->code == 10U ? (const void*)&v->float_value
+                                              : (const void*)&v->double_value,
+                               n);
+                        putn(dst + a->payload_offset + cursor, n, bits);
+                        cursor += n;
+                    } else {
+                        const uint64_t value =
+                            (e->code == 2U || e->code == 4U || e->code == 6U || e->code == 8U)
+                                ? (uint64_t)v->int_value
+                                : (e->code == 12U ? (uint64_t)v->int_value : v->uint_value);
+                        putn(dst + a->payload_offset + cursor, e->encoded_width, value);
+                        cursor += e->encoded_width;
+                    }
+                }
+                continue;
+            }
             const uint8_t* b = e->value.kind == QUARRY_BRF_ENCODE_STRING
                                    ? (const uint8_t*)e->value.string_value.data
                                    : e->value.bytes_value.data;
