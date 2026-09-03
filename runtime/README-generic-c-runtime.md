@@ -61,12 +61,10 @@ destination is modified. Present-empty arrays remain present and encode a zero
 count; absent fields retain canonical zero storage.
 
 E2 supports unsigned and signed integers, bool, float32, float64, and enum
-arrays. String/bytes arrays and arrays of records are deferred because the
-shared C++ generic value model lacks matching string/bytes array variants, and
-record containers require the separate E3 aggregate-value design.
+arrays. String/bytes arrays and arrays of records remain deferred.
 
-E3-1 defines the aggregate provider and iterative planning architecture without
-implementing nested BRF encoding. `quarry_brf_record_provider_t` is an
+E3-1 defined the aggregate provider and iterative planning architecture.
+`quarry_brf_record_provider_t` is an
 instance-only handle with indexed field access; QBS remains the sole source of
 record, field, type, enum, and array structure. The provider must remain valid
 and deterministic for the complete planning operation and carries no schema,
@@ -81,8 +79,9 @@ workspace arrays. Reset it with
 `quarry_brf_nested_planning_workspace_reset()` (the encoder reset performs this
 as well), then use the typed push helpers for deterministic capacity checks.
 There is no hidden heap or arena. Callers provide capacity for records, frames,
-fields, and record-array relationships; a future preflight helper may refine
-these requirements when nested encoding is implemented.
+fields, and record-array relationships. E3-2 uses the record and frame stores
+for production nested-record encoding; record-array planning remains reserved
+for a later phase.
 
 Scalar and primitive-array metadata is snapshotted during planning. Borrowed
 string/bytes spans are not copied, so their backing bytes must remain valid for

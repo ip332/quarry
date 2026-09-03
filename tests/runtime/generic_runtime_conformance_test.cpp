@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -200,8 +201,20 @@ struct CEncodingFixture {
                                      0U,          0U,  0U,     0U,  0U,       0U,   0U};
     quarry_brf_encoder_field_t planned[32]{};
     quarry_brf_encoder_array_element_t c_elements[32]{};
-    quarry_brf_encoder_workspace_t encoder_workspace{planned, 32U, 0U, 0U, c_elements, 32U, 0U,
-                                                      {}};
+    quarry_brf_nested_record_plan_t nested_records[8]{};
+    quarry_brf_nested_frame_t nested_frames[8]{};
+    quarry_brf_nested_field_plan_t nested_fields[64]{};
+    quarry_brf_nested_record_array_plan_t nested_arrays[4]{};
+    quarry_brf_encoder_workspace_t encoder_workspace{planned,
+                                                     32U,
+                                                     0U,
+                                                     0U,
+                                                     c_elements,
+                                                     32U,
+                                                     0U,
+                                                     {nested_records, 8U, nested_frames, 8U,
+                                                      nested_fields, 64U, nested_arrays, 4U, 0U, 0U,
+                                                      0U, 0U}};
     quarry_qbs_view_t schema{};
 };
 
@@ -209,6 +222,15 @@ struct CProvider {
     std::vector<quarry_brf_value_t> values;
     std::vector<std::size_t> calls;
 };
+
+quarry_generic_status_t c_record_field(const quarry_brf_record_provider_t* provider,
+                                       std::uint16_t index, quarry_brf_value_t* out) {
+    const auto* context = static_cast<const CProvider*>(provider->context);
+    if (out == nullptr || index >= context->values.size())
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    *out = context->values[index];
+    return QUARRY_GENERIC_OK;
+}
 
 struct CArray {
     const quarry_brf_value_t* values;
@@ -288,6 +310,14 @@ TEST(GenericRuntimeConformance, GenericCEncodingMatchesCppAndDoesNotWriteOnFailu
     const quarry_brf_array_provider_t array_provider{c_array_element, 3U, &array_context};
     context.values[8].kind = QUARRY_BRF_ENCODE_ARRAY;
     context.values[8].aggregate = &array_provider;
+    CProvider child_context{std::vector<quarry_brf_value_t>(2), std::vector<std::size_t>(2)};
+    child_context.values[0].kind = QUARRY_BRF_ENCODE_UINT;
+    child_context.values[0].uint_value = 100U;
+    child_context.values[1].kind = QUARRY_BRF_ENCODE_STRING;
+    child_context.values[1].string_value = {"child", 5U};
+    const quarry_brf_record_provider_t child_provider{c_record_field, &child_context};
+    context.values[9].kind = QUARRY_BRF_ENCODE_RECORD;
+    context.values[9].aggregate = &child_provider;
     const quarry_brf_value_provider_t provider{c_provider_field, &context};
     std::vector<std::optional<quarry::runtime::BrfEncodeValue>> cpp_values(cpp_parent->field_count);
     cpp_values[0] = std::uint64_t{42};
@@ -300,6 +330,13 @@ TEST(GenericRuntimeConformance, GenericCEncodingMatchesCppAndDoesNotWriteOnFailu
     cpp_values[7] = std::vector<std::uint8_t>{1U, 2U, 0U, 0xffU};
     cpp_values[8] = quarry::runtime::BrfEncodeValue{
         quarry::runtime::BrfEncodeArray{quarry::runtime::BrfUnsignedArray{1U, 2U, 3U}}};
+    auto child_input = std::make_shared<quarry::runtime::BrfRecordInput>();
+    child_input->record_id = cpp_schema->record(0U).record_id;
+    child_input->identity = std::string(cpp_schema->record(0U).identity);
+    child_input->fields.resize(2U);
+    child_input->fields[0] = std::uint64_t{100U};
+    child_input->fields[1] = std::string("child");
+    cpp_values[9] = quarry::runtime::BrfEncodeValue{child_input};
     quarry::runtime::GenericBrfEncodeError cpp_error = quarry::runtime::GenericBrfEncodeError::none;
     const auto cpp_bytes = encode_brf_record(*cpp_schema, *cpp_parent, cpp_values, &cpp_error);
     ASSERT_TRUE(cpp_bytes.has_value());
