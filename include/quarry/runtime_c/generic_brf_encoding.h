@@ -34,6 +34,10 @@ typedef struct {
     quarry_brf_value_t value;
     uint32_t child_record;
     uint32_t array_plan;
+    size_t payload_offset;
+    size_t payload_size;
+    size_t array_start;
+    size_t array_count;
     uint8_t present;
 } quarry_brf_nested_field_plan_t;
 /* A record provider is an instance handle.  QBS supplies the record and field
@@ -94,6 +98,7 @@ typedef struct {
 typedef struct {
     uint32_t record_plan;
     uint16_t field_cursor;
+    size_t destination_offset;
     uint8_t phase;
 } quarry_brf_nested_frame_t;
 typedef struct {
@@ -129,16 +134,17 @@ typedef struct {
 } quarry_brf_encoder_workspace_t;
 void quarry_brf_encoder_workspace_reset(quarry_brf_encoder_workspace_t*);
 void quarry_brf_nested_planning_workspace_reset(quarry_brf_nested_planning_workspace_t*);
-quarry_generic_status_t quarry_brf_nested_plan_push_record(
-    quarry_brf_nested_planning_workspace_t*, const quarry_qbs_record_view_t*,
-    const quarry_brf_record_provider_t*, uint32_t, uint16_t, uint32_t*);
+quarry_generic_status_t quarry_brf_nested_plan_push_record(quarry_brf_nested_planning_workspace_t*,
+                                                           const quarry_qbs_record_view_t*,
+                                                           const quarry_brf_record_provider_t*,
+                                                           uint32_t, uint16_t, uint32_t*);
 quarry_generic_status_t quarry_brf_nested_plan_push_frame(quarry_brf_nested_planning_workspace_t*,
-                                                           uint32_t, uint32_t*);
-quarry_generic_status_t quarry_brf_nested_plan_add_field(
-    quarry_brf_nested_planning_workspace_t*, uint32_t, uint16_t, const quarry_brf_value_t*,
-    uint32_t*);
-quarry_generic_status_t quarry_brf_nested_plan_add_array(
-    quarry_brf_nested_planning_workspace_t*, uint32_t, uint16_t, uint32_t, uint32_t*);
+                                                          uint32_t, uint32_t*);
+quarry_generic_status_t quarry_brf_nested_plan_add_field(quarry_brf_nested_planning_workspace_t*,
+                                                         uint32_t, uint16_t,
+                                                         const quarry_brf_value_t*, uint32_t*);
+quarry_generic_status_t quarry_brf_nested_plan_add_array(quarry_brf_nested_planning_workspace_t*,
+                                                         uint32_t, uint16_t, uint32_t, uint32_t*);
 quarry_generic_status_t quarry_brf_encode(const quarry_qbs_view_t*, const quarry_qbs_record_view_t*,
                                           const quarry_brf_value_provider_t*, uint8_t*, size_t,
                                           size_t*, quarry_brf_encoder_workspace_t*,
