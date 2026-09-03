@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 typedef struct {
     const quarry_brf_record_provider_t* child;
@@ -157,6 +158,27 @@ int main(int argc, char** argv) {
     if (quarry_brf_encode(&schema, parent, &root, output, 1024U, &output_size, &encoder, NULL) !=
             QUARRY_GENERIC_RESOURCE_LIMIT ||
         output[0] != 0xa5U || output[1023] != 0xa5U)
+        return 1;
+    child_failure = 0;
+    encoder.nested.record_capacity = 1U;
+    memset(output, 0x5a, 1024U);
+    if (quarry_brf_encode(&schema, parent, &root, output, 1024U, &output_size, &encoder, NULL) !=
+            QUARRY_GENERIC_WORKSPACE_EXHAUSTED ||
+        output[0] != 0x5aU)
+        return 1;
+    encoder.nested.record_capacity = 4U;
+    encoder.nested.field_capacity = 14U;
+    memset(output, 0x5a, 1024U);
+    if (quarry_brf_encode(&schema, parent, &root, output, 1024U, &output_size, &encoder, NULL) !=
+            QUARRY_GENERIC_WORKSPACE_EXHAUSTED ||
+        output[0] != 0x5aU)
+        return 1;
+    encoder.nested.field_capacity = 32U;
+    encoder.nested.frame_capacity = 1U;
+    memset(output, 0x5a, 1024U);
+    if (quarry_brf_encode(&schema, parent, &root, output, 1024U, &output_size, &encoder, NULL) !=
+            QUARRY_GENERIC_WORKSPACE_EXHAUSTED ||
+        output[0] != 0x5aU)
         return 1;
     free(output);
     free(qbs);

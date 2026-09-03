@@ -463,7 +463,7 @@ static quarry_generic_status_t nested_write(const quarry_qbs_view_t* q,
             }
             w->nested.frames[frame_count++] =
                 (quarry_brf_nested_frame_t){value->child_record, 0U, child_offset, 1U};
-        } else if (field->storage == 2U) {
+        } else if (type->code == 16U) {
             put32(record + field->byte_offset, (uint32_t)value->payload_offset);
             put32(record + field->byte_offset + 4U, (uint32_t)value->payload_size);
             size_t cursor = 0U;
