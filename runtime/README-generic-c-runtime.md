@@ -65,6 +65,31 @@ arrays. String/bytes arrays and arrays of records are deferred because the
 shared C++ generic value model lacks matching string/bytes array variants, and
 record containers require the separate E3 aggregate-value design.
 
+E3-1 defines the aggregate provider and iterative planning architecture without
+implementing nested BRF encoding. `quarry_brf_record_provider_t` is an
+instance-only handle with indexed field access; QBS remains the sole source of
+record, field, type, enum, and array structure. The provider must remain valid
+and deterministic for the complete planning operation and carries no schema,
+offset, or BRF layout data. `quarry_brf_record_array_provider_t` supplies a
+count and indexed record handles through a distinct callback, so record-array
+elements cannot be confused with primitive scalar elements.
+
+The encoder workspace has an optional caller-owned `nested` store containing
+indexed record plans, field plans, record-array relationships, and iterative
+frames. Plans link by stable `uint32_t` indexes rather than pointers into
+workspace arrays. Reset it with
+`quarry_brf_nested_planning_workspace_reset()` (the encoder reset performs this
+as well), then use the typed push helpers for deterministic capacity checks.
+There is no hidden heap or arena. Callers provide capacity for records, frames,
+fields, and record-array relationships; a future preflight helper may refine
+these requirements when nested encoding is implemented.
+
+Scalar and primitive-array metadata is snapshotted during planning. Borrowed
+string/bytes spans are not copied, so their backing bytes must remain valid for
+the complete encode call. The eventual write phase must not call providers.
+Changing mutable provider state after planning cannot change snapshotted values,
+but does not extend the lifetime guarantee for borrowed payload bytes.
+
 Floating-point decoding requires the repository's normal IEEE-754 `float` and
 `double` target model. Decoding is bytewise and does not require alignment or
 type-punning serialized storage.

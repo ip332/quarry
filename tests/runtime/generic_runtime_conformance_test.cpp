@@ -200,7 +200,8 @@ struct CEncodingFixture {
                                      0U,          0U,  0U,     0U,  0U,       0U,   0U};
     quarry_brf_encoder_field_t planned[32]{};
     quarry_brf_encoder_array_element_t c_elements[32]{};
-    quarry_brf_encoder_workspace_t encoder_workspace{planned, 32U, 0U, 0U, c_elements, 32U, 0U};
+    quarry_brf_encoder_workspace_t encoder_workspace{planned, 32U, 0U, 0U, c_elements, 32U, 0U,
+                                                      {}};
     quarry_qbs_view_t schema{};
 };
 
