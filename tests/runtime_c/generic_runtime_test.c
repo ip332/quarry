@@ -559,7 +559,7 @@ int main(void) {
     size_t encoded_size = 0U;
     quarry_generic_status_t encode_status =
         quarry_brf_encode(&schema, parent, &provider, encoded, sizeof(encoded), &encoded_size,
-                          &encoder_workspace, NULL);
+                          &encoder_workspace, NULL, NULL);
     if (encode_status != QUARRY_GENERIC_OK || encoded_size == 0U) {
         fprintf(stderr, "encode failed status=%d size=%zu\n", (int)encode_status, encoded_size);
         return 1;
