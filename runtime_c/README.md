@@ -72,6 +72,12 @@ byte-level mechanics while generated code keeps schema-specific knowledge
 such as `record_id`, `field_index`, field type, and enum value sets -- the
 same split `runtime/README.md` documents for C++.
 
+The generic C encoder's planning workspace and provider-free writer workspace are
+separate caller-owned descriptors. Callers that encode nested records must provide
+writer frames sized for the maximum active record depth; this capacity is checked
+before destination bytes are modified. The writer performs no provider callbacks
+and does not consume planning frames.
+
 Current support:
 
 * Binary Record Format v0.1 header emission and parsing

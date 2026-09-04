@@ -102,6 +102,16 @@ typedef struct {
     uint8_t phase;
 } quarry_brf_nested_frame_t;
 typedef struct {
+    uint32_t record_plan;
+    uint16_t field_cursor;
+    size_t destination_offset;
+    uint8_t phase;
+} quarry_brf_writer_frame_t;
+typedef struct {
+    quarry_brf_writer_frame_t* frames;
+    size_t frame_capacity;
+} quarry_brf_writer_workspace_t;
+typedef struct {
     uint32_t parent_record;
     uint16_t parent_field;
     uint32_t first_record;
@@ -148,6 +158,7 @@ quarry_generic_status_t quarry_brf_nested_plan_add_array(quarry_brf_nested_plann
 quarry_generic_status_t quarry_brf_encode(const quarry_qbs_view_t*, const quarry_qbs_record_view_t*,
                                           const quarry_brf_value_provider_t*, uint8_t*, size_t,
                                           size_t*, quarry_brf_encoder_workspace_t*,
+                                          quarry_brf_writer_workspace_t*,
                                           const quarry_brf_encode_limits_t*);
 #ifdef __cplusplus
 }

@@ -110,6 +110,7 @@ int main(int argc, char** argv) {
     quarry_brf_encoder_array_element_t encoded_elements[16];
     quarry_brf_nested_record_plan_t plans[4];
     quarry_brf_nested_frame_t frames[4];
+    quarry_brf_writer_frame_t writer_frames[4];
     quarry_brf_nested_field_plan_t planned_fields[32];
     quarry_brf_nested_record_array_plan_t record_arrays[1];
     quarry_brf_encoder_workspace_t encoder = {
@@ -121,6 +122,7 @@ int main(int argc, char** argv) {
         16U,
         0U,
         {plans, 4U, frames, 4U, planned_fields, 32U, record_arrays, 1U, 0U, 0U, 0U, 0U}};
+    quarry_brf_writer_workspace_t writer = {writer_frames, 4U};
     quarry_brf_record_provider_t child = {child_field, NULL};
     root_context_t context = {&child};
     quarry_brf_value_provider_t root = {root_field, &context};
@@ -136,7 +138,7 @@ int main(int argc, char** argv) {
     quarry_generic_status_t encode_status =
         output == NULL ? QUARRY_GENERIC_INVALID_ARGUMENT
                        : quarry_brf_encode(&schema, parent, &root, output, 1024U, &output_size,
-                                           &encoder, NULL);
+                                           &encoder, &writer, NULL);
     if (encode_status != QUARRY_GENERIC_OK) {
         fprintf(stderr, "encode status=%d size=%zu\n", (int)encode_status, output_size);
         return 1;
@@ -155,28 +157,28 @@ int main(int argc, char** argv) {
     child_failure = 1;
     for (size_t i = 0U; i < 1024U; ++i)
         output[i] = 0xa5U;
-    if (quarry_brf_encode(&schema, parent, &root, output, 1024U, &output_size, &encoder, NULL) !=
+    if (quarry_brf_encode(&schema, parent, &root, output, 1024U, &output_size, &encoder, &writer, NULL) !=
             QUARRY_GENERIC_RESOURCE_LIMIT ||
         output[0] != 0xa5U || output[1023] != 0xa5U)
         return 1;
     child_failure = 0;
     encoder.nested.record_capacity = 1U;
     memset(output, 0x5a, 1024U);
-    if (quarry_brf_encode(&schema, parent, &root, output, 1024U, &output_size, &encoder, NULL) !=
+    if (quarry_brf_encode(&schema, parent, &root, output, 1024U, &output_size, &encoder, &writer, NULL) !=
             QUARRY_GENERIC_WORKSPACE_EXHAUSTED ||
         output[0] != 0x5aU)
         return 1;
     encoder.nested.record_capacity = 4U;
     encoder.nested.field_capacity = 14U;
     memset(output, 0x5a, 1024U);
-    if (quarry_brf_encode(&schema, parent, &root, output, 1024U, &output_size, &encoder, NULL) !=
+    if (quarry_brf_encode(&schema, parent, &root, output, 1024U, &output_size, &encoder, &writer, NULL) !=
             QUARRY_GENERIC_WORKSPACE_EXHAUSTED ||
         output[0] != 0x5aU)
         return 1;
     encoder.nested.field_capacity = 32U;
     encoder.nested.frame_capacity = 1U;
     memset(output, 0x5a, 1024U);
-    if (quarry_brf_encode(&schema, parent, &root, output, 1024U, &output_size, &encoder, NULL) !=
+    if (quarry_brf_encode(&schema, parent, &root, output, 1024U, &output_size, &encoder, &writer, NULL) !=
             QUARRY_GENERIC_WORKSPACE_EXHAUSTED ||
         output[0] != 0x5aU)
         return 1;

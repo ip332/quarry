@@ -203,6 +203,7 @@ struct CEncodingFixture {
     quarry_brf_encoder_array_element_t c_elements[32]{};
     quarry_brf_nested_record_plan_t nested_records[8]{};
     quarry_brf_nested_frame_t nested_frames[8]{};
+    quarry_brf_writer_frame_t writer_frames[8]{};
     quarry_brf_nested_field_plan_t nested_fields[64]{};
     quarry_brf_nested_record_array_plan_t nested_arrays[4]{};
     quarry_brf_encoder_workspace_t encoder_workspace{planned,
@@ -215,6 +216,7 @@ struct CEncodingFixture {
                                                      {nested_records, 8U, nested_frames, 8U,
                                                       nested_fields, 64U, nested_arrays, 4U, 0U, 0U,
                                                       0U, 0U}};
+    quarry_brf_writer_workspace_t writer_workspace{writer_frames, 8U};
     quarry_qbs_view_t schema{};
 };
 
@@ -343,7 +345,7 @@ TEST(GenericRuntimeConformance, GenericCEncodingMatchesCppAndDoesNotWriteOnFailu
     std::vector<std::uint8_t> c_bytes(cpp_bytes->size(), 0xa5U);
     std::size_t required = 0U;
     ASSERT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, c_bytes.data(), c_bytes.size(),
-                                &required, &c.encoder_workspace, nullptr),
+                                &required, &c.encoder_workspace, &c.writer_workspace, nullptr),
               QUARRY_GENERIC_OK);
     ASSERT_EQ(required, cpp_bytes->size());
     EXPECT_EQ(c_bytes, *cpp_bytes);
@@ -358,7 +360,7 @@ TEST(GenericRuntimeConformance, GenericCEncodingMatchesCppAndDoesNotWriteOnFailu
     std::vector<std::uint8_t> sentinel(required - 1U, 0x5aU);
     quarry_brf_encoder_workspace_reset(&c.encoder_workspace);
     EXPECT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, sentinel.data(), sentinel.size(),
-                                &required, &c.encoder_workspace, nullptr),
+                                &required, &c.encoder_workspace, &c.writer_workspace, nullptr),
               QUARRY_GENERIC_BUFFER_TOO_SMALL);
     EXPECT_EQ(sentinel, std::vector<std::uint8_t>(sentinel.size(), 0x5aU));
 
@@ -366,7 +368,7 @@ TEST(GenericRuntimeConformance, GenericCEncodingMatchesCppAndDoesNotWriteOnFailu
         std::vector<std::uint8_t> bytes(required, 0x3cU);
         quarry_brf_encoder_workspace_reset(&c.encoder_workspace);
         EXPECT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, bytes.data(), bytes.size(),
-                                    &required, &c.encoder_workspace, nullptr),
+                                    &required, &c.encoder_workspace, &c.writer_workspace, nullptr),
                   expected);
         EXPECT_EQ(bytes, std::vector<std::uint8_t>(bytes.size(), 0x3cU));
     };
@@ -379,7 +381,7 @@ TEST(GenericRuntimeConformance, GenericCEncodingMatchesCppAndDoesNotWriteOnFailu
     context.values[6].string_value = {"quarry", 6U};
     context.values[0].uint_value = UINT64_C(0xffffffff);
     EXPECT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, c_bytes.data(), c_bytes.size(),
-                                &required, &c.encoder_workspace, nullptr),
+                                &required, &c.encoder_workspace, &c.writer_workspace, nullptr),
               QUARRY_GENERIC_OK);
     context.values[0].uint_value = UINT64_C(0x100000000);
     preserves_output_on_failure(QUARRY_GENERIC_VALUE_OUT_OF_RANGE);
@@ -387,13 +389,13 @@ TEST(GenericRuntimeConformance, GenericCEncodingMatchesCppAndDoesNotWriteOnFailu
 
     context.values[1].int_value = INT64_C(-2147483648);
     EXPECT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, c_bytes.data(), c_bytes.size(),
-                                &required, &c.encoder_workspace, nullptr),
+                                &required, &c.encoder_workspace, &c.writer_workspace, nullptr),
               QUARRY_GENERIC_OK);
     context.values[1].int_value = INT64_C(-2147483649);
     preserves_output_on_failure(QUARRY_GENERIC_VALUE_OUT_OF_RANGE);
     context.values[1].int_value = INT64_C(2147483647);
     EXPECT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, c_bytes.data(), c_bytes.size(),
-                                &required, &c.encoder_workspace, nullptr),
+                                &required, &c.encoder_workspace, &c.writer_workspace, nullptr),
               QUARRY_GENERIC_OK);
     context.values[1].int_value = INT64_C(2147483648);
     preserves_output_on_failure(QUARRY_GENERIC_VALUE_OUT_OF_RANGE);
@@ -401,7 +403,7 @@ TEST(GenericRuntimeConformance, GenericCEncodingMatchesCppAndDoesNotWriteOnFailu
 
     context.values[5].int_value = 0;
     EXPECT_EQ(quarry_brf_encode(&c.schema, c_parent, &provider, c_bytes.data(), c_bytes.size(),
-                                &required, &c.encoder_workspace, nullptr),
+                                &required, &c.encoder_workspace, &c.writer_workspace, nullptr),
               QUARRY_GENERIC_OK);
     context.values[5].int_value = 2;
     preserves_output_on_failure(QUARRY_GENERIC_VALUE_OUT_OF_RANGE);
