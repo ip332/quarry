@@ -98,6 +98,7 @@ void quarry_brf_nested_planning_workspace_reset(quarry_brf_nested_planning_works
         w->frame_count = 0U;
         w->field_count = 0U;
         w->array_count = 0U;
+        w->array_element_count = 0U;
     }
 }
 
@@ -176,6 +177,18 @@ quarry_generic_status_t quarry_brf_nested_plan_add_array(quarry_brf_nested_plann
     *out_index = (uint32_t)w->array_count;
     w->arrays[w->array_count++] =
         (quarry_brf_nested_record_array_plan_t){parent_record, parent_field, UINT32_MAX, count};
+    return QUARRY_GENERIC_OK;
+}
+
+quarry_generic_status_t quarry_brf_nested_plan_add_array_element(
+    quarry_brf_nested_planning_workspace_t* w, uint32_t record_plan, uint32_t* out_index) {
+    if (w == NULL || out_index == NULL || w->array_elements == NULL || record_plan == UINT32_MAX)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    if (w->array_element_count >= w->array_element_capacity ||
+        w->array_element_count > UINT32_MAX)
+        return QUARRY_GENERIC_WORKSPACE_EXHAUSTED;
+    *out_index = (uint32_t)w->array_element_count;
+    w->array_elements[w->array_element_count++].record_plan = record_plan;
     return QUARRY_GENERIC_OK;
 }
 

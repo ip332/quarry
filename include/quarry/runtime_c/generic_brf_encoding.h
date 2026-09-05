@@ -118,6 +118,9 @@ typedef struct {
     uint32_t count;
 } quarry_brf_nested_record_array_plan_t;
 typedef struct {
+    uint32_t record_plan;
+} quarry_brf_record_array_element_plan_t;
+typedef struct {
     quarry_brf_nested_record_plan_t* records;
     size_t record_capacity;
     quarry_brf_nested_frame_t* frames;
@@ -130,6 +133,9 @@ typedef struct {
     size_t frame_count;
     size_t field_count;
     size_t array_count;
+    quarry_brf_record_array_element_plan_t* array_elements;
+    size_t array_element_capacity;
+    size_t array_element_count;
 } quarry_brf_nested_planning_workspace_t;
 typedef struct {
     quarry_brf_encoder_field_t* fields;
@@ -155,6 +161,8 @@ quarry_generic_status_t quarry_brf_nested_plan_add_field(quarry_brf_nested_plann
                                                          const quarry_brf_value_t*, uint32_t*);
 quarry_generic_status_t quarry_brf_nested_plan_add_array(quarry_brf_nested_planning_workspace_t*,
                                                          uint32_t, uint16_t, uint32_t, uint32_t*);
+quarry_generic_status_t quarry_brf_nested_plan_add_array_element(
+    quarry_brf_nested_planning_workspace_t*, uint32_t, uint32_t*);
 quarry_generic_status_t quarry_brf_encode(const quarry_qbs_view_t*, const quarry_qbs_record_view_t*,
                                           const quarry_brf_value_provider_t*, uint8_t*, size_t,
                                           size_t*, quarry_brf_encoder_workspace_t*,

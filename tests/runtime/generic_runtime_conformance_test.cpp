@@ -215,7 +215,7 @@ struct CEncodingFixture {
                                                      0U,
                                                      {nested_records, 8U, nested_frames, 8U,
                                                       nested_fields, 64U, nested_arrays, 4U, 0U, 0U,
-                                                      0U, 0U}};
+                                                      0U, 0U, nullptr, 0U, 0U}};
     quarry_brf_writer_workspace_t writer_workspace{writer_frames, 8U};
     quarry_qbs_view_t schema{};
 };
