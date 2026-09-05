@@ -432,12 +432,15 @@ static void nested_write_scalar(uint8_t* dst, const quarry_qbs_field_view_t* fie
     }
 }
 
-static quarry_generic_status_t nested_write(const quarry_qbs_view_t* q,
-                                            quarry_brf_encoder_workspace_t* w, uint8_t* dst,
-                                            quarry_brf_writer_workspace_t* writer, size_t total) {
+static quarry_generic_status_t write_planned_record(const quarry_qbs_view_t* q,
+                                                    quarry_brf_encoder_workspace_t* w,
+                                                    uint8_t* dst,
+                                                    quarry_brf_writer_workspace_t* writer,
+                                                    uint32_t record_plan_index,
+                                                    size_t destination_offset) {
     size_t frame_count = 1U;
-    writer->frames[0] = (quarry_brf_writer_frame_t){0U, 0U, 0U, 1U};
-    memset(dst, 0, total);
+    writer->frames[0] =
+        (quarry_brf_writer_frame_t){record_plan_index, 0U, destination_offset, 1U};
     while (frame_count != 0U) {
         quarry_brf_writer_frame_t* frame = &writer->frames[frame_count - 1U];
         const quarry_brf_nested_record_plan_t* plan = &w->nested.records[frame->record_plan];
@@ -544,7 +547,8 @@ quarry_brf_encode(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* r,
         if (dst == NULL || cap < total)
             return QUARRY_GENERIC_BUFFER_TOO_SMALL;
         *result = total;
-        return nested_write(q, w, dst, writer, total);
+        memset(dst, 0, total);
+        return write_planned_record(q, w, dst, writer, 0U, 0U);
     }
     if (w->fields == NULL || r->field_count > w->field_capacity)
         return QUARRY_GENERIC_INVALID_ARGUMENT;
