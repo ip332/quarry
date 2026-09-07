@@ -100,6 +100,10 @@ typedef struct {
     uint16_t field_cursor;
     size_t destination_offset;
     uint8_t phase;
+    /* Nonzero kind reserves this frame for one bounded array continuation. */
+    uint8_t kind;
+    uint32_t array_plan;
+    uint32_t array_index;
 } quarry_brf_nested_frame_t;
 typedef struct {
     uint32_t record_plan;
@@ -156,6 +160,8 @@ quarry_generic_status_t quarry_brf_nested_plan_push_record(quarry_brf_nested_pla
                                                            uint32_t, uint16_t, uint32_t*);
 quarry_generic_status_t quarry_brf_nested_plan_push_frame(quarry_brf_nested_planning_workspace_t*,
                                                           uint32_t, uint32_t*);
+quarry_generic_status_t quarry_brf_nested_plan_push_array_frame(
+    quarry_brf_nested_planning_workspace_t*, uint32_t, uint32_t, uint32_t*);
 quarry_generic_status_t quarry_brf_nested_plan_add_field(quarry_brf_nested_planning_workspace_t*,
                                                          uint32_t, uint16_t,
                                                          const quarry_brf_value_t*, uint32_t*);

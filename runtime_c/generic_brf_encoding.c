@@ -136,7 +136,21 @@ quarry_generic_status_t quarry_brf_nested_plan_push_frame(quarry_brf_nested_plan
     if (w->frame_count >= w->frame_capacity || w->frame_count > UINT32_MAX)
         return QUARRY_GENERIC_WORKSPACE_EXHAUSTED;
     *out_index = (uint32_t)w->frame_count;
-    w->frames[w->frame_count++] = (quarry_brf_nested_frame_t){record_plan, 0U, 0U, 0U};
+    w->frames[w->frame_count++] =
+        (quarry_brf_nested_frame_t){record_plan, 0U, 0U, 0U, 0U, UINT32_MAX, UINT32_MAX};
+    return QUARRY_GENERIC_OK;
+}
+
+quarry_generic_status_t quarry_brf_nested_plan_push_array_frame(
+    quarry_brf_nested_planning_workspace_t* w, uint32_t array_plan, uint32_t array_index,
+    uint32_t* out_index) {
+    if (w == NULL || out_index == NULL || w->arrays == NULL || array_plan >= w->array_count)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    if (w->frame_count >= w->frame_capacity || w->frame_count > UINT32_MAX)
+        return QUARRY_GENERIC_WORKSPACE_EXHAUSTED;
+    *out_index = (uint32_t)w->frame_count;
+    w->frames[w->frame_count++] =
+        (quarry_brf_nested_frame_t){UINT32_MAX, 0U, 0U, 0U, 1U, array_plan, array_index};
     return QUARRY_GENERIC_OK;
 }
 
@@ -532,7 +546,7 @@ quarry_brf_encode(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* r,
                   const quarry_brf_value_provider_t* p, uint8_t* dst, size_t cap, size_t* result,
                   quarry_brf_encoder_workspace_t* w, quarry_brf_writer_workspace_t* writer,
                   const quarry_brf_encode_limits_t* lim) {
-    size_t fixed, tail, total;
+    size_t fixed, tail, total = 0U;
     uint16_t i;
     size_t maxb = lim == NULL ? SIZE_MAX : lim->max_record_bytes,
            maxw = lim == NULL ? SIZE_MAX : lim->max_work_items;
