@@ -34,7 +34,7 @@ int main(void) {
     quarry_brf_nested_planning_workspace_t workspace = {records, 2U, frames, 2U, fields, 2U,
                                                         arrays,  1U, 0U,     0U, 0U,     0U,
                                                         elements, 2U, 0U};
-    uint32_t root, child, frame, field, array;
+    uint32_t root, child, frame, field, array, continuation;
     quarry_brf_record_array_provider_t record_array = {record_at, 2U, NULL};
     const quarry_brf_record_provider_t* element = NULL;
     schema.field_count = 1U;
@@ -48,12 +48,17 @@ int main(void) {
             QUARRY_GENERIC_OK ||
         quarry_brf_nested_plan_add_array(&workspace, root, 4U, record_array.count, &array) !=
             QUARRY_GENERIC_OK ||
+        quarry_brf_nested_plan_push_array_frame(&workspace, array, 0U, &continuation) !=
+            QUARRY_GENERIC_OK ||
         record_array.get_record(&record_array, 1U, &element) != QUARRY_GENERIC_OK ||
         element == NULL || workspace.records[child].parent_record != root ||
         workspace.arrays[array].parent_record != root ||
         quarry_brf_nested_plan_add_array_element(&workspace, child, &field) != QUARRY_GENERIC_OK ||
         workspace.array_elements[field].record_plan != child ||
         workspace.frames[frame].record_plan != root ||
+        workspace.frames[continuation].kind != 1U ||
+        workspace.frames[continuation].array_plan != array ||
+        workspace.frames[continuation].array_index != 0U ||
         workspace.fields[field].parent_record != root)
         return 1;
     if (quarry_brf_nested_plan_push_record(&workspace, &schema, &provider, root, 0U, &child) !=
