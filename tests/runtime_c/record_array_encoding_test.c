@@ -1,4 +1,5 @@
 #include "quarry/runtime_c/generic_brf.h"
+#include "quarry/runtime_c/generic_brf_encoding.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -16,6 +17,18 @@ static int read_file(const char* path, uint8_t** data, size_t* size) {
         return 1;
     fclose(file);
     return 0;
+}
+
+static quarry_brf_record_array_provider_t empty_array = {NULL, 0U, NULL};
+static quarry_generic_status_t empty_root_field(const quarry_brf_value_provider_t* provider,
+                                                uint16_t index, quarry_brf_value_t* out) {
+    (void)provider;
+    *out = (quarry_brf_value_t){0};
+    if (index == 10U) {
+        out->kind = QUARRY_BRF_ENCODE_ARRAY;
+        out->aggregate = &empty_array;
+    }
+    return QUARRY_GENERIC_OK;
 }
 
 int main(int argc, char** argv) {
@@ -54,6 +67,38 @@ int main(int argc, char** argv) {
         schema.records[schema.types[array->reference].reference].record_id != 3U ||
         array->max_elements != 4U)
         return 1;
+    quarry_brf_nested_record_plan_t plans[4];
+    quarry_brf_nested_frame_t planning_frames[4];
+    quarry_brf_nested_field_plan_t planned_fields[32];
+    quarry_brf_nested_record_array_plan_t plan_arrays[1];
+    quarry_brf_record_array_element_plan_t relationships[1];
+    quarry_brf_writer_frame_t writer_frames[4];
+    quarry_brf_encoder_workspace_t encoder = {0};
+    encoder.nested = (quarry_brf_nested_planning_workspace_t){plans,
+                                                              4U,
+                                                              planning_frames,
+                                                              4U,
+                                                              planned_fields,
+                                                              32U,
+                                                              plan_arrays,
+                                                              1U,
+                                                              0U,
+                                                              0U,
+                                                              0U,
+                                                              0U,
+                                                              relationships,
+                                                              1U,
+                                                              0U};
+    quarry_brf_writer_workspace_t writer = {writer_frames, 4U};
+    uint8_t output[256];
+    size_t output_size = 0U;
+    quarry_generic_status_t smoke =
+        quarry_brf_encode(&schema, root, &(quarry_brf_value_provider_t){empty_root_field, NULL},
+                          output, sizeof(output), &output_size, &encoder, &writer, NULL);
+    if (smoke != QUARRY_GENERIC_OK || output_size == 0U) {
+        fprintf(stderr, "smoke=%d size=%zu\n", (int)smoke, output_size);
+        return 1;
+    }
     free(qbs);
     puts("record array QBS fixture: ok");
     return 0;

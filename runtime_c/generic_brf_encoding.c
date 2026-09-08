@@ -100,7 +100,7 @@ static quarry_generic_status_t nested_array_element_plan(const quarry_qbs_view_t
         return QUARRY_GENERIC_MALFORMED_QBS;
     const quarry_brf_record_array_provider_t* provider =
         (const quarry_brf_record_array_provider_t*)field->value.aggregate;
-    if (provider == NULL || provider->get_record == NULL)
+    if (provider == NULL || (array->count != 0U && provider->get_record == NULL))
         return QUARRY_GENERIC_TYPE_MISMATCH;
     const quarry_brf_record_provider_t* element_provider = NULL;
     quarry_generic_status_t status =
@@ -509,7 +509,7 @@ nested_plan(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* root_sch
             if (element->code == 15U) {
                 const quarry_brf_record_array_provider_t* array =
                     (const quarry_brf_record_array_provider_t*)value.aggregate;
-                if (array == NULL || array->get_record == NULL)
+                if (array == NULL || (array->count != 0U && array->get_record == NULL))
                     return QUARRY_GENERIC_TYPE_MISMATCH;
                 if (array->count > type->max_elements || array->count > UINT32_MAX)
                     return array->count > type->max_elements ? QUARRY_GENERIC_VALUE_OUT_OF_RANGE
