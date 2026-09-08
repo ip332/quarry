@@ -652,9 +652,11 @@ static quarry_generic_status_t write_planned_record(const quarry_qbs_view_t* q,
                 return QUARRY_GENERIC_MALFORMED_QBS;
             const quarry_brf_nested_record_plan_t* child =
                 &w->nested.records[relation->record_plan];
-            size_t cursor;
+            size_t cursor = 0U;
             if (!varuint_size(array->count, &cursor))
                 return QUARRY_GENERIC_RESOURCE_LIMIT;
+            cursor = 0U;
+            put_varuint(record + array_field->payload_offset, &cursor, array->count);
             for (uint32_t n = 0U; n < frame->array_index; ++n) {
                 const quarry_brf_record_array_element_plan_t* prior_relation =
                     nested_array_element_at(&w->nested, array, n);
