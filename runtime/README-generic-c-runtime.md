@@ -84,6 +84,13 @@ fields, and record-array relationships. E3-2 uses the record and frame stores
 for production nested-record encoding; record-array planning remains reserved
 for a later phase.
 
+The caller-owned `quarry_brf_writer_frame_t` also carries bounded record-array
+continuation state. Its size is compiler/ABI dependent (32 bytes with the
+current 64-bit host ABI); callers must allocate it using the current public
+header. Writer-frame capacity remains bounded by active record nesting depth,
+not sibling element count. The writer workspace descriptor itself is
+unchanged.
+
 Scalar and primitive-array metadata is snapshotted during planning. Borrowed
 string/bytes spans are not copied, so their backing bytes must remain valid for
 the complete encode call. The eventual write phase must not call providers.
