@@ -95,7 +95,8 @@ static quarry_generic_status_t nested_array_element_plan(const quarry_qbs_view_t
     const quarry_qbs_field_view_t* qfield =
         &q->fields[parent->schema->field_start + array->parent_field];
     const quarry_qbs_type_view_t* array_type = &q->types[qfield->type_index];
-    if (array_type->reference >= q->type_count || q->types[array_type->reference].code != 15U)
+    if (array_type->reference >= q->type_count || q->types[array_type->reference].code != 15U ||
+        q->types[array_type->reference].reference >= q->record_count)
         return QUARRY_GENERIC_MALFORMED_QBS;
     const quarry_brf_record_array_provider_t* provider =
         (const quarry_brf_record_array_provider_t*)field->value.aggregate;
@@ -110,9 +111,9 @@ static quarry_generic_status_t nested_array_element_plan(const quarry_qbs_view_t
     if (w->nested.array_element_count >= w->nested.array_element_capacity ||
         w->nested.array_elements == NULL)
         return QUARRY_GENERIC_WORKSPACE_EXHAUSTED;
-    status = quarry_brf_nested_plan_push_record(&w->nested, &q->records[array_type->reference],
-                                                element_provider, UINT32_MAX, UINT16_MAX,
-                                                &element_record);
+    status = quarry_brf_nested_plan_push_record(
+        &w->nested, &q->records[q->types[array_type->reference].reference], element_provider,
+        UINT32_MAX, UINT16_MAX, &element_record);
     if (status != QUARRY_GENERIC_OK)
         return status;
     uint32_t relationship;
@@ -126,7 +127,7 @@ static quarry_generic_status_t nested_array_element_plan(const quarry_qbs_view_t
     }
     array->last_element = relationship;
     w->nested.records[element_record].planned_size =
-        16U + q->records[array_type->reference].fixed_region_size;
+        16U + q->records[q->types[array_type->reference].reference].fixed_region_size;
     uint32_t record_frame;
     status = quarry_brf_nested_plan_push_frame(&w->nested, element_record, &record_frame);
     if (status != QUARRY_GENERIC_OK)
@@ -381,7 +382,8 @@ nested_plan(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* root_sch
                 &w->nested.fields[parent->first_field + array->parent_field];
             const quarry_qbs_type_view_t* array_type =
                 &q->types[q->fields[parent->schema->field_start + array->parent_field].type_index];
-            const quarry_qbs_record_view_t* element_schema = &q->records[array_type->reference];
+            const quarry_qbs_record_view_t* element_schema =
+                &q->records[q->types[array_type->reference].reference];
             if (frame->array_index < array->count) {
                 s = nested_array_element_plan(q, w, frame, &active_depth, required_depth);
                 if (s != QUARRY_GENERIC_OK)
@@ -419,7 +421,8 @@ nested_plan(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* root_sch
                 const quarry_qbs_type_view_t* array_type =
                     &q->types[q->fields[array_parent->schema->field_start + array->parent_field]
                                   .type_index];
-                const quarry_qbs_record_view_t* element_schema = &q->records[array_type->reference];
+                const quarry_qbs_record_view_t* element_schema =
+                    &q->records[q->types[array_type->reference].reference];
                 size_t contribution = plan->planned_size;
                 if (!element_schema->variable_size &&
                     (plan->planned_size != element_schema->complete_fixed_record_size ||
@@ -637,6 +640,8 @@ static quarry_generic_status_t write_planned_record(const quarry_qbs_view_t* q,
                 &w->nested.fields[plan->first_field + (frame->field_cursor - 1U)];
             const quarry_qbs_field_view_t* qfield =
                 &q->fields[plan->schema->field_start + (frame->field_cursor - 1U)];
+            const quarry_qbs_type_view_t* array_type = &q->types[qfield->type_index];
+            const quarry_qbs_type_view_t* element_type = &q->types[array_type->reference];
             if (frame->array_index == array->count) {
                 frame->phase = 2U;
                 continue;
@@ -657,7 +662,7 @@ static quarry_generic_status_t write_planned_record(const quarry_qbs_view_t* q,
                     return QUARRY_GENERIC_MALFORMED_QBS;
                 const quarry_brf_nested_record_plan_t* prior =
                     &w->nested.records[prior_relation->record_plan];
-                if (q->records[q->types[qfield->type_index].reference].variable_size) {
+                if (q->records[element_type->reference].variable_size) {
                     size_t prefix;
                     if (!varuint_size(prior->planned_size, &prefix))
                         return QUARRY_GENERIC_RESOURCE_LIMIT;
@@ -665,7 +670,7 @@ static quarry_generic_status_t write_planned_record(const quarry_qbs_view_t* q,
                 }
                 cursor += prior->planned_size;
             }
-            if (q->records[q->types[qfield->type_index].reference].variable_size)
+            if (q->records[element_type->reference].variable_size)
                 put_varuint(record + array_field->payload_offset, &cursor, child->planned_size);
             ++frame->array_index;
             writer->frames[frame_count++] = (quarry_brf_writer_frame_t){
