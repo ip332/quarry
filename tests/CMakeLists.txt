@@ -171,6 +171,9 @@ target_link_libraries(generic_runtime_conformance_fixture_generator
 add_test(NAME generic_runtime_conformance_fixture_check
     COMMAND generic_runtime_conformance_fixture_generator --check
             ${CMAKE_SOURCE_DIR}/tests/fixtures/generic_runtime_conformance)
+add_test(NAME fixed_record_array_fixture_check
+    COMMAND generic_runtime_conformance_fixture_generator --check-fixed
+            ${CMAKE_SOURCE_DIR}/tests/fixtures/record_array_fixed)
 add_quarry_gtest(runtime_c_binary_record_test runtime_c/binary_record_test.cpp
                       quarry_runtime_c)
 target_compile_definitions(runtime_c_binary_record_test PRIVATE
@@ -195,6 +198,10 @@ add_executable(record_array_encoding_test runtime_c/record_array_encoding_test.c
 target_link_libraries(record_array_encoding_test PRIVATE quarry_runtime_c)
 add_test(NAME record_array_encoding_test COMMAND record_array_encoding_test
     ${CMAKE_SOURCE_DIR}/tests/fixtures/generic_runtime_conformance/schema.qbs)
+add_executable(fixed_record_array_fixture_test runtime_c/fixed_record_array_fixture_test.c)
+target_link_libraries(fixed_record_array_fixture_test PRIVATE quarry_runtime_c)
+add_test(NAME fixed_record_array_fixture_test COMMAND fixed_record_array_fixture_test
+    ${CMAKE_SOURCE_DIR}/tests/fixtures/record_array_fixed/schema.qbs)
 set_target_properties(generic_c_runtime_test PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
 add_test(NAME generic_c_runtime_test COMMAND generic_c_runtime_test)
 add_quarry_gtest(runtime_package_consumer_test consumer/runtime_package_test.cpp
