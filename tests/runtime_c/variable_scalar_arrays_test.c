@@ -55,9 +55,9 @@ static quarry_generic_status_t root_field(const quarry_brf_value_provider_t* p, 
 static int load_file(const char* path, uint8_t** data, size_t* size) {
     FILE* f = fopen(path, "rb"); long n;
     if (f == NULL || fseek(f, 0L, SEEK_END) != 0) return 1;
-    n = ftell(f); if (n < 0L || fseek(f, 0L, SEEK_SET) != 0) return 1;
+    n = ftell(f); if (n < 0L || fseek(f, 0L, SEEK_SET) != 0) { fclose(f); return 1; }
     *size = (size_t)n; *data = (uint8_t*)malloc(*size);
-    if (*data == NULL || fread(*data, 1U, *size, f) != *size) return 1;
+    if (*data == NULL || fread(*data, 1U, *size, f) != *size) { free(*data); *data = NULL; fclose(f); return 1; }
     fclose(f); return 0;
 }
 
@@ -97,6 +97,41 @@ int main(int argc, char** argv) {
         0x00,0x03,0x01,0x41,0x05,0x68,0x65,0x6c,0x6c,0x6f,0x02,0xc3,0xa9};
     assert(size == sizeof(expected_strings) && memcmp(output, expected_strings, size) == 0);
     assert(size > 0U);
+
+    /* Present-empty arrays retain presence but require no element lookup. */
+    strings.count = 0U; blobs.count = 0U;
+    strings.lookups = blobs.lookups = 0U;
+    context.present_strings = 1; context.present_blobs = 1;
+    assert(quarry_brf_encode(&q, root, &provider, output, sizeof(output), &size, &encoder, NULL, NULL) == QUARRY_GENERIC_OK);
+    assert(strings.lookups == 0U && blobs.lookups == 0U);
+    assert(size > 0U);
+    /* Both array fields are present, and each payload is the canonical zero count. */
+    assert(output[size - 2U] == 0U && output[size - 1U] == 0U);
+
+    /* Zero-length elements use a length prefix with no payload bytes. */
+    names[0] = ""; strings.strings[0] = names[0]; strings.string_lengths[0] = 0U;
+    strings.count = 3U; blobs.count = 3U;
+    blobs.blobs[0] = b0; blobs.blob_lengths[0] = 0U;
+    blobs.blobs[1] = b1; blobs.blob_lengths[1] = 0U;
+    blobs.blobs[2] = b0; blobs.blob_lengths[2] = 2U;
+    strings.lookups = blobs.lookups = 0U;
+    assert(quarry_brf_encode(&q, root, &provider, output, sizeof(output), &size, &encoder, NULL, NULL) == QUARRY_GENERIC_OK);
+    assert(strings.lookups == 3U && blobs.lookups == 3U);
+    assert(size > 0U);
+
+    /* Absent arrays produce no array payload and do not enumerate elements. */
+    context.present_strings = 0; context.present_blobs = 0;
+    strings.lookups = blobs.lookups = 0U;
+    assert(quarry_brf_encode(&q, root, &provider, output, sizeof(output), &size, &encoder, NULL, NULL) == QUARRY_GENERIC_OK);
+    assert(strings.lookups == 0U && blobs.lookups == 0U);
+    assert(size > 0U);
+
+    names[0] = "A"; names[1] = "hello"; names[2] = "é";
+    strings.strings[0] = names[0]; strings.string_lengths[0] = 1U;
+    strings.string_lengths[1] = 5U; strings.string_lengths[2] = 2U;
+    blobs.blobs[0] = b0; blobs.blob_lengths[0] = 2U;
+    blobs.blobs[1] = b1; blobs.blob_lengths[1] = 1U;
+    blobs.blobs[2] = b2; blobs.blob_lengths[2] = 0U;
     context.present_strings = 0; context.present_blobs = 1; strings.lookups = blobs.lookups = 0U;
     assert(quarry_brf_encode(&q, root, &provider, output, sizeof(output), &size, &encoder, NULL, NULL) == QUARRY_GENERIC_OK);
     assert(blobs.lookups == 3U);
