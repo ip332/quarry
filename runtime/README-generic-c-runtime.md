@@ -61,7 +61,8 @@ destination is modified. Present-empty arrays remain present and encode a zero
 count; absent fields retain canonical zero storage.
 
 E2 supports unsigned and signed integers, bool, float32, float64, and enum
-arrays. String/bytes arrays and arrays of records remain deferred.
+arrays. Record arrays are supported by the generic encoder when the QBS
+element type is a record; string/bytes arrays remain deferred.
 
 E3-1 defined the aggregate provider and iterative planning architecture.
 `quarry_brf_record_provider_t` is an
@@ -70,7 +71,10 @@ record, field, type, enum, and array structure. The provider must remain valid
 and deterministic for the complete planning operation and carries no schema,
 offset, or BRF layout data. `quarry_brf_record_array_provider_t` supplies a
 count and indexed record handles through a distinct callback, so record-array
-elements cannot be confused with primitive scalar elements.
+elements cannot be confused with primitive scalar elements. Record-array
+elements are planned as ordinary record plans and written through the
+provider-free planned-record writer; fixed-size arrays use contiguous records,
+while variable-size arrays use a size prefix for each element.
 
 The encoder workspace has an optional caller-owned `nested` store containing
 indexed record plans, field plans, record-array relationships, and iterative
@@ -80,8 +84,15 @@ workspace arrays. Reset it with
 as well), then use the typed push helpers for deterministic capacity checks.
 There is no hidden heap or arena. Callers provide capacity for records, frames,
 fields, and record-array relationships. E3-2 uses the record and frame stores
-for production nested-record encoding; record-array planning remains reserved
-for a later phase.
+for production nested-record encoding; E3-3b2 additionally uses them for
+bounded record-array planning and writing.
+
+The caller-owned `quarry_brf_writer_frame_t` also carries bounded record-array
+continuation state. Its size is compiler/ABI dependent (32 bytes with the
+current 64-bit host ABI); callers must allocate it using the current public
+header. Writer-frame capacity remains bounded by active record nesting depth,
+not sibling element count. The writer workspace descriptor itself is
+unchanged.
 
 Scalar and primitive-array metadata is snapshotted during planning. Borrowed
 string/bytes spans are not copied, so their backing bytes must remain valid for

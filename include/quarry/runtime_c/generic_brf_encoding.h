@@ -110,6 +110,8 @@ typedef struct {
     uint16_t field_cursor;
     size_t destination_offset;
     uint8_t phase;
+    uint32_t array_plan;
+    uint32_t array_index;
 } quarry_brf_writer_frame_t;
 typedef struct {
     quarry_brf_writer_frame_t* frames;
@@ -118,11 +120,13 @@ typedef struct {
 typedef struct {
     uint32_t parent_record;
     uint16_t parent_field;
-    uint32_t first_record;
+    uint32_t first_element;
     uint32_t count;
+    uint32_t last_element;
 } quarry_brf_nested_record_array_plan_t;
 typedef struct {
     uint32_t record_plan;
+    uint32_t next_element;
 } quarry_brf_record_array_element_plan_t;
 typedef struct {
     quarry_brf_nested_record_plan_t* records;
@@ -160,15 +164,17 @@ quarry_generic_status_t quarry_brf_nested_plan_push_record(quarry_brf_nested_pla
                                                            uint32_t, uint16_t, uint32_t*);
 quarry_generic_status_t quarry_brf_nested_plan_push_frame(quarry_brf_nested_planning_workspace_t*,
                                                           uint32_t, uint32_t*);
-quarry_generic_status_t quarry_brf_nested_plan_push_array_frame(
-    quarry_brf_nested_planning_workspace_t*, uint32_t, uint32_t, uint32_t*);
+quarry_generic_status_t
+quarry_brf_nested_plan_push_array_frame(quarry_brf_nested_planning_workspace_t*, uint32_t, uint32_t,
+                                        uint32_t*);
 quarry_generic_status_t quarry_brf_nested_plan_add_field(quarry_brf_nested_planning_workspace_t*,
                                                          uint32_t, uint16_t,
                                                          const quarry_brf_value_t*, uint32_t*);
 quarry_generic_status_t quarry_brf_nested_plan_add_array(quarry_brf_nested_planning_workspace_t*,
                                                          uint32_t, uint16_t, uint32_t, uint32_t*);
-quarry_generic_status_t quarry_brf_nested_plan_add_array_element(
-    quarry_brf_nested_planning_workspace_t*, uint32_t, uint32_t*);
+quarry_generic_status_t
+quarry_brf_nested_plan_add_array_element(quarry_brf_nested_planning_workspace_t*, uint32_t,
+                                         uint32_t*);
 quarry_generic_status_t quarry_brf_encode(const quarry_qbs_view_t*, const quarry_qbs_record_view_t*,
                                           const quarry_brf_value_provider_t*, uint8_t*, size_t,
                                           size_t*, quarry_brf_encoder_workspace_t*,

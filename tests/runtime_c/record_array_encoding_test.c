@@ -1,0 +1,315 @@
+#include "quarry/runtime_c/generic_brf.h"
+#include "quarry/runtime_c/generic_brf_encoding.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static int read_file(const char* path, uint8_t** data, size_t* size) {
+    FILE* file = fopen(path, "rb");
+    long length;
+    if (file == NULL || fseek(file, 0L, SEEK_END) != 0)
+        return 1;
+    length = ftell(file);
+    if (length < 0L || fseek(file, 0L, SEEK_SET) != 0)
+        return 1;
+    *size = (size_t)length;
+    *data = (uint8_t*)malloc(*size);
+    if (*data == NULL || fread(*data, 1U, *size, file) != *size)
+        return 1;
+    fclose(file);
+    return 0;
+}
+
+static quarry_brf_record_array_provider_t empty_array = {NULL, 0U, NULL};
+static quarry_generic_status_t empty_root_field(const quarry_brf_value_provider_t* provider,
+                                                uint16_t index, quarry_brf_value_t* out) {
+    (void)provider;
+    *out = (quarry_brf_value_t){0};
+    if (index == 10U) {
+        out->kind = QUARRY_BRF_ENCODE_ARRAY;
+        out->aggregate = &empty_array;
+    }
+    return QUARRY_GENERIC_OK;
+}
+
+typedef struct { uint32_t value; const char* label; size_t calls; } child_context_t;
+typedef struct { int32_t value; const quarry_brf_record_provider_t* child; size_t calls; } item_context_t;
+typedef struct { item_context_t* items; size_t count, lookups; } variable_array_context_t;
+static int fail_child_value;
+static int omit_item_child;
+static quarry_generic_status_t child_field(const quarry_brf_record_provider_t* p, uint16_t i,
+                                           quarry_brf_value_t* out) {
+    child_context_t* c = (child_context_t*)p->context; ++c->calls; *out = (quarry_brf_value_t){0};
+    if ((int)c->value == fail_child_value) return QUARRY_GENERIC_RESOURCE_LIMIT;
+    if (i == 0U) { out->kind = QUARRY_BRF_ENCODE_UINT; out->uint_value = c->value; }
+    else if (i == 1U) { out->kind = QUARRY_BRF_ENCODE_STRING; out->string_value = (quarry_string_view_t){c->label, strlen(c->label)}; }
+    else return QUARRY_GENERIC_FIELD_NOT_FOUND;
+    return QUARRY_GENERIC_OK;
+}
+static quarry_generic_status_t item_field(const quarry_brf_record_provider_t* p, uint16_t i,
+                                          quarry_brf_value_t* out) {
+    item_context_t* c = (item_context_t*)p->context; ++c->calls; *out = (quarry_brf_value_t){0};
+    if (i == 0U) { out->kind = QUARRY_BRF_ENCODE_INT; out->int_value = c->value; }
+    else if (i == 1U) {
+        if (omit_item_child) out->kind = QUARRY_BRF_ENCODE_ABSENT;
+        else { out->kind = QUARRY_BRF_ENCODE_RECORD; out->aggregate = c->child; }
+    }
+    else return QUARRY_GENERIC_FIELD_NOT_FOUND;
+    return QUARRY_GENERIC_OK;
+}
+static quarry_generic_status_t variable_array_item(const quarry_brf_record_array_provider_t* p, size_t i,
+                                                   const quarry_brf_record_provider_t** out) {
+    variable_array_context_t* c = (variable_array_context_t*)p->context; ++c->lookups;
+    static quarry_brf_record_provider_t providers[4];
+    if (i >= c->count) return QUARRY_GENERIC_FIELD_NOT_FOUND;
+    providers[i] = (quarry_brf_record_provider_t){item_field, &c->items[i]}; *out = &providers[i];
+    return QUARRY_GENERIC_OK;
+}
+static quarry_generic_status_t variable_root_field(const quarry_brf_value_provider_t* p, uint16_t i,
+                                                   quarry_brf_value_t* out) {
+    const quarry_brf_record_array_provider_t* array = (const quarry_brf_record_array_provider_t*)p->context;
+    *out = (quarry_brf_value_t){0};
+    if (i != 10U) return QUARRY_GENERIC_OK;
+    out->kind = QUARRY_BRF_ENCODE_ARRAY; out->aggregate = array; return QUARRY_GENERIC_OK;
+}
+
+int main(int argc, char** argv) {
+    uint8_t* qbs = NULL;
+    size_t qbs_size = 0U;
+    quarry_qbs_record_view_t records[8];
+    quarry_qbs_field_view_t fields[32];
+    quarry_qbs_type_view_t types[32];
+    quarry_qbs_enum_view_t enums[4];
+    uint64_t enum_values[16];
+    quarry_brf_record_node_t nodes[8];
+    quarry_brf_field_state_t states[32];
+    uint32_t maps[32], array_elements[16];
+    quarry_brf_child_relation_t children[8];
+    quarry_brf_record_array_relation_t arrays[4];
+    quarry_brf_validation_frame_t frames[8];
+    quarry_workspace_t workspace = {
+        records, 8U,  fields, 32U, types,    32U, enums,  4U, enum_values,    16U, nodes,  8U,
+        states,  32U, maps,   32U, children, 8U,  arrays, 4U, array_elements, 16U, frames, 8U,
+        0U,      0U,  0U,     0U,  0U,       0U,  0U};
+    quarry_generic_limits_t limits = {1U << 20U, 1U << 20U, 1024U, 16U, 16U};
+    quarry_qbs_view_t schema = {0};
+    const quarry_qbs_record_view_t* root = NULL;
+    if (argc != 2 || read_file(argv[1], &qbs, &qbs_size) != 0 ||
+        quarry_qbs_parse(qbs, qbs_size, &schema, &workspace, &limits) != QUARRY_GENERIC_OK ||
+        quarry_qbs_find_record_by_id(&schema, 1U, &root) != QUARRY_GENERIC_OK ||
+        root->field_count <= 10U)
+        return 1;
+    const quarry_qbs_field_view_t* field = &schema.fields[root->field_start + 10U];
+    if (field->type_index >= schema.type_count || schema.types[field->type_index].code != 16U)
+        return 1;
+    const quarry_qbs_type_view_t* array = &schema.types[field->type_index];
+    if (array->reference >= schema.type_count || schema.types[array->reference].code != 15U)
+        return 1;
+    if (schema.types[array->reference].reference >= schema.record_count ||
+        schema.records[schema.types[array->reference].reference].record_id != 3U ||
+        array->max_elements != 4U)
+        return 1;
+    quarry_brf_nested_record_plan_t plans[4];
+    quarry_brf_nested_frame_t planning_frames[4];
+    quarry_brf_nested_field_plan_t planned_fields[32];
+    quarry_brf_nested_record_array_plan_t plan_arrays[1];
+    quarry_brf_record_array_element_plan_t relationships[1];
+    quarry_brf_writer_frame_t writer_frames[4];
+    quarry_brf_encoder_workspace_t encoder = {0};
+    encoder.nested = (quarry_brf_nested_planning_workspace_t){plans,
+                                                              4U,
+                                                              planning_frames,
+                                                              4U,
+                                                              planned_fields,
+                                                              32U,
+                                                              plan_arrays,
+                                                              1U,
+                                                              0U,
+                                                              0U,
+                                                              0U,
+                                                              0U,
+                                                              relationships,
+                                                              1U,
+                                                              0U};
+    quarry_brf_writer_workspace_t writer = {writer_frames, 4U};
+    uint8_t output[1024];
+    size_t output_size = 0U;
+    quarry_generic_status_t smoke =
+        quarry_brf_encode(&schema, root, &(quarry_brf_value_provider_t){empty_root_field, NULL},
+                          output, sizeof(output), &output_size, &encoder, &writer, NULL);
+    if (smoke != QUARRY_GENERIC_OK || output_size == 0U) {
+        fprintf(stderr, "smoke=%d size=%zu\n", (int)smoke, output_size);
+        return 1;
+    }
+    child_context_t child_values[4] = {{101U, "a", 0U}, {202U, "longer", 0U}, {303U, "xyz", 0U}, {404U, "four", 0U}};
+    quarry_brf_record_provider_t child_providers[4];
+    for (size_t i = 0U; i < 4U; ++i) child_providers[i] = (quarry_brf_record_provider_t){child_field, &child_values[i]};
+    item_context_t item_values[4] = {{-4, &child_providers[0], 0U}, {8, &child_providers[1], 0U}, {-16, &child_providers[2], 0U}, {32, &child_providers[3], 0U}};
+    variable_array_context_t variable_context = {item_values, 3U, 0U};
+    quarry_brf_record_array_provider_t variable_array = {variable_array_item, 3U, &variable_context};
+    quarry_brf_value_provider_t variable_root = {variable_root_field, &variable_array};
+    quarry_brf_nested_record_plan_t variable_plans[16]; quarry_brf_nested_frame_t variable_frames[8];
+    quarry_brf_nested_field_plan_t variable_fields[32]; quarry_brf_nested_record_array_plan_t variable_arrays[2];
+    quarry_brf_record_array_element_plan_t variable_relationships[8]; quarry_brf_writer_frame_t variable_writer_frames[8];
+    quarry_brf_encoder_workspace_t variable_encoder = {0};
+    variable_encoder.nested = (quarry_brf_nested_planning_workspace_t){
+        .records = variable_plans, .record_capacity = 16U, .frames = variable_frames, .frame_capacity = 8U,
+        .fields = variable_fields, .field_capacity = 32U, .arrays = variable_arrays, .array_capacity = 2U,
+        .array_elements = variable_relationships, .array_element_capacity = 8U};
+    quarry_brf_writer_workspace_t variable_writer = {variable_writer_frames, 8U};
+    quarry_generic_status_t variable_status = quarry_brf_encode(&schema, root, &variable_root, output, sizeof(output), &output_size,
+                          &variable_encoder, &variable_writer, NULL);
+    if (variable_status != QUARRY_GENERIC_OK || output_size == 0U || variable_context.lookups != 3U || item_values[0].calls != 2U ||
+        item_values[1].calls != 2U || item_values[2].calls != 2U || child_values[0].calls != 2U ||
+        child_values[1].calls != 2U || child_values[2].calls != 2U) {
+        return 1;
+    }
+    if (output_size != 284U) return 1;
+    static const uint8_t expected_variable_three[] = {
+        0x02, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x50,
+        0x00, 0x00, 0x01, 0x1c, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
+        0x02, 0x00, 0x00, 0x00, 0x0d, 0x00, 0x00, 0x00, 0x20, 0x03, 0x00, 0x00,
+        0x01, 0x2f, 0x00, 0x00, 0x00, 0x1d, 0x00, 0x00, 0x00, 0x03, 0x78, 0x79,
+        0x7a, 0x67, 0x65, 0x72, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00, 0xbc, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x03, 0x3b, 0x02, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
+        0x00, 0x0d, 0x00, 0x00, 0x00, 0x3b, 0x03, 0xff, 0xff, 0xff, 0xfc, 0x00,
+        0x00, 0x00, 0x1d, 0x00, 0x00, 0x00, 0x1e, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x40, 0x02, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
+        0x00, 0x0d, 0x00, 0x00, 0x00, 0x40, 0x03, 0x00, 0x00, 0x00, 0x08, 0x00,
+        0x00, 0x00, 0x1d, 0x00, 0x00, 0x00, 0x23, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3d, 0x02, 0x00, 0x00, 0x10, 0x00,
+        0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x0d, 0x00, 0x00, 0x00, 0x3d, 0x03,
+        0xff, 0xff, 0xff, 0xf0, 0x00, 0x00, 0x00, 0x1d, 0x00, 0x00, 0x00, 0x20,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+    if (output_size != sizeof(expected_variable_three) || memcmp(output, expected_variable_three, sizeof(expected_variable_three)) != 0 ||
+        output[96] != 3U || output[97] != 0x3bU || output[157] != 0x40U || output[222] != 0x3dU)
+        return 1;
+    variable_context.count = variable_array.count = 1U;
+    if (quarry_brf_encode(&schema, root, &variable_root, output, sizeof(output), &output_size,
+                          &variable_encoder, &variable_writer, NULL) != QUARRY_GENERIC_OK || output_size == 0U)
+        return 1;
+    static const uint8_t expected_one[] = {
+        0x02,0x00,0x00,0x10,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x50,0x00,0x00,0x00,0x9d,
+        0x00,0x04,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0x00,0x00,0x10,
+        0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x0d,0x00,0x00,0x00,0x1e,0x03,0x00,0x00,0x00,0x65,
+        0x00,0x00,0x00,0x1d,0x00,0x00,0x00,0x01,0x61,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x60,0x00,0x00,0x00,0x3d,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00};
+    static const uint8_t expected_variable_one[] = {
+        0x02, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x50,
+        0x00, 0x00, 0x00, 0x9d, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
+        0x02, 0x00, 0x00, 0x00, 0x0d, 0x00, 0x00, 0x00, 0x1e, 0x03, 0x00, 0x00,
+        0x00, 0x65, 0x00, 0x00, 0x00, 0x1d, 0x00, 0x00, 0x00, 0x01, 0x61, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00, 0x3d, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x01, 0x3b, 0x02, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00,
+        0x00, 0x0d, 0x00, 0x00, 0x00, 0x3b, 0x03, 0xff, 0xff, 0xff, 0xfc, 0x00,
+        0x00, 0x00, 0x1d, 0x00, 0x00, 0x00, 0x1e, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00,
+    };
+    if (output_size != sizeof(expected_variable_one) ||
+        memcmp(output, expected_variable_one, sizeof(expected_variable_one)) != 0 || output[96] != 1U ||
+        output[97] != 0x3bU)
+        return 1;
+    (void)expected_one;
+    if (output_size != 157U || output[96] != 1U || output[97] != 0x3bU) return 1;
+    variable_context.count = variable_array.count = 3U;
+    memset(output, 0xa5, sizeof(output));
+    fail_child_value = 303;
+    if (quarry_brf_encode(&schema, root, &variable_root, output, sizeof(output), &output_size,
+                          &variable_encoder, &variable_writer, NULL) != QUARRY_GENERIC_RESOURCE_LIMIT ||
+        output[0] != 0xa5U || output[1023] != 0xa5U)
+        return 1;
+    fail_child_value = 0;
+    memset(output, 0x5a, sizeof(output));
+    { quarry_generic_status_t s = quarry_brf_encode(&schema, root, &variable_root, output, 283U, &output_size,
+                          &variable_encoder, &variable_writer, NULL); if (s != QUARRY_GENERIC_BUFFER_TOO_SMALL ||
+        output[0] != 0x5aU || output[282] != 0x5aU) { fprintf(stderr, "small status=%d bytes=%x %x\n", (int)s, output[0], output[282]); return 1; }}
+    variable_encoder.nested.record_capacity = 7U;
+    variable_encoder.nested.field_capacity = 25U;
+    variable_encoder.nested.array_element_capacity = 3U;
+
+    /* With child records absent, one and four siblings have the same active
+       traversal depth: root + array continuation + item. */
+    omit_item_child = 1;
+    variable_context.count = variable_array.count = 1U;
+    variable_encoder.nested.record_capacity = 2U;
+    variable_encoder.nested.field_capacity = 15U;
+    variable_encoder.nested.array_element_capacity = 1U;
+    variable_encoder.nested.frame_capacity = 3U;
+    variable_writer.frame_capacity = 3U;
+    if (quarry_brf_encode(&schema, root, &variable_root, output, sizeof(output), &output_size,
+                          &variable_encoder, &variable_writer, NULL) != QUARRY_GENERIC_OK)
+        return 1;
+    variable_context.count = variable_array.count = 4U;
+    variable_encoder.nested.record_capacity = 5U;
+    variable_encoder.nested.field_capacity = 21U;
+    variable_encoder.nested.array_element_capacity = 4U;
+    if (quarry_brf_encode(&schema, root, &variable_root, output, sizeof(output), &output_size,
+                          &variable_encoder, &variable_writer, NULL) != QUARRY_GENERIC_OK)
+        return 1;
+    variable_encoder.nested.frame_capacity = 2U;
+    memset(output, 0x5a, sizeof(output));
+    if (quarry_brf_encode(&schema, root, &variable_root, output, sizeof(output), &output_size,
+                          &variable_encoder, &variable_writer, NULL) != QUARRY_GENERIC_WORKSPACE_EXHAUSTED || output[0] != 0x5aU)
+        return 1;
+    variable_encoder.nested.frame_capacity = 3U;
+    variable_writer.frame_capacity = 2U;
+    memset(output, 0x5a, sizeof(output));
+    if (quarry_brf_encode(&schema, root, &variable_root, output, sizeof(output), &output_size,
+                          &variable_encoder, &variable_writer, NULL) != QUARRY_GENERIC_WORKSPACE_EXHAUSTED || output[0] != 0x5aU)
+        return 1;
+    variable_writer.frame_capacity = 3U;
+    omit_item_child = 0;
+    variable_context.count = variable_array.count = 3U;
+    variable_encoder.nested.record_capacity = 7U;
+    variable_encoder.nested.field_capacity = 25U;
+    variable_encoder.nested.array_element_capacity = 3U;
+    variable_encoder.nested.frame_capacity = 4U;
+    variable_writer.frame_capacity = 4U;
+    if (quarry_brf_encode(&schema, root, &variable_root, output, sizeof(output), &output_size,
+                          &variable_encoder, &variable_writer, NULL) != QUARRY_GENERIC_OK)
+        return 1;
+    variable_encoder.nested.record_capacity = 6U;
+    memset(output, 0x5a, sizeof(output));
+    if (quarry_brf_encode(&schema, root, &variable_root, output, sizeof(output), &output_size,
+                          &variable_encoder, &variable_writer, NULL) != QUARRY_GENERIC_WORKSPACE_EXHAUSTED || output[0] != 0x5aU)
+        return 1;
+    variable_encoder.nested.record_capacity = 7U;
+    variable_encoder.nested.field_capacity = 24U;
+    memset(output, 0x5a, sizeof(output));
+    if (quarry_brf_encode(&schema, root, &variable_root, output, sizeof(output), &output_size,
+                          &variable_encoder, &variable_writer, NULL) != QUARRY_GENERIC_WORKSPACE_EXHAUSTED || output[0] != 0x5aU)
+        return 1;
+    variable_encoder.nested.field_capacity = 25U;
+    variable_encoder.nested.array_element_capacity = 2U;
+    memset(output, 0x5a, sizeof(output));
+    if (quarry_brf_encode(&schema, root, &variable_root, output, sizeof(output), &output_size,
+                          &variable_encoder, &variable_writer, NULL) != QUARRY_GENERIC_WORKSPACE_EXHAUSTED || output[0] != 0x5aU)
+        return 1;
+    variable_encoder.nested.array_element_capacity = 3U;
+    free(qbs);
+    puts("record array QBS fixture: ok");
+    return 0;
+}
