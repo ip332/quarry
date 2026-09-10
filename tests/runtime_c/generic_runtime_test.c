@@ -815,6 +815,66 @@ int main(void) {
         return 1;
     if (expect(quarry_brf_get_uint(&record, 6U, &u), QUARRY_GENERIC_TYPE_MISMATCH) != 0)
         return 1;
+    {
+        quarry_brf_decoded_value_t value;
+        if (quarry_brf_get_value(&record, 0U, &value) != QUARRY_GENERIC_OK ||
+            value.present != true || value.kind != QUARRY_BRF_VALUE_UINT ||
+            value.scalar.kind != QUARRY_BRF_SCALAR_UINT || value.scalar.uint_value != 42U)
+            return 1;
+        if (quarry_brf_get_value(&record, 1U, &value) != QUARRY_GENERIC_OK ||
+            value.kind != QUARRY_BRF_VALUE_INT || value.scalar.int_value != -17)
+            return 1;
+        if (quarry_brf_get_value(&record, 2U, &value) != QUARRY_GENERIC_OK ||
+            value.kind != QUARRY_BRF_VALUE_BOOL || !value.scalar.bool_value)
+            return 1;
+        if (quarry_brf_get_value(&record, 3U, &value) != QUARRY_GENERIC_OK ||
+            value.kind != QUARRY_BRF_VALUE_FLOAT || value.scalar.float_value != 12.5F)
+            return 1;
+        if (quarry_brf_get_value(&record, 4U, &value) != QUARRY_GENERIC_OK ||
+            value.kind != QUARRY_BRF_VALUE_DOUBLE || value.scalar.double_value != -3.25)
+            return 1;
+        if (quarry_brf_get_value(&record, 5U, &value) != QUARRY_GENERIC_OK ||
+            value.kind != QUARRY_BRF_VALUE_ENUM || value.scalar.int_value != 1)
+            return 1;
+        if (quarry_brf_get_value(&record, 6U, &value) != QUARRY_GENERIC_OK ||
+            value.kind != QUARRY_BRF_VALUE_STRING || value.scalar.string_value.size != 6U)
+            return 1;
+        if (quarry_brf_get_value(&record, 7U, &value) != QUARRY_GENERIC_OK ||
+            value.kind != QUARRY_BRF_VALUE_BYTES || value.scalar.bytes_value.size != 3U)
+            return 1;
+        if (quarry_brf_get_value(&record, 11U, &value) != QUARRY_GENERIC_OK ||
+            value.present || value.kind != QUARRY_BRF_VALUE_ABSENT)
+            return 1;
+        if (quarry_brf_get_value(&record, 8U, &value) != QUARRY_GENERIC_UNSUPPORTED_TYPE ||
+            quarry_brf_get_value(&record, 9U, &value) != QUARRY_GENERIC_UNSUPPORTED_TYPE ||
+            quarry_brf_get_value(&record, 10U, &value) != QUARRY_GENERIC_UNSUPPORTED_TYPE)
+            return 1;
+        if (quarry_brf_get_value(NULL, 0U, &value) != QUARRY_GENERIC_INVALID_ARGUMENT ||
+            quarry_brf_get_value(&record, 0U, NULL) != QUARRY_GENERIC_INVALID_ARGUMENT ||
+            quarry_brf_get_value(&record, 99U, &value) != QUARRY_GENERIC_FIELD_NOT_FOUND)
+            return 1;
+
+        /* Keep required string/bytes fields present while changing their
+         * payload lengths to zero.  This distinguishes a present empty value
+         * from the absent optional field above without changing the fixture. */
+        scalar_brf[55] = 0U;
+        scalar_brf[63] = 0U;
+        if (quarry_brf_validate(&schema, parent, scalar_brf, 105U, &record, &limits) !=
+            QUARRY_GENERIC_OK)
+            return 1;
+        if (quarry_brf_get_value(&record, 6U, &value) != QUARRY_GENERIC_OK ||
+            !value.present || value.kind != QUARRY_BRF_VALUE_STRING ||
+            value.scalar.string_value.size != 0U ||
+            quarry_brf_get_value(&record, 7U, &value) != QUARRY_GENERIC_OK ||
+            !value.present || value.kind != QUARRY_BRF_VALUE_BYTES ||
+            value.scalar.bytes_value.size != 0U)
+            return 1;
+        scalar_brf[55] = 6U;
+        scalar_brf[63] = 3U;
+        if (quarry_brf_validate(&schema, parent, scalar_brf, 105U, &record, &limits) !=
+            QUARRY_GENERIC_OK)
+            return 1;
+    }
     scalar_brf[26] = 2U;
     if (quarry_brf_validate(&schema, parent, scalar_brf, 105U, &record, &limits) !=
         QUARRY_GENERIC_MALFORMED_BRF)
