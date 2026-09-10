@@ -818,7 +818,7 @@ int main(void) {
     {
         quarry_brf_decoded_value_t value;
         if (quarry_brf_get_value(&record, 0U, &value) != QUARRY_GENERIC_OK ||
-            value.present != true || value.kind != QUARRY_BRF_VALUE_UINT ||
+            value.kind != QUARRY_BRF_VALUE_UINT ||
             value.scalar.kind != QUARRY_BRF_SCALAR_UINT || value.scalar.uint_value != 42U)
             return 1;
         if (quarry_brf_get_value(&record, 1U, &value) != QUARRY_GENERIC_OK ||
@@ -843,7 +843,7 @@ int main(void) {
             value.kind != QUARRY_BRF_VALUE_BYTES || value.scalar.bytes_value.size != 3U)
             return 1;
         if (quarry_brf_get_value(&record, 11U, &value) != QUARRY_GENERIC_OK ||
-            value.present || value.kind != QUARRY_BRF_VALUE_ABSENT)
+            value.kind != QUARRY_BRF_VALUE_ABSENT)
             return 1;
         if (quarry_brf_get_value(&record, 8U, &value) != QUARRY_GENERIC_UNSUPPORTED_TYPE ||
             quarry_brf_get_value(&record, 9U, &value) != QUARRY_GENERIC_UNSUPPORTED_TYPE ||
@@ -868,10 +868,10 @@ int main(void) {
             return 1;
         }
         if (quarry_brf_get_value(&record, 6U, &value) != QUARRY_GENERIC_OK ||
-            !value.present || value.kind != QUARRY_BRF_VALUE_STRING ||
+            value.kind != QUARRY_BRF_VALUE_STRING ||
             value.scalar.string_value.size != 0U ||
             quarry_brf_get_value(&record, 7U, &value) != QUARRY_GENERIC_OK ||
-            !value.present || value.kind != QUARRY_BRF_VALUE_BYTES ||
+            value.kind != QUARRY_BRF_VALUE_BYTES ||
             value.scalar.bytes_value.size != 0U)
             return 1;
         scalar_brf[47] = 6U;

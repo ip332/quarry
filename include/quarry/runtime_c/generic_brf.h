@@ -320,7 +320,6 @@ typedef enum {
 
 typedef struct {
     quarry_brf_value_kind_t kind;
-    bool present;
     quarry_brf_scalar_t scalar;
 } quarry_brf_decoded_value_t;
 

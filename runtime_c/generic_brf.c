@@ -554,7 +554,6 @@ quarry_generic_status_t quarry_brf_get_value(const quarry_brf_record_view_t* r, 
         out->kind = QUARRY_BRF_VALUE_ABSENT;
         return QUARRY_GENERIC_OK;
     }
-    out->present = true;
     switch (code) {
     case 1U: out->kind = QUARRY_BRF_VALUE_BOOL; out->scalar.kind = QUARRY_BRF_SCALAR_BOOL; status = quarry_brf_get_bool(r, i, &out->scalar.bool_value); break;
     case 2U: case 4U: case 6U: case 8U:
