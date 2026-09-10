@@ -649,8 +649,8 @@ TEST(SemanticSmokeTest, RejectsNestedArrays) {
     inner.source_range = schema.record_source_range;
     inner.element_type = std::make_unique<NormalizedSourceSchemaType>(
         NormalizedSourceSchemaType{NormalizedSourceSchemaTypeReference{
-            .name = normalized_qualified_name("u32", 0, 3),
-            .source_range = schema.record_source_range}});
+            .source_range = schema.record_source_range,
+            .name = normalized_qualified_name("u32", 0, 3)}});
     NormalizedSourceSchemaArrayType outer;
     outer.source_range = schema.record_source_range;
     outer.element_type = std::make_unique<NormalizedSourceSchemaType>(
