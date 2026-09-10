@@ -545,14 +545,30 @@ quarry_generic_status_t quarry_brf_get_value(const quarry_brf_record_view_t* r, 
     if (field->type_index >= r->qbs->type_count)
         return QUARRY_GENERIC_MALFORMED_QBS;
     code = r->qbs->types[field->type_index].code;
-    if (code == 15U || code == 16U)
+    if (code == 15U)
         return QUARRY_GENERIC_UNSUPPORTED_TYPE;
+    if (code == 16U) {
+        const quarry_qbs_type_view_t* element_type;
+        if (r->qbs->types[field->type_index].reference >= r->qbs->type_count)
+            return QUARRY_GENERIC_MALFORMED_QBS;
+        element_type = &r->qbs->types[r->qbs->types[field->type_index].reference];
+        if (element_type->code == 15U || element_type->code == 16U)
+            return QUARRY_GENERIC_UNSUPPORTED_TYPE;
+    }
     status = quarry_brf_field_is_present(r, i, &present);
     if (status != QUARRY_GENERIC_OK)
         return status;
     if (!present) {
         out->kind = QUARRY_BRF_VALUE_ABSENT;
         return QUARRY_GENERIC_OK;
+    }
+    if (code == 16U) {
+        status = quarry_brf_get_array(r, i, &out->array);
+        if (status == QUARRY_GENERIC_OK)
+            out->kind = QUARRY_BRF_VALUE_ARRAY;
+        else
+            memset(out, 0, sizeof(*out));
+        return status;
     }
     switch (code) {
     case 1U: out->kind = QUARRY_BRF_VALUE_BOOL; out->scalar.kind = QUARRY_BRF_SCALAR_BOOL; status = quarry_brf_get_bool(r, i, &out->scalar.bool_value); break;

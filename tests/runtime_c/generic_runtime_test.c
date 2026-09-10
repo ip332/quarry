@@ -845,7 +845,8 @@ int main(void) {
         if (quarry_brf_get_value(&record, 11U, &value) != QUARRY_GENERIC_OK ||
             value.kind != QUARRY_BRF_VALUE_ABSENT)
             return 1;
-        if (quarry_brf_get_value(&record, 8U, &value) != QUARRY_GENERIC_UNSUPPORTED_TYPE ||
+        if (quarry_brf_get_value(&record, 8U, &value) != QUARRY_GENERIC_OK ||
+            value.kind != QUARRY_BRF_VALUE_ABSENT ||
             quarry_brf_get_value(&record, 9U, &value) != QUARRY_GENERIC_UNSUPPORTED_TYPE ||
             quarry_brf_get_value(&record, 10U, &value) != QUARRY_GENERIC_UNSUPPORTED_TYPE)
             return 1;

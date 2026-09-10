@@ -65,12 +65,12 @@ int main(int argc, char** argv) {
     uint8_t* qbs; size_t qbs_size; quarry_qbs_view_t q = {0};
     quarry_qbs_record_view_t records[4]; quarry_qbs_field_view_t fields[8];
     quarry_qbs_type_view_t types[8]; quarry_qbs_enum_view_t enums[1]; uint64_t values[1];
-    quarry_brf_record_node_t nodes[1]; quarry_brf_field_state_t states[1]; uint32_t maps[1];
-    quarry_brf_child_relation_t children[1]; quarry_brf_record_array_relation_t arrays[1];
-    uint32_t array_elements[1]; quarry_brf_validation_frame_t frames[1];
+    quarry_brf_record_node_t nodes[2]; quarry_brf_field_state_t states[4]; uint32_t maps[4];
+    quarry_brf_child_relation_t children[1]; quarry_brf_record_array_relation_t arrays[4];
+    uint32_t array_elements[16]; quarry_brf_validation_frame_t frames[4];
     quarry_workspace_t ws = {records, 4U, fields, 8U, types, 8U, enums, 1U, values, 1U,
-                             nodes, 1U, states, 1U, maps, 1U, children, 1U, arrays, 1U,
-                             array_elements, 1U, frames, 1U, 0U, 0U, 0U, 0U, 0U, 0U, 0U};
+                             nodes, 2U, states, 4U, maps, 4U, children, 1U, arrays, 4U,
+                             array_elements, 16U, frames, 4U, 0U, 0U, 0U, 0U, 0U, 0U, 0U};
     quarry_generic_limits_t limits = {1U << 20U, 1U << 20U, 1024U, 16U, 16U};
     const quarry_qbs_record_view_t* root; const quarry_qbs_record_view_t* nested_root; uint8_t output[512]; size_t size;
     if (argc != 2 || load_file(argv[1], &qbs, &qbs_size) != 0) { fprintf(stderr, "load\n"); return 1; }
@@ -104,6 +104,24 @@ int main(int argc, char** argv) {
         0x00,0x03,0x01,0x41,0x05,0x68,0x65,0x6c,0x6c,0x6f,0x02,0xc3,0xa9};
     assert(size == sizeof(expected_strings) && memcmp(output, expected_strings, size) == 0);
     assert(size > 0U);
+    quarry_brf_record_view_t decoded;
+    assert(quarry_brf_validate(&q, root, output, size, &decoded, &limits) == QUARRY_GENERIC_OK);
+    quarry_brf_decoded_value_t decoded_value;
+    quarry_brf_array_view_t decoded_array;
+    assert(quarry_brf_get_array(&decoded, 0U, &decoded_array) == QUARRY_GENERIC_OK);
+    assert(quarry_brf_get_value(&decoded, 0U, &decoded_value) == QUARRY_GENERIC_OK);
+    assert(decoded_value.kind == QUARRY_BRF_VALUE_ARRAY &&
+           decoded_value.array.element_type == decoded_array.element_type &&
+           decoded_value.array.element_code == decoded_array.element_code &&
+           decoded_value.array.count == decoded_array.count &&
+           decoded_value.array.payload_offset == decoded_array.payload_offset &&
+           decoded_value.array.payload_size == decoded_array.payload_size &&
+           decoded_value.array.relation_index == decoded_array.relation_index);
+    quarry_string_view_t decoded_string;
+    assert(quarry_brf_array_get_string(&decoded, &decoded_value.array, 0U, &decoded_string) ==
+           QUARRY_GENERIC_OK && decoded_string.size == 1U && decoded_string.data[0] == 'A');
+    assert(quarry_brf_get_value(&decoded, 1U, &decoded_value) == QUARRY_GENERIC_OK &&
+           decoded_value.kind == QUARRY_BRF_VALUE_ABSENT);
 
     /* The same array fields compose through ordinary nested-record planning. */
     context.present_strings = 1; context.present_blobs = 1;
