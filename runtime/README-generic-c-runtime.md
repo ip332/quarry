@@ -25,11 +25,22 @@ quarry_brf_validate(&schema, type, brf, brf_size, &record, &limits);
 
 uint64_t sequence;
 quarry_brf_get_uint(&record, 0, &sequence);
+
+quarry_brf_decoded_value_t value;
+quarry_brf_get_value(&record, 0, &value);
 ```
 
 The API uses `uint64_t`/`int64_t` logical integer carriers, independent of
 the QBS field width. Strings and bytes are borrowed spans with explicit
 lengths. QBS and BRF buffers, plus workspace, must outlive their views.
+
+`quarry_brf_get_value()` is the unified scalar query API for an already
+validated record view. It returns signed and unsigned integers, bool, floats,
+enums, strings, bytes, or an explicit absent value (`kind ==
+QUARRY_BRF_VALUE_ABSENT`). It does not allocate or
+copy payloads; string and bytes results borrow the BRF input. Array and nested
+record values remain available through their dedicated structural APIs and are
+not returned by this first decoded-value query milestone.
 
 The public views are deliberately small POD values containing immutable source
 references and stable indexes/offsets; they do not point into temporary parser

@@ -529,3 +529,45 @@ quarry_generic_status_t quarry_brf_get_bytes(const quarry_brf_record_view_t* r, 
     out->size = len;
     return QUARRY_GENERIC_OK;
 }
+
+quarry_generic_status_t quarry_brf_get_value(const quarry_brf_record_view_t* r, uint16_t i,
+                                             quarry_brf_decoded_value_t* out) {
+    const quarry_qbs_field_view_t* field;
+    bool present;
+    quarry_generic_status_t status;
+    uint8_t code;
+    if (r == NULL || out == NULL)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    memset(out, 0, sizeof(*out));
+    status = quarry_qbs_record_field(r->qbs, r->schema, i, &field);
+    if (status != QUARRY_GENERIC_OK)
+        return status;
+    if (field->type_index >= r->qbs->type_count)
+        return QUARRY_GENERIC_MALFORMED_QBS;
+    code = r->qbs->types[field->type_index].code;
+    if (code == 15U || code == 16U)
+        return QUARRY_GENERIC_UNSUPPORTED_TYPE;
+    status = quarry_brf_field_is_present(r, i, &present);
+    if (status != QUARRY_GENERIC_OK)
+        return status;
+    if (!present) {
+        out->kind = QUARRY_BRF_VALUE_ABSENT;
+        return QUARRY_GENERIC_OK;
+    }
+    switch (code) {
+    case 1U: out->kind = QUARRY_BRF_VALUE_BOOL; out->scalar.kind = QUARRY_BRF_SCALAR_BOOL; status = quarry_brf_get_bool(r, i, &out->scalar.bool_value); break;
+    case 2U: case 4U: case 6U: case 8U:
+        out->kind = QUARRY_BRF_VALUE_INT; out->scalar.kind = QUARRY_BRF_SCALAR_INT; status = quarry_brf_get_int(r, i, &out->scalar.int_value); break;
+    case 3U: case 5U: case 7U: case 9U:
+        out->kind = QUARRY_BRF_VALUE_UINT; out->scalar.kind = QUARRY_BRF_SCALAR_UINT; status = quarry_brf_get_uint(r, i, &out->scalar.uint_value); break;
+    case 10U: out->kind = QUARRY_BRF_VALUE_FLOAT; out->scalar.kind = QUARRY_BRF_SCALAR_FLOAT; status = quarry_brf_get_float(r, i, &out->scalar.float_value); break;
+    case 11U: out->kind = QUARRY_BRF_VALUE_DOUBLE; out->scalar.kind = QUARRY_BRF_SCALAR_DOUBLE; status = quarry_brf_get_double(r, i, &out->scalar.double_value); break;
+    case 12U: out->kind = QUARRY_BRF_VALUE_ENUM; out->scalar.kind = QUARRY_BRF_SCALAR_ENUM; status = quarry_brf_get_enum(r, i, &out->scalar.int_value); break;
+    case 13U: out->kind = QUARRY_BRF_VALUE_STRING; out->scalar.kind = QUARRY_BRF_SCALAR_STRING; status = quarry_brf_get_string(r, i, &out->scalar.string_value); break;
+    case 14U: out->kind = QUARRY_BRF_VALUE_BYTES; out->scalar.kind = QUARRY_BRF_SCALAR_BYTES; status = quarry_brf_get_bytes(r, i, &out->scalar.bytes_value); break;
+    default: return QUARRY_GENERIC_UNSUPPORTED_TYPE;
+    }
+    if (status != QUARRY_GENERIC_OK)
+        memset(out, 0, sizeof(*out));
+    return status;
+}
