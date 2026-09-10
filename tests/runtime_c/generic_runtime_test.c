@@ -857,11 +857,16 @@ int main(void) {
         /* Keep required string/bytes fields present while changing their
          * payload lengths to zero.  This distinguishes a present empty value
          * from the absent optional field above without changing the fixture. */
+        scalar_brf[47] = 0U;
+        put32(scalar_brf + 48U, 96U);
         scalar_brf[55] = 0U;
-        scalar_brf[63] = 0U;
-        if (quarry_brf_validate(&schema, parent, scalar_brf, 105U, &record, &limits) !=
-            QUARRY_GENERIC_OK)
+        put32(scalar_brf + 12U, 96U);
+        quarry_generic_status_t empty_status =
+            quarry_brf_validate(&schema, parent, scalar_brf, 96U, &record, &limits);
+        if (empty_status != QUARRY_GENERIC_OK) {
+            fprintf(stderr, "empty validation status %d\\n", (int)empty_status);
             return 1;
+        }
         if (quarry_brf_get_value(&record, 6U, &value) != QUARRY_GENERIC_OK ||
             !value.present || value.kind != QUARRY_BRF_VALUE_STRING ||
             value.scalar.string_value.size != 0U ||
@@ -869,8 +874,10 @@ int main(void) {
             !value.present || value.kind != QUARRY_BRF_VALUE_BYTES ||
             value.scalar.bytes_value.size != 0U)
             return 1;
-        scalar_brf[55] = 6U;
-        scalar_brf[63] = 3U;
+        scalar_brf[47] = 6U;
+        put32(scalar_brf + 48U, 102U);
+        scalar_brf[55] = 3U;
+        put32(scalar_brf + 12U, 105U);
         if (quarry_brf_validate(&schema, parent, scalar_brf, 105U, &record, &limits) !=
             QUARRY_GENERIC_OK)
             return 1;
