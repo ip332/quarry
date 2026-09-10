@@ -315,12 +315,14 @@ typedef enum {
     QUARRY_BRF_VALUE_DOUBLE,
     QUARRY_BRF_VALUE_ENUM,
     QUARRY_BRF_VALUE_STRING,
-    QUARRY_BRF_VALUE_BYTES
+    QUARRY_BRF_VALUE_BYTES,
+    QUARRY_BRF_VALUE_ARRAY
 } quarry_brf_value_kind_t;
 
 typedef struct {
     quarry_brf_value_kind_t kind;
     quarry_brf_scalar_t scalar;
+    quarry_brf_array_view_t array;
 } quarry_brf_decoded_value_t;
 
 quarry_generic_status_t quarry_brf_get_value(const quarry_brf_record_view_t*, uint16_t,
