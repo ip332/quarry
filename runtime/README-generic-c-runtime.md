@@ -38,9 +38,13 @@ lengths. QBS and BRF buffers, plus workspace, must outlive their views.
 validated record view. It returns signed and unsigned integers, bool, floats,
 enums, strings, bytes, or an explicit absent value (`kind ==
 QUARRY_BRF_VALUE_ABSENT`). It does not allocate or
-copy payloads; string and bytes results borrow the BRF input. Array and nested
-record values remain available through their dedicated structural APIs and are
-not returned by this first decoded-value query milestone.
+copy payloads; string and bytes results borrow the BRF input. For supported
+non-record arrays it returns `QUARRY_BRF_VALUE_ARRAY` with the existing
+`quarry_brf_array_view_t`; use the typed array accessors to read elements.
+Absent arrays return `QUARRY_BRF_VALUE_ABSENT`, while present-empty arrays
+return `QUARRY_BRF_VALUE_ARRAY` with count zero. Fixed-width indexed access is
+O(1); variable-width string/bytes access scans from the array start and is
+O(n). Record arrays and nested arrays remain unsupported by the unified query.
 
 The public views are deliberately small POD values containing immutable source
 references and stable indexes/offsets; they do not point into temporary parser
