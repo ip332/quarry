@@ -94,6 +94,31 @@ SchemaIR fixed_fixture_schema() {
     return schema;
 }
 
+SchemaIR variable_scalar_arrays_schema() {
+    SchemaIR schema;
+    schema.set_schema_ir_version(1U);
+    schema.mutable_root_namespace()->set_ir_id(1U);
+    auto* parent = schema.mutable_root_namespace()->add_records();
+    parent->set_ir_id(1U); parent->set_record_id(1U); parent->set_name("VariableScalarArrays");
+    parent->set_fqn("VariableScalarArrays");
+    auto* names = parent->add_fields(); names->set_name("names"); names->set_field_index(0U);
+    names->mutable_type()->mutable_array()->set_max_elements(4U);
+    names->mutable_type()->mutable_array()->mutable_element_type()->mutable_string()->set_max_bytes(32U);
+    auto* blobs = parent->add_fields(); blobs->set_name("blobs"); blobs->set_field_index(1U);
+    blobs->mutable_type()->mutable_array()->set_max_elements(4U);
+    blobs->mutable_type()->mutable_array()->mutable_element_type()->mutable_bytes()->set_max_bytes(32U);
+    auto* nested = schema.mutable_root_namespace()->add_records();
+    nested->set_ir_id(2U); nested->set_record_id(2U); nested->set_name("VariableScalarArrayContainer");
+    nested->set_fqn("VariableScalarArrayContainer");
+    auto* nested_names = nested->add_fields(); nested_names->set_name("names"); nested_names->set_field_index(0U);
+    nested_names->mutable_type()->mutable_array()->set_max_elements(4U);
+    nested_names->mutable_type()->mutable_array()->mutable_element_type()->mutable_string()->set_max_bytes(32U);
+    auto* nested_blobs = nested->add_fields(); nested_blobs->set_name("blobs"); nested_blobs->set_field_index(1U);
+    nested_blobs->mutable_type()->mutable_array()->set_max_elements(4U);
+    nested_blobs->mutable_type()->mutable_array()->mutable_element_type()->mutable_bytes()->set_max_bytes(32U);
+    return schema;
+}
+
 std::vector<std::uint8_t> generate_fixed(std::vector<std::uint8_t>& qbs) {
     auto source = fixed_fixture_schema(); DiagnosticCollection diagnostics;
     quarry::compiler::layout::LayoutComputer computer;
@@ -107,6 +132,22 @@ std::vector<std::uint8_t> generate_fixed(std::vector<std::uint8_t>& qbs) {
     auto parsed = parse_qbs(qbs, diagnostics);
     if (!parsed || !parsed->find_record_by_identity("FixedParent"))
         throw std::runtime_error("fixed QBS parse failed");
+    return {};
+}
+
+std::vector<std::uint8_t> generate_variable_scalar_arrays(std::vector<std::uint8_t>& qbs) {
+    auto source = variable_scalar_arrays_schema(); DiagnosticCollection diagnostics;
+    quarry::compiler::layout::LayoutComputer computer;
+    const auto layout = computer.compute(source, diagnostics);
+    if (!diagnostics.empty()) throw std::runtime_error("variable scalar array layout failed");
+    auto model = QbsModelBuilder{}.build(source, layout, {.mode = BuildMode::Reflective}, diagnostics);
+    if (!model) throw std::runtime_error("variable scalar array QBS model failed");
+    auto image = serialize_qbs(*model, diagnostics);
+    if (!image) throw std::runtime_error("variable scalar array QBS serialization failed");
+    qbs = image->bytes;
+    auto parsed = parse_qbs(qbs, diagnostics);
+    if (!parsed || !parsed->find_record_by_identity("VariableScalarArrays"))
+        throw std::runtime_error("variable scalar array QBS parse failed");
     return {};
 }
 
@@ -168,18 +209,22 @@ bool equal_file(const std::filesystem::path& path, const std::vector<std::uint8_
 
 int main(int argc, char** argv) {
     if (argc != 3 || (std::string_view(argv[1]) != "--write" && std::string_view(argv[1]) != "--check" &&
-                      std::string_view(argv[1]) != "--write-fixed" && std::string_view(argv[1]) != "--check-fixed")) {
-        std::cerr << "usage: generic_runtime_conformance_fixture_generator (--write|--check|--write-fixed|--check-fixed) DIRECTORY\n"; return 2;
+                      std::string_view(argv[1]) != "--write-fixed" && std::string_view(argv[1]) != "--check-fixed" &&
+                      std::string_view(argv[1]) != "--write-variable-arrays" &&
+                      std::string_view(argv[1]) != "--check-variable-arrays")) {
+        std::cerr << "usage: generic_runtime_conformance_fixture_generator mode DIRECTORY\n"; return 2;
     }
     try {
         std::filesystem::create_directories(argv[2]); std::vector<std::uint8_t> qbs;
         const bool fixed = std::string_view(argv[1]).ends_with("-fixed");
-        auto brf = fixed ? generate_fixed(qbs) : generate(qbs);
+        const bool variable_arrays = std::string_view(argv[1]).ends_with("-variable-arrays");
+        auto brf = fixed ? generate_fixed(qbs) : variable_arrays ? generate_variable_scalar_arrays(qbs) : generate(qbs);
         const auto directory = std::filesystem::path(argv[2]);
-        if (std::string_view(argv[1]) == "--write" || std::string_view(argv[1]) == "--write-fixed") {
+        if (std::string_view(argv[1]) == "--write" || std::string_view(argv[1]) == "--write-fixed" ||
+            std::string_view(argv[1]) == "--write-variable-arrays") {
             write(directory / "schema.qbs", qbs);
-            if (!fixed) write(directory / "record.brf", brf);
-        } else if (!equal_file(directory / "schema.qbs", qbs) || (!fixed && !equal_file(directory / "record.brf", brf))) {
+            if (!fixed && !variable_arrays) write(directory / "record.brf", brf);
+        } else if (!equal_file(directory / "schema.qbs", qbs) || (!fixed && !variable_arrays && !equal_file(directory / "record.brf", brf))) {
             std::cerr << "generic runtime conformance fixture differs from regenerated bytes\n"; return 1;
         }
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

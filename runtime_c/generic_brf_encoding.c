@@ -537,8 +537,7 @@ nested_plan(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* root_sch
                 (const quarry_brf_array_provider_t*)value.aggregate;
             if (array == NULL || array->get_element == NULL)
                 return QUARRY_GENERIC_TYPE_MISMATCH;
-            if (element->code == 13U || element->code == 14U || element->code == 15U ||
-                element->code == 16U)
+            if (element->code == 15U || element->code == 16U)
                 return QUARRY_GENERIC_UNSUPPORTED_TYPE;
             if (array->count > type->max_elements ||
                 w->array_element_count > w->array_element_capacity ||
@@ -566,10 +565,21 @@ nested_plan(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* root_sch
                 if (!nested_scalar_ok(q, element, &element_value))
                     return nested_value_status(q, element, &element_value);
                 w->array_elements[pf->array_start + j].value = element_value;
-                if (!add_ok(plan->planned_size, element->encoded_width, &plan->planned_size))
-                    return QUARRY_GENERIC_RESOURCE_LIMIT;
-                if (!add_ok(pf->payload_size, element->encoded_width, &pf->payload_size))
-                    return QUARRY_GENERIC_RESOURCE_LIMIT;
+                if (element->code == 13U || element->code == 14U) {
+                    const size_t n = element->code == 13U ? element_value.string_value.size
+                                                           : element_value.bytes_value.size;
+                    size_t prefix;
+                    if (!varuint_size(n, &prefix) ||
+                        !add_ok(plan->planned_size, prefix, &plan->planned_size) ||
+                        !add_ok(plan->planned_size, n, &plan->planned_size) ||
+                        !add_ok(pf->payload_size, prefix, &pf->payload_size) ||
+                        !add_ok(pf->payload_size, n, &pf->payload_size))
+                        return QUARRY_GENERIC_RESOURCE_LIMIT;
+                } else {
+                    if (!add_ok(plan->planned_size, element->encoded_width, &plan->planned_size) ||
+                        !add_ok(pf->payload_size, element->encoded_width, &pf->payload_size))
+                        return QUARRY_GENERIC_RESOURCE_LIMIT;
+                }
             }
             continue;
         }
@@ -719,7 +729,16 @@ static quarry_generic_status_t write_planned_record(const quarry_qbs_view_t* q,
             }
             for (size_t j = 0U; j < value->array_count; ++j) {
                 const quarry_brf_value_t* item = &w->array_elements[value->array_start + j].value;
-                if (element->code == 1U)
+                if (element->code == 13U || element->code == 14U) {
+                    const uint8_t* data = element->code == 13U
+                                              ? (const uint8_t*)item->string_value.data
+                                              : item->bytes_value.data;
+                    const size_t n = element->code == 13U ? item->string_value.size
+                                                           : item->bytes_value.size;
+                    put_varuint(record + value->payload_offset, &cursor, n);
+                    memcpy(record + value->payload_offset + cursor, data, n);
+                    cursor += n;
+                } else if (element->code == 1U)
                     record[value->payload_offset + cursor++] = item->bool_value ? 1U : 0U;
                 else if (element->code == 10U || element->code == 11U) {
                     uint64_t bits = 0U;
@@ -838,9 +857,8 @@ quarry_brf_encode(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* r,
             if (t->reference >= q->type_count)
                 return QUARRY_GENERIC_MALFORMED_QBS;
             const quarry_qbs_type_view_t* e = &q->types[t->reference];
-            /* Variable-width and aggregate elements require the shared value model
-             * extensions reserved for a later phase. */
-            if (e->code == 13U || e->code == 14U || e->code == 15U || e->code == 16U)
+            /* Aggregate elements use their dedicated paths. */
+            if (e->code == 15U || e->code == 16U)
                 return QUARRY_GENERIC_UNSUPPORTED_TYPE;
             for (size_t j = 0U; j < a->count; ++j) {
                 quarry_brf_value_t ev = {0};

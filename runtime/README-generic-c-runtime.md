@@ -62,7 +62,8 @@ count; absent fields retain canonical zero storage.
 
 E2 supports unsigned and signed integers, bool, float32, float64, and enum
 arrays. Record arrays are supported by the generic encoder when the QBS
-element type is a record; string/bytes arrays remain deferred.
+element type is a record; string/bytes arrays use the same count-plus-length
+framing as the scalar variable-width array model.
 
 E3-1 defined the aggregate provider and iterative planning architecture.
 `quarry_brf_record_provider_t` is an

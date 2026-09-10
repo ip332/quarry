@@ -29,6 +29,7 @@ using quarry::compiler::semantic::SemanticValidator;
 using quarry::compiler::source_schema::NormalizedSourceSchemaDocument;
 using quarry::compiler::source_schema::NormalizedSourceSchemaEnum;
 using quarry::compiler::source_schema::NormalizedSourceSchemaField;
+using quarry::compiler::source_schema::NormalizedSourceSchemaArrayType;
 using quarry::compiler::source_schema::NormalizedSourceSchemaType;
 using quarry::compiler::source_schema::NormalizedSourceSchemaTypeReference;
 using quarry::compiler::source_schema::SourceSchemaIdentifier;
@@ -640,6 +641,35 @@ TEST(SemanticSmokeTest, ReportsMissingZeroAndOverflowingArrayBounds) {
         ASSERT_NE(record, nullptr);
         EXPECT_TRUE(record->fields.empty()) << test_case.name;
     }
+}
+
+TEST(SemanticSmokeTest, RejectsNestedArrays) {
+    auto schema = normalized_schema("quarry.geo", "Example");
+    NormalizedSourceSchemaArrayType inner;
+    inner.source_range = schema.record_source_range;
+    inner.element_type = std::make_unique<NormalizedSourceSchemaType>(
+        NormalizedSourceSchemaType{NormalizedSourceSchemaTypeReference{
+            .source_range = schema.record_source_range,
+            .name = normalized_qualified_name("u32", 0, 3)}});
+    NormalizedSourceSchemaArrayType outer;
+    outer.source_range = schema.record_source_range;
+    outer.element_type = std::make_unique<NormalizedSourceSchemaType>(
+        NormalizedSourceSchemaType{std::move(inner)});
+    NormalizedSourceSchemaField field;
+    field.name = normalized_identifier("nested", 0, 6);
+    field.source_range = schema.record_source_range;
+    field.max_elements = 2;
+    field.max_elements_range = schema.record_source_range;
+    field.type = NormalizedSourceSchemaType{std::move(outer)};
+    schema.fields = {std::move(field)};
+
+    const NormalizedAnalysisOutput output = analyze_normalized(schema);
+
+    ASSERT_TRUE(output.symbol_diagnostics.empty())
+        << diagnostics_summary(output.symbol_diagnostics);
+    ASSERT_FALSE(output.semantic_diagnostics.empty());
+    EXPECT_EQ(output.semantic_diagnostics.diagnostics().front().id().str(), "BC5003");
+    EXPECT_TRUE(find_record(output.semantic_model, "quarry.geo.Example")->fields.empty());
 }
 
 TEST(SemanticSmokeTest, ReportsInvalidBoundPlacementOnOtherFieldKinds) {
