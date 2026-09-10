@@ -111,7 +111,12 @@ int main(int argc, char** argv) {
     assert(quarry_brf_get_array(&decoded, 0U, &decoded_array) == QUARRY_GENERIC_OK);
     assert(quarry_brf_get_value(&decoded, 0U, &decoded_value) == QUARRY_GENERIC_OK);
     assert(decoded_value.kind == QUARRY_BRF_VALUE_ARRAY &&
-           memcmp(&decoded_value.array, &decoded_array, sizeof(decoded_array)) == 0);
+           decoded_value.array.element_type == decoded_array.element_type &&
+           decoded_value.array.element_code == decoded_array.element_code &&
+           decoded_value.array.count == decoded_array.count &&
+           decoded_value.array.payload_offset == decoded_array.payload_offset &&
+           decoded_value.array.payload_size == decoded_array.payload_size &&
+           decoded_value.array.relation_index == decoded_array.relation_index);
     quarry_string_view_t decoded_string;
     assert(quarry_brf_array_get_string(&decoded, &decoded_value.array, 0U, &decoded_string) ==
            QUARRY_GENERIC_OK && decoded_string.size == 1U && decoded_string.data[0] == 'A');
