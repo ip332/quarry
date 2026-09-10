@@ -54,7 +54,7 @@ static quarry_generic_status_t root_field(const quarry_brf_value_provider_t* p, 
 
 static int load_file(const char* path, uint8_t** data, size_t* size) {
     FILE* f = fopen(path, "rb"); long n;
-    if (f == NULL || fseek(f, 0L, SEEK_END) != 0) return 1;
+    if (f == NULL || fseek(f, 0L, SEEK_END) != 0) { if (f != NULL) fclose(f); return 1; }
     n = ftell(f); if (n < 0L || fseek(f, 0L, SEEK_SET) != 0) { fclose(f); return 1; }
     *size = (size_t)n; *data = (uint8_t*)malloc(*size);
     if (*data == NULL || fread(*data, 1U, *size, f) != *size) { free(*data); *data = NULL; fclose(f); return 1; }
@@ -72,10 +72,17 @@ int main(int argc, char** argv) {
                              nodes, 1U, states, 1U, maps, 1U, children, 1U, arrays, 1U,
                              array_elements, 1U, frames, 1U, 0U, 0U, 0U, 0U, 0U, 0U, 0U};
     quarry_generic_limits_t limits = {1U << 20U, 1U << 20U, 1024U, 16U, 16U};
-    const quarry_qbs_record_view_t* root; uint8_t output[512]; size_t size;
+    const quarry_qbs_record_view_t* root; const quarry_qbs_record_view_t* nested_root; uint8_t output[512]; size_t size;
     if (argc != 2 || load_file(argv[1], &qbs, &qbs_size) != 0) { fprintf(stderr, "load\n"); return 1; }
-    if (quarry_qbs_parse(qbs, qbs_size, &q, &ws, &limits) != QUARRY_GENERIC_OK) { fprintf(stderr, "parse\n"); return 1; }
-    if (quarry_qbs_find_record_by_id(&q, 1U, &root) != QUARRY_GENERIC_OK || root->field_count != 2U) { fprintf(stderr, "root %u\n", root == NULL ? 0U : root->field_count); return 1; }
+    if (quarry_qbs_parse(qbs, qbs_size, &q, &ws, &limits) != QUARRY_GENERIC_OK) {
+        fprintf(stderr, "parse\n"); free(qbs); return 1;
+    }
+    if (quarry_qbs_find_record_by_id(&q, 1U, &root) != QUARRY_GENERIC_OK || root->field_count != 2U) {
+        fprintf(stderr, "root %u\n", root == NULL ? 0U : root->field_count); free(qbs); return 1;
+    }
+    if (quarry_qbs_find_record_by_id(&q, 2U, &nested_root) != QUARRY_GENERIC_OK || nested_root->field_count != 2U) {
+        free(qbs); return 1;
+    }
     assert(q.types[q.fields[root->field_start].type_index].code == 16U);
     assert(q.types[q.fields[root->field_start + 1U].type_index].code == 16U);
     assert(q.types[q.types[q.fields[root->field_start].type_index].reference].code == 13U);
@@ -97,6 +104,13 @@ int main(int argc, char** argv) {
         0x00,0x03,0x01,0x41,0x05,0x68,0x65,0x6c,0x6c,0x6f,0x02,0xc3,0xa9};
     assert(size == sizeof(expected_strings) && memcmp(output, expected_strings, size) == 0);
     assert(size > 0U);
+
+    /* The same array fields compose through ordinary nested-record planning. */
+    context.present_strings = 1; context.present_blobs = 1;
+    strings.count = blobs.count = 3U; strings.lookups = blobs.lookups = 0U;
+    quarry_brf_value_provider_t nested_provider = {root_field, &context};
+    assert(quarry_brf_encode(&q, nested_root, &nested_provider, output, sizeof(output), &size, &encoder, NULL, NULL) == QUARRY_GENERIC_OK);
+    assert(strings.lookups == 3U && blobs.lookups == 3U && size > sizeof(expected_strings));
 
     /* Present-empty arrays retain presence but require no element lookup. */
     strings.count = 0U; blobs.count = 0U;

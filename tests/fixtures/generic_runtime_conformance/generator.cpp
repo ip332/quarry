@@ -107,6 +107,15 @@ SchemaIR variable_scalar_arrays_schema() {
     auto* blobs = parent->add_fields(); blobs->set_name("blobs"); blobs->set_field_index(1U);
     blobs->mutable_type()->mutable_array()->set_max_elements(4U);
     blobs->mutable_type()->mutable_array()->mutable_element_type()->mutable_bytes()->set_max_bytes(32U);
+    auto* nested = schema.mutable_root_namespace()->add_records();
+    nested->set_ir_id(2U); nested->set_record_id(2U); nested->set_name("VariableScalarArrayContainer");
+    nested->set_fqn("VariableScalarArrayContainer");
+    auto* nested_names = nested->add_fields(); nested_names->set_name("names"); nested_names->set_field_index(0U);
+    nested_names->mutable_type()->mutable_array()->set_max_elements(4U);
+    nested_names->mutable_type()->mutable_array()->mutable_element_type()->mutable_string()->set_max_bytes(32U);
+    auto* nested_blobs = nested->add_fields(); nested_blobs->set_name("blobs"); nested_blobs->set_field_index(1U);
+    nested_blobs->mutable_type()->mutable_array()->set_max_elements(4U);
+    nested_blobs->mutable_type()->mutable_array()->mutable_element_type()->mutable_bytes()->set_max_bytes(32U);
     return schema;
 }
 
