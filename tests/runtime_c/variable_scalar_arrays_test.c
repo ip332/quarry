@@ -129,6 +129,12 @@ int main(int argc, char** argv) {
     quarry_brf_value_provider_t nested_provider = {root_field, &context};
     assert(quarry_brf_encode(&q, nested_root, &nested_provider, output, sizeof(output), &size, &encoder, NULL, NULL) == QUARRY_GENERIC_OK);
     assert(strings.lookups == 3U && blobs.lookups == 3U && size > sizeof(expected_strings));
+    assert(quarry_brf_validate(&q, nested_root, output, size, &decoded, &limits) ==
+           QUARRY_GENERIC_OK);
+    assert(quarry_brf_get_value(&decoded, 0U, &decoded_value) == QUARRY_GENERIC_OK &&
+           decoded_value.kind == QUARRY_BRF_VALUE_ARRAY);
+    assert(quarry_brf_get_value(&decoded, 1U, &decoded_value) == QUARRY_GENERIC_OK &&
+           decoded_value.kind == QUARRY_BRF_VALUE_ARRAY);
 
     /* Present-empty arrays retain presence but require no element lookup. */
     strings.count = 0U; blobs.count = 0U;
