@@ -306,6 +306,15 @@ typedef struct {
     quarry_bytes_view_t bytes_value;
 } quarry_brf_scalar_t;
 
+typedef struct {
+    const quarry_qbs_view_t* qbs;
+    const uint8_t* root_bytes;
+    quarry_workspace_t* workspace;
+    uint32_t parent_node;
+    uint16_t field_index;
+    uint32_t element_index;
+} quarry_brf_record_handle_t;
+
 typedef enum {
     QUARRY_BRF_VALUE_ABSENT = 0,
     QUARRY_BRF_VALUE_UINT,
@@ -316,17 +325,21 @@ typedef enum {
     QUARRY_BRF_VALUE_ENUM,
     QUARRY_BRF_VALUE_STRING,
     QUARRY_BRF_VALUE_BYTES,
-    QUARRY_BRF_VALUE_ARRAY
+    QUARRY_BRF_VALUE_ARRAY,
+    QUARRY_BRF_VALUE_RECORD
 } quarry_brf_value_kind_t;
 
 typedef struct {
     quarry_brf_value_kind_t kind;
     quarry_brf_scalar_t scalar;
     quarry_brf_array_view_t array;
+    quarry_brf_record_handle_t record;
 } quarry_brf_decoded_value_t;
 
 quarry_generic_status_t quarry_brf_get_value(const quarry_brf_record_view_t*, uint16_t,
                                              quarry_brf_decoded_value_t*);
+quarry_generic_status_t quarry_brf_record_handle_get(const quarry_brf_record_handle_t*,
+                                                     quarry_brf_record_view_t*);
 
 typedef struct {
     quarry_brf_traversal_event_kind_t kind;

@@ -668,6 +668,32 @@ quarry_generic_status_t quarry_brf_get_record(const quarry_brf_record_view_t* r,
     return QUARRY_GENERIC_MALFORMED_BRF;
 }
 
+quarry_generic_status_t quarry_brf_record_handle_get(const quarry_brf_record_handle_t* handle,
+                                                     quarry_brf_record_view_t* out) {
+    quarry_brf_record_view_t parent;
+    const quarry_brf_record_node_t* node;
+    if (out != NULL)
+        memset(out, 0, sizeof(*out));
+    if (handle == NULL || out == NULL || handle->qbs == NULL || handle->root_bytes == NULL ||
+        handle->workspace == NULL || handle->element_index != UINT32_MAX)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    if (handle->parent_node >= handle->workspace->node_capacity)
+        return QUARRY_GENERIC_MALFORMED_BRF;
+    node = &handle->workspace->nodes[handle->parent_node];
+    if (!node->complete || node->qbs_record_index >= handle->qbs->record_count)
+        return QUARRY_GENERIC_MALFORMED_BRF;
+    parent.qbs = handle->qbs;
+    parent.schema = &handle->qbs->records[node->qbs_record_index];
+    parent.bytes = handle->root_bytes + node->brf_offset;
+    parent.root_bytes = handle->root_bytes;
+    parent.size = node->brf_size;
+    parent.fixed_end = 16U + parent.schema->fixed_region_size;
+    parent.tail = parent.size;
+    parent.workspace = handle->workspace;
+    parent.node_index = handle->parent_node;
+    return quarry_brf_get_record(&parent, handle->field_index, out);
+}
+
 quarry_generic_status_t quarry_brf_get_record_array(const quarry_brf_record_view_t* r,
                                                     uint16_t index, quarry_brf_array_view_t* out) {
     return array_value(r, index, out);

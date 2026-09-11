@@ -545,8 +545,6 @@ quarry_generic_status_t quarry_brf_get_value(const quarry_brf_record_view_t* r, 
     if (field->type_index >= r->qbs->type_count)
         return QUARRY_GENERIC_MALFORMED_QBS;
     code = r->qbs->types[field->type_index].code;
-    if (code == 15U)
-        return QUARRY_GENERIC_UNSUPPORTED_TYPE;
     if (code == 16U) {
         const quarry_qbs_type_view_t* element_type;
         if (r->qbs->types[field->type_index].reference >= r->qbs->type_count)
@@ -560,6 +558,18 @@ quarry_generic_status_t quarry_brf_get_value(const quarry_brf_record_view_t* r, 
         return status;
     if (!present) {
         out->kind = QUARRY_BRF_VALUE_ABSENT;
+        return QUARRY_GENERIC_OK;
+    }
+    if (code == 15U) {
+        if (r->workspace == NULL)
+            return QUARRY_GENERIC_INVALID_ARGUMENT;
+        out->kind = QUARRY_BRF_VALUE_RECORD;
+        out->record.qbs = r->qbs;
+        out->record.root_bytes = r->root_bytes;
+        out->record.workspace = r->workspace;
+        out->record.parent_node = r->node_index;
+        out->record.field_index = i;
+        out->record.element_index = UINT32_MAX;
         return QUARRY_GENERIC_OK;
     }
     if (code == 16U) {
