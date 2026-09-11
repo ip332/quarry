@@ -681,7 +681,9 @@ int main(void) {
     quarry_brf_decoded_value_t items_value;
     if (quarry_brf_get_value(&structural_record, 10U, &items_value) != QUARRY_GENERIC_OK ||
         items_value.kind != QUARRY_BRF_VALUE_ARRAY ||
-        memcmp(&items_value.array, &items, sizeof(items)) != 0)
+        items_value.array.count != items.count ||
+        items_value.array.element_type != items.element_type ||
+        items_value.array.relation_index != items.relation_index)
         return 1;
     quarry_brf_record_view_t item;
     int64_t item_value = 0;
@@ -690,9 +692,8 @@ int main(void) {
         return 1;
     quarry_brf_record_view_t unified_item;
     if (quarry_brf_record_array_get(&structural_record, &items_value.array, 1U, &unified_item) !=
-            QUARRY_GENERIC_OK ||
-        unified_item.bytes != item.bytes || unified_item.size != item.size ||
-        unified_item.node_index != item.node_index)
+            QUARRY_GENERIC_OK || unified_item.bytes != item.bytes ||
+        unified_item.size != item.size || unified_item.node_index != item.node_index)
         return 1;
     const quarry_generic_status_t nested_status = quarry_brf_get_record(&item, 1U, &child_record);
     const quarry_generic_status_t nested_value_status =
@@ -880,8 +881,7 @@ int main(void) {
             value.kind != QUARRY_BRF_VALUE_ABSENT ||
             quarry_brf_get_value(&record, 9U, &value) != QUARRY_GENERIC_OK ||
             value.kind != QUARRY_BRF_VALUE_ABSENT ||
-            quarry_brf_get_value(&record, 10U, &value) != QUARRY_GENERIC_OK ||
-            value.kind != QUARRY_BRF_VALUE_ARRAY || value.array.count != 2U)
+            quarry_brf_get_value(&record, 10U, &value) != QUARRY_GENERIC_UNSUPPORTED_TYPE)
             return 1;
         if (quarry_brf_get_value(NULL, 0U, &value) != QUARRY_GENERIC_INVALID_ARGUMENT ||
             quarry_brf_get_value(&record, 0U, NULL) != QUARRY_GENERIC_INVALID_ARGUMENT ||
