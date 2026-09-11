@@ -660,6 +660,20 @@ int main(void) {
         return 1;
     if (quarry_brf_get_uint(&child_record, 0U, &sample) != QUARRY_GENERIC_OK || sample != 100U)
         return 1;
+    quarry_brf_decoded_value_t record_value;
+    if (quarry_brf_get_value(&structural_record, 9U, &record_value) != QUARRY_GENERIC_OK ||
+        record_value.kind != QUARRY_BRF_VALUE_RECORD)
+        return 1;
+    quarry_brf_record_handle_t record_handle = record_value.record;
+    quarry_brf_record_view_t handle_child;
+    if (quarry_brf_record_handle_get(&record_handle, &handle_child) != QUARRY_GENERIC_OK ||
+        handle_child.schema != child_record.schema || handle_child.bytes != child_record.bytes ||
+        handle_child.size != child_record.size || handle_child.node_index != child_record.node_index ||
+        quarry_brf_get_uint(&handle_child, 0U, &sample) != QUARRY_GENERIC_OK || sample != 100U)
+        return 1;
+    if (quarry_brf_record_handle_get(NULL, &handle_child) != QUARRY_GENERIC_INVALID_ARGUMENT ||
+        quarry_brf_record_handle_get(&record_handle, NULL) != QUARRY_GENERIC_INVALID_ARGUMENT)
+        return 1;
     quarry_brf_array_view_t items;
     if (quarry_brf_get_record_array(&structural_record, 10U, &items) != QUARRY_GENERIC_OK ||
         items.count != 2U)
@@ -678,6 +692,9 @@ int main(void) {
         fprintf(stderr, "nested item child failed\n");
         return 1;
     }
+    if (quarry_brf_get_value(&item, 1U, &record_value) != QUARRY_GENERIC_OK ||
+        record_value.kind != QUARRY_BRF_VALUE_RECORD)
+        return 1;
     const size_t nodes_after = workspace.node_count;
     const size_t fields_after = workspace.field_state_count;
     const size_t maps_after = workspace.field_map_count;
@@ -845,9 +862,13 @@ int main(void) {
         if (quarry_brf_get_value(&record, 11U, &value) != QUARRY_GENERIC_OK ||
             value.kind != QUARRY_BRF_VALUE_ABSENT)
             return 1;
+        if (quarry_brf_get_value(&record, 9U, &value) != QUARRY_GENERIC_OK ||
+            value.kind != QUARRY_BRF_VALUE_ABSENT)
+            return 1;
         if (quarry_brf_get_value(&record, 8U, &value) != QUARRY_GENERIC_OK ||
             value.kind != QUARRY_BRF_VALUE_ABSENT ||
-            quarry_brf_get_value(&record, 9U, &value) != QUARRY_GENERIC_UNSUPPORTED_TYPE ||
+            quarry_brf_get_value(&record, 9U, &value) != QUARRY_GENERIC_OK ||
+            value.kind != QUARRY_BRF_VALUE_ABSENT ||
             quarry_brf_get_value(&record, 10U, &value) != QUARRY_GENERIC_UNSUPPORTED_TYPE)
             return 1;
         if (quarry_brf_get_value(NULL, 0U, &value) != QUARRY_GENERIC_INVALID_ARGUMENT ||
