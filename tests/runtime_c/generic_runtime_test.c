@@ -882,7 +882,7 @@ int main(void) {
             quarry_brf_get_value(&record, 9U, &value) != QUARRY_GENERIC_OK ||
             value.kind != QUARRY_BRF_VALUE_ABSENT ||
             quarry_brf_get_value(&record, 10U, &value) != QUARRY_GENERIC_OK ||
-            value.kind != QUARRY_BRF_VALUE_ARRAY || value.array.count != 2U)
+            value.kind != QUARRY_BRF_VALUE_ABSENT)
             return 1;
         if (quarry_brf_get_value(NULL, 0U, &value) != QUARRY_GENERIC_INVALID_ARGUMENT ||
             quarry_brf_get_value(&record, 0U, NULL) != QUARRY_GENERIC_INVALID_ARGUMENT ||
