@@ -550,7 +550,7 @@ quarry_generic_status_t quarry_brf_get_value(const quarry_brf_record_view_t* r, 
         if (r->qbs->types[field->type_index].reference >= r->qbs->type_count)
             return QUARRY_GENERIC_MALFORMED_QBS;
         element_type = &r->qbs->types[r->qbs->types[field->type_index].reference];
-        if (element_type->code == 15U || element_type->code == 16U)
+        if (element_type->code == 16U)
             return QUARRY_GENERIC_UNSUPPORTED_TYPE;
     }
     status = quarry_brf_field_is_present(r, i, &present);

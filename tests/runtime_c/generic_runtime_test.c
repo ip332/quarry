@@ -678,10 +678,21 @@ int main(void) {
     if (quarry_brf_get_record_array(&structural_record, 10U, &items) != QUARRY_GENERIC_OK ||
         items.count != 2U)
         return 1;
+    quarry_brf_decoded_value_t items_value;
+    if (quarry_brf_get_value(&structural_record, 10U, &items_value) != QUARRY_GENERIC_OK ||
+        items_value.kind != QUARRY_BRF_VALUE_ARRAY ||
+        memcmp(&items_value.array, &items, sizeof(items)) != 0)
+        return 1;
     quarry_brf_record_view_t item;
     int64_t item_value = 0;
     if (quarry_brf_record_array_get(&structural_record, &items, 1U, &item) != QUARRY_GENERIC_OK ||
         quarry_brf_get_int(&item, 0U, &item_value) != QUARRY_GENERIC_OK || item_value != 8)
+        return 1;
+    quarry_brf_record_view_t unified_item;
+    if (quarry_brf_record_array_get(&structural_record, &items_value.array, 1U, &unified_item) !=
+            QUARRY_GENERIC_OK ||
+        unified_item.bytes != item.bytes || unified_item.size != item.size ||
+        unified_item.node_index != item.node_index)
         return 1;
     const quarry_generic_status_t nested_status = quarry_brf_get_record(&item, 1U, &child_record);
     const quarry_generic_status_t nested_value_status =
