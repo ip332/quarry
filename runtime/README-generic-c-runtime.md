@@ -46,6 +46,14 @@ return `QUARRY_BRF_VALUE_ARRAY` with count zero. Fixed-width indexed access is
 O(1); variable-width string/bytes access scans from the array start and is
 O(n). Record arrays and nested arrays remain unsupported by the unified query.
 
+Present nested record fields return `QUARRY_BRF_VALUE_RECORD` and a
+non-owning `quarry_brf_record_handle_t`. Resolve the handle into caller-owned
+`quarry_brf_record_view_t` storage with `quarry_brf_record_handle_get()`.
+The handle retains the validated QBS/root-buffer/workspace locator and remains
+valid only while those dependencies remain alive; workspace reset invalidates
+it. It does not depend on the address of the parent record-view object. Record
+array fields remain unsupported by the unified query until a later milestone.
+
 The public views are deliberately small POD values containing immutable source
 references and stable indexes/offsets; they do not point into temporary parser
 state. Field indexes are `uint16_t`, matching the bounded QBS field metadata.
