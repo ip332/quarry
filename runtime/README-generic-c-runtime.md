@@ -39,20 +39,23 @@ validated record view. It returns signed and unsigned integers, bool, floats,
 enums, strings, bytes, or an explicit absent value (`kind ==
 QUARRY_BRF_VALUE_ABSENT`). It does not allocate or
 copy payloads; string and bytes results borrow the BRF input. For supported
-non-record arrays it returns `QUARRY_BRF_VALUE_ARRAY` with the existing
+non-record and record arrays it returns `QUARRY_BRF_VALUE_ARRAY` with the existing
 `quarry_brf_array_view_t`; use the typed array accessors to read elements.
 Absent arrays return `QUARRY_BRF_VALUE_ABSENT`, while present-empty arrays
 return `QUARRY_BRF_VALUE_ARRAY` with count zero. Fixed-width indexed access is
 O(1); variable-width string/bytes access scans from the array start and is
-O(n). Record arrays and nested arrays remain unsupported by the unified query.
+O(n).
 
 Present nested record fields return `QUARRY_BRF_VALUE_RECORD` and a
 non-owning `quarry_brf_record_handle_t`. Resolve the handle into caller-owned
 `quarry_brf_record_view_t` storage with `quarry_brf_record_handle_get()`.
 The handle retains the validated QBS/root-buffer/workspace locator and remains
 valid only while those dependencies remain alive; workspace reset invalidates
-it. It does not depend on the address of the parent record-view object. Record
-array fields remain unsupported by the unified query until a later milestone.
+it. It does not depend on the address of the parent record-view object. For
+record arrays, inspect the QBS element metadata and use
+`quarry_brf_record_array_get()` with the returned array view to obtain a
+caller-owned record view for each element. Nested arrays remain unsupported
+by the unified query.
 
 The public views are deliberately small POD values containing immutable source
 references and stable indexes/offsets; they do not point into temporary parser
