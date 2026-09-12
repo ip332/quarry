@@ -34,6 +34,35 @@ The API uses `uint64_t`/`int64_t` logical integer carriers, independent of
 the QBS field width. Strings and bytes are borrowed spans with explicit
 lengths. QBS and BRF buffers, plus workspace, must outlive their views.
 
+## Decode workflow and release contract
+
+The generic read path is intentionally layered: parse QBS, validate the BRF
+record with `quarry_brf_validate_with_workspace()`, retain the resulting
+`quarry_brf_record_view_t`, then call `quarry_brf_get_value()` and dispatch on
+`quarry_brf_value_kind_t`. Scalar values use `scalar`; ARRAY values use QBS
+element metadata together with the typed array accessors; RECORD values use
+`quarry_brf_record_handle_get()` or record-array access into caller-owned
+record-view storage.
+
+The unified API covers absent fields, scalar integers, bool, float, double,
+enums, strings, bytes, primitive/enum/string/bytes arrays, nested records,
+and record arrays. ARRAY is intentionally one kind: QBS, not the value
+container, identifies whether its elements are primitive, enum, string,
+bytes, or record. Absent values are `QUARRY_BRF_VALUE_ABSENT`; a present
+empty string/bytes span or array remains a present value with zero length or
+count.
+
+Unknown fields are handled by the validated structural BRF view according to
+the existing forward-compatibility rules; known-field queries continue to use
+their QBS indexes. Getters operate only on validated views and are not a
+second raw-BRF validator. Validation rejects malformed directories, offsets,
+lengths, relationships, encodings, and schema constraints before a view is
+returned.
+
+The current schema model deliberately excludes arrays-of-arrays, recursive
+by-value records, maps, unions/variants, and bit-fields. These are model
+limitations, not partially implemented generic decoded-value kinds.
+
 `quarry_brf_get_value()` is the unified scalar query API for an already
 validated record view. It returns signed and unsigned integers, bool, floats,
 enums, strings, bytes, or an explicit absent value (`kind ==
