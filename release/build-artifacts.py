@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build and validate a local, non-publishing Quarry release bundle."""
 from __future__ import annotations
-import argparse, hashlib, io, re, shutil, subprocess, sys, tarfile, tempfile, zipfile
+import argparse, gzip, hashlib, io, re, shutil, subprocess, sys, tarfile, tempfile, zipfile
 from pathlib import Path
 
 TAG_RE = re.compile(r"^v(?P<version>\d+\.\d+\.\d+)(?:-rc\.\d+)?$")
@@ -13,12 +13,14 @@ def archive_tree(root, output, kind):
     prefix = root.name + "/"
     entries = sorted(path for path in root.rglob("*") if path.is_file())
     if kind == "tar":
-        with tarfile.open(output, "w:gz", format=tarfile.PAX_FORMAT) as archive:
+        raw = io.BytesIO()
+        with tarfile.open(fileobj=raw, mode="w:", format=tarfile.PAX_FORMAT) as archive:
             for path in entries:
                 info = tarfile.TarInfo(prefix + path.relative_to(root).as_posix())
                 data = path.read_bytes()
                 info.size = len(data); info.mode = 0o755 if path.stat().st_mode & 0o111 else 0o644; info.mtime = 0
                 archive.addfile(info, io.BytesIO(data))
+        output.write_bytes(gzip.compress(raw.getvalue(), mtime=0))
     else:
         with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for path in entries:
