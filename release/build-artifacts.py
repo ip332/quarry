@@ -53,9 +53,9 @@ def main():
         fallback.write_text(f'# Generated release fallback; do not edit.\nset(QUARRY_VERSION "{version}")\nset(QUARRY_ARCHIVE_TAG "{args.tag}")\nset(QUARRY_GIT_SHA "{sha}")\n', encoding="utf-8")
         archive_tree(tree, args.output / f"quarry-{args.tag}.tar.gz", "tar")
         archive_tree(tree, args.output / f"quarry-{args.tag}.zip", "zip")
+        python_dir = tree / "runtime" / "python"
+        subprocess.run([sys.executable, "-m", "build", "--wheel", "--sdist", "--outdir", str(args.output)], cwd=python_dir, check=True)
     shutil.copy2(notes, args.output / notes.name)
-    python_dir = repo / "runtime" / "python"
-    subprocess.run([sys.executable, "-m", "build", "--wheel", "--sdist", "--outdir", str(args.output)], cwd=python_dir, check=True)
     subprocess.run([sys.executable, str(repo / "tools" / "validate_release_artifacts.py"), "--root", str(args.output), "--version", version, "--tag", args.tag], check=True)
     files = sorted(path for path in args.output.iterdir() if path.is_file())
     (args.output / "SHA256SUMS").write_text("\n".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}" for p in files) + "\n", encoding="utf-8")
