@@ -1,0 +1,61 @@
+name: Release artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release identity, for example v0.1.7-rc.1
+        required: true
+        type: string
+      release_notes:
+        description: Repository release-notes file
+        required: true
+        default: docs/release-notes-v0.1.7-rc.1.md
+        type: string
+  pull_request:
+    paths:
+      - release/**
+      - tools/validate_release_artifacts.py
+      - docs/release-artifacts.md
+      - .github/workflows/release-artifacts.yml
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install Python packaging tools
+        run: python -m pip install build
+      - name: Build release artifacts
+        run: |
+          tag='${{ inputs.tag || 'v0.1.7-rc.1' }}'
+          notes='${{ inputs.release_notes || 'docs/release-notes-v0.1.7-rc.1.md' }}'
+          release/build-artifacts.sh --tag "$tag" --release-notes "$notes" --output release-staging
+      - name: Reconstruct and build source archive
+        run: |
+          archive=$(find release-staging -name 'quarry-*.tar.gz' -not -name 'quarry-runtime-python-*' | head -1)
+          mkdir source-tree
+          tar -xzf "$archive" -C source-tree --strip-components=1
+          cmake -S source-tree -B source-tree/build -DCMAKE_BUILD_TYPE=Debug
+          cmake --build source-tree/build --parallel
+          cmake --install source-tree/build --prefix "$PWD/source-prefix"
+          expected="${tag#v}"
+          expected="${expected%-rc.*}"
+          test "$(source-tree/build/tools/quarry-schema-compiler --version | sed 's/^quarry-schema-compiler //; s/ .*//')" = "$expected"
+      - name: Install Python artifacts in clean environments
+        run: |
+          python -m venv wheel-env
+          wheel-env/bin/pip install release-staging/*.whl
+          wheel-env/bin/python -c 'import quarry; print(quarry.__version__)'
+          python -m venv sdist-env
+          sdist-env/bin/pip install release-staging/quarry-runtime-python-*.tar.gz
+          sdist-env/bin/python -c 'import quarry; print(quarry.__version__)'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quarry-release-artifacts-${{ github.sha }}
+          path: release-staging/
