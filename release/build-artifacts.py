@@ -53,8 +53,9 @@ def main():
         fallback = tree / "cmake" / "QuarryResolvedVersion.cmake"
         sha = run(["git", "-C", str(repo), "rev-parse", "HEAD"])
         fallback.write_text(f'# Generated release fallback; do not edit.\nset(QUARRY_VERSION "{version}")\nset(QUARRY_ARCHIVE_TAG "{args.tag}")\nset(QUARRY_GIT_SHA "{sha}")\n', encoding="utf-8")
-        archive_tree(tree, args.output / f"quarry-{args.tag}.tar.gz", "tar")
-        archive_tree(tree, args.output / f"quarry-{args.tag}.zip", "zip")
+        archive_tag = args.tag[1:] if args.tag.startswith("v") else args.tag
+        archive_tree(tree, args.output / f"quarry-{archive_tag}.tar.gz", "tar")
+        archive_tree(tree, args.output / f"quarry-{archive_tag}.zip", "zip")
         python_dir = tree / "runtime" / "python"
         subprocess.run([sys.executable, "-m", "build", "--wheel", "--sdist", "--outdir", str(args.output)], cwd=python_dir, check=True)
     shutil.copy2(notes, args.output / notes.name)
