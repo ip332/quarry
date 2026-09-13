@@ -22,6 +22,9 @@ on:
 jobs:
   build-and-verify:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || 'v0.1.7-rc.1' }}
+      RELEASE_NOTES: ${{ inputs.release_notes || 'docs/release-notes-v0.1.7-rc.1.md' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,9 +36,14 @@ jobs:
         run: python -m pip install build
       - name: Build release artifacts
         run: |
-          tag='${{ inputs.tag || 'v0.1.7-rc.1' }}'
-          notes='${{ inputs.release_notes || 'docs/release-notes-v0.1.7-rc.1.md' }}'
-          release/build-artifacts.sh --tag "$tag" --release-notes "$notes" --output release-staging
+          release/build-artifacts.sh --tag "$RELEASE_TAG" --release-notes "$RELEASE_NOTES" --output release-staging
+      - name: Compare source archive reproducibility
+        run: |
+          release/build-artifacts.sh --tag "$RELEASE_TAG" --release-notes "$RELEASE_NOTES" --output release-staging-repeat
+          sha256sum release-staging/quarry-*.tar.gz release-staging-repeat/quarry-*.tar.gz
+          cmp release-staging/quarry-*.tar.gz release-staging-repeat/quarry-*.tar.gz
+          cmp release-staging/quarry-*.zip release-staging-repeat/quarry-*.zip
+          diff -u release-staging/SHA256SUMS <(sed 's#release-staging/##' release-staging-repeat/SHA256SUMS)
       - name: Reconstruct and build source archive
         run: |
           archive=$(find release-staging -name 'quarry-*.tar.gz' -not -name 'quarry-runtime-python-*' | head -1)
@@ -44,9 +52,16 @@ jobs:
           cmake -S source-tree -B source-tree/build -DCMAKE_BUILD_TYPE=Debug
           cmake --build source-tree/build --parallel
           cmake --install source-tree/build --prefix "$PWD/source-prefix"
-          expected="${tag#v}"
+          expected="${RELEASE_TAG#v}"
           expected="${expected%-rc.*}"
           test "$(source-tree/build/tools/quarry-schema-compiler --version | sed 's/^quarry-schema-compiler //; s/ .*//')" = "$expected"
+          ctest --test-dir source-tree/build --output-on-failure
+      - name: Verify checksums and archive contents
+        run: |
+          (cd release-staging && sha256sum -c SHA256SUMS)
+          test -z "$(find release-staging -type f \( -name '*.egg-info' -o -name '.coverage' \) -print)"
+          if tar -tzf release-staging/quarry-*.tar.gz | grep -Eq '(^|/)(\.git|\.vscode|build)(/|$)'; then exit 1; fi
+          if unzip -Z1 release-staging/quarry-*.zip | grep -Eq '(^|/)(\.git|\.vscode|build)(/|$)'; then exit 1; fi
       - name: Install Python artifacts in clean environments
         run: |
           python -m venv wheel-env
