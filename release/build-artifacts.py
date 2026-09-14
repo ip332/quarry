@@ -38,6 +38,7 @@ def main():
     match = TAG_RE.fullmatch(args.tag)
     if not match: parser.error("--tag must match vX.Y.Z or vX.Y.Z-rc.N")
     version = match.group("version"); repo = Path(__file__).resolve().parents[1]
+    args.output = args.output.resolve()
     if run(["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no"]):
         raise SystemExit("release artifacts require a clean tracked working tree")
     major_minor = (repo / "git_version").read_text(encoding="utf-8").strip()
