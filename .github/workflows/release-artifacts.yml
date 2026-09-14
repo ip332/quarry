@@ -40,10 +40,10 @@ jobs:
       - name: Compare source archive reproducibility
         run: |
           release/build-artifacts.sh --tag "$RELEASE_TAG" --release-notes "$RELEASE_NOTES" --output release-staging-repeat
-          sha256sum release-staging/quarry-*.tar.gz release-staging-repeat/quarry-*.tar.gz
-          cmp release-staging/quarry-*.tar.gz release-staging-repeat/quarry-*.tar.gz
-          cmp release-staging/quarry-*.zip release-staging-repeat/quarry-*.zip
-          diff -u release-staging/SHA256SUMS <(sed 's#release-staging/##' release-staging-repeat/SHA256SUMS)
+          archive_tag="${RELEASE_TAG#v}"
+          sha256sum "release-staging/quarry-${archive_tag}.tar.gz" "release-staging-repeat/quarry-${archive_tag}.tar.gz"
+          cmp "release-staging/quarry-${archive_tag}.tar.gz" "release-staging-repeat/quarry-${archive_tag}.tar.gz"
+          cmp "release-staging/quarry-${archive_tag}.zip" "release-staging-repeat/quarry-${archive_tag}.zip"
       - name: Reconstruct and build source archive
         run: |
           archive=$(find release-staging -name 'quarry-*.tar.gz' -not -name 'quarry-runtime-python-*' | head -1)
