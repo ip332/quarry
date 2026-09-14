@@ -5,6 +5,22 @@ Quarry keeps the release asset list explicit in
 manifest describes the assets intended for a public release; it does not
 publish, sign, or checksum them.
 
+## Build and validate a release staging directory
+
+From a clean tracked checkout, build the complete non-publishing bundle:
+
+```sh
+release/build-artifacts.sh \
+  --tag v0.1.7-rc.1 \
+  --release-notes docs/release-notes-v0.1.7-rc.1.md \
+  --output /tmp/quarry-release
+```
+
+The builder creates deterministic source tar/zip archives with the packaged
+version fallback, builds the Python wheel and sdist, stages release notes,
+validates the manifest, and writes `SHA256SUMS`. It never creates a tag,
+publishes an asset, or uploads to PyPI.
+
 ## Validate a release staging directory
 
 Place the finalized assets in one directory, then run:
