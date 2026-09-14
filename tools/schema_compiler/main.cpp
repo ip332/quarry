@@ -5,6 +5,9 @@
 #include "compiler/context/compiler_context.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/frontend/yaml_compiler.hpp"
+#include "compiler/layout/layout.hpp"
+#include "compiler/qbs/qbs.hpp"
+#include "compiler/qbs/serializer.hpp"
 #include "compiler/support/source_location.hpp"
 #include "quarry/version.hpp"
 
@@ -45,6 +48,7 @@ struct CommandLine {
     bool show_version = false;
     bool show_generated_code_api_version = false;
     bool list_outputs = false;
+    std::string qbs_output;
     Language language = Language::Cpp;
     std::string input_path;
     backend::CodegenOptions codegen_options;
@@ -59,6 +63,7 @@ struct CommandLine {
            "      --file-extension EXT      Generated file extension for --language cpp\n"
            "                                (default: .generated.hpp)\n"
            "      --language {cpp,c,python} Target backend language (default: cpp)\n"
+           "      --emit-qbs PATH           Emit the resolved schema as a deterministic QBS image\n"
            "      --list-outputs            Print generated output paths without writing files\n"
            "      --print-generated-code-api-version\n"
            "                                Print the generated-code API compatibility version and "
@@ -80,7 +85,7 @@ void print_generated_code_api_version(std::ostream& output) {
 
 [[nodiscard]] bool option_requires_value(std::string_view option) {
     return option == "-o" || option == "--output-directory" || option == "--root-file-stem" ||
-           option == "--file-extension" || option == "--language";
+           option == "--file-extension" || option == "--language" || option == "--emit-qbs";
 }
 
 [[nodiscard]] std::optional<CommandLine> parse_command_line(int argc, char** argv,
@@ -90,6 +95,7 @@ void print_generated_code_api_version(std::ostream& output) {
     bool saw_root_file_stem = false;
     bool saw_file_extension = false;
     bool saw_language = false;
+    bool saw_qbs_output = false;
 
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument{argv[index]};
@@ -148,6 +154,15 @@ void print_generated_code_api_version(std::ostream& output) {
                 saw_file_extension = true;
                 command_line.codegen_options.file_extension = value;
             } else {
+                if (argument == "--emit-qbs") {
+                    if (saw_qbs_output) {
+                        errors << "error: duplicate --emit-qbs option\n";
+                        return std::nullopt;
+                    }
+                    saw_qbs_output = true;
+                    command_line.qbs_output = value;
+                    continue;
+                }
                 if (saw_language) {
                     errors << "error: duplicate language option\n";
                     return std::nullopt;
@@ -186,7 +201,7 @@ void print_generated_code_api_version(std::ostream& output) {
             command_line.codegen_options.output_directory != "generated" ||
             command_line.codegen_options.root_file_stem != "schema" ||
             command_line.codegen_options.file_extension != ".generated.hpp" ||
-            command_line.language != Language::Cpp;
+            command_line.language != Language::Cpp || !command_line.qbs_output.empty();
         if (has_generation_arguments) {
             errors << "error: --print-generated-code-api-version does not accept generation "
                       "options or an input file\n";
@@ -289,6 +304,41 @@ template <typename GeneratedFileT>
     return true;
 }
 
+[[nodiscard]] bool write_qbs_file(const std::string& path, const std::vector<std::uint8_t>& bytes,
+                                  std::ostream& errors) {
+    const std::filesystem::path output_path{path};
+    std::error_code error;
+    if (!output_path.parent_path().empty())
+        std::filesystem::create_directories(output_path.parent_path(), error);
+    if (error) {
+        errors << "error: failed to create output directory " << output_path.parent_path().string()
+               << ": " << error.message() << '\n';
+        return false;
+    }
+    const auto temporary_path = temp_path_for(output_path);
+    std::ofstream output{temporary_path, std::ios::binary | std::ios::trunc};
+    if (!output) {
+        errors << "error: failed to open QBS output file " << temporary_path.string() << '\n';
+        return false;
+    }
+    output.write(reinterpret_cast<const char*>(bytes.data()),
+                 static_cast<std::streamsize>(bytes.size()));
+    output.close();
+    if (!output) {
+        errors << "error: failed to write QBS output file " << temporary_path.string() << '\n';
+        std::filesystem::remove(temporary_path, error);
+        return false;
+    }
+    std::filesystem::rename(temporary_path, output_path, error);
+    if (error) {
+        errors << "error: failed to write QBS output file " << output_path.string() << ": "
+               << error.message() << '\n';
+        std::filesystem::remove(temporary_path, error);
+        return false;
+    }
+    return true;
+}
+
 template <typename CodegenResultT>
 [[nodiscard]] bool write_generated_files(const CodegenResultT& result,
                                          const std::string& output_directory,
@@ -359,6 +409,39 @@ template <typename CodegenResultT>
 
     if (!compilation_result.succeeded()) {
         return exit_failure;
+    }
+
+    if (!command_line.qbs_output.empty()) {
+        quarry::compiler::layout::LayoutComputer layout_computer;
+        diagnostics::DiagnosticEngine layout_diagnostics;
+        const auto layout =
+            layout_computer.compute(*compilation_result.schema_ir, layout_diagnostics);
+        if (!layout_diagnostics.empty()) {
+            errors << diagnostics::DiagnosticFormatter::format_all(
+                layout_diagnostics, compiler_context.source_manager());
+            errors << '\n';
+        }
+        if (!layout_diagnostics.empty()) return exit_failure;
+        quarry::compiler::qbs::QbsModelBuilder builder;
+        auto model = builder.build(*compilation_result.schema_ir, layout,
+                                   quarry::compiler::qbs::QbsBuildOptions{}, layout_diagnostics);
+        if (!model) {
+            errors << diagnostics::DiagnosticFormatter::format_all(
+                layout_diagnostics, compiler_context.source_manager());
+            return exit_failure;
+        }
+        if (command_line.list_outputs) {
+            output << command_line.qbs_output << '\n';
+            return exit_success;
+        }
+        auto serialized = quarry::compiler::qbs::serialize_qbs(*model, layout_diagnostics);
+        if (!serialized || !write_qbs_file(command_line.qbs_output, serialized->bytes, errors)) {
+            if (!layout_diagnostics.empty())
+                errors << diagnostics::DiagnosticFormatter::format_all(
+                    layout_diagnostics, compiler_context.source_manager());
+            return exit_failure;
+        }
+        return exit_success;
     }
 
     if (command_line.language == Language::C) {

@@ -14,6 +14,8 @@ target_link_libraries(quarry_schema_compiler
         quarry_compiler_context
         quarry_compiler_diagnostics
         quarry_compiler_frontend
+        quarry_compiler_qbs
+        quarry_compiler_layout
         quarry_compiler_support
         quarry_project_options
         quarry_schema_ir_warning_tweaks

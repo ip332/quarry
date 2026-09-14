@@ -14,6 +14,7 @@
 #include <utility>
 
 #include <gtest/gtest.h>
+#include "quarry/runtime_c/generic_brf.h"
 
 #ifndef QUARRY_TEST_GENERATED_CODE_API_VERSION
 #error "QUARRY_TEST_GENERATED_CODE_API_VERSION must be defined"
@@ -190,6 +191,30 @@ TEST(SchemaCompilerToolTest, HelpReturnsSuccess) {
               std::string::npos);
     EXPECT_NE(result.stdout_text.find("--list-outputs"), std::string::npos);
     EXPECT_TRUE(result.stderr_text.empty());
+}
+
+TEST(SchemaCompilerToolTest, EmitsDeterministicQbsForBenchmarkWorkload) {
+    const std::filesystem::path root = make_temp_directory("emit-qbs");
+    const std::filesystem::path input =
+        std::filesystem::path{QUARRY_TEST_SOURCE_DIR} / "benchmarks/schemas/workload.brd";
+    const auto first = root / "first.qbs";
+    const auto second = root / "second.qbs";
+    ASSERT_EQ(run_tool({"--emit-qbs", first.string(), input.string()}, root).status, 0);
+    ASSERT_EQ(run_tool({"--emit-qbs", second.string(), input.string()}, root).status, 0);
+    std::ifstream a(first, std::ios::binary);
+    std::ifstream b(second, std::ios::binary);
+    const std::vector<uint8_t> first_bytes{std::istreambuf_iterator<char>(a), {}};
+    const std::vector<uint8_t> second_bytes{std::istreambuf_iterator<char>(b), {}};
+    EXPECT_EQ(first_bytes, second_bytes);
+    ASSERT_FALSE(first_bytes.empty());
+    quarry_qbs_record_view_t records[128]{}; quarry_qbs_field_view_t fields[128]{};
+    quarry_qbs_type_view_t types[128]{}; quarry_qbs_enum_view_t enums[128]{}; uint64_t values[128]{};
+    quarry_workspace_t workspace{.records = records, .record_capacity = 128, .fields = fields,
+        .field_capacity = 128, .types = types, .type_capacity = 128, .enums = enums,
+        .enum_capacity = 128, .enum_values = values, .enum_value_capacity = 128};
+    quarry_qbs_view_t view{};
+    EXPECT_EQ(quarry_qbs_parse(first_bytes.data(), first_bytes.size(), &view, &workspace, nullptr),
+              QUARRY_GENERIC_OK);
 }
 
 TEST(SchemaCompilerToolTest, HelpIsTerminalBeforeListOutputs) {
