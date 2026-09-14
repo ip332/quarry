@@ -59,6 +59,8 @@ def main():
         archive_tree(tree, args.output / f"quarry-{archive_tag}.zip", "zip")
         python_dir = tree / "runtime" / "python"
         subprocess.run([sys.executable, "-m", "build", "--wheel", "--sdist", "--outdir", str(args.output)], cwd=python_dir, check=True)
+        for source_dist in args.output.glob("quarry_runtime_python-*.tar.gz"):
+            source_dist.rename(args.output / source_dist.name.replace("quarry_runtime_python-", "quarry-runtime-python-", 1))
     shutil.copy2(notes, args.output / notes.name)
     subprocess.run([sys.executable, str(repo / "tools" / "validate_release_artifacts.py"), "--root", str(args.output), "--version", version, "--tag", args.tag], check=True)
     files = sorted(path for path in args.output.iterdir() if path.is_file())
