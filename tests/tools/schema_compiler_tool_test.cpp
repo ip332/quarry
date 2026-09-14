@@ -209,9 +209,17 @@ TEST(SchemaCompilerToolTest, EmitsDeterministicQbsForBenchmarkWorkload) {
     ASSERT_FALSE(first_bytes.empty());
     quarry_qbs_record_view_t records[128]{}; quarry_qbs_field_view_t fields[128]{};
     quarry_qbs_type_view_t types[128]{}; quarry_qbs_enum_view_t enums[128]{}; uint64_t values[128]{};
-    quarry_workspace_t workspace{.records = records, .record_capacity = 128, .fields = fields,
-        .field_capacity = 128, .types = types, .type_capacity = 128, .enums = enums,
-        .enum_capacity = 128, .enum_values = values, .enum_value_capacity = 128};
+    quarry_workspace_t workspace{};
+    workspace.records = records;
+    workspace.record_capacity = 128;
+    workspace.fields = fields;
+    workspace.field_capacity = 128;
+    workspace.types = types;
+    workspace.type_capacity = 128;
+    workspace.enums = enums;
+    workspace.enum_capacity = 128;
+    workspace.enum_values = values;
+    workspace.enum_value_capacity = 128;
     quarry_qbs_view_t view{};
     EXPECT_EQ(quarry_qbs_parse(first_bytes.data(), first_bytes.size(), &view, &workspace, nullptr),
               QUARRY_GENERIC_OK);
