@@ -44,6 +44,7 @@ Options:
       --file-extension EXT      Generated file extension for --language cpp
                                 (default: .generated.hpp)
       --language {cpp,c,python} Target backend language (default: cpp)
+      --emit-qbs PATH           Emit a deterministic binary QBS image
       --list-outputs            Print generated output paths without writing files
       --print-generated-code-api-version
                                 Print the generated-code API compatibility version and exit
@@ -56,6 +57,19 @@ unchanged behavior), `c`, or `python`. Omitting `--language` and passing
 `--language cpp` explicitly behave identically. An unrecognized value is a
 usage error (exit code `2`) naming the invalid value and the three accepted
 ones.
+
+To emit the resolved schema as a self-contained binary QBS image, use the
+explicit QBS output mode:
+
+```sh
+quarry-schema-compiler --emit-qbs build/workload.qbs schema.brd
+```
+
+The image includes imported schema metadata and is produced by the canonical
+QBS serializer without build paths or timestamps. It can be consumed by the
+generic C runtime through `quarry_qbs_parse()`. Combining `--list-outputs`
+with `--emit-qbs` prints the requested path without writing the image; normal
+language generation is unchanged unless QBS output is explicitly requested.
 `--file-extension` configures only the C++ backend's single generated file
 extension; combining it with `--language c` or `--language python` is a
 usage error, since neither backend's fixed extension
