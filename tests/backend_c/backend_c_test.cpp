@@ -5,6 +5,7 @@
 #include "compiler/schema_ir/validation.hpp"
 
 #include <cstdint>
+#include <algorithm>
 #include <string>
 #include <string_view>
 
@@ -654,7 +655,7 @@ TEST(BackendCTest, StringFieldEncodedSizeDoesNotValidateBoundsOrUtf8) {
     const std::string& source = result.files[1].content;
 
     const std::size_t encoded_size_start = source.find("telemetry_Sample_encoded_size(");
-    const std::size_t encode_start = source.find("telemetry_Sample_encode(");
+    const std::size_t encode_start = source.find("telemetry_Sample_encode_with_record_id(");
     ASSERT_NE(encoded_size_start, std::string::npos);
     ASSERT_NE(encode_start, std::string::npos);
     ASSERT_LT(encoded_size_start, encode_start);
@@ -772,7 +773,7 @@ TEST(BackendCTest, BytesFieldEncodedSizeDoesNotValidateBounds) {
     const std::string& source = result.files[1].content;
 
     const std::size_t encoded_size_start = source.find("telemetry_Sample_encoded_size(");
-    const std::size_t encode_start = source.find("telemetry_Sample_encode(");
+    const std::size_t encode_start = source.find("telemetry_Sample_encode_with_record_id(");
     ASSERT_NE(encoded_size_start, std::string::npos);
     ASSERT_NE(encode_start, std::string::npos);
     ASSERT_LT(encoded_size_start, encode_start);
@@ -997,7 +998,7 @@ TEST(BackendCTest, ArrayFieldEncodedSizeDoesNotValidateBoundsOrMembership) {
     const std::string& source = result.files[1].content;
 
     const std::size_t encoded_size_start = source.find("telemetry_Sample_encoded_size(");
-    const std::size_t encode_start = source.find("telemetry_Sample_encode(");
+    const std::size_t encode_start = source.find("telemetry_Sample_encode_with_record_id(");
     ASSERT_NE(encoded_size_start, std::string::npos);
     ASSERT_NE(encode_start, std::string::npos);
     ASSERT_LT(encoded_size_start, encode_start);
@@ -1124,7 +1125,7 @@ TEST(BackendCTest, NestedRecordFieldGeneratesEmbeddedStructFieldAndCodec) {
     // Encode: pure composition -- call the child's own real _encode() into
     // the scratch buffer, propagate any failure status directly.
     EXPECT_NE(source.find("telemetry_Inner_encode_result_t inner_encode_result = "
-                         "telemetry_Inner_encode(&record->inner, inner_bytes, "
+                         "telemetry_Inner_encode_with_record_id(&record->inner, 1U, inner_bytes, "
                          "sizeof(inner_bytes));"),
              std::string::npos);
     EXPECT_NE(source.find("if (inner_encode_result.status != QUARRY_C_STATUS_OK) {"),
@@ -1135,7 +1136,7 @@ TEST(BackendCTest, NestedRecordFieldGeneratesEmbeddedStructFieldAndCodec) {
     // isolated field-view byte span, propagate any failure status and an
     // absolute (parent-relative) byte offset directly.
     EXPECT_NE(source.find("telemetry_Inner_decode_result_t inner_decode_result = "
-                         "telemetry_Inner_decode(field_view.bytes, field_view.length);"),
+                         "telemetry_Inner_decode_with_record_id(field_view.bytes, field_view.length, 1U);"),
              std::string::npos);
     EXPECT_NE(source.find("if (inner_decode_result.status != QUARRY_C_STATUS_OK) {"),
              std::string::npos);
@@ -1169,7 +1170,7 @@ TEST(BackendCTest, NestedRecordFieldEncodedSizeUsesChildEncodedSizeWithoutEncodi
     const std::string& source = result.files[1].content;
 
     const std::size_t encoded_size_start = source.find("telemetry_Outer_encoded_size(");
-    const std::size_t encode_start = source.find("telemetry_Outer_encode(");
+    const std::size_t encode_start = source.find("telemetry_Outer_encode_with_record_id(");
     ASSERT_NE(encoded_size_start, std::string::npos);
     ASSERT_NE(encode_start, std::string::npos);
     ASSERT_LT(encoded_size_start, encode_start);
@@ -1205,6 +1206,36 @@ TEST(BackendCTest, CrossNamespaceNestedRecordFieldGeneratesDependencyInclude) {
     EXPECT_NE(result.files[2].content.find("#include \"alpha.generated.h\""),
              std::string::npos);
     EXPECT_NE(result.files[2].content.find("alpha_Inner_t inner;"), std::string::npos);
+}
+
+TEST(BackendCTest, CrossNamespaceNestedRecordUsesCanonicalTargetRecordId) {
+    SchemaIrModel schema_ir;
+    schema_ir.set_schema_ir_version(1);
+    NamespaceIR* root = schema_ir.mutable_root_namespace();
+    root->set_ir_id(1);
+    NamespaceIR* alpha_ns = add_child_namespace(*root, 2, "alpha", "alpha");
+    (void)add_zero_field_record(*alpha_ns, 3, 2U, "Inner", "alpha.Inner");
+    NamespaceIR* beta_ns = add_child_namespace(*root, 4, "beta", "beta");
+    RecordIR* outer = add_zero_field_record(*beta_ns, 5, 1U, "Outer", "beta.Outer");
+    FieldIR* field = outer->add_fields();
+    field->set_name("inner");
+    field->set_field_index(0);
+    field->mutable_type()->mutable_record()->set_target_record_ir_id(3);
+    assert_valid(schema_ir);
+
+    const CodegenResult result = Backend{}.generate(schema_ir, CodegenOptions{});
+    ASSERT_TRUE(result.success) << result.error_message;
+    const auto source = std::find_if(
+        result.files.begin(), result.files.end(), [](const GeneratedFile& file) {
+            return file.path == "generated/beta.generated.c";
+        });
+    ASSERT_NE(source, result.files.end());
+    EXPECT_NE(source->content.find(
+                  "alpha_Inner_encode_with_record_id(&record->inner, 2U"),
+              std::string::npos);
+    EXPECT_NE(source->content.find(
+                  "alpha_Inner_decode_with_record_id(field_view.bytes, field_view.length, 2U)"),
+              std::string::npos);
 }
 
 TEST(BackendCTest, SelfReferentialNestedRecordFailsWithCycleDiagnostic) {
@@ -1346,15 +1377,15 @@ TEST(BackendCTest, ArrayOfRecordFieldGeneratesFixedCapacityStructFieldAndCodec) 
              std::string::npos);
     EXPECT_EQ(source.find("quarry_c_write_varuint(&writer, (uint64_t)element_size)"),
              std::string::npos);
-    EXPECT_NE(source.find("tree_Item_encode(&record->items[element_index], "
+    EXPECT_NE(source.find("tree_Item_encode_with_record_id(&record->items[element_index], 1U, "
                          "writer.buffer + writer.length, writer.capacity - writer.length)"),
              std::string::npos);
     EXPECT_NE(source.find("writer.length += element_result.bytes_written;"), std::string::npos);
     // Decode uses the schema-known child size and validates each complete
     // child record in place.
     EXPECT_NE(source.find("const size_t element_length = "), std::string::npos);
-    EXPECT_NE(source.find("tree_Item_decode(array_reader.buffer + array_reader.offset, "
-                         "element_length)"),
+    EXPECT_NE(source.find("tree_Item_decode_with_record_id(array_reader.buffer + array_reader.offset, "
+                         "element_length, 1U)"),
              std::string::npos);
     EXPECT_NE(source.find("result.value.items[element_index] = element_result.value;"),
              std::string::npos);
@@ -1399,7 +1430,7 @@ TEST(BackendCTest, ArrayOfRecordFieldEncodedSizeUsesChildEncodedSizeWithoutEncod
     const std::string& source = result.files[1].content;
 
     const std::size_t encoded_size_start = source.find("tree_Group_encoded_size(");
-    const std::size_t encode_start = source.find("tree_Group_encode(");
+    const std::size_t encode_start = source.find("tree_Group_encode_with_record_id(");
     ASSERT_NE(encoded_size_start, std::string::npos);
     ASSERT_NE(encode_start, std::string::npos);
     ASSERT_LT(encoded_size_start, encode_start);
@@ -1482,11 +1513,11 @@ TEST(BackendCTest, ArrayOfRecordComposesWithNestedRecordField) {
     const std::string& source = result.files[1].content;
     EXPECT_NE(source.find("tree_Middle_encoded_size(&record->items[element_index])"),
              std::string::npos);
-    EXPECT_NE(source.find("tree_Middle_encode(&record->items[element_index], "
+    EXPECT_NE(source.find("tree_Middle_encode_with_record_id(&record->items[element_index], 2U, "
                          "writer.buffer + writer.length, writer.capacity - writer.length)"),
              std::string::npos);
-    EXPECT_NE(source.find("tree_Middle_decode(array_reader.buffer + array_reader.offset, "
-                         "element_length)"),
+    EXPECT_NE(source.find("tree_Middle_decode_with_record_id(array_reader.buffer + array_reader.offset, "
+                         "element_length, 2U)"),
              std::string::npos);
 }
 
