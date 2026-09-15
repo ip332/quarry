@@ -362,6 +362,7 @@ struct FieldEncoding {
                                             // (by-then-already-computed) max_encoded_size once
                                             // same-namespace records are processed in
                                             // dependency order (see collect_namespace_files)
+    std::uint32_t record_target_id = 0U;
     std::string record_symbol_name; // only meaningful when is_record, e.g.
                                     // "quarry_telemetry_Child" (no _t/_encode/_decode suffix --
                                     // c_type is set to "<record_symbol_name>_t" directly, and
@@ -732,6 +733,7 @@ struct RecordCatalogEntry {
     std::string symbol_name;    // e.g. "quarry_telemetry_Child" (no _t/_encode/_decode suffix)
     std::string owning_namespace_fqn;
     std::uint64_t max_encoded_size = 0U; // resolved later; see collect_namespace_files
+    std::uint32_t record_id = 0U;
 };
 
 using RecordCatalog = std::unordered_map<std::uint64_t, RecordCatalogEntry>;
@@ -742,6 +744,7 @@ void collect_record_catalog(const NamespaceIR& ns, RecordCatalog& catalog) {
         RecordCatalogEntry entry;
         entry.symbol_name = safe_c_identifier(symbol_prefix + record_ir.name());
         entry.owning_namespace_fqn = ns.fqn();
+        entry.record_id = record_ir.record_id();
         catalog.emplace(record_ir.ir_id(), std::move(entry));
     }
     for (const NamespaceIR& child : ns.namespaces()) {
@@ -781,6 +784,7 @@ lower_record_reference(std::uint64_t target_record_ir_id, std::string_view curre
     FieldEncoding encoding;
     encoding.record_target_ir_id = target_record_ir_id;
     encoding.record_symbol_name = entry.symbol_name;
+    encoding.record_target_id = entry.record_id;
     encoding.c_type = entry.symbol_name + "_t";
     // encoding.record_max_encoded_size is resolved later, once the
     // referenced record's own fields have been processed in dependency
@@ -1641,6 +1645,10 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         stream << record.symbol_name << "_encode_result_t " << record.symbol_name
                << "_encode(const " << record.symbol_name
                << "_t* record, uint8_t* output, size_t output_capacity);\n";
+        stream << "/* Internal generated-code interoperability helper; not application API. */\n";
+        stream << record.symbol_name << "_encode_result_t " << record.symbol_name
+               << "_encode_with_record_id(const " << record.symbol_name
+               << "_t* record, uint32_t record_id, uint8_t* output, size_t output_capacity);\n";
 
         stream << "\n";
         stream << "typedef struct {\n";
@@ -1653,6 +1661,10 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         stream << "\n";
         stream << record.symbol_name << "_decode_result_t " << record.symbol_name
                << "_decode(const uint8_t* input, size_t input_length);\n";
+        stream << "/* Internal generated-code interoperability helper; not application API. */\n";
+        stream << record.symbol_name << "_decode_result_t " << record.symbol_name
+               << "_decode_with_record_id(const uint8_t* input, size_t input_length, "
+                  "uint32_t expected_record_id);\n";
     }
 
     stream << "\n";
@@ -1858,8 +1870,9 @@ void render_record_array_element_build(std::ostringstream& stream, const Planned
         if (check_write_status) {
             stream << "            const " << field.encoding.record_symbol_name
                    << "_encode_result_t element_result = " << field.encoding.record_symbol_name
-                   << "_encode(&record->" << field.name
-                   << "[element_index], writer.buffer + writer.length, writer.capacity - writer.length);\n";
+                   << "_encode_with_record_id(&record->" << field.name
+                   << "[element_index], " << field.encoding.record_target_id << "U, "
+                   << "writer.buffer + writer.length, writer.capacity - writer.length);\n";
             stream << "            if (element_result.status != QUARRY_C_STATUS_OK) {\n"
                       "                result.status = element_result.status;\n"
                       "                return result;\n"
@@ -1884,8 +1897,8 @@ void render_record_array_element_build(std::ostringstream& stream, const Planned
         stream << "            }\n";
         stream << "            const " << field.encoding.record_symbol_name
                << "_encode_result_t element_result = " << field.encoding.record_symbol_name
-               << "_encode(&record->" << field.name
-               << "[element_index], writer.buffer + writer.length, writer.capacity - "
+               << "_encode_with_record_id(&record->" << field.name
+               << "[element_index], " << field.encoding.record_target_id << "U, writer.buffer + writer.length, writer.capacity - "
                   "writer.length);\n";
         stream << "            if (element_result.status != QUARRY_C_STATUS_OK) {\n";
         stream << "                result.status = element_result.status;\n";
@@ -2044,7 +2057,8 @@ void render_record_field_build(std::ostringstream& stream, const PlannedField& f
     if (check_write_status) {
         stream << "        " << field.encoding.record_symbol_name << "_encode_result_t "
                << field.name << "_encode_result = " << field.encoding.record_symbol_name
-               << "_encode(&record->" << field.name << ", " << field.name << "_bytes, sizeof("
+               << "_encode_with_record_id(&record->" << field.name << ", "
+               << field.encoding.record_target_id << "U, " << field.name << "_bytes, sizeof("
                << field.name << "_bytes));\n";
         stream << "        if (" << field.name << "_encode_result.status != QUARRY_C_STATUS_OK) {\n";
         stream << "            result.status = " << field.name << "_encode_result.status;\n";
@@ -2213,7 +2227,8 @@ void render_record_array_element_decode(std::ostringstream& stream, const Planne
                   "                }\n";
         stream << "                const " << field.encoding.record_symbol_name
                << "_decode_result_t element_result = " << field.encoding.record_symbol_name
-               << "_decode(array_reader.buffer + array_reader.offset, element_length);\n";
+               << "_decode_with_record_id(array_reader.buffer + array_reader.offset, element_length, "
+               << field.encoding.record_target_id << "U);\n";
         stream << "                if (element_result.status != QUARRY_C_STATUS_OK) {\n"
                   "                    result.status = element_result.status;\n"
                   "                    result.has_byte_offset = true;\n"
@@ -2245,7 +2260,8 @@ void render_record_array_element_decode(std::ostringstream& stream, const Planne
     stream << "                const size_t element_length = (size_t)element_length_raw;\n";
     stream << "                const " << field.encoding.record_symbol_name
            << "_decode_result_t element_result = " << field.encoding.record_symbol_name
-           << "_decode(array_reader.buffer + array_reader.offset, element_length);\n";
+           << "_decode_with_record_id(array_reader.buffer + array_reader.offset, element_length, "
+           << field.encoding.record_target_id << "U);\n";
     stream << "                if (element_result.status != QUARRY_C_STATUS_OK) {\n";
     stream << "                    result.status = element_result.status;\n";
     stream << "                    if (element_result.has_byte_offset) {\n";
@@ -2462,7 +2478,8 @@ void render_array_field_decode(std::ostringstream& stream, const PlannedField& f
 void render_record_field_decode(std::ostringstream& stream, const PlannedField& field) {
     stream << "            " << field.encoding.record_symbol_name << "_decode_result_t "
            << field.name << "_decode_result = " << field.encoding.record_symbol_name
-           << "_decode(field_view.bytes, field_view.length);\n";
+           << "_decode_with_record_id(field_view.bytes, field_view.length, "
+           << field.encoding.record_target_id << "U);\n";
     stream << "            if (" << field.name
            << "_decode_result.status != QUARRY_C_STATUS_OK) {\n";
     stream << "                result.status = " << field.name << "_decode_result.status;\n";
@@ -2547,44 +2564,57 @@ void render_record_field_decode(std::ostringstream& stream, const PlannedField& 
 
         stream << "\n";
         stream << record.symbol_name << "_encode_result_t " << record.symbol_name
-               << "_encode(const " << record.symbol_name
-               << "_t* record, uint8_t* output, size_t output_capacity) {\n";
+               << "_encode_with_record_id(const " << record.symbol_name
+               << "_t* record, uint32_t record_id, uint8_t* output, size_t output_capacity) {\n";
         stream << "    " << record.symbol_name << "_encode_result_t result;\n";
         stream << "    result.status = QUARRY_C_STATUS_OK;\n";
         stream << "    result.bytes_written = 0U;\n";
+        stream << "    quarry_c_brf_v2_record_layout_t expected_layout = "
+               << record.symbol_name << "_brf_v2_layout;\n";
+        stream << "    expected_layout.record_id = record_id;\n";
         if (record.fields.empty()) {
             stream << "    (void)record;\n";
-            stream << "    result.status = quarry_c_brf_v2_encode_record(&" << record.symbol_name
-                   << "_brf_v2_layout, " << record.record_id
-                   << "U, NULL, 0U, output, output_capacity, &result.bytes_written);\n";
+            stream << "    result.status = quarry_c_brf_v2_encode_record(&expected_layout, record_id, "
+                   << "NULL, 0U, output, output_capacity, &result.bytes_written);\n";
         } else {
             stream << "    quarry_c_brf_v2_field_value_t fields[" << record.fields.size()
                    << "];\n";
             stream << "    size_t field_count = 0U;\n";
             render_field_scratch_declarations(stream, record.fields);
             render_build_fields_loop(stream, record.fields, /*check_write_status=*/true);
-            stream << "    result.status = quarry_c_brf_v2_encode_record(&"
-                   << record.symbol_name << "_brf_v2_layout, " << record.record_id
-                   << "U, fields, field_count, output, output_capacity, "
+            stream << "    result.status = quarry_c_brf_v2_encode_record(&expected_layout, record_id, "
+                   << "fields, field_count, output, output_capacity, "
                       "&result.bytes_written);\n";
         }
         stream << "    return result;\n";
         stream << "}\n";
 
         stream << "\n";
+        stream << record.symbol_name << "_encode_result_t " << record.symbol_name
+               << "_encode(const " << record.symbol_name
+               << "_t* record, uint8_t* output, size_t output_capacity) {\n";
+        stream << "    return " << record.symbol_name << "_encode_with_record_id(record, "
+               << record.record_id << "U, output, output_capacity);\n";
+        stream << "}\n";
+
+        stream << "\n";
         stream << record.symbol_name << "_decode_result_t " << record.symbol_name
-               << "_decode(const uint8_t* input, size_t input_length) {\n";
+               << "_decode_with_record_id(const uint8_t* input, size_t input_length, "
+               << "uint32_t expected_record_id) {\n";
         stream << "    " << record.symbol_name << "_decode_result_t result;\n";
         stream << "    result.status = QUARRY_C_STATUS_OK;\n";
         stream << "    result.has_byte_offset = false;\n";
         stream << "    result.byte_offset = 0U;\n";
         stream << "    memset(&result.value, 0, sizeof(result.value));\n";
+        stream << "    quarry_c_brf_v2_record_layout_t expected_layout = "
+               << record.symbol_name << "_brf_v2_layout;\n";
+        stream << "    expected_layout.record_id = expected_record_id;\n";
         stream << "\n";
         stream << "    quarry_c_brf_v2_parsed_record_t parsed;\n";
         stream << "    size_t error_offset = 0U;\n";
         stream << "    const quarry_c_status_t parse_status =\n";
-        stream << "        quarry_c_brf_v2_parse_record(input, input_length, &"
-                  << record.symbol_name << "_brf_v2_layout, &parsed, &error_offset);\n";
+        stream << "        quarry_c_brf_v2_parse_record(input, input_length, &expected_layout, "
+                  << "&parsed, &error_offset);\n";
         stream << "    if (parse_status != QUARRY_C_STATUS_OK) {\n";
         stream << "        result.status = parse_status;\n";
         stream << "        if (parse_status != QUARRY_C_STATUS_UNSUPPORTED_FIELD_COUNT) {\n";
@@ -2593,7 +2623,7 @@ void render_record_field_decode(std::ostringstream& stream, const PlannedField& 
         stream << "        }\n";
         stream << "        return result;\n";
         stream << "    }\n";
-        stream << "    if (parsed.record_id != " << record.record_id << "U) {\n";
+        stream << "    if (parsed.record_id != expected_record_id) {\n";
         stream << "        result.status = QUARRY_C_STATUS_UNEXPECTED_RECORD_ID;\n";
         stream << "        result.has_byte_offset = true;\n";
         stream << "        result.byte_offset = 0U;\n";
@@ -2605,8 +2635,8 @@ void render_record_field_decode(std::ostringstream& stream, const PlannedField& 
             stream << "    {\n";
             stream << "        quarry_c_brf_v2_field_view_t field_view;\n";
             stream << "        bool field_found = false;\n";
-            stream << "        (void)quarry_c_brf_v2_find_field(&parsed, &"
-                   << record.symbol_name << "_brf_v2_layout, " << field.field_index
+            stream << "        (void)quarry_c_brf_v2_find_field(&parsed, &expected_layout, "
+                   << field.field_index
                    << "U, &field_view);\n";
             stream << "        field_found = field_view.present;\n";
             stream << "        if (field_found) {\n";
@@ -2628,6 +2658,13 @@ void render_record_field_decode(std::ostringstream& stream, const PlannedField& 
 
         stream << "\n";
         stream << "    return result;\n";
+        stream << "}\n";
+        stream << "\n";
+        stream << record.symbol_name << "_decode_result_t " << record.symbol_name
+               << "_decode(const uint8_t* input, size_t input_length) {\n";
+        stream << "    return " << record.symbol_name
+               << "_decode_with_record_id(input, input_length, " << record.record_id
+               << "U);\n";
         stream << "}\n";
     }
 

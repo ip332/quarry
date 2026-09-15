@@ -713,6 +713,16 @@ which are genuinely `uint32_t`-bounded by `max_elements`; Field Directory
 offsets and lengths are `size_t`/`uint64_t`-ranged in the runtime API, so
 the wider bound is the correct one here, at negligible extra cost.)
 
+#### Contextual record identity across imports
+
+Generated headers also declare `<Record>_encode_with_record_id` and
+`<Record>_decode_with_record_id`. These are generated implementation
+interfaces, not application-facing APIs. The ordinary `_encode` and `_decode`
+wrappers use the record's standalone ID; containing codecs pass the referenced
+record ID from their fully resolved Schema IR. This keeps imported codecs
+reusable across schema roots while preserving the BRF/QBS identity expected by
+the containing schema, including record-array elements.
+
 ### Record array fields
 
 For a record with an array of a same-namespace record element, e.g.
