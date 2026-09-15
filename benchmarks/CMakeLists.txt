@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 set(QUARRY_BENCHMARK_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
 set(QUARRY_BENCHMARK_SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/schemas/workload.brd)
+set(QUARRY_BENCHMARK_QBS ${QUARRY_BENCHMARK_GENERATED_DIR}/benchmark/workload.qbs)
 set(QUARRY_BENCHMARK_DEPENDENCY_SCHEMA ${CMAKE_CURRENT_SOURCE_DIR}/schemas/workload_shared.brd)
 set(QUARRY_BENCHMARK_CPP_HEADER
     ${QUARRY_BENCHMARK_GENERATED_DIR}/benchmark/workload.generated.hpp)
@@ -50,6 +51,16 @@ add_custom_target(quarry_benchmark_generated
     VERBATIM
 )
 
+add_custom_command(
+    OUTPUT ${QUARRY_BENCHMARK_QBS}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${QUARRY_BENCHMARK_GENERATED_DIR}/benchmark
+    COMMAND $<TARGET_FILE:quarry_schema_compiler> --emit-qbs ${QUARRY_BENCHMARK_QBS}
+            ${QUARRY_BENCHMARK_SCHEMA}
+    DEPENDS quarry_schema_compiler ${QUARRY_BENCHMARK_SCHEMA}
+    VERBATIM
+)
+add_custom_target(quarry_benchmark_qbs_generated DEPENDS ${QUARRY_BENCHMARK_QBS})
+
 add_executable(quarry_benchmark_cpp cpp/proof_benchmark.cpp)
 add_dependencies(quarry_benchmark_cpp quarry_benchmark_generated)
 target_include_directories(quarry_benchmark_cpp PRIVATE ${QUARRY_BENCHMARK_GENERATED_DIR})
@@ -61,6 +72,20 @@ add_dependencies(quarry_benchmark_c quarry_benchmark_generated)
 target_include_directories(quarry_benchmark_c PRIVATE ${QUARRY_BENCHMARK_GENERATED_DIR})
 target_link_libraries(quarry_benchmark_c PRIVATE quarry_runtime_c quarry_project_options)
 set_target_properties(quarry_benchmark_c PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON
+                      C_EXTENSIONS OFF)
+
+add_executable(quarry_benchmark_qbs c/qbs_benchmark.c ${QUARRY_BENCHMARK_C_SOURCE}
+               ${QUARRY_BENCHMARK_DEPENDENCY_C_SOURCE})
+add_dependencies(quarry_benchmark_qbs quarry_benchmark_generated quarry_benchmark_qbs_generated)
+target_compile_definitions(quarry_benchmark_qbs PRIVATE QUARRY_BENCHMARK_QBS_PATH="${QUARRY_BENCHMARK_QBS}")
+target_compile_definitions(quarry_benchmark_qbs PRIVATE
+    QUARRY_BENCHMARK_GENERATED_HEADER="${QUARRY_BENCHMARK_C_HEADER}"
+    QUARRY_BENCHMARK_GENERATED_SOURCE="${QUARRY_BENCHMARK_C_SOURCE}"
+    QUARRY_BENCHMARK_IMPORTED_HEADER="${QUARRY_BENCHMARK_DEPENDENCY_C_HEADER}"
+    QUARRY_BENCHMARK_IMPORTED_SOURCE="${QUARRY_BENCHMARK_DEPENDENCY_C_SOURCE}")
+target_include_directories(quarry_benchmark_qbs PRIVATE ${QUARRY_BENCHMARK_GENERATED_DIR})
+target_link_libraries(quarry_benchmark_qbs PRIVATE quarry_runtime_c quarry_project_options)
+set_target_properties(quarry_benchmark_qbs PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON
                       C_EXTENSIONS OFF)
 
 add_custom_target(quarry_benchmark_python DEPENDS quarry_benchmark_generated)
