@@ -430,20 +430,13 @@ static quarry_generic_status_t array_value(const quarry_brf_record_view_t* r, ui
     out->payload_size = len - cursor;
     out->relation_index = UINT32_MAX;
     if (r->workspace != NULL) {
-        if (r->node_index < r->workspace->node_capacity) {
-            const quarry_brf_record_node_t* node = &r->workspace->nodes[r->node_index];
-            for (uint16_t i = 0U; i < node->field_count; ++i) {
-                const size_t map = (size_t)node->field_map_start + i;
-                if (map >= r->workspace->field_map_capacity)
-                    break;
-                const uint32_t state_index = r->workspace->field_maps[map];
-                if (state_index >= r->workspace->field_state_capacity)
-                    break;
-                const quarry_brf_field_state_t* state = &r->workspace->field_states[state_index];
-                if (state->field_index == index && state->array_relation != UINT32_MAX) {
-                    out->relation_index = state->array_relation;
-                    break;
-                }
+        for (size_t relation_index = 0U; relation_index < r->workspace->array_count;
+             ++relation_index) {
+            const quarry_brf_record_array_relation_t* relation =
+                &r->workspace->arrays[relation_index];
+            if (relation->parent_node == r->node_index && relation->parent_field == index) {
+                out->relation_index = (uint32_t)relation_index;
+                break;
             }
         }
     }
