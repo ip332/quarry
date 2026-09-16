@@ -59,6 +59,20 @@ def version(command: list[str]) -> str:
         return "unknown"
 
 
+def print_qbs_footprint(build: Path) -> None:
+    objects = sorted((build / "benchmarks").rglob("workload.generated.c.o"))
+    if not objects:
+        return
+    print("generated-C schema object sections:")
+    for obj in objects:
+        try:
+            result = subprocess.run(["llvm-size", "-m", str(obj)], check=True,
+                                    capture_output=True, text=True)
+        except (OSError, subprocess.CalledProcessError):
+            continue
+        print(f"  {obj}: {result.stdout.replace(chr(10), '; ').strip()}")
+
+
 def cpu_model() -> str:
     try:
         for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
@@ -107,6 +121,8 @@ def main() -> None:
         build_targets = []
         if args.backend in ("all", "cpp", "c", "python"):
             build_targets += ["quarry_benchmark_cpp", "quarry_benchmark_c"]
+        if args.backend in ("all", "c"):
+            build_targets += ["quarry_benchmark_qbs"]
         if args.backend in ("all", "protobuf", "protobuf-cpp", "protobuf-cpp-arena", "protobuf-python"):
             build_targets += ["quarry_benchmark_protobuf_cpp", "quarry_benchmark_protobuf_cpp_arena"]
         run(["cmake", "--build", str(build), "--target", *dict.fromkeys(build_targets), "--parallel"])
@@ -116,7 +132,12 @@ def main() -> None:
         executable = {}
         if args.backend in ("all", "cpp", "c", "python"):
             executable.update({"cpp": find_file(build, "quarry_benchmark_cpp"),
-                               "c": find_file(build, "quarry_benchmark_c")})
+                               "c": find_file(build, "quarry_benchmark_c"),
+                               "qbs": find_file(build, "quarry_benchmark_qbs")})
+            qbs_report = subprocess.run([str(executable["qbs"])], check=True,
+                                         capture_output=True, text=True)
+            print(qbs_report.stdout, end="")
+            print_qbs_footprint(build)
         if args.backend in ("all", "protobuf", "protobuf-cpp", "protobuf-cpp-arena", "protobuf-python"):
             executable.update({"protobuf-cpp": find_file(build, "quarry_benchmark_protobuf_cpp"),
                                "protobuf-cpp-arena": find_file(build, "quarry_benchmark_protobuf_cpp_arena")})

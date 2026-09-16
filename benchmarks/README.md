@@ -228,3 +228,26 @@ Tables and charts show measurements only: timing is advisory, deterministic
 resource metrics are validated across runs, and BRF v1/BRF v2/protobuf encoded
 sizes are separate wire-format series. The tool does not compare baselines, upload
 assets, rank implementations, or create CI performance gates.
+## QBS versus generated C
+
+When benchmarks are enabled, `quarry_benchmark_qbs` is built from the same
+`schemas/workload.brd` used by the generated-C benchmark. CMake generates
+`workload.qbs` with `quarry-schema-compiler --emit-qbs`; the executable parses
+that image once, then performs a byte-for-byte BRF equality check against the
+generated-C encoder before reporting startup and steady-state measurements.
+QBS startup is reported separately from generic-C encoding. The comparison is
+platform-specific and includes parser/workspace costs; it is not a universal
+claim about either implementation.
+
+Both adapters use one initialized `Workload` dataset and the benchmark refuses
+to time unequal encodings: generated-C and generic-C BRF must be byte-identical.
+It reports QBS parse/startup separately from steady-state encoding, generic
+validation/open, and representative access through the imported record array;
+the access checksums must also match. Workspace values are configured
+caller-owned capacities, with shared BRF buffers treated equally. Executable
+size is a whole-program measurement rather than incremental schema attribution.
+The QBS executable also reports generated C header/source bytes; the common
+runner prints generated schema-object sections when `llvm-size` is available.
+These are schema-specific measurements, while linked generic/runtime sections
+remain shared implementation costs.
+Embedded footprint and multi-schema scaling are deferred for this case.
