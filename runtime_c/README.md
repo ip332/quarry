@@ -18,6 +18,27 @@ sibling implementations: neither depends on the other, and each is
 installed under its own canonical path (`include/quarry/runtime/` for C++,
 `include/quarry/runtime_c/` for C -- see "CMake Package" below).
 
+## Reflective QBS names
+
+The generic QBS API exposes optional reflective names without exposing the
+binary string-section representation. `quarry_qbs_get_string()` resolves a
+string-table index, while `quarry_qbs_record_name()`,
+`quarry_qbs_field_name()`, and `quarry_qbs_enum_name()` resolve descriptor
+names through their existing `name_index` metadata. Each result is the public
+`quarry_string_view_t` (`data` plus `size`), points into the caller-owned QBS
+input buffer, is not NUL-terminated, and remains valid only while that buffer
+is unchanged and alive.
+
+Minimal QBS images do not contain reflective strings. Name lookup then returns
+`QUARRY_GENERIC_FIELD_ABSENT`; the image remains valid and all structural
+metadata remains usable. An invalid string index returns
+`QUARRY_GENERIC_FIELD_NOT_FOUND`, while an invalid argument or malformed
+string-table state returns the corresponding generic status.
+
+QBS currently stores enum type names and numeric enum values, but not symbolic
+names for individual enum values. These APIs therefore do not provide enum
+value names; consumers should render enum values numerically.
+
 **Status: scalar, enum, bounded string, bounded bytes, bounded array (of
 scalar, enum, bounded string, bounded bytes, or record elements), nested
 record fields, and compiler-resolved cross-namespace enum/record fields and

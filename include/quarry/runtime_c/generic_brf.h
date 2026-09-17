@@ -224,6 +224,23 @@ quarry_generic_status_t quarry_qbs_find_record_by_id(const quarry_qbs_view_t*, u
                                                      const quarry_qbs_record_view_t**);
 quarry_generic_status_t quarry_qbs_find_record_by_name(const quarry_qbs_view_t*, const char*,
                                                        size_t, const quarry_qbs_record_view_t**);
+/*
+ * Returns a non-owning view into the optional reflective QBS string section.
+ * The view remains valid while the input QBS byte buffer remains unchanged and
+ * alive. QUARRY_GENERIC_FIELD_ABSENT means that reflective strings are not
+ * available or that the descriptor has no name.
+ */
+quarry_generic_status_t quarry_qbs_get_string(const quarry_qbs_view_t*, uint16_t,
+                                              quarry_string_view_t*);
+quarry_generic_status_t quarry_qbs_record_name(const quarry_qbs_view_t*,
+                                               const quarry_qbs_record_view_t*,
+                                               quarry_string_view_t*);
+quarry_generic_status_t quarry_qbs_field_name(const quarry_qbs_view_t*,
+                                              const quarry_qbs_record_view_t*, uint16_t,
+                                              quarry_string_view_t*);
+quarry_generic_status_t quarry_qbs_enum_name(const quarry_qbs_view_t*,
+                                             const quarry_qbs_enum_view_t*,
+                                             quarry_string_view_t*);
 quarry_generic_status_t quarry_qbs_record_field(const quarry_qbs_view_t*,
                                                 const quarry_qbs_record_view_t*, uint16_t,
                                                 const quarry_qbs_field_view_t**);
