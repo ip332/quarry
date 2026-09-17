@@ -249,6 +249,11 @@ target_compile_definitions(schema_compiler_tool_test PRIVATE
     QUARRY_TEST_GENERATED_INCLUDE_DIR="${QUARRY_GENERATED_INCLUDE_DIR}")
 target_compile_definitions(schema_compiler_tool_test PRIVATE
     QUARRY_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+add_quarry_gtest(brf_inspect_tool_test tools/brf_inspect_tool_test.cpp quarry_compiler_support)
+add_dependencies(brf_inspect_tool_test quarry_brf_inspect)
+target_compile_definitions(brf_inspect_tool_test PRIVATE
+    QUARRY_BRF_INSPECT_TOOL="$<TARGET_FILE:quarry_brf_inspect>"
+    QUARRY_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 add_quarry_gtest(protobuf_descriptor_loader_test
                       tools/protobuf_descriptor_loader_test.cpp
                       quarry_protobuf_descriptor_loader)
