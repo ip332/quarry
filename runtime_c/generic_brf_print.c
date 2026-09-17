@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-enum { PRINT_RECORD = 1U, PRINT_ARRAY = 2U, PRINT_FIRST = 4U };
+enum { PRINT_RECORD = 1U, PRINT_ARRAY = 2U };
 
 typedef struct {
     quarry_brf_print_write_callback_t write;
@@ -13,6 +13,7 @@ typedef struct {
     quarry_brf_print_workspace_t* workspace;
     quarry_brf_print_options_t options;
     quarry_brf_print_result_t result;
+    size_t pending_record_indent;
 } print_context_t;
 
 static int put(print_context_t* context, const char* data, size_t size) {
@@ -133,23 +134,27 @@ static quarry_brf_traversal_control_t print_event(const quarry_brf_traversal_eve
                                                    void* opaque) {
     print_context_t* context = (print_context_t*)opaque;
     quarry_brf_print_workspace_t* workspace = context->workspace;
-    uint8_t* frame = NULL;
+    quarry_brf_print_frame_t* frame = NULL;
     if (event->kind == QUARRY_BRF_EVENT_RECORD_BEGIN) {
         const bool array_element = workspace->frame_count != 0U &&
-                                   (workspace->frames[workspace->frame_count - 1U] & 3U) == PRINT_ARRAY;
+                                   workspace->frames[workspace->frame_count - 1U].kind == PRINT_ARRAY;
         if (!record_label(context, &event->record, array_element)) return QUARRY_BRF_TRAVERSAL_STOP;
         if (workspace->frame_count >= workspace->frame_capacity) {
             context->result = QUARRY_BRF_PRINT_WORKSPACE_EXHAUSTED;
             return QUARRY_BRF_TRAVERSAL_STOP;
         }
-        workspace->frames[workspace->frame_count++] = PRINT_RECORD | PRINT_FIRST;
+        const size_t record_indent = workspace->frame_count == 0U ? 0U : context->pending_record_indent;
+        workspace->frames[workspace->frame_count] =
+            (quarry_brf_print_frame_t){PRINT_RECORD, 1U, record_indent};
+        ++workspace->frame_count;
         return QUARRY_BRF_TRAVERSAL_CONTINUE;
     }
     if (event->kind == QUARRY_BRF_EVENT_RECORD_END) {
         frame = &workspace->frames[workspace->frame_count - 1U];
-        if ((*frame & PRINT_FIRST) != 0U) {
+        if (frame->first != 0U) {
             if (!text(context, "}")) return QUARRY_BRF_TRAVERSAL_STOP;
-        } else if (!text(context, "\n") || !indent(context, event->depth) || !text(context, "}")) {
+        } else if (!text(context, "\n") || !indent(context, frame->indent) ||
+                   !text(context, "}")) {
             return QUARRY_BRF_TRAVERSAL_STOP;
         }
         --workspace->frame_count;
@@ -158,10 +163,12 @@ static quarry_brf_traversal_control_t print_event(const quarry_brf_traversal_eve
     if (event->kind == QUARRY_BRF_EVENT_FIELD) {
         if (!event->present) return QUARRY_BRF_TRAVERSAL_CONTINUE;
         frame = &workspace->frames[workspace->frame_count - 1U];
-        if ((*frame & PRINT_FIRST) == 0U && !text(context, "\n")) return QUARRY_BRF_TRAVERSAL_STOP;
-        *frame &= (uint8_t)~PRINT_FIRST;
-        if (!indent(context, event->depth + 1U) || !name_or_index(context, &event->record, event->field_index) ||
+        if (!text(context, "\n")) return QUARRY_BRF_TRAVERSAL_STOP;
+        frame->first = 0U;
+        if (!indent(context, frame->indent + 1U) ||
+            !name_or_index(context, &event->record, event->field_index) ||
             !text(context, ": ")) return QUARRY_BRF_TRAVERSAL_STOP;
+        context->pending_record_indent = frame->indent + 1U;
         return QUARRY_BRF_TRAVERSAL_CONTINUE;
     }
     if (event->kind == QUARRY_BRF_EVENT_ARRAY_BEGIN) {
@@ -170,20 +177,24 @@ static quarry_brf_traversal_control_t print_event(const quarry_brf_traversal_eve
                                   ? QUARRY_BRF_PRINT_WORKSPACE_EXHAUSTED : context->result;
             return QUARRY_BRF_TRAVERSAL_STOP;
         }
-        workspace->frames[workspace->frame_count++] = PRINT_ARRAY | PRINT_FIRST;
+        const size_t array_indent = workspace->frames[workspace->frame_count - 1U].indent + 1U;
+        workspace->frames[workspace->frame_count] =
+            (quarry_brf_print_frame_t){PRINT_ARRAY, 1U, array_indent};
+        ++workspace->frame_count;
         return QUARRY_BRF_TRAVERSAL_CONTINUE;
     }
     if (event->kind == QUARRY_BRF_EVENT_ARRAY_ELEMENT) {
         frame = &workspace->frames[workspace->frame_count - 1U];
-        if ((*frame & PRINT_FIRST) == 0U && !text(context, ",")) return QUARRY_BRF_TRAVERSAL_STOP;
-        *frame &= (uint8_t)~PRINT_FIRST;
-        if (!text(context, "\n") || !indent(context, event->depth + 2U))
+        if (frame->first == 0U && !text(context, ",")) return QUARRY_BRF_TRAVERSAL_STOP;
+        frame->first = 0U;
+        if (!text(context, "\n") || !indent(context, frame->indent + 1U))
             return QUARRY_BRF_TRAVERSAL_STOP;
+        context->pending_record_indent = frame->indent + 1U;
         return QUARRY_BRF_TRAVERSAL_CONTINUE;
     }
     if (event->kind == QUARRY_BRF_EVENT_ARRAY_END) {
         frame = &workspace->frames[workspace->frame_count - 1U];
-        if ((*frame & PRINT_FIRST) == 0U && (!text(context, "\n") || !indent(context, event->depth + 1U)))
+        if (frame->first == 0U && (!text(context, "\n") || !indent(context, frame->indent)))
             return QUARRY_BRF_TRAVERSAL_STOP;
         if (!text(context, "]")) return QUARRY_BRF_TRAVERSAL_STOP;
         --workspace->frame_count;
@@ -208,7 +219,8 @@ quarry_brf_print_result_t quarry_brf_print(
     context = (print_context_t){write, output, workspace,
                                 options == NULL ? (quarry_brf_print_options_t){2U, SIZE_MAX}
                                                  : *options,
-                                QUARRY_BRF_PRINT_COMPLETED};
+                                QUARRY_BRF_PRINT_COMPLETED,
+                                0U};
     traversal_result = quarry_brf_traverse(record, print_event, &context, traversal_workspace,
                                            traversal_limits);
     if (context.result != QUARRY_BRF_PRINT_COMPLETED)

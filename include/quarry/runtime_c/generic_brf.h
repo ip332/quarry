@@ -430,7 +430,13 @@ typedef struct {
 } quarry_brf_print_options_t;
 
 typedef struct {
-    uint8_t* frames;          /* Caller-owned storage; one byte per active print frame. */
+    uint8_t kind;
+    uint8_t first;
+    size_t indent;
+} quarry_brf_print_frame_t;
+
+typedef struct {
+    quarry_brf_print_frame_t* frames; /* Caller-owned storage, one per active print frame. */
     size_t frame_capacity;
     size_t frame_count;
     size_t output_bytes;
