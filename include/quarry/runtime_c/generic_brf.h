@@ -413,6 +413,39 @@ quarry_brf_traversal_result_t quarry_brf_traverse(
     const quarry_brf_record_view_t*, quarry_brf_traversal_callback_t, void*,
     quarry_brf_traversal_workspace_t*, const quarry_brf_traversal_limits_t*);
 
+typedef enum {
+    QUARRY_BRF_PRINT_COMPLETED = 0,
+    QUARRY_BRF_PRINT_INVALID_ARGUMENT,
+    QUARRY_BRF_PRINT_OUTPUT_ERROR,
+    QUARRY_BRF_PRINT_WORK_LIMIT,
+    QUARRY_BRF_PRINT_DEPTH_LIMIT,
+    QUARRY_BRF_PRINT_WORKSPACE_EXHAUSTED
+} quarry_brf_print_result_t;
+
+typedef int (*quarry_brf_print_write_callback_t)(const char*, size_t, void*);
+
+typedef struct {
+    size_t indent_width;      /* Spaces per nesting level; zero is valid. */
+    size_t max_output_bytes;  /* SIZE_MAX is the default when options are omitted. */
+} quarry_brf_print_options_t;
+
+typedef struct {
+    uint8_t* frames;          /* Caller-owned storage; one byte per active print frame. */
+    size_t frame_capacity;
+    size_t frame_count;
+    size_t output_bytes;
+} quarry_brf_print_workspace_t;
+
+/*
+ * Streams deterministic diagnostic output through quarry_brf_traverse(). The
+ * writer returns zero on success and nonzero on failure. The output contains
+ * no ownership-bearing views and is not a serialization format.
+ */
+quarry_brf_print_result_t quarry_brf_print(
+    const quarry_brf_record_view_t*, quarry_brf_print_write_callback_t, void*,
+    quarry_brf_print_workspace_t*, quarry_brf_traversal_workspace_t*,
+    const quarry_brf_traversal_limits_t*, const quarry_brf_print_options_t*);
+
 #ifdef __cplusplus
 }
 #endif
