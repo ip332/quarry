@@ -68,6 +68,31 @@ static bool utf8(const uint8_t* p, size_t n) {
     return true;
 }
 
+static quarry_generic_status_t string_section_entry(const quarry_qbs_view_t* q, uint16_t index,
+                                                    size_t* data, size_t* length) {
+    if (q->bytes == NULL || q->strings_offset == 0U || q->strings_size < 8U ||
+        q->strings_offset > q->size || q->strings_size > q->size - q->strings_offset)
+        return QUARRY_GENERIC_MALFORMED_QBS;
+    const uint8_t* section = q->bytes + q->strings_offset;
+    const uint32_t count = u32(section);
+    if (count > UINT16_MAX)
+        return QUARRY_GENERIC_MALFORMED_QBS;
+    if (index >= count)
+        return QUARRY_GENERIC_FIELD_NOT_FOUND;
+    const size_t offsets = 4U + ((size_t)count + 1U) * 4U;
+    if (offsets > q->strings_size)
+        return QUARRY_GENERIC_MALFORMED_QBS;
+    const size_t payload = q->strings_size - offsets;
+    const uint32_t begin = u32(section + 4U + (size_t)index * 4U);
+    const uint32_t end = u32(section + 4U + ((size_t)index + 1U) * 4U);
+    if (u32(section + 4U) != 0U ||
+        u32(section + 4U + (size_t)count * 4U) != payload || begin > end || end > payload)
+        return QUARRY_GENERIC_MALFORMED_QBS;
+    *data = q->strings_offset + offsets + begin;
+    *length = (size_t)(end - begin);
+    return QUARRY_GENERIC_OK;
+}
+
 static quarry_generic_status_t section(const uint8_t* b, size_t n, uint16_t kind, size_t* at,
                                        size_t* size) {
     if (n < 40U || u16(b + 28U) > 64U)
@@ -226,6 +251,54 @@ quarry_generic_status_t quarry_qbs_find_record_by_name(const quarry_qbs_view_t* 
     }
     return QUARRY_GENERIC_FIELD_NOT_FOUND;
 }
+
+quarry_generic_status_t quarry_qbs_get_string(const quarry_qbs_view_t* q, uint16_t index,
+                                              quarry_string_view_t* out) {
+    size_t data = 0U, length = 0U;
+    if (out != NULL)
+        *out = (quarry_string_view_t){NULL, 0U};
+    if (q == NULL || out == NULL)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    if (index == UINT16_MAX)
+        return QUARRY_GENERIC_FIELD_ABSENT;
+    if (q->strings_offset == 0U)
+        return QUARRY_GENERIC_FIELD_ABSENT;
+    const quarry_generic_status_t status = string_section_entry(q, index, &data, &length);
+    if (status != QUARRY_GENERIC_OK)
+        return status;
+    *out = (quarry_string_view_t){(const char*)q->bytes + data, length};
+    return QUARRY_GENERIC_OK;
+}
+
+quarry_generic_status_t quarry_qbs_record_name(const quarry_qbs_view_t* q,
+                                               const quarry_qbs_record_view_t* record,
+                                               quarry_string_view_t* out) {
+    if (q == NULL || record == NULL || out == NULL)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    return quarry_qbs_get_string(q, record->name_index, out);
+}
+
+quarry_generic_status_t quarry_qbs_field_name(const quarry_qbs_view_t* q,
+                                              const quarry_qbs_record_view_t* record, uint16_t index,
+                                              quarry_string_view_t* out) {
+    const quarry_qbs_field_view_t* field = NULL;
+    quarry_generic_status_t status;
+    if (q == NULL || record == NULL || out == NULL)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    status = quarry_qbs_record_field(q, record, index, &field);
+    if (status != QUARRY_GENERIC_OK)
+        return status;
+    return quarry_qbs_get_string(q, field->name_index, out);
+}
+
+quarry_generic_status_t quarry_qbs_enum_name(const quarry_qbs_view_t* q,
+                                             const quarry_qbs_enum_view_t* enumeration,
+                                             quarry_string_view_t* out) {
+    if (q == NULL || enumeration == NULL || out == NULL)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    return quarry_qbs_get_string(q, enumeration->name_index, out);
+}
+
 quarry_generic_status_t quarry_qbs_record_field(const quarry_qbs_view_t* q,
                                                 const quarry_qbs_record_view_t* r, uint16_t idx,
                                                 const quarry_qbs_field_view_t** out) {

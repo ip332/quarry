@@ -551,6 +551,33 @@ int main(void) {
     }
     if (parent->field_count != 13U)
         return 1;
+    quarry_string_view_t name;
+    if (quarry_qbs_record_name(&schema, parent, &name) != QUARRY_GENERIC_OK ||
+        name.size != 6U || memcmp(name.data, "Parent", name.size) != 0)
+        return 1;
+    if (quarry_qbs_field_name(&schema, parent, 0U, &name) != QUARRY_GENERIC_OK ||
+        name.size != 8U || memcmp(name.data, "sequence", name.size) != 0)
+        return 1;
+    if (schema.enum_count == 0U ||
+        quarry_qbs_enum_name(&schema, &schema.enums[0], &name) != QUARRY_GENERIC_OK ||
+        name.size != 5U || memcmp(name.data, "State", name.size) != 0)
+        return 1;
+    if (quarry_qbs_get_string(&schema, UINT16_MAX, &name) != QUARRY_GENERIC_FIELD_ABSENT ||
+        quarry_qbs_get_string(&schema, (uint16_t)schema.enum_count + 100U, &name) !=
+            QUARRY_GENERIC_FIELD_NOT_FOUND ||
+        quarry_qbs_get_string(NULL, 0U, &name) != QUARRY_GENERIC_INVALID_ARGUMENT ||
+        quarry_qbs_get_string(&schema, 0U, NULL) != QUARRY_GENERIC_INVALID_ARGUMENT ||
+        quarry_qbs_record_name(&schema, NULL, &name) != QUARRY_GENERIC_INVALID_ARGUMENT ||
+        quarry_qbs_field_name(&schema, parent, parent->field_count, &name) !=
+            QUARRY_GENERIC_FIELD_NOT_FOUND)
+        return 1;
+    quarry_qbs_view_t minimal_view = schema;
+    minimal_view.strings_offset = 0U;
+    minimal_view.strings_size = 0U;
+    if (quarry_qbs_get_string(&minimal_view, 0U, &name) != QUARRY_GENERIC_FIELD_ABSENT ||
+        quarry_qbs_record_name(&minimal_view, parent, &name) != QUARRY_GENERIC_FIELD_ABSENT ||
+        quarry_qbs_field_name(&minimal_view, parent, 0U, &name) != QUARRY_GENERIC_FIELD_ABSENT)
+        return 1;
     quarry_brf_value_provider_t provider = {encode_fixture_field, NULL};
     quarry_brf_encoder_field_t encoded_fields[13];
     quarry_brf_encoder_workspace_t encoder_workspace =
