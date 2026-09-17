@@ -40,6 +40,33 @@ typedef struct {
     size_t count;
 } trace_observer_t;
 
+typedef struct {
+    char data[8192];
+    size_t size;
+} print_output_t;
+
+typedef struct {
+    size_t calls;
+    size_t fail_at;
+} failing_print_writer_t;
+
+static int collect_print_output(const char* data, size_t size, void* context) {
+    print_output_t* output = (print_output_t*)context;
+    if (size > sizeof(output->data) - output->size)
+        return 1;
+    memcpy(output->data + output->size, data, size);
+    output->size += size;
+    return 0;
+}
+
+static int fail_print_output(const char* data, size_t size, void* context) {
+    failing_print_writer_t* writer = (failing_print_writer_t*)context;
+    (void)data;
+    (void)size;
+    ++writer->calls;
+    return writer->calls == writer->fail_at ? 1 : 0;
+}
+
 static quarry_generic_status_t encode_fixture_field(const quarry_brf_value_provider_t* provider,
                                                     uint16_t index, quarry_brf_value_t* out) {
     (void)provider;
@@ -614,6 +641,52 @@ int main(void) {
         observer.count == 0U || observer.first != QUARRY_BRF_EVENT_RECORD_BEGIN ||
         observer.last != QUARRY_BRF_EVENT_RECORD_END)
         return 1;
+    {
+        quarry_brf_print_frame_t print_frames[64];
+        quarry_brf_print_workspace_t print_workspace = {print_frames, 64U, 0U, 0U};
+        print_output_t output = {0};
+        if (quarry_brf_print(&structural_record, collect_print_output, &output, &print_workspace,
+                             &traversal_workspace, NULL, NULL) != QUARRY_BRF_PRINT_COMPLETED ||
+            output.size == 0U || output.size >= sizeof(output.data))
+            return 1;
+        output.data[output.size] = '\0';
+        if (strstr(output.data, "Parent {") == NULL || strstr(output.data, "sequence: 42") == NULL ||
+            strstr(output.data, "enabled: true") == NULL || strstr(output.data, "samples: [") == NULL ||
+            strstr(output.data, "child: Child {") == NULL || strstr(output.data, "items: [") == NULL)
+            return 1;
+        {
+            print_output_t repeat = {0};
+            quarry_brf_print_workspace_t repeat_workspace = {print_frames, 64U, 0U, 0U};
+            if (quarry_brf_print(&structural_record, collect_print_output, &repeat, &repeat_workspace,
+                                 &traversal_workspace, NULL, NULL) != QUARRY_BRF_PRINT_COMPLETED ||
+                repeat.size != output.size || memcmp(repeat.data, output.data, output.size) != 0)
+                return 1;
+        }
+        {
+            failing_print_writer_t failing = {0U, 2U};
+            quarry_brf_print_workspace_t failing_workspace = {print_frames, 64U, 0U, 0U};
+            if (quarry_brf_print(&structural_record, fail_print_output, &failing, &failing_workspace,
+                                 &traversal_workspace, NULL, NULL) != QUARRY_BRF_PRINT_OUTPUT_ERROR ||
+                failing.calls != 2U)
+                return 1;
+        }
+        {
+            print_output_t exact = {0};
+            quarry_brf_print_options_t exact_limit = {2U, output.size};
+            quarry_brf_print_workspace_t limit_workspace = {print_frames, 64U, 0U, 0U};
+            if (quarry_brf_print(&structural_record, collect_print_output, &exact, &limit_workspace,
+                                 &traversal_workspace, NULL, &exact_limit) != QUARRY_BRF_PRINT_COMPLETED ||
+                exact.size != output.size || memcmp(exact.data, output.data, output.size) != 0)
+                return 1;
+            exact_limit.max_output_bytes = output.size - 1U;
+            limit_workspace = (quarry_brf_print_workspace_t){print_frames, 64U, 0U, 0U};
+            print_output_t limited = {0};
+            if (quarry_brf_print(&structural_record, collect_print_output, &limited, &limit_workspace,
+                                 &traversal_workspace, NULL, &exact_limit) != QUARRY_BRF_PRINT_OUTPUT_ERROR ||
+                limited.size > exact_limit.max_output_bytes)
+                return 1;
+        }
+    }
     const size_t traversal_count = observer.count;
     trace_observer_t trace = {0};
     quarry_brf_traversal_workspace_reset(&traversal_workspace);

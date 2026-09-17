@@ -39,6 +39,17 @@ QBS currently stores enum type names and numeric enum values, but not symbolic
 names for individual enum values. These APIs therefore do not provide enum
 value names; consumers should render enum values numerically.
 
+## Streaming BRF inspection
+
+`quarry_brf_print()` formats a validated BRF record by consuming the existing
+`quarry_brf_traverse()` event stream. It does not parse BRF bytes independently
+and is intended for diagnostics, logging, debugging, and development tools;
+its output is not a serialization format. Output is sent incrementally to a
+caller-provided writer callback, with caller-owned printer and traversal
+workspaces. Reflective QBS names are used when available; minimal QBS falls
+back to labels such as `record[1]` and `field[0]`. Strings are escaped and
+bytes are rendered as hexadecimal. Enum values are rendered numerically.
+
 **Status: scalar, enum, bounded string, bounded bytes, bounded array (of
 scalar, enum, bounded string, bounded bytes, or record elements), nested
 record fields, and compiler-resolved cross-namespace enum/record fields and
