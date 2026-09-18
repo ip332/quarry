@@ -59,8 +59,30 @@ TEST(BrfInspectToolTest, MalformedInputsFailWithoutStdout) {
         bad.string() + " --record-id 1";
     const auto result = command(args);
     EXPECT_EQ(result.find("Parent {"), std::string::npos);
-    EXPECT_NE(result.find("BRF validation failed"), std::string::npos);
+    EXPECT_NE(result.find("malformed BRF input '" + bad.string() + "'"), std::string::npos);
     std::filesystem::remove(bad);
+}
+
+TEST(BrfInspectToolTest, DiagnosticsIdentifyInputsAndSelectors) {
+    const auto missing_qbs = std::filesystem::temp_directory_path() / "quarry-missing-schema.qbs";
+    const auto missing_brf = std::filesystem::temp_directory_path() / "quarry-missing-record.brf";
+    const std::string base = " --qbs " + missing_qbs.string() + " --brf " + missing_brf.string() +
+        " --record-id 1";
+    EXPECT_NE(command(base).find("unable to read QBS file '" + missing_qbs.string() + "'"), std::string::npos);
+    EXPECT_NE(command("--qbs " + (fixture / "schema.qbs").string() + " --brf " + missing_brf.string() +
+                      " --record-id 1").find("unable to read BRF file '" + missing_brf.string() + "'"), std::string::npos);
+    EXPECT_NE(command("--qbs " + (fixture / "schema.qbs").string() + " --brf " +
+                      (fixture / "record.brf").string() + " --record-id 99").find("record ID 99 not found"), std::string::npos);
+    EXPECT_NE(command("--qbs " + (fixture / "schema.qbs").string() + " --brf " +
+                      (fixture / "record.brf").string() + " --record-name Missing").find("record 'Missing' not found"), std::string::npos);
+}
+
+TEST(BrfInspectToolTest, OutputLimitDiagnosticIsActionable) {
+    const std::string args = "--qbs " + (fixture / "schema.qbs").string() + " --brf " +
+        (fixture / "record.brf").string() + " --record-id 1 --max-output-bytes 10";
+    const auto result = command(args);
+    EXPECT_NE(result.find("output exceeded --max-output-bytes 10"), std::string::npos);
+    EXPECT_EQ(result.find("printing failed (status"), std::string::npos);
 }
 
 TEST(BrfInspectToolTest, ListsReflectiveRecordsInQbsTableOrder) {
