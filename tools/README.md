@@ -348,6 +348,22 @@ tool binary. It may still depend on system or package-manager-provided dynamic
 libraries such as libyaml, Protobuf, and absl according to the platform and
 build configuration. Those third-party libraries are not bundled by
 Quarry.
+## Record discovery with `quarry-brf-inspect`
+
+To discover the records available in a QBS image, use the installed generic
+BRF inspection tool without a BRF input:
+
+```sh
+quarry-brf-inspect --qbs build/workload.qbs --list-records
+```
+
+This prints one record per line in validated QBS record-table order. Each line
+starts with the exact numeric ID accepted by `--record-id`, followed by the
+canonical record identity accepted by `--record-name`. Reflective QBS images
+append the optional display name in parentheses; minimal QBS images still
+provide the canonical identity. QBS has no runtime root-record concept, so all
+records present in the image, including referenced records, are listed.
+
 ## Protobuf translator toolchain
 
 The isolated `quarry-protobuf-translator` uses the protobuf descriptor-set

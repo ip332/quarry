@@ -278,6 +278,39 @@ quarry_generic_status_t quarry_qbs_record_name(const quarry_qbs_view_t* q,
     return quarry_qbs_get_string(q, record->name_index, out);
 }
 
+quarry_generic_status_t quarry_qbs_record_identity(const quarry_qbs_view_t* q,
+                                                   const quarry_qbs_record_view_t* record,
+                                                   quarry_string_view_t* out) {
+    uint32_t offset;
+    size_t i;
+    bool belongs = false;
+    size_t start, length = 0U;
+    if (out != NULL)
+        *out = (quarry_string_view_t){NULL, 0U};
+    if (q == NULL || record == NULL || out == NULL || q->bytes == NULL || q->records == NULL)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    for (i = 0U; i < q->record_count; ++i) {
+        if (&q->records[i] == record) {
+            belongs = true;
+            break;
+        }
+    }
+    if (!belongs)
+        return QUARRY_GENERIC_INVALID_ARGUMENT;
+    if (q->iss_offset > q->size || q->iss_size > q->size - q->iss_offset)
+        return QUARRY_GENERIC_MALFORMED_QBS;
+    offset = record->identity_offset;
+    if (offset >= q->iss_size)
+        return QUARRY_GENERIC_MALFORMED_QBS;
+    start = (size_t)q->iss_offset + (size_t)offset;
+    while (length < q->iss_size - (size_t)offset && q->bytes[start + length] != 0U)
+        ++length;
+    if (length == q->iss_size - (size_t)offset)
+        return QUARRY_GENERIC_MALFORMED_QBS;
+    *out = (quarry_string_view_t){(const char*)q->bytes + start, length};
+    return QUARRY_GENERIC_OK;
+}
+
 quarry_generic_status_t quarry_qbs_field_name(const quarry_qbs_view_t* q,
                                               const quarry_qbs_record_view_t* record, uint16_t index,
                                               quarry_string_view_t* out) {

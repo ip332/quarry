@@ -26,6 +26,7 @@ void usage(FILE* out) {
         "  --brf PATH                 BRF record image, or - for stdin\n"
         "  --record-id ID             Select the record by numeric ID\n"
         "  --record-name NAME         Select the record by reflective name\n"
+        "  --list-records             List QBS records and exit (standalone mode)\n"
         "  --indent-width N           Spaces per nesting level (default: 2)\n"
         "  --max-output-bytes N       Output limit (default: unlimited)\n"
         "  -h, --help                 Show this help text\n");
@@ -71,10 +72,11 @@ void error_status(const char* what, quarry_generic_status_t status) {
 
 int main(int argc, char** argv) {
     std::string qbs_path, brf_path, record_name; size_t record_id = 0, indent = 2, output_limit = SIZE_MAX;
-    bool have_id = false, have_name = false;
+    bool have_id = false, have_name = false, list_records = false;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "-h" || a == "--help") { usage(stdout); return 0; }
+        if (a == "--list-records") { if (list_records) { std::fprintf(stderr, "quarry-brf-inspect: duplicate --list-records option\n"); return 2; } list_records = true; continue; }
         auto value = [&](const char* option, std::string& dst) -> bool {
             if (a != option || i + 1 >= argc || !*argv[i + 1]) return false;
             dst = argv[++i]; return true;
@@ -88,12 +90,16 @@ int main(int argc, char** argv) {
         if (a == "--max-output-bytes" && i + 1 < argc && number(argv[i + 1], &output_limit)) { ++i; continue; }
         std::fprintf(stderr, "quarry-brf-inspect: invalid option or value: %s\n", a.c_str()); usage(stderr); return 2;
     }
-    if (qbs_path.empty() || brf_path.empty() || have_id == have_name ||
-        (have_id && record_id > UINT32_MAX)) {
+    if (list_records && (qbs_path.empty() || !brf_path.empty() || have_id || have_name)) {
+        std::fprintf(stderr, "quarry-brf-inspect: --list-records is a standalone QBS discovery mode and cannot be combined with BRF input or record selectors\n");
+        return 2;
+    }
+    if (!list_records && (qbs_path.empty() || brf_path.empty() || have_id == have_name ||
+        (have_id && record_id > UINT32_MAX))) {
         std::fprintf(stderr, "quarry-brf-inspect: exactly one record selector is required\n"); usage(stderr); return 2;
     }
     std::vector<uint8_t> qbs_bytes, brf_bytes;
-    if (!read_input(qbs_path, qbs_bytes) || !read_input(brf_path, brf_bytes)) {
+    if (!read_input(qbs_path, qbs_bytes) || (!list_records && !read_input(brf_path, brf_bytes))) {
         std::fprintf(stderr, "quarry-brf-inspect: unable to read input\n"); return 3;
     }
     const size_t rc = cap(qbs_bytes.size(), 29), fc = cap(qbs_bytes.size(), 28), tc = cap(qbs_bytes.size(), 16), ec = cap(qbs_bytes.size(), 16);
@@ -107,6 +113,23 @@ int main(int argc, char** argv) {
     const quarry_generic_limits_t generic_limits{kMaxInput, kMaxInput, work, work, work};
     quarry_qbs_view_t schema{}; auto status = quarry_qbs_parse(qbs_bytes.data(), qbs_bytes.size(), &schema, &ws, &generic_limits);
     if (status != QUARRY_GENERIC_OK) { error_status("QBS parsing failed", status); return 4; }
+    if (list_records) {
+        for (size_t index = 0U; index < schema.record_count; ++index) {
+            const quarry_qbs_record_view_t* listed = &schema.records[index];
+            quarry_string_view_t identity{};
+            status = quarry_qbs_record_identity(&schema, listed, &identity);
+            if (status != QUARRY_GENERIC_OK) { error_status("record identity lookup failed", status); return 4; }
+            std::printf("%" PRIu32 " %.*s", listed->record_id, static_cast<int>(identity.size), identity.data);
+            quarry_string_view_t display{};
+            status = quarry_qbs_record_name(&schema, listed, &display);
+            if (status == QUARRY_GENERIC_OK)
+                std::printf(" (%.*s)", static_cast<int>(display.size), display.data);
+            else if (status != QUARRY_GENERIC_FIELD_ABSENT)
+                { error_status("record display-name lookup failed", status); return 4; }
+            std::putchar('\n');
+        }
+        return 0;
+    }
     const quarry_qbs_record_view_t* record = nullptr;
     status = have_id ? quarry_qbs_find_record_by_id(&schema, static_cast<uint32_t>(record_id), &record) : quarry_qbs_find_record_by_name(&schema, record_name.c_str(), record_name.size(), &record);
     if (status != QUARRY_GENERIC_OK) { error_status("record selection failed", status); return 5; }
