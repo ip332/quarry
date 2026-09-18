@@ -57,6 +57,9 @@ jobs:
           cmake -S source-tree -B source-tree/build -DCMAKE_BUILD_TYPE=Debug
           cmake --build source-tree/build --parallel
           cmake --install source-tree/build --prefix "$PWD/source-prefix"
+          # A normal Git checkout may have a commit-count development version;
+          # the reconstructed release archive must report the explicit tag's
+          # numeric release version from its injected fallback metadata.
           expected="${RELEASE_TAG#v}"
           expected="${expected%-rc.*}"
           test "$(source-tree/build/tools/quarry-schema-compiler --version | sed 's/^quarry-schema-compiler //; s/ .*//')" = "$expected"
