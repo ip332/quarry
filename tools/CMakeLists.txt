@@ -31,3 +31,8 @@ install(TARGETS quarry_schema_compiler
 )
 
 add_subdirectory(schema-translators/protobuf)
+
+add_executable(quarry_brf_inspect brf_inspect/main.cpp)
+set_target_properties(quarry_brf_inspect PROPERTIES OUTPUT_NAME quarry-brf-inspect)
+target_link_libraries(quarry_brf_inspect PRIVATE quarry_runtime_c)
+install(TARGETS quarry_brf_inspect RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
