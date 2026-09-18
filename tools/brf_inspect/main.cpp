@@ -39,24 +39,42 @@ bool number(const char* text, size_t* out) {
     if (errno || end == text || *end || value > SIZE_MAX) return false;
     *out = static_cast<size_t>(value); return true;
 }
-bool read_input(const std::string& path, std::vector<uint8_t>& out) {
+enum class InputReadStatus { kOk, kIoError, kTooLarge };
+
+InputReadStatus read_input(const std::string& path, std::vector<uint8_t>& out, int* error_number) {
+    if (error_number != nullptr) *error_number = 0;
     std::istream* input = nullptr; std::ifstream file;
     if (path == "-") { input = &std::cin; }
     else { file.open(path, std::ios::binary); input = &file; }
-    if (!*input) return false;
+    if (!*input) {
+        if (error_number != nullptr) *error_number = errno != 0 ? errno : EIO;
+        return InputReadStatus::kIoError;
+    }
     if (path == "-") {
         std::vector<char> bytes((std::istreambuf_iterator<char>(*input)), {});
-        if (bytes.size() > kMaxInput) return false;
+        if (bytes.size() > kMaxInput) return InputReadStatus::kTooLarge;
         out.assign(bytes.begin(), bytes.end());
-        return !input->bad();
+        if (input->bad()) {
+            if (error_number != nullptr) *error_number = errno != 0 ? errno : EIO;
+            return InputReadStatus::kIoError;
+        }
+        return InputReadStatus::kOk;
     }
     input->seekg(0, std::ios::end);
     const std::streamoff end = input->tellg();
-    if (end < 0 || static_cast<uint64_t>(end) > kMaxInput) return false;
+    if (end < 0) {
+        if (error_number != nullptr) *error_number = errno != 0 ? errno : EIO;
+        return InputReadStatus::kIoError;
+    }
+    if (static_cast<uint64_t>(end) > kMaxInput) return InputReadStatus::kTooLarge;
     input->seekg(0, std::ios::beg);
     out.resize(static_cast<size_t>(end));
     if (!out.empty()) input->read(reinterpret_cast<char*>(out.data()), static_cast<std::streamsize>(out.size()));
-    return static_cast<size_t>(input->gcount()) == out.size();
+    if (static_cast<size_t>(input->gcount()) != out.size()) {
+        if (error_number != nullptr) *error_number = errno != 0 ? errno : EIO;
+        return InputReadStatus::kIoError;
+    }
+    return InputReadStatus::kOk;
 }
 int write_stdout(const char* data, size_t size, void*) {
     return std::fwrite(data, 1, size, stdout) == size ? 0 : 1;
@@ -67,6 +85,14 @@ size_t cap(size_t n, size_t divisor) {
 }
 void error_status(const char* what, quarry_generic_status_t status) {
     std::fprintf(stderr, "quarry-brf-inspect: %s (status %d)\n", what, static_cast<int>(status));
+}
+void input_error(const char* role, const std::string& path, InputReadStatus result, int error_number) {
+    if (result == InputReadStatus::kTooLarge) {
+        std::fprintf(stderr, "quarry-brf-inspect: %s input '%s' exceeds the 64 MiB limit\n", role, path.c_str());
+    } else {
+        std::fprintf(stderr, "quarry-brf-inspect: unable to read %s '%s': %s\n", role, path.c_str(),
+                     std::strerror(error_number != 0 ? error_number : EIO));
+    }
 }
 }
 
@@ -99,8 +125,12 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "quarry-brf-inspect: exactly one record selector is required\n"); usage(stderr); return 2;
     }
     std::vector<uint8_t> qbs_bytes, brf_bytes;
-    if (!read_input(qbs_path, qbs_bytes) || (!list_records && !read_input(brf_path, brf_bytes))) {
-        std::fprintf(stderr, "quarry-brf-inspect: unable to read input\n"); return 3;
+    int error_number = 0;
+    const InputReadStatus qbs_read = read_input(qbs_path, qbs_bytes, &error_number);
+    if (qbs_read != InputReadStatus::kOk) { input_error("QBS file", qbs_path, qbs_read, error_number); return 3; }
+    if (!list_records) {
+        const InputReadStatus brf_read = read_input(brf_path, brf_bytes, &error_number);
+        if (brf_read != InputReadStatus::kOk) { input_error(brf_path == "-" ? "BRF stdin" : "BRF file", brf_path == "-" ? "stdin" : brf_path, brf_read, error_number); return 3; }
     }
     const size_t rc = cap(qbs_bytes.size(), 29), fc = cap(qbs_bytes.size(), 28), tc = cap(qbs_bytes.size(), 16), ec = cap(qbs_bytes.size(), 16);
     const size_t work = cap(qbs_bytes.size() + brf_bytes.size(), 1);
@@ -112,7 +142,13 @@ int main(int argc, char** argv) {
     quarry_workspace_t ws{}; ws.records=records.data(); ws.record_capacity=rc; ws.fields=fields.data(); ws.field_capacity=fc; ws.types=types.data(); ws.type_capacity=tc; ws.enums=enums.data(); ws.enum_capacity=ec; ws.enum_values=values.data(); ws.enum_value_capacity=ec; ws.nodes=nodes.data(); ws.node_capacity=work; ws.field_states=field_states.data(); ws.field_state_capacity=work; ws.field_maps=maps.data(); ws.field_map_capacity=work; ws.children=children.data(); ws.child_capacity=work; ws.arrays=arrays.data(); ws.array_capacity=work; ws.array_elements=array_elements.data(); ws.array_element_capacity=work; ws.frames=frames.data(); ws.frame_capacity=work;
     const quarry_generic_limits_t generic_limits{kMaxInput, kMaxInput, work, work, work};
     quarry_qbs_view_t schema{}; auto status = quarry_qbs_parse(qbs_bytes.data(), qbs_bytes.size(), &schema, &ws, &generic_limits);
-    if (status != QUARRY_GENERIC_OK) { error_status("QBS parsing failed", status); return 4; }
+    if (status != QUARRY_GENERIC_OK) {
+        if (status == QUARRY_GENERIC_MALFORMED_QBS)
+            std::fprintf(stderr, "quarry-brf-inspect: malformed QBS input '%s'\n", qbs_path.c_str());
+        else
+            error_status("QBS parsing failed", status);
+        return 4;
+    }
     if (list_records) {
         for (size_t index = 0U; index < schema.record_count; ++index) {
             const quarry_qbs_record_view_t* listed = &schema.records[index];
@@ -132,13 +168,43 @@ int main(int argc, char** argv) {
     }
     const quarry_qbs_record_view_t* record = nullptr;
     status = have_id ? quarry_qbs_find_record_by_id(&schema, static_cast<uint32_t>(record_id), &record) : quarry_qbs_find_record_by_name(&schema, record_name.c_str(), record_name.size(), &record);
-    if (status != QUARRY_GENERIC_OK) { error_status("record selection failed", status); return 5; }
+    if (status != QUARRY_GENERIC_OK) {
+        if (status == QUARRY_GENERIC_FIELD_NOT_FOUND) {
+            if (have_id)
+                std::fprintf(stderr, "quarry-brf-inspect: record ID %zu not found\n", record_id);
+            else
+                std::fprintf(stderr, "quarry-brf-inspect: record '%s' not found\n", record_name.c_str());
+        } else {
+            error_status("record selection failed", status);
+        }
+        return 5;
+    }
     quarry_brf_record_view_t view{}; status = quarry_brf_validate_with_workspace(&schema, record, brf_bytes.data(), brf_bytes.size(), &view, &ws, &generic_limits);
-    if (status != QUARRY_GENERIC_OK) { error_status("BRF validation failed", status); return 6; }
+    if (status != QUARRY_GENERIC_OK) {
+        if (status == QUARRY_GENERIC_MALFORMED_BRF || status == QUARRY_GENERIC_INVALID_ARGUMENT)
+            std::fprintf(stderr, "quarry-brf-inspect: malformed BRF input '%s'\n", brf_path == "-" ? "stdin" : brf_path.c_str());
+        else
+            error_status("BRF validation failed", status);
+        return 6;
+    }
     const size_t depth = work < 4096U ? work : 4096U; std::vector<quarry_brf_traversal_frame_t> traversal(depth); std::vector<quarry_brf_print_frame_t> print(depth);
     quarry_brf_traversal_workspace_t tw{traversal.data(), depth, 0, 0}; quarry_brf_print_workspace_t pw{print.data(), depth, 0, 0};
     const quarry_brf_traversal_limits_t limits{work, depth}; const quarry_brf_print_options_t options{indent, output_limit};
     const auto result = quarry_brf_print(&view, write_stdout, nullptr, &pw, &tw, &limits, &options);
-    if (result != QUARRY_BRF_PRINT_COMPLETED) { std::fprintf(stderr, "quarry-brf-inspect: printing failed (status %d)\n", static_cast<int>(result)); return 7; }
+    if (result != QUARRY_BRF_PRINT_COMPLETED) {
+        if (result == QUARRY_BRF_PRINT_OUTPUT_ERROR && output_limit != SIZE_MAX && pw.output_bytes >= output_limit)
+            std::fprintf(stderr, "quarry-brf-inspect: output exceeded --max-output-bytes %zu\n", output_limit);
+        else if (result == QUARRY_BRF_PRINT_OUTPUT_ERROR)
+            std::fprintf(stderr, "quarry-brf-inspect: stdout write failed\n");
+        else if (result == QUARRY_BRF_PRINT_WORK_LIMIT)
+            std::fprintf(stderr, "quarry-brf-inspect: printing exceeded the traversal work limit\n");
+        else if (result == QUARRY_BRF_PRINT_DEPTH_LIMIT)
+            std::fprintf(stderr, "quarry-brf-inspect: printing exceeded the traversal depth limit\n");
+        else if (result == QUARRY_BRF_PRINT_WORKSPACE_EXHAUSTED)
+            std::fprintf(stderr, "quarry-brf-inspect: printing workspace was exhausted\n");
+        else
+            std::fprintf(stderr, "quarry-brf-inspect: printing failed (status %d)\n", static_cast<int>(result));
+        return 7;
+    }
     return 0;
 }
