@@ -30,6 +30,8 @@ Options:
       --root-file-stem NAME     Root namespace file stem (default: schema)
       --file-extension EXT      Generated file extension (default: .generated.hpp)
       --list-outputs            Print generated output paths without writing files
+      --emit-qbs PATH           Emit the resolved schema as a deterministic QBS image
+      --qbs-reflective          Include reflective record, field, and enum type names in QBS
       --print-generated-code-api-version
                                 Print the generated-code API compatibility version and exit
       --version                 Show version information
@@ -46,6 +48,9 @@ Current behavior:
 * defaults to `schema` for the root file stem
 * defaults to `.generated.hpp` for generated file extensions
 * supports `--list-outputs` as a read-only output-inventory query
+* supports `--emit-qbs PATH` to emit minimal QBS by default
+* supports `--qbs-reflective` with `--emit-qbs` to include optional reflective names;
+  without `--qbs-reflective`, QBS remains minimal
 * supports `--print-generated-code-api-version` as a terminal machine-readable
   compatibility query
 * writes diagnostics and tool errors to stderr
