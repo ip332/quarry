@@ -235,6 +235,10 @@ quarry_generic_status_t quarry_qbs_get_string(const quarry_qbs_view_t*, uint16_t
 quarry_generic_status_t quarry_qbs_record_name(const quarry_qbs_view_t*,
                                                const quarry_qbs_record_view_t*,
                                                quarry_string_view_t*);
+/* Returns a non-owning view into the mandatory QBS identity string section. */
+quarry_generic_status_t quarry_qbs_record_identity(const quarry_qbs_view_t*,
+                                                   const quarry_qbs_record_view_t*,
+                                                   quarry_string_view_t*);
 quarry_generic_status_t quarry_qbs_field_name(const quarry_qbs_view_t*,
                                               const quarry_qbs_record_view_t*, uint16_t,
                                               quarry_string_view_t*);

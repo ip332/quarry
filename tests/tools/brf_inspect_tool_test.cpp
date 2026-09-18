@@ -62,3 +62,17 @@ TEST(BrfInspectToolTest, MalformedInputsFailWithoutStdout) {
     EXPECT_NE(result.find("BRF validation failed"), std::string::npos);
     std::filesystem::remove(bad);
 }
+
+TEST(BrfInspectToolTest, ListsReflectiveRecordsInQbsTableOrder) {
+    // The checked-in conformance QBS is reflective and exercises the public listing path.
+    const auto result = command("--qbs " + (fixture / "schema.qbs").string() + " --list-records");
+    EXPECT_EQ(result, "0\n2 Child (Child)\n3 Item (Item)\n1 Parent (Parent)\n\n---ERR---\n");
+    EXPECT_EQ(result.find("---ERR---\n\n"), std::string::npos);
+}
+
+TEST(BrfInspectToolTest, ListingRejectsBrfAndSelectors) {
+    const std::string prefix = "--qbs " + (fixture / "schema.qbs").string() + " --list-records";
+    EXPECT_NE(command(prefix + " --brf " + (fixture / "record.brf").string()).find("standalone QBS"), std::string::npos);
+    EXPECT_NE(command(prefix + " --record-id 1").find("standalone QBS"), std::string::npos);
+    EXPECT_NE(command(prefix + " --record-name Parent").find("standalone QBS"), std::string::npos);
+}
