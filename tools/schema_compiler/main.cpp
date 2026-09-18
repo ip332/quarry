@@ -48,6 +48,7 @@ struct CommandLine {
     bool show_version = false;
     bool show_generated_code_api_version = false;
     bool list_outputs = false;
+    bool qbs_reflective = false;
     std::string qbs_output;
     Language language = Language::Cpp;
     std::string input_path;
@@ -64,6 +65,7 @@ struct CommandLine {
            "                                (default: .generated.hpp)\n"
            "      --language {cpp,c,python} Target backend language (default: cpp)\n"
            "      --emit-qbs PATH           Emit the resolved schema as a deterministic QBS image\n"
+           "      --qbs-reflective          Include reflective record, field, and enum names in QBS\n"
            "      --list-outputs            Print generated output paths without writing files\n"
            "      --print-generated-code-api-version\n"
            "                                Print the generated-code API compatibility version and "
@@ -96,6 +98,7 @@ void print_generated_code_api_version(std::ostream& output) {
     bool saw_file_extension = false;
     bool saw_language = false;
     bool saw_qbs_output = false;
+    bool saw_qbs_reflective = false;
 
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument{argv[index]};
@@ -117,6 +120,15 @@ void print_generated_code_api_version(std::ostream& output) {
         }
         if (argument == "--list-outputs") {
             command_line.list_outputs = true;
+            continue;
+        }
+        if (argument == "--qbs-reflective") {
+            if (saw_qbs_reflective) {
+                errors << "error: duplicate --qbs-reflective option\n";
+                return std::nullopt;
+            }
+            saw_qbs_reflective = true;
+            command_line.qbs_reflective = true;
             continue;
         }
 
@@ -201,7 +213,8 @@ void print_generated_code_api_version(std::ostream& output) {
             command_line.codegen_options.output_directory != "generated" ||
             command_line.codegen_options.root_file_stem != "schema" ||
             command_line.codegen_options.file_extension != ".generated.hpp" ||
-            command_line.language != Language::Cpp || !command_line.qbs_output.empty();
+            command_line.language != Language::Cpp || !command_line.qbs_output.empty() ||
+            command_line.qbs_reflective;
         if (has_generation_arguments) {
             errors << "error: --print-generated-code-api-version does not accept generation "
                       "options or an input file\n";
@@ -211,6 +224,13 @@ void print_generated_code_api_version(std::ostream& output) {
 
     if (command_line.language == Language::C && saw_file_extension) {
         errors << "error: --file-extension is not supported with --language c\n";
+        return std::nullopt;
+    }
+
+    if (command_line.qbs_reflective && command_line.qbs_output.empty() &&
+        !command_line.show_help && !command_line.show_version &&
+        !command_line.show_generated_code_api_version) {
+        errors << "error: --qbs-reflective requires --emit-qbs\n";
         return std::nullopt;
     }
 
@@ -423,8 +443,12 @@ template <typename CodegenResultT>
         }
         if (!layout_diagnostics.empty()) return exit_failure;
         quarry::compiler::qbs::QbsModelBuilder builder;
-        auto model = builder.build(*compilation_result.schema_ir, layout,
-                                   quarry::compiler::qbs::QbsBuildOptions{}, layout_diagnostics);
+        const quarry::compiler::qbs::QbsBuildOptions qbs_options{
+            .mode = command_line.qbs_reflective
+                        ? quarry::compiler::qbs::BuildMode::Reflective
+                        : quarry::compiler::qbs::BuildMode::Minimal};
+        auto model = builder.build(*compilation_result.schema_ir, layout, qbs_options,
+                                   layout_diagnostics);
         if (!model) {
             errors << diagnostics::DiagnosticFormatter::format_all(
                 layout_diagnostics, compiler_context.source_manager());

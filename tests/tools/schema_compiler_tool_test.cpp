@@ -225,6 +225,68 @@ TEST(SchemaCompilerToolTest, EmitsDeterministicQbsForBenchmarkWorkload) {
               QUARRY_GENERIC_OK);
 }
 
+TEST(SchemaCompilerToolTest, EmitsDeterministicReflectiveQbsWhenRequested) {
+    const std::filesystem::path root = make_temp_directory("emit-qbs-reflective");
+    const std::filesystem::path input =
+        std::filesystem::path{QUARRY_TEST_SOURCE_DIR} / "benchmarks/schemas/workload.brd";
+    const auto minimal = root / "minimal.qbs";
+    const auto first = root / "first.qbs";
+    const auto second = root / "second.qbs";
+    ASSERT_EQ(run_tool({"--emit-qbs", minimal.string(), input.string()}, root).status, 0);
+    ASSERT_EQ(run_tool({"--emit-qbs", first.string(), "--qbs-reflective", input.string()}, root).status,
+              0);
+    ASSERT_EQ(run_tool({"--qbs-reflective", "--emit-qbs", second.string(), input.string()}, root).status,
+              0);
+    std::ifstream minimal_stream(minimal, std::ios::binary);
+    std::ifstream first_stream(first, std::ios::binary);
+    std::ifstream second_stream(second, std::ios::binary);
+    const std::vector<uint8_t> minimal_bytes{std::istreambuf_iterator<char>(minimal_stream), {}};
+    const std::vector<uint8_t> first_bytes{std::istreambuf_iterator<char>(first_stream), {}};
+    const std::vector<uint8_t> second_bytes{std::istreambuf_iterator<char>(second_stream), {}};
+    EXPECT_NE(first_bytes, minimal_bytes);
+    EXPECT_EQ(first_bytes, second_bytes);
+
+    quarry_qbs_record_view_t records[128]{}; quarry_qbs_field_view_t fields[128]{};
+    quarry_qbs_type_view_t types[128]{}; quarry_qbs_enum_view_t enums[128]{}; uint64_t values[128]{};
+    quarry_workspace_t workspace{};
+    workspace.records = records; workspace.record_capacity = 128;
+    workspace.fields = fields; workspace.field_capacity = 128;
+    workspace.types = types; workspace.type_capacity = 128;
+    workspace.enums = enums; workspace.enum_capacity = 128;
+    workspace.enum_values = values; workspace.enum_value_capacity = 128;
+    quarry_qbs_view_t view{};
+    ASSERT_EQ(quarry_qbs_parse(first_bytes.data(), first_bytes.size(), &view, &workspace, nullptr),
+              QUARRY_GENERIC_OK);
+    EXPECT_NE(view.strings_offset, 0U);
+    quarry_string_view_t name{};
+    ASSERT_EQ(quarry_qbs_record_name(&view, &view.records[0], &name), QUARRY_GENERIC_OK);
+    EXPECT_EQ(std::string(name.data, name.size), "Workload");
+    ASSERT_EQ(quarry_qbs_field_name(&view, &view.records[0], 0U, &name), QUARRY_GENERIC_OK);
+    EXPECT_EQ(std::string(name.data, name.size), "sequence");
+}
+
+TEST(SchemaCompilerToolTest, QbsReflectiveRequiresQbsOutput) {
+    const std::filesystem::path root = make_temp_directory("qbs-reflective-validation");
+    const std::filesystem::path input = root / "schema.brd";
+    write_text_file(input,
+                    "namespace: quarry.test\nrecord: Sample\nversion: 1\ntype: data\nfields:\n"
+                    "  value:\n    type: uint32\n");
+    const CommandResult result = run_tool({"--qbs-reflective", input.string()}, root);
+    EXPECT_EQ(result.status, 2);
+    EXPECT_NE(result.stderr_text.find("--qbs-reflective requires --emit-qbs"), std::string::npos);
+}
+
+TEST(SchemaCompilerToolTest, DuplicateQbsReflectiveFails) {
+    const std::filesystem::path root = make_temp_directory("qbs-reflective-duplicate");
+    const std::filesystem::path input = root / "schema.brd";
+    write_text_file(input,
+                    "namespace: quarry.test\nrecord: Sample\nversion: 1\ntype: data\nfields:\n"
+                    "  value:\n    type: uint32\n");
+    const CommandResult result = run_tool({"--qbs-reflective", "--qbs-reflective", input.string()}, root);
+    EXPECT_EQ(result.status, 2);
+    EXPECT_NE(result.stderr_text.find("duplicate --qbs-reflective option"), std::string::npos);
+}
+
 TEST(SchemaCompilerToolTest, HelpIsTerminalBeforeListOutputs) {
     const std::filesystem::path root = make_temp_directory("help-list-outputs");
 
