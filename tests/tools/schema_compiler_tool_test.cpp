@@ -1239,7 +1239,8 @@ TEST(SchemaCompilerToolTest, CBackendWritesHeaderAndSourceWithExpectedContent) {
 
     const std::string source_text = read_text_file(source);
     EXPECT_NE(source_text.find("#include \"quarry/telemetry.generated.h\""), std::string::npos);
-    EXPECT_NE(source_text.find("quarry_telemetry_Sample_init"), std::string::npos);
+    EXPECT_EQ(source_text.find("quarry_telemetry_Sample_init"), std::string::npos);
+    EXPECT_NE(header_text.find("static inline void quarry_telemetry_Sample_init"), std::string::npos);
 }
 
 TEST(SchemaCompilerToolTest, CBackendRejectsUnsupportedFieldType) {

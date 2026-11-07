@@ -20,10 +20,18 @@ int main(void) {
         sample.blob_length = sizeof(blob);
     }
 
+    const demo_c_Sample_encoded_size_result_t measured = demo_c_Sample_encoded_size(&sample);
+    if (measured.status != QUARRY_C_STATUS_OK) {
+        return 3;
+    }
     uint8_t encoded[128];
+    if (measured.size > sizeof(encoded)) {
+        return 4;
+    }
     const demo_c_Sample_encode_result_t encoded_result =
         demo_c_Sample_encode(&sample, encoded, sizeof(encoded));
-    if (encoded_result.status != QUARRY_C_STATUS_OK) {
+    if (encoded_result.status != QUARRY_C_STATUS_OK ||
+        encoded_result.bytes_written != measured.size) {
         return 1;
     }
 

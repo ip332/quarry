@@ -12,5 +12,9 @@ cmake --build build
 ./build/quarry_basic_encode_decode_c
 ```
 
-The generated source is compiled as C99 with extensions disabled and links the
-installed `Quarry::runtime_c` target. No heap allocation is required.
+Only `main.c` is compiled, as C99 with extensions disabled. The generated
+header contains the data types, constant descriptors, and inline type-specific
+wrappers. Link the installed `Quarry::runtime_c` target for the shared codec;
+there is no schema-specific implementation to compile and no heap allocation.
+The compiler also emits an include-only `.c` compatibility file, which this
+example does not compile.

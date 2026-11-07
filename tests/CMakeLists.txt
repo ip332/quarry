@@ -313,3 +313,12 @@ target_compile_definitions(python_cpp_c_codec_interop_test PRIVATE
     QUARRY_TEST_PYTHON3="${QUARRY_PYTHON3_EXECUTABLE}")
 add_quarry_gtest(diagnostics_smoke_test diagnostics/diagnostics_smoke_test.cpp quarry_compiler_context)
 add_quarry_gtest(support_test support/support_test.cpp quarry_compiler_support)
+
+# Harnesses compile generated headers in subprocesses and link the shared codec.
+foreach(typed_consumer c_cpp_codec_interop_test c_cpp_nested_record_interop_test python_cpp_c_codec_interop_test)
+    add_dependencies(${typed_consumer} quarry_runtime_c)
+    target_compile_definitions(${typed_consumer} PRIVATE
+        QUARRY_TEST_RUNTIME_C_LIBRARY="$<TARGET_FILE:quarry_runtime_c>")
+endforeach()
+
+add_quarry_gtest(typed_record_test runtime_c/typed_record_test.cpp quarry_runtime_c)

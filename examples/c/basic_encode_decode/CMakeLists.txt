@@ -18,7 +18,7 @@ add_custom_command(
     VERBATIM
 )
 
-add_executable(quarry_basic_encode_decode_c main.c "${generated_header}" "${generated_source}")
+add_executable(quarry_basic_encode_decode_c main.c "${generated_header}")
 target_include_directories(quarry_basic_encode_decode_c PRIVATE "${generated_dir}")
 target_link_libraries(quarry_basic_encode_decode_c PRIVATE Quarry::runtime_c)
 set_target_properties(quarry_basic_encode_decode_c PROPERTIES

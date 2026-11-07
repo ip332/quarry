@@ -79,8 +79,11 @@ configurable from the command line.
 **`--language c` supports scalar, enum, bounded string/bytes, bounded arrays,
 nested records, and compiler-resolved cross-namespace enum/record references
 (including arrays).**
-It emits one
-`.h`/`.c` pair per namespace that owns records or enums: generated C enum
+It emits a header per namespace owning records or enums, containing data types,
+constant descriptors, and inline type-specific codec wrappers. Applications
+include that header and link `Quarry::runtime_c`; no schema-specific `.c` file
+needs compilation. An include-only `.c` compatibility file remains in the
+output list for existing build scripts. The headers provide: generated C enum
 declarations, real C structs for records whose fields are `bool`,
 fixed-width signed/unsigned integers, `f32`/`f64`, enum references
 declared locally or in an imported namespace (with only non-negative declared
@@ -91,8 +94,7 @@ terminator, since arbitrary binary data has no such convenience), bounded
 arrays of those scalar/enum/string/bytes/record element
 kinds (fixed-capacity array of the element's own C type, sized from
 `max_elements`, plus an explicit element count -- record elements compose
-that element record's own generated encode/decode functions directly,
-with no new runtime code needed), or a record reference to another record
+that element record's descriptor through the shared codec), or a record reference to another record
 declared locally or in an imported namespace (embedded by value, no pointer or
 heap allocation), and a real BRF encode/decode codec API (`_init`,
 `_encoded_size`, `_encode`, `_decode`) for every record, backed by the

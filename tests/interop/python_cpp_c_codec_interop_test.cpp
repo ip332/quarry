@@ -450,12 +450,10 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     const std::filesystem::path c_harness_binary = root / "c_harness";
     const std::filesystem::path cpp_harness_binary = root / "cpp_harness";
 
-    const std::filesystem::path generated_c_source = generated_c / "acme" / "telemetry.generated.c";
     const std::filesystem::path c_harness_object = root / "c_harness.o";
-    const std::filesystem::path generated_c_object = root / "telemetry.generated.o";
 
-    // Compile each C translation unit separately (with -c) and link them in
-    // a distinct step -- see c_cpp_codec_interop_test.cpp's identical
+    // Compile only the application TU (with -c), then link the shared runtime
+    // in a distinct step -- see c_cpp_codec_interop_test.cpp's identical
     // comment for why (some C++ driver front ends reject -std=c99 for a
     // combined compile+link invocation).
     const std::string compile_c_harness_command =
@@ -466,18 +464,10 @@ TEST(PythonCppCCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
         shell_quote(c_harness_source.string()) + " -o " + shell_quote(c_harness_object.string());
     ASSERT_EQ(run_and_get_exit_code(compile_c_harness_command), 0) << compile_c_harness_command;
 
-    const std::string compile_generated_c_command =
-        shell_quote(QUARRY_TEST_CXX_COMPILER) +
-        " -x c -std=c99 -Wall -Wextra -Wpedantic -Werror -I" + shell_quote(generated_c.string()) +
-        " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
-        shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " -c " +
-        shell_quote(generated_c_source.string()) + " -o " +
-        shell_quote(generated_c_object.string());
-    ASSERT_EQ(run_and_get_exit_code(compile_generated_c_command), 0) << compile_generated_c_command;
-
-    const std::string link_c_command =
-        shell_quote(QUARRY_TEST_CXX_COMPILER) + " " + shell_quote(c_harness_object.string()) + " " +
-        shell_quote(generated_c_object.string()) + " -o " + shell_quote(c_harness_binary.string());
+    const std::string link_c_command = shell_quote(QUARRY_TEST_CXX_COMPILER) + " " +
+                                       shell_quote(c_harness_object.string()) + " " +
+                                       shell_quote(QUARRY_TEST_RUNTIME_C_LIBRARY) + " -o " +
+                                       shell_quote(c_harness_binary.string());
     ASSERT_EQ(run_and_get_exit_code(link_c_command), 0) << link_c_command;
 
     const std::string compile_cpp_command =
@@ -834,8 +824,8 @@ int main(int argc, char** argv) {
         shell_quote(QUARRY_TEST_C_COMPILER) + " -std=c99 -Wall -Wextra -Wpedantic -Werror -I" +
         shell_quote(generated_c.string()) + " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) +
         " -I" + shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
-        shell_quote(c_source.string()) + " " + shell_quote(generated_c_source.string()) + " -o " +
-        shell_quote(c_binary.string());
+        shell_quote(c_source.string()) + " " + shell_quote(generated_c_source.string()) + " " +
+        shell_quote(QUARRY_TEST_RUNTIME_C_LIBRARY) + " -o " + shell_quote(c_binary.string());
     ASSERT_EQ(run_and_get_exit_code(compile_c), 0) << compile_c;
 
     constexpr std::string_view python_harness = R"py(
@@ -1088,7 +1078,8 @@ int main(int argc, char** argv) {
     const std::filesystem::path c_binary = root / "c_harness";
     ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_TEST_CXX_COMPILER) + " " +
                                     shell_quote(c_object.string()) + " " +
-                                    shell_quote(generated_c_object.string()) + " -o " +
+                                    shell_quote(generated_c_object.string()) + " " +
+                                    shell_quote(QUARRY_TEST_RUNTIME_C_LIBRARY) + " -o " +
                                     shell_quote(c_binary.string())),
               0);
 
@@ -1481,8 +1472,8 @@ else:
             " -I" + shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
             shell_quote(c_source.string()) + " " +
             shell_quote((generated_c / "acme/telemetry.generated.c").string()) + " " +
-            shell_quote((generated_c / "acme/shared.generated.c").string()) + " -o " +
-            shell_quote(c_binary.string())),
+            shell_quote((generated_c / "acme/shared.generated.c").string()) + " " +
+            shell_quote(QUARRY_TEST_RUNTIME_C_LIBRARY) + " -o " + shell_quote(c_binary.string())),
         0);
     ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_TEST_CXX_COMPILER) +
                                     " -std=c++20 -Wall -Wextra -Wpedantic -Werror "

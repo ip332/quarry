@@ -283,8 +283,45 @@ constexpr std::string_view kCHarness =
     "  return (v->readings_count == 2 && v->readings[0] == 1.5f && v->readings[1] == -2.5f) ? 0\n"
     "                                                                                       : 35;\n"
     "}\n"
+    R"c(
+static int check_size_api(void) {
+    quarry_telemetry_Sample_t sample;
+    quarry_telemetry_Sample_init(&sample);
+    quarry_telemetry_Sample_encoded_size_result_t measured =
+        quarry_telemetry_Sample_encoded_size(&sample);
+    if (measured.status != QUARRY_C_STATUS_OK || measured.size < 16U) return 1;
+    uint8_t output[256];
+    quarry_telemetry_Sample_encode_result_t encoded =
+        quarry_telemetry_Sample_encode(&sample, output, sizeof(output));
+    if (encoded.status != QUARRY_C_STATUS_OK || measured.size != encoded.bytes_written) return 2;
+    measured = quarry_telemetry_Sample_encoded_size(NULL);
+    if (measured.status != QUARRY_C_STATUS_INVALID_ARGUMENT || measured.size != 0U) return 3;
+    sample.has_label = true;
+    sample.label_length = 17U;
+    measured = quarry_telemetry_Sample_encoded_size(&sample);
+    if (measured.status != QUARRY_C_STATUS_BOUNDS_EXCEEDED || measured.size != 0U) return 4;
+    sample.label_length = 1U;
+    sample.label[0] = (char)0xFF;
+    measured = quarry_telemetry_Sample_encoded_size(&sample);
+    if (measured.status != QUARRY_C_STATUS_INVALID_UTF8 || measured.size != 0U) return 5;
+    sample.has_label = false;
+    sample.has_status = true;
+    sample.status = (quarry_telemetry_Status_t)99;
+    measured = quarry_telemetry_Sample_encoded_size(&sample);
+    if (measured.status != QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE || measured.size != 0U) return 6;
+    sample.has_status = false;
+    sample.has_readings = true;
+    sample.readings_count = 5U;
+    measured = quarry_telemetry_Sample_encoded_size(&sample);
+    if (measured.status != QUARRY_C_STATUS_BOUNDS_EXCEEDED || measured.size != 0U) return 7;
+    sample.has_readings = false;
+    measured = quarry_telemetry_Sample_encoded_size(&sample);
+    return measured.status == QUARRY_C_STATUS_OK ? 0 : 8;
+}
+)c"
     "int main(int argc, char** argv) {\n"
     "  if (argc < 3) return 20;\n"
+    "  if (strcmp(argv[1], \"check_size\") == 0) return check_size_api();\n"
     "  if (strcmp(argv[1], \"encode\") == 0) {\n"
     "    quarry_telemetry_Sample_t sample;\n"
     "    quarry_telemetry_Sample_init(&sample);\n"
@@ -740,12 +777,10 @@ TEST(CCppCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     const std::filesystem::path c_harness_binary = root / "c_harness";
     const std::filesystem::path cpp_harness_binary = root / "cpp_harness";
 
-    const std::filesystem::path generated_c_source =
-        generated_c / "quarry" / "telemetry.generated.c";
     const std::filesystem::path c_harness_object = root / "c_harness.o";
-    const std::filesystem::path generated_c_object = root / "telemetry.generated.o";
 
-    // Compile each C translation unit separately (with -c) and link them in
+    // Compile only the application TU, using short enums to test host/wire
+    // independence, and link the shared runtime in
     // a distinct step with no C-specific flags. -std=c99/-x c are
     // compile-only flags with no meaning at link time; some C++ driver
     // front ends (observed with GCC's `c++`/g++ under Docker/CI, not
@@ -754,24 +789,19 @@ TEST(CCppCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     // -x c is present. Splitting compile and link avoids relying on that
     // driver behavior at all.
     const std::string compile_c_harness_command =
-        shell_quote(QUARRY_TEST_CXX_COMPILER) + " -x c -std=c99 -Wall -Wextra -Wpedantic -Werror -I" +
+        shell_quote(QUARRY_TEST_CXX_COMPILER) + " -x c -std=c99 -fshort-enums -Wall -Wextra -Wpedantic -Werror -I" +
         shell_quote(generated_c.string()) + " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) +
         " -I" + shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " -c " +
         shell_quote(c_harness_source.string()) + " -o " + shell_quote(c_harness_object.string());
     ASSERT_EQ(run_and_get_exit_code(compile_c_harness_command), 0) << compile_c_harness_command;
 
-    const std::string compile_generated_c_command =
-        shell_quote(QUARRY_TEST_CXX_COMPILER) + " -x c -std=c99 -Wall -Wextra -Wpedantic -Werror -I" +
-        shell_quote(generated_c.string()) + " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) +
-        " -I" + shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " -c " +
-        shell_quote(generated_c_source.string()) + " -o " + shell_quote(generated_c_object.string());
-    ASSERT_EQ(run_and_get_exit_code(compile_generated_c_command), 0) << compile_generated_c_command;
-
     const std::string link_c_command = shell_quote(QUARRY_TEST_CXX_COMPILER) + " " +
                                        shell_quote(c_harness_object.string()) + " " +
-                                       shell_quote(generated_c_object.string()) + " -o " +
+                                       shell_quote(QUARRY_TEST_RUNTIME_C_LIBRARY) + " -o " +
                                        shell_quote(c_harness_binary.string());
     ASSERT_EQ(run_and_get_exit_code(link_c_command), 0) << link_c_command;
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) + " check_size unused"), 0);
+
 
     const std::string compile_cpp_command =
         shell_quote(QUARRY_TEST_CXX_COMPILER) + " -std=c++20 -Wall -Wpedantic -I" +

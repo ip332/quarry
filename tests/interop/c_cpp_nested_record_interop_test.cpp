@@ -576,11 +576,9 @@ TEST(CCppNestedRecordInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     const std::filesystem::path c_harness_binary = root / "c_harness";
     const std::filesystem::path cpp_harness_binary = root / "cpp_harness";
 
-    const std::filesystem::path generated_c_source = generated_c / "generated/schema.generated.c";
     const std::filesystem::path c_harness_object = root / "c_harness.o";
-    const std::filesystem::path generated_c_object = root / "schema.generated.o";
 
-    // Compile each C translation unit separately (with -c) and link them in a
+    // Compile only the application TU (with -c) and link the shared runtime in a
     // distinct step -- see the identical rationale in
     // c_cpp_codec_interop_test.cpp for why -std=c99/-x c must not appear on
     // the same invocation that also performs an implicit link.
@@ -592,17 +590,9 @@ TEST(CCppNestedRecordInteropTest, ByteForByteCompatibleAndCrossDecodable) {
         shell_quote(c_harness_source.string()) + " -o " + shell_quote(c_harness_object.string());
     ASSERT_EQ(run_and_get_exit_code(compile_c_harness_command), 0) << compile_c_harness_command;
 
-    const std::string compile_generated_c_command =
-        shell_quote(QUARRY_TEST_CXX_COMPILER) +
-        " -x c -std=c99 -Wall -Wextra -Wpedantic -Werror -I" + shell_quote(generated_c.string()) +
-        " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
-        shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " -c " +
-        shell_quote(generated_c_source.string()) + " -o " + shell_quote(generated_c_object.string());
-    ASSERT_EQ(run_and_get_exit_code(compile_generated_c_command), 0) << compile_generated_c_command;
-
     const std::string link_c_command = shell_quote(QUARRY_TEST_CXX_COMPILER) + " " +
                                        shell_quote(c_harness_object.string()) + " " +
-                                       shell_quote(generated_c_object.string()) + " -o " +
+                                       shell_quote(QUARRY_TEST_RUNTIME_C_LIBRARY) + " -o " +
                                        shell_quote(c_harness_binary.string());
     ASSERT_EQ(run_and_get_exit_code(link_c_command), 0) << link_c_command;
 
