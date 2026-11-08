@@ -1404,7 +1404,7 @@ void render_enum_field_encoding(const FieldPlan& field, const RuntimeEnumEncodin
 void render_string_field_encoding(const FieldPlan& field, std::size_t indent_level,
                                   std::ostringstream& stream) {
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
-    stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
+    stream << indent(indent_level) << "if (value.has_" << field.name << "() && !value." << field.name << "()->empty()) {\n";
     stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
            << field.runtime_encoding.max_bytes << "U) {\n";
     render_encode_failure_return(stream, indent_level + 2,
@@ -1430,7 +1430,7 @@ void render_string_field_encoding(const FieldPlan& field, std::size_t indent_lev
 void render_bytes_field_encoding(const FieldPlan& field, std::size_t indent_level,
                                  std::ostringstream& stream) {
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
-    stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
+    stream << indent(indent_level) << "if (value.has_" << field.name << "() && !value." << field.name << "()->empty()) {\n";
     stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
            << field.runtime_encoding.max_bytes << "U) {\n";
     render_encode_failure_return(stream, indent_level + 2,
@@ -1476,7 +1476,7 @@ void render_record_field_encoding(const FieldPlan& field, const RuntimeRecordEnc
 void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncoding& array_encoding,
                                  std::size_t indent_level, std::ostringstream& stream) {
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
-    stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
+    stream << indent(indent_level) << "if (value.has_" << field.name << "() && !value." << field.name << "()->empty()) {\n";
     stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
            << array_encoding.max_elements << "U) {\n";
     render_encode_failure_return(stream, indent_level + 2,

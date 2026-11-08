@@ -136,15 +136,20 @@ int main(int argc, char** argv) {
     assert(quarry_brf_get_value(&decoded, 1U, &decoded_value) == QUARRY_GENERIC_OK &&
            decoded_value.kind == QUARRY_BRF_VALUE_ARRAY);
 
-    /* Present-empty arrays retain presence but require no element lookup. */
+    /* Empty arrays encode as absent and require no element lookup. */
     strings.count = 0U; blobs.count = 0U;
     strings.lookups = blobs.lookups = 0U;
     context.present_strings = 1; context.present_blobs = 1;
     assert(quarry_brf_encode(&q, root, &provider, output, sizeof(output), &size, &encoder, NULL, NULL) == QUARRY_GENERIC_OK);
     assert(strings.lookups == 0U && blobs.lookups == 0U);
     assert(size > 0U);
-    /* Both array fields are present, and each payload is the canonical zero count. */
-    assert(output[size - 2U] == 0U && output[size - 1U] == 0U);
+    assert(size == 16U + root->fixed_region_size);
+    assert(output[16U] == 0U);
+    assert(quarry_brf_validate(&q, root, output, size, &decoded, &limits) == QUARRY_GENERIC_OK);
+    assert(quarry_brf_get_value(&decoded, 0U, &decoded_value) == QUARRY_GENERIC_OK &&
+           decoded_value.kind == QUARRY_BRF_VALUE_ABSENT);
+    assert(quarry_brf_get_value(&decoded, 1U, &decoded_value) == QUARRY_GENERIC_OK &&
+           decoded_value.kind == QUARRY_BRF_VALUE_ABSENT);
 
     /* Zero-length elements use a length prefix with no payload bytes. */
     names[0] = ""; strings.strings[0] = names[0]; strings.string_lengths[0] = 0U;

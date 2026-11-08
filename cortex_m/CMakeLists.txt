@@ -101,7 +101,7 @@ add_custom_command(
     COMMAND "${QUARRY_HOST_SCHEMA_COMPILER}" --language c
             --output-directory "${QUARRY_GENERATED_DIR}"
             "${QUARRY_SHARED_SCHEMA}"
-    DEPENDS "${QUARRY_SHARED_SCHEMA}"
+    DEPENDS "${QUARRY_SHARED_SCHEMA}" "${QUARRY_HOST_SCHEMA_COMPILER}"
     COMMENT "Generating C code for benchmark.workload.shared (host quarry-schema-compiler)"
     VERBATIM
 )
@@ -110,11 +110,15 @@ add_custom_command(
     COMMAND "${QUARRY_HOST_SCHEMA_COMPILER}" --language c
             --output-directory "${QUARRY_GENERATED_DIR}"
             "${QUARRY_WORKLOAD_SCHEMA}"
-    DEPENDS "${QUARRY_WORKLOAD_SCHEMA}"
+    DEPENDS "${QUARRY_WORKLOAD_SCHEMA}" "${QUARRY_HOST_SCHEMA_COMPILER}"
             "${QUARRY_GENERATED_SHARED_HEADER}" "${QUARRY_GENERATED_SHARED_SOURCE}"
     COMMENT "Generating C code for benchmark.workload (host quarry-schema-compiler)"
     VERBATIM
 )
+
+# The generated headers delegate to this shared codec; compatibility .c files
+# no longer provide the implementation. Keep its archive separate for footprint reporting.
+add_library(quarry_cortex_m_codec STATIC "${CMAKE_CURRENT_SOURCE_DIR}/../runtime_c/typed_record.c")
 
 add_executable(quarry_cortex_m_smoke
     startup_cortex_m4.c
@@ -122,15 +126,18 @@ add_executable(quarry_cortex_m_smoke
     "${QUARRY_GENERATED_SHARED_SOURCE}"
     "${QUARRY_GENERATED_WORKLOAD_SOURCE}"
 )
-target_include_directories(quarry_cortex_m_smoke PRIVATE
-    "${QUARRY_GENERATED_DIR}"
-    "${QUARRY_RUNTIME_C_INCLUDE_DIR}"
-    "${QUARRY_RUNTIME_C_VERSION_HEADER_DIR}"
-)
-target_compile_options(quarry_cortex_m_smoke PRIVATE
-    -Wall -Wextra -Wpedantic -Werror
-    -ffunction-sections -fdata-sections
-)
+foreach(target quarry_cortex_m_smoke quarry_cortex_m_codec)
+    target_include_directories(${target} PRIVATE
+        "${QUARRY_GENERATED_DIR}"
+        "${QUARRY_RUNTIME_C_INCLUDE_DIR}"
+        "${QUARRY_RUNTIME_C_VERSION_HEADER_DIR}"
+    )
+    target_compile_options(${target} PRIVATE
+        -Wall -Wextra -Wpedantic -Werror
+        -ffunction-sections -fdata-sections
+    )
+endforeach()
+target_link_libraries(quarry_cortex_m_smoke PRIVATE quarry_cortex_m_codec)
 target_link_options(quarry_cortex_m_smoke PRIVATE
     -nostartfiles
     -T "${CMAKE_CURRENT_SOURCE_DIR}/linker/stm32f446_illustrative.ld"

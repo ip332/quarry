@@ -114,6 +114,7 @@ jobs:
           --elf cortex_m/build/quarry_cortex_m_smoke.elf
           --object generated_workload=cortex_m/build/CMakeFiles/quarry_cortex_m_smoke.dir/generated/benchmark/workload.generated.c.obj
           --object generated_shared=cortex_m/build/CMakeFiles/quarry_cortex_m_smoke.dir/generated/benchmark/workload/shared.generated.c.obj
+          --object typed_runtime=cortex_m/build/libquarry_cortex_m_codec.a
           --object smoke=cortex_m/build/CMakeFiles/quarry_cortex_m_smoke.dir/smoke/workload_smoke.c.obj
           --object startup=cortex_m/build/CMakeFiles/quarry_cortex_m_smoke.dir/startup_cortex_m4.c.obj
           --json cortex_m/build/footprint.json

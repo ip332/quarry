@@ -1,5 +1,22 @@
 # Generic C QBS/BRF runtime
 
+## Empty variable fields
+
+Schema-aware C, C++, Python, and generic encoders normalize zero-length string
+and bytes fields, and zero-count array fields, to absence. Their BRF presence
+bits remain clear, their descriptor slots remain zero, and no variable payload
+is emitted. Nonempty arrays retain empty string/bytes elements so indexes do
+not change. A one-byte NUL string and a one-element array containing zero are
+nonempty. Scalars and nested records retain their independent presence rules.
+
+Legacy present-empty encodings remain readable; views may expose their original
+presence, but encoding them again normalizes these fields to absence. Raw
+payload construction helpers do not infer logical types from bytes; callers of
+those helpers must supply the intended field list. Regenerate language bindings
+to adopt the new encoder policy. Generated C API epoch 5 also removes variable
+fields' `has_` members in favor of their existing lengths/counts.
+
+
 The generic C runtime is an additive, read-only C99 API for embedded callers.
 `quarry_qbs_parse()` indexes caller-owned QBS bytes into caller-provided typed
 workspace arrays; it performs no hidden allocation. `quarry_brf_validate()`

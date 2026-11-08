@@ -65,6 +65,7 @@ python3 cortex_m/scripts/report_footprint.py \
   --elf cortex_m/build/quarry_cortex_m_smoke.elf \
   --object generated_workload=cortex_m/build/CMakeFiles/quarry_cortex_m_smoke.dir/generated/benchmark/workload.generated.c.obj \
   --object generated_shared=cortex_m/build/CMakeFiles/quarry_cortex_m_smoke.dir/generated/benchmark/workload/shared.generated.c.obj \
+  --object typed_runtime=cortex_m/build/libquarry_cortex_m_codec.a \
   --object smoke=cortex_m/build/CMakeFiles/quarry_cortex_m_smoke.dir/smoke/workload_smoke.c.obj \
   --object startup=cortex_m/build/CMakeFiles/quarry_cortex_m_smoke.dir/startup_cortex_m4.c.obj
 ```
@@ -86,6 +87,8 @@ The smoke target (`quarry_cortex_m_smoke`) links:
   scalar fields, a local enum, a bounded string, bounded bytes, a bounded
   scalar array, a cross-namespace nested record, and a cross-namespace
   array of records.
+- `runtime_c/typed_record.c` -- the shared descriptor-driven codec, built as
+  `libquarry_cortex_m_codec.a` and linked by the smoke application.
 - `smoke/workload_smoke.c` -- statically constructs a populated
   `benchmark_workload_Workload_t` (including its nested and array-of-record
   `Child` fields) and round-trips it through the generated

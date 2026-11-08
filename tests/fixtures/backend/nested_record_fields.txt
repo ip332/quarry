@@ -141,7 +141,7 @@ private:
       .bytes = std::move(field_bytes),
     });
   }
-  if (value.has_label()) {
+  if (value.has_label() && !value.label()->empty()) {
     if (value.label()->size() > 8U) {
       return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}});
     }
@@ -154,7 +154,7 @@ private:
       .bytes = std::move(field_bytes),
     });
   }
-  if (value.has_tags()) {
+  if (value.has_tags() && !value.tags()->empty()) {
     if (value.tags()->size() > 2U) {
       return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 2U, .array_index = std::nullopt}});
     }
@@ -639,7 +639,7 @@ private:
 ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Group& value) {
   std::vector<::quarry::runtime::FieldBytes> fields;
   fields.reserve(1U);
-  if (value.has_middles()) {
+  if (value.has_middles() && !value.middles()->empty()) {
     if (value.middles()->size() > 2U) {
       return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
     }

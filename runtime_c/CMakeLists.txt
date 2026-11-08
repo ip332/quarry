@@ -1,4 +1,4 @@
-add_library(quarry_runtime_c STATIC generic_brf.c generic_brf_api.c generic_brf_structures.c
+add_library(quarry_runtime_c STATIC typed_record.c generic_brf.c generic_brf_api.c generic_brf_structures.c
     generic_brf_encoding.c
     generic_brf_traversal.c generic_brf_print.c)
 add_library(Quarry::runtime_c ALIAS quarry_runtime_c)

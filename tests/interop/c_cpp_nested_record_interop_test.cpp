@@ -289,7 +289,7 @@ constexpr std::string_view kCHarness =
     "  if (strcmp(argv[1], \"encode_items_empty\") == 0) {\n"
     "    A_t a;\n"
     "    A_init(&a);\n"
-    "    a.has_items = true;\n"
+    "    \n"
     "    a.items_count = 0;\n"
     "    uint8_t buf[256];\n"
     "    A_encode_result_t r = A_encode(&a, buf, sizeof(buf));\n"
@@ -303,7 +303,7 @@ constexpr std::string_view kCHarness =
     "  if (strcmp(argv[1], \"encode_items_partial\") == 0) {\n"
     "    A_t a;\n"
     "    A_init(&a);\n"
-    "    a.has_items = true;\n"
+    "    \n"
     "    a.items_count = 2;\n"
     "    B_init(&a.items[0]);\n"
     "    a.items[0].has_count = true;\n"
@@ -321,7 +321,7 @@ constexpr std::string_view kCHarness =
     "  if (strcmp(argv[1], \"encode_items_full\") == 0) {\n"
     "    A_t a;\n"
     "    A_init(&a);\n"
-    "    a.has_items = true;\n"
+    "    \n"
     "    a.items_count = 3;\n"
     "    B_init(&a.items[0]);\n"
     "    a.items[0].has_count = true;\n"
@@ -339,7 +339,7 @@ constexpr std::string_view kCHarness =
     "    fclose(f);\n"
     "    return 0;\n"
     "  }\n"
-    "  if (strcmp(argv[1], \"decode_items_expect_absent\") == 0) {\n"
+    "  if ((strcmp(argv[1], \"decode_items_expect_absent\") == 0 || strcmp(argv[1], \"decode_items_expect_empty\") == 0)) {\n"
     "    FILE* f = fopen(argv[2], \"rb\");\n"
     "    if (!f) return 3;\n"
     "    uint8_t buf[256];\n"
@@ -347,7 +347,7 @@ constexpr std::string_view kCHarness =
     "    fclose(f);\n"
     "    A_decode_result_t r = A_decode(buf, n);\n"
     "    if (r.status != QUARRY_C_STATUS_OK) return 4;\n"
-    "    if (r.value.has_items) return 5;\n"
+    "    if ((r.value.items_count != 0U)) return 5;\n"
     "    return 0;\n"
     "  }\n"
     "  if (strcmp(argv[1], \"decode_items_expect_empty\") == 0) {\n"
@@ -358,7 +358,7 @@ constexpr std::string_view kCHarness =
     "    fclose(f);\n"
     "    A_decode_result_t r = A_decode(buf, n);\n"
     "    if (r.status != QUARRY_C_STATUS_OK) return 4;\n"
-    "    if (!r.value.has_items) return 5;\n"
+    "    if (!(r.value.items_count != 0U)) return 5;\n"
     "    if (r.value.items_count != 0) return 6;\n"
     "    return 0;\n"
     "  }\n"
@@ -370,7 +370,7 @@ constexpr std::string_view kCHarness =
     "    fclose(f);\n"
     "    A_decode_result_t r = A_decode(buf, n);\n"
     "    if (r.status != QUARRY_C_STATUS_OK) return 4;\n"
-    "    if (!r.value.has_items) return 5;\n"
+    "    if (!(r.value.items_count != 0U)) return 5;\n"
     "    if (r.value.items_count != 2) return 6;\n"
     "    if (!r.value.items[0].has_count || r.value.items[0].count != 0x11U) return 7;\n"
     "    if (r.value.items[1].has_count) return 8;\n"
@@ -384,7 +384,7 @@ constexpr std::string_view kCHarness =
     "    fclose(f);\n"
     "    A_decode_result_t r = A_decode(buf, n);\n"
     "    if (r.status != QUARRY_C_STATUS_OK) return 4;\n"
-    "    if (!r.value.has_items) return 5;\n"
+    "    if (!(r.value.items_count != 0U)) return 5;\n"
     "    if (r.value.items_count != 3) return 6;\n"
     "    if (!r.value.items[0].has_count || r.value.items[0].count != 1U) return 7;\n"
     "    if (r.value.items[1].has_count) return 8;\n"
@@ -507,7 +507,7 @@ constexpr std::string_view kCppHarness =
     "              static_cast<std::streamsize>(encoded->size()));\n"
     "    return 0;\n"
     "  }\n"
-    "  if (std::strcmp(argv[1], \"decode_items_expect_absent\") == 0) {\n"
+    "  if ((std::strcmp(argv[1], \"decode_items_expect_absent\") == 0 || std::strcmp(argv[1], \"decode_items_expect_empty\") == 0)) {\n"
     "    auto bytes = read_bytes(argv[2]);\n"
     "    auto decoded = decode_A(bytes);\n"
     "    if (!decoded.has_value()) return 5;\n"
@@ -576,11 +576,9 @@ TEST(CCppNestedRecordInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     const std::filesystem::path c_harness_binary = root / "c_harness";
     const std::filesystem::path cpp_harness_binary = root / "cpp_harness";
 
-    const std::filesystem::path generated_c_source = generated_c / "generated/schema.generated.c";
     const std::filesystem::path c_harness_object = root / "c_harness.o";
-    const std::filesystem::path generated_c_object = root / "schema.generated.o";
 
-    // Compile each C translation unit separately (with -c) and link them in a
+    // Compile only the application TU (with -c) and link the shared runtime in a
     // distinct step -- see the identical rationale in
     // c_cpp_codec_interop_test.cpp for why -std=c99/-x c must not appear on
     // the same invocation that also performs an implicit link.
@@ -592,17 +590,9 @@ TEST(CCppNestedRecordInteropTest, ByteForByteCompatibleAndCrossDecodable) {
         shell_quote(c_harness_source.string()) + " -o " + shell_quote(c_harness_object.string());
     ASSERT_EQ(run_and_get_exit_code(compile_c_harness_command), 0) << compile_c_harness_command;
 
-    const std::string compile_generated_c_command =
-        shell_quote(QUARRY_TEST_CXX_COMPILER) +
-        " -x c -std=c99 -Wall -Wextra -Wpedantic -Werror -I" + shell_quote(generated_c.string()) +
-        " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
-        shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " -c " +
-        shell_quote(generated_c_source.string()) + " -o " + shell_quote(generated_c_object.string());
-    ASSERT_EQ(run_and_get_exit_code(compile_generated_c_command), 0) << compile_generated_c_command;
-
     const std::string link_c_command = shell_quote(QUARRY_TEST_CXX_COMPILER) + " " +
                                        shell_quote(c_harness_object.string()) + " " +
-                                       shell_quote(generated_c_object.string()) + " -o " +
+                                       shell_quote(QUARRY_TEST_RUNTIME_C_LIBRARY) + " -o " +
                                        shell_quote(c_harness_binary.string());
     ASSERT_EQ(run_and_get_exit_code(link_c_command), 0) << link_c_command;
 

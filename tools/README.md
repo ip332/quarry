@@ -79,8 +79,11 @@ configurable from the command line.
 **`--language c` supports scalar, enum, bounded string/bytes, bounded arrays,
 nested records, and compiler-resolved cross-namespace enum/record references
 (including arrays).**
-It emits one
-`.h`/`.c` pair per namespace that owns records or enums: generated C enum
+It emits a header per namespace owning records or enums, containing data types,
+constant descriptors, and inline type-specific codec wrappers. Applications
+include that header and link `Quarry::runtime_c`; no schema-specific `.c` file
+needs compilation. An include-only `.c` compatibility file remains in the
+output list for existing build scripts. The headers provide: generated C enum
 declarations, real C structs for records whose fields are `bool`,
 fixed-width signed/unsigned integers, `f32`/`f64`, enum references
 declared locally or in an imported namespace (with only non-negative declared
@@ -91,8 +94,7 @@ terminator, since arbitrary binary data has no such convenience), bounded
 arrays of those scalar/enum/string/bytes/record element
 kinds (fixed-capacity array of the element's own C type, sized from
 `max_elements`, plus an explicit element count -- record elements compose
-that element record's own generated encode/decode functions directly,
-with no new runtime code needed), or a record reference to another record
+that element record's descriptor through the shared codec), or a record reference to another record
 declared locally or in an imported namespace (embedded by value, no pointer or
 heap allocation), and a real BRF encode/decode codec API (`_init`,
 `_encoded_size`, `_encode`, `_decode`) for every record, backed by the
@@ -109,8 +111,55 @@ supported fields -- fails generation with a diagnostic identifying the record
 and field, rather than silently emitting a struct that drops that field.
 Generated C code that contains records checks a C
 generated-code API compatibility epoch
-(`QUARRY_C_GENERATED_CODE_API_VERSION`, currently epoch `2`), independent
+(`QUARRY_C_GENERATED_CODE_API_VERSION`, currently epoch `5`), independent
 from the C++ epoch described below.
+
+**Generated C header example.** The [C example schema](../examples/c/basic_encode_decode/schema.brd)
+generates [`demo/c.generated.h`](../examples/c/basic_encode_decode/generated-header/demo/c.generated.h).
+That checked-in snapshot is the complete, unmodified compiler output, including
+BRF layout metadata, host member descriptors, and the inline wrappers. Generate
+it locally with:
+
+```sh
+quarry-schema-compiler --language c --output-directory generated \
+  examples/c/basic_encode_decode/schema.brd
+```
+
+The generated data type is:
+
+```c
+typedef struct {
+    bool has_count;
+    uint32_t count;
+    char label[17];
+    uint32_t label_length;
+    uint8_t blob[4];
+    uint32_t blob_length;
+} demo_c_Sample_t;
+```
+
+String/bytes fields and arrays use their length/count as presence: zero means
+absent, so they have no `has_` member. Scalars and nested records retain flags.
+Empty elements inside a nonempty array are preserved.
+
+The header also defines `demo_c_Sample_init()`, `demo_c_Sample_encoded_size()`,
+`demo_c_Sample_encode()`, and `demo_c_Sample_decode()`. For example:
+
+```c
+demo_c_Sample_t sample;
+demo_c_Sample_init(&sample);
+sample.has_count = true;
+sample.count = 42U;
+
+demo_c_Sample_encoded_size_result_t measured = demo_c_Sample_encoded_size(&sample);
+if (measured.status == QUARRY_C_STATUS_OK) {
+    /* measured.size is the required output buffer capacity. */
+}
+```
+
+Include `demo/c.generated.h` and link `Quarry::runtime_c`; the
+[complete application](../examples/c/basic_encode_decode/main.c) shows encoding
+and decoding with status checks.
 
 **`--language python` supports scalar, enum, bounded string/bytes, nested
 record, and supported array fields.** It emits one `.py` module per namespace
@@ -379,3 +428,28 @@ provides `debug`/`coverage` presets for native builds and
 reported, remove or abandon the contaminated build directory and reconfigure
 with the matching preset; do not reuse host-generated protobuf files inside a
 container.
+
+
+### Compact C presence storage
+
+Use `quarry-schema-compiler --language c --c-optimize-size --output-directory generated schema.brd`
+to pack scalar, enum, and nested-record presence flags into `uint8_t quarry_presence_bits[]`.
+The default layout retains separate `bool has_<field>` members. Strings, bytes, and arrays
+continue to derive presence from length/count in both layouts.
+
+For the compact layout, use generated helpers instead of assigning a presence member:
+
+```c
+demo_c_Sample_t sample;
+demo_c_Sample_init(&sample);
+sample.count = 42;
+demo_c_Sample_set_count_present(&sample, true);
+if (demo_c_Sample_has_count(&sample)) { /* count is present */ }
+```
+
+Pass `false` to the setter to clear a bit. Encode, decode, and sizing APIs stay the same.
+The bitmap uses one bit per scalar/enum/record field, rounded up to whole bytes; structure
+alignment can affect the final size. This is a portable byte bitmap rather than native C
+bitfield members, whose layout is implementation-defined. Wire bytes are unchanged.
+Generate all bindings exchanged as C structs with the same option; these native layouts
+are not interchangeable. Separately generated translation units must also agree.

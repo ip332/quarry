@@ -452,6 +452,9 @@ encode_brf_record_impl(const quarry::compiler::qbs::ValidatedQbsView& schema,
                                    : write_variable(type, *fields[i], variable_payloads[i], error);
             if (!ok)
                 return std::nullopt;
+            // A zero-length field is represented only by a clear presence bit.
+            if ((type.code == 13U || type.code == 14U) && variable_payloads[i].empty()) continue;
+            if (type.code == 16U && variable_payloads[i].size() == 1U && variable_payloads[i][0] == 0U) continue;
             variable_present[i] = true;
             continue;
         }

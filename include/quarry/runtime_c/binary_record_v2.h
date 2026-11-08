@@ -30,7 +30,7 @@ typedef struct {
     uint8_t bit_offset;
     uint32_t bit_width;
     uint32_t slot_size;
-    quarry_c_brf_v2_storage_t storage;
+    uint32_t storage; /* quarry_c_brf_v2_storage_t; stable with short enums. */
 } quarry_c_brf_v2_field_layout_t;
 
 typedef struct {

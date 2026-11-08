@@ -10,9 +10,9 @@
 // C-encoded bytes, (3) the C decoder accepts the C++-encoded bytes, (4)
 // both languages identically reject an out-of-range enum byte (both a
 // plain enum field and an array-of-enum element) as an unknown-enum-value
-// decode failure, with a byte offset, (5) empty-present/absent/maximum-
-// length/embedded-NUL string values, empty-present/absent/maximum-length/
-// non-UTF-8-binary bytes values, and empty-present/absent/maximum-length/
+// decode failure, with a byte offset, (5) empty-as-absent/absent/maximum-
+// length/embedded-NUL string values, empty-as-absent/absent/maximum-length/
+// non-UTF-8-binary bytes values, and empty-as-absent/absent/maximum-length/
 // partially-filled array values all round-trip identically and
 // byte-for-byte in both directions, (6) both languages reject a string,
 // bytes, or array value whose logical length/count exceeds its
@@ -166,13 +166,13 @@ constexpr std::string_view kCHarness =
     "  return 0;\n"
     "}\n"
     "/* Sets the label field on `sample` per `variant`: \"empty\" (present,\n"
-    " * zero-length), \"absent\" (has_label left false), \"max\" (exactly\n"
+    " * zero-length), \"absent\" (label_length left zero), \"max\" (exactly\n"
     " * max_bytes=16 bytes), \"embedded_nul\" (5 bytes including a literal\n"
     " * 0x00), or the default (\"hi\", 2 bytes, used by plain encode/decode).\n"
     " */\n"
     "static void set_label_variant(quarry_telemetry_Sample_t* sample, const char* variant) {\n"
     "  if (strcmp(variant, \"absent\") == 0) return;\n"
-    "  sample->has_label = true;\n"
+    "  \n"
     "  if (strcmp(variant, \"empty\") == 0) {\n"
     "    sample->label_length = 0;\n"
     "  } else if (strcmp(variant, \"max\") == 0) {\n"
@@ -187,10 +187,10 @@ constexpr std::string_view kCHarness =
     "  }\n"
     "}\n"
     "static int check_label_variant(const quarry_telemetry_Sample_t* v, const char* variant) {\n"
-    "  if (strcmp(variant, \"absent\") == 0) {\n"
-    "    return v->has_label ? 10 : 0;\n"
+    "  if ((strcmp(variant, \"absent\") == 0 || strcmp(variant, \"empty\") == 0)) {\n"
+    "    return (v->label_length != 0U) ? 10 : 0;\n"
     "  }\n"
-    "  if (!v->has_label) return 11;\n"
+    "  if (!(v->label_length != 0U)) return 11;\n"
     "  if (strcmp(variant, \"empty\") == 0) {\n"
     "    return v->label_length == 0 ? 0 : 12;\n"
     "  }\n"
@@ -205,13 +205,13 @@ constexpr std::string_view kCHarness =
     "  return (v->label_length == 2 && memcmp(v->label, \"hi\", 2) == 0) ? 0 : 16;\n"
     "}\n"
     "/* Sets the blob field on `sample` per `variant`: \"empty\" (present,\n"
-    " * zero-length), \"absent\" (has_blob left false), \"max\" (exactly\n"
+    " * zero-length), \"absent\" (blob_length left zero), \"max\" (exactly\n"
     " * max_bytes=16 bytes), \"binary\" (5 bytes including 0x00/0xFF/0x80 --\n"
     " * not valid UTF-8, proving bytes fields never validate it), or the\n"
     " * default (3 arbitrary bytes, used by plain encode/decode). */\n"
     "static void set_blob_variant(quarry_telemetry_Sample_t* sample, const char* variant) {\n"
     "  if (strcmp(variant, \"absent\") == 0) return;\n"
-    "  sample->has_blob = true;\n"
+    "  \n"
     "  if (strcmp(variant, \"empty\") == 0) {\n"
     "    sample->blob_length = 0;\n"
     "  } else if (strcmp(variant, \"max\") == 0) {\n"
@@ -228,10 +228,10 @@ constexpr std::string_view kCHarness =
     "  }\n"
     "}\n"
     "static int check_blob_variant(const quarry_telemetry_Sample_t* v, const char* variant) {\n"
-    "  if (strcmp(variant, \"absent\") == 0) {\n"
-    "    return v->has_blob ? 20 : 0;\n"
+    "  if ((strcmp(variant, \"absent\") == 0 || strcmp(variant, \"empty\") == 0)) {\n"
+    "    return (v->blob_length != 0U) ? 20 : 0;\n"
     "  }\n"
-    "  if (!v->has_blob) return 21;\n"
+    "  if (!(v->blob_length != 0U)) return 21;\n"
     "  if (strcmp(variant, \"empty\") == 0) {\n"
     "    return v->blob_length == 0 ? 0 : 22;\n"
     "  }\n"
@@ -250,12 +250,12 @@ constexpr std::string_view kCHarness =
     "  }\n"
     "}\n"
     "/* Sets the readings array field on `sample` per `variant`: \"empty\"\n"
-    " * (present, zero elements), \"absent\" (has_readings left false), \"max\"\n"
+    " * (present, zero elements), \"absent\" (readings_count left zero), \"max\"\n"
     " * (exactly max_elements=4 elements), or the default (2 of 4 elements,\n"
     " * a partially filled array, used by plain encode/decode). */\n"
     "static void set_readings_variant(quarry_telemetry_Sample_t* sample, const char* variant) {\n"
     "  if (strcmp(variant, \"absent\") == 0) return;\n"
-    "  sample->has_readings = true;\n"
+    "  \n"
     "  if (strcmp(variant, \"empty\") == 0) {\n"
     "    sample->readings_count = 0;\n"
     "  } else if (strcmp(variant, \"max\") == 0) {\n"
@@ -268,10 +268,10 @@ constexpr std::string_view kCHarness =
     "  }\n"
     "}\n"
     "static int check_readings_variant(const quarry_telemetry_Sample_t* v, const char* variant) {\n"
-    "  if (strcmp(variant, \"absent\") == 0) {\n"
-    "    return v->has_readings ? 30 : 0;\n"
+    "  if ((strcmp(variant, \"absent\") == 0 || strcmp(variant, \"empty\") == 0)) {\n"
+    "    return (v->readings_count != 0U) ? 30 : 0;\n"
     "  }\n"
-    "  if (!v->has_readings) return 31;\n"
+    "  if (!(v->readings_count != 0U)) return 31;\n"
     "  if (strcmp(variant, \"empty\") == 0) {\n"
     "    return v->readings_count == 0 ? 0 : 32;\n"
     "  }\n"
@@ -283,8 +283,45 @@ constexpr std::string_view kCHarness =
     "  return (v->readings_count == 2 && v->readings[0] == 1.5f && v->readings[1] == -2.5f) ? 0\n"
     "                                                                                       : 35;\n"
     "}\n"
+    R"c(
+static int check_size_api(void) {
+    quarry_telemetry_Sample_t sample;
+    quarry_telemetry_Sample_init(&sample);
+    quarry_telemetry_Sample_encoded_size_result_t measured =
+        quarry_telemetry_Sample_encoded_size(&sample);
+    if (measured.status != QUARRY_C_STATUS_OK || measured.size < 16U) return 1;
+    uint8_t output[256];
+    quarry_telemetry_Sample_encode_result_t encoded =
+        quarry_telemetry_Sample_encode(&sample, output, sizeof(output));
+    if (encoded.status != QUARRY_C_STATUS_OK || measured.size != encoded.bytes_written) return 2;
+    measured = quarry_telemetry_Sample_encoded_size(NULL);
+    if (measured.status != QUARRY_C_STATUS_INVALID_ARGUMENT || measured.size != 0U) return 3;
+
+    sample.label_length = 17U;
+    measured = quarry_telemetry_Sample_encoded_size(&sample);
+    if (measured.status != QUARRY_C_STATUS_BOUNDS_EXCEEDED || measured.size != 0U) return 4;
+    sample.label_length = 1U;
+    sample.label[0] = (char)0xFF;
+    measured = quarry_telemetry_Sample_encoded_size(&sample);
+    if (measured.status != QUARRY_C_STATUS_INVALID_UTF8 || measured.size != 0U) return 5;
+    sample.label_length = 0U;
+    sample.has_status = true;
+    sample.status = (quarry_telemetry_Status_t)99;
+    measured = quarry_telemetry_Sample_encoded_size(&sample);
+    if (measured.status != QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE || measured.size != 0U) return 6;
+    sample.has_status = false;
+
+    sample.readings_count = 5U;
+    measured = quarry_telemetry_Sample_encoded_size(&sample);
+    if (measured.status != QUARRY_C_STATUS_BOUNDS_EXCEEDED || measured.size != 0U) return 7;
+    sample.readings_count = 0U;
+    measured = quarry_telemetry_Sample_encoded_size(&sample);
+    return measured.status == QUARRY_C_STATUS_OK ? 0 : 8;
+}
+)c"
     "int main(int argc, char** argv) {\n"
     "  if (argc < 3) return 20;\n"
+    "  if (strcmp(argv[1], \"check_size\") == 0) return check_size_api();\n"
     "  if (strcmp(argv[1], \"encode\") == 0) {\n"
     "    quarry_telemetry_Sample_t sample;\n"
     "    quarry_telemetry_Sample_init(&sample);\n"
@@ -360,7 +397,7 @@ constexpr std::string_view kCHarness =
     "    quarry_telemetry_Sample_t sample;\n"
     "    quarry_telemetry_Sample_init(&sample);\n"
     "    set_non_label_fields(&sample);\n"
-    "    sample.has_label = true;\n"
+    "    \n"
     "    sample.label_length = 20; /* > max_bytes=16; content is never read */\n"
     "    uint8_t buf[128];\n"
     "    quarry_telemetry_Sample_encode_result_t r =\n"
@@ -399,7 +436,7 @@ constexpr std::string_view kCHarness =
     "    quarry_telemetry_Sample_t sample;\n"
     "    quarry_telemetry_Sample_init(&sample);\n"
     "    set_non_label_fields(&sample);\n"
-    "    sample.has_blob = true;\n"
+    "    \n"
     "    sample.blob_length = 20; /* > max_bytes=16; content is never read */\n"
     "    uint8_t buf[128];\n"
     "    quarry_telemetry_Sample_encode_result_t r =\n"
@@ -439,7 +476,7 @@ constexpr std::string_view kCHarness =
     "    quarry_telemetry_Sample_t sample;\n"
     "    quarry_telemetry_Sample_init(&sample);\n"
     "    set_non_label_fields(&sample);\n"
-    "    sample.has_readings = true;\n"
+    "    \n"
     "    sample.readings_count = 5; /* > max_elements=4; content is never read */\n"
     "    uint8_t buf[128];\n"
     "    quarry_telemetry_Sample_encode_result_t r =\n"
@@ -493,7 +530,7 @@ constexpr std::string_view kCppHarness =
     "}\n"
     "static int check_label_variant(const quarry::telemetry::Sample& v,\n"
     "                               const std::string& variant) {\n"
-    "  if (variant == \"absent\") return v.has_label() ? 10 : 0;\n"
+    "  if ((variant == \"absent\" || variant == \"empty\")) return v.has_label() ? 10 : 0;\n"
     "  if (!v.has_label()) return 11;\n"
     "  const std::string& label = *v.label();\n"
     "  if (variant == \"empty\") return label.empty() ? 0 : 12;\n"
@@ -520,7 +557,7 @@ constexpr std::string_view kCppHarness =
     "  return builder.set_blob(content);\n"
     "}\n"
     "static int check_blob_variant(const quarry::telemetry::Sample& v, const std::string& variant) {\n"
-    "  if (variant == \"absent\") return v.has_blob() ? 20 : 0;\n"
+    "  if ((variant == \"absent\" || variant == \"empty\")) return v.has_blob() ? 20 : 0;\n"
     "  if (!v.has_blob()) return 21;\n"
     "  const std::vector<std::byte>& blob = *v.blob();\n"
     "  if (variant == \"empty\") return blob.empty() ? 0 : 22;\n"
@@ -549,7 +586,7 @@ constexpr std::string_view kCppHarness =
     "}\n"
     "static int check_readings_variant(const quarry::telemetry::Sample& v,\n"
     "                                  const std::string& variant) {\n"
-    "  if (variant == \"absent\") return v.has_readings() ? 30 : 0;\n"
+    "  if ((variant == \"absent\" || variant == \"empty\")) return v.has_readings() ? 30 : 0;\n"
     "  if (!v.has_readings()) return 31;\n"
     "  const std::vector<float>& readings = *v.readings();\n"
     "  if (variant == \"empty\") return readings.empty() ? 0 : 32;\n"
@@ -740,12 +777,10 @@ TEST(CCppCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     const std::filesystem::path c_harness_binary = root / "c_harness";
     const std::filesystem::path cpp_harness_binary = root / "cpp_harness";
 
-    const std::filesystem::path generated_c_source =
-        generated_c / "quarry" / "telemetry.generated.c";
     const std::filesystem::path c_harness_object = root / "c_harness.o";
-    const std::filesystem::path generated_c_object = root / "telemetry.generated.o";
 
-    // Compile each C translation unit separately (with -c) and link them in
+    // Compile only the application TU, using short enums to test host/wire
+    // independence, and link the shared runtime in
     // a distinct step with no C-specific flags. -std=c99/-x c are
     // compile-only flags with no meaning at link time; some C++ driver
     // front ends (observed with GCC's `c++`/g++ under Docker/CI, not
@@ -754,24 +789,19 @@ TEST(CCppCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     // -x c is present. Splitting compile and link avoids relying on that
     // driver behavior at all.
     const std::string compile_c_harness_command =
-        shell_quote(QUARRY_TEST_CXX_COMPILER) + " -x c -std=c99 -Wall -Wextra -Wpedantic -Werror -I" +
+        shell_quote(QUARRY_TEST_CXX_COMPILER) + " -x c -std=c99 -fshort-enums -Wall -Wextra -Wpedantic -Werror -I" +
         shell_quote(generated_c.string()) + " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) +
         " -I" + shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " -c " +
         shell_quote(c_harness_source.string()) + " -o " + shell_quote(c_harness_object.string());
     ASSERT_EQ(run_and_get_exit_code(compile_c_harness_command), 0) << compile_c_harness_command;
 
-    const std::string compile_generated_c_command =
-        shell_quote(QUARRY_TEST_CXX_COMPILER) + " -x c -std=c99 -Wall -Wextra -Wpedantic -Werror -I" +
-        shell_quote(generated_c.string()) + " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) +
-        " -I" + shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " -c " +
-        shell_quote(generated_c_source.string()) + " -o " + shell_quote(generated_c_object.string());
-    ASSERT_EQ(run_and_get_exit_code(compile_generated_c_command), 0) << compile_generated_c_command;
-
     const std::string link_c_command = shell_quote(QUARRY_TEST_CXX_COMPILER) + " " +
                                        shell_quote(c_harness_object.string()) + " " +
-                                       shell_quote(generated_c_object.string()) + " -o " +
+                                       shell_quote(QUARRY_TEST_RUNTIME_C_LIBRARY) + " -o " +
                                        shell_quote(c_harness_binary.string());
     ASSERT_EQ(run_and_get_exit_code(link_c_command), 0) << link_c_command;
+    ASSERT_EQ(run_and_get_exit_code(shell_quote(c_harness_binary.string()) + " check_size unused"), 0);
+
 
     const std::string compile_cpp_command =
         shell_quote(QUARRY_TEST_CXX_COMPILER) + " -std=c++20 -Wall -Wpedantic -I" +
@@ -821,7 +851,7 @@ TEST(CCppCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
              0)
         << "C did not report QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE for an out-of-range enum byte";
 
-    // String field coverage: empty-present, absent, maximum-length
+    // String field coverage: empty-as-absent, absent, maximum-length
     // (max_bytes=16 exactly), and an embedded-NUL value. For each variant,
     // both languages encode independently and are compared byte-for-byte
     // (an independent expected-byte check, not just cross-decoding), and
@@ -872,7 +902,7 @@ TEST(CCppCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
              0)
         << "C++ did not reject a string field logical length exceeding max_bytes";
 
-    // Bytes field coverage: empty-present, absent, maximum-length
+    // Bytes field coverage: empty-as-absent, absent, maximum-length
     // (max_bytes=16 exactly), and arbitrary binary content that is not
     // valid UTF-8 (proving bytes fields never validate it, unlike string).
     // Same independent-byte-comparison-plus-cross-decode structure as the
@@ -921,7 +951,7 @@ TEST(CCppCodecInteropTest, ByteForByteCompatibleAndCrossDecodable) {
              0)
         << "C++ did not reject a bytes field logical length exceeding max_bytes";
 
-    // Array field coverage: empty-present, absent, maximum-length (exactly
+    // Array field coverage: empty-as-absent, absent, maximum-length (exactly
     // max_elements=4), and a partially filled default (2 of 4 elements).
     // Same independent-byte-comparison-plus-cross-decode structure as the
     // string/bytes coverage above.

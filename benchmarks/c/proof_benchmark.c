@@ -55,8 +55,8 @@ static int parse_child(const char* text, benchmark_workload_shared_Child_t* chil
     strcpy(copy, text);
     benchmark_workload_shared_Child_init(child);
     value = strtok_r(copy, ",", &save); if (value == NULL) return 0; child->has_id = true; child->id = number(value);
-    value = strtok_r(NULL, ",", &save); if (value == NULL || strlen(value) > 64U) return 0; child->has_label = true; child->label_length = (uint32_t)strlen(value); memcpy(child->label, value, child->label_length);
-    value = strtok_r(NULL, ",", &save); if (value == NULL || !parse_hex(value, child->payload, &child->payload_length, 128U)) return 0; child->has_payload = true;
+    value = strtok_r(NULL, ",", &save); if (value == NULL || strlen(value) > 64U) return 0;  child->label_length = (uint32_t)strlen(value); memcpy(child->label, value, child->label_length);
+    value = strtok_r(NULL, ",", &save); if (value == NULL || !parse_hex(value, child->payload, &child->payload_length, 128U)) return 0;
     return 1;
 }
 static int populate(const Row* row, benchmark_workload_Workload_t* record) {
@@ -67,11 +67,11 @@ static int populate(const Row* row, benchmark_workload_Workload_t* record) {
     if (present(row->fields[3])) { record->has_ratio = true; record->ratio = (float)strtod(row->fields[3], NULL); }
     if (present(row->fields[4])) { record->has_enabled = true; record->enabled = strcmp(row->fields[4], "1") == 0; }
     if (present(row->fields[5])) { record->has_status = true; record->status = (benchmark_workload_Status_t)number(row->fields[5]); }
-    if (present(row->fields[6])) { if (strlen(row->fields[6]) > 256U) return 0; record->has_name = true; record->name_length = (uint32_t)strlen(row->fields[6]); memcpy(record->name, row->fields[6], record->name_length); }
-    if (present(row->fields[7])) { record->has_payload = true; if (!parse_hex(row->fields[7], record->payload, &record->payload_length, 1024U)) return 0; }
-    if (present(row->fields[8])) { char copy[MAX_FIELD]; char* save = NULL; char* value; strcpy(copy, row->fields[8]); record->has_values = true; value = strtok_r(copy, ",", &save); while (value != NULL && record->values_count < 64U) { record->values[record->values_count++] = number(value); value = strtok_r(NULL, ",", &save); } }
+    if (present(row->fields[6])) { if (strlen(row->fields[6]) > 256U) return 0;  record->name_length = (uint32_t)strlen(row->fields[6]); memcpy(record->name, row->fields[6], record->name_length); }
+    if (present(row->fields[7])) {  if (!parse_hex(row->fields[7], record->payload, &record->payload_length, 1024U)) return 0; }
+    if (present(row->fields[8])) { char copy[MAX_FIELD]; char* save = NULL; char* value; strcpy(copy, row->fields[8]);  value = strtok_r(copy, ",", &save); while (value != NULL && record->values_count < 64U) { record->values[record->values_count++] = number(value); value = strtok_r(NULL, ",", &save); } }
     if (present(row->fields[9])) { record->has_child = true; if (!parse_child(row->fields[9], &record->child)) return 0; }
-    if (present(row->fields[10])) { char copy[MAX_FIELD]; char* save = NULL; char* value; strcpy(copy, row->fields[10]); record->has_children = true; value = strtok_r(copy, ";", &save); while (value != NULL && record->children_count < 8U) { if (!parse_child(value, &record->children[record->children_count])) return 0; ++record->children_count; value = strtok_r(NULL, ";", &save); } }
+    if (present(row->fields[10])) { char copy[MAX_FIELD]; char* save = NULL; char* value; strcpy(copy, row->fields[10]);  value = strtok_r(copy, ";", &save); while (value != NULL && record->children_count < 8U) { if (!parse_child(value, &record->children[record->children_count])) return 0; ++record->children_count; value = strtok_r(NULL, ";", &save); } }
     return 1;
 }
 static int encode_rows(const benchmark_workload_Workload_t* records, uint32_t count, uint8_t encoded[MAX_ROWS][MAX_ENCODED], size_t sizes[MAX_ROWS], uint64_t* checksum) {

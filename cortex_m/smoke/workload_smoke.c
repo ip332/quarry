@@ -30,14 +30,14 @@ static void populate_child(benchmark_workload_shared_Child_t *child, uint32_t id
     child->has_id = true;
     child->id = id;
 
-    child->has_label = true;
+
     child->label_length = 0U;
     while (label[child->label_length] != '\0') {
         child->label[child->label_length] = label[child->label_length];
         ++child->label_length;
     }
 
-    child->has_payload = true;
+
     child->payload_length = 3U;
     child->payload[0] = 0xDEU;
     child->payload[1] = 0xADU;
@@ -65,7 +65,7 @@ static void populate_workload(benchmark_workload_Workload_t *record) {
     record->has_status = true;
     record->status = BENCHMARK_WORKLOAD_STATUS_ACTIVE;
 
-    record->has_name = true;
+
     record->name_length = 0U;
     {
         static const char name[] = "cortex-m4-smoke";
@@ -75,14 +75,14 @@ static void populate_workload(benchmark_workload_Workload_t *record) {
         }
     }
 
-    record->has_payload = true;
+
     record->payload_length = 4U;
     record->payload[0] = 0x01U;
     record->payload[1] = 0x02U;
     record->payload[2] = 0x03U;
     record->payload[3] = 0x04U;
 
-    record->has_values = true;
+
     record->values_count = 3U;
     record->values[0] = 10U;
     record->values[1] = 20U;
@@ -91,7 +91,7 @@ static void populate_workload(benchmark_workload_Workload_t *record) {
     record->has_child = true;
     populate_child(&record->child, 1U, "primary");
 
-    record->has_children = true;
+
     record->children_count = 1U;
     populate_child(&record->children[0], 2U, "secondary");
 }

@@ -137,6 +137,6 @@ TEST(QtfExporterTest, ReflectiveNestedAndRecordArrayGolden) {
               "{\n  timestamp: 18446744073709551615\n  name: \"sensor\"\n  child: {\n    value: "
               "7\n    label: \"child\"\n  }\n  items: [\n  {\n    id: 8\n    detail: {\n      "
               "value: 7\n      label: \"child\"\n    }\n  },\n  {\n    id: 9\n    detail: {\n      "
-              "value: 7\n      label: \"child\"\n    }\n  }\n  ]\n  empty: \"\"\n}\n");
+              "value: 7\n      label: \"child\"\n    }\n  }\n  ]\n}\n");
 }
 } // namespace

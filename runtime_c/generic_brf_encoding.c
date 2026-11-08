@@ -475,6 +475,11 @@ nested_plan(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* root_sch
         if (qf->type_index >= q->type_count)
             return QUARRY_GENERIC_MALFORMED_QBS;
         const quarry_qbs_type_view_t* type = &q->types[qf->type_index];
+        if ((type->code == 13U && value.kind == QUARRY_BRF_ENCODE_STRING && value.string_value.size == 0U) ||
+            (type->code == 14U && value.kind == QUARRY_BRF_ENCODE_BYTES && value.bytes_value.size == 0U)) {
+            pf->present = false;
+            continue;
+        }
         if (type->code == 15U) {
             if (value.kind != QUARRY_BRF_ENCODE_RECORD || value.aggregate == NULL ||
                 type->reference >= q->record_count)
@@ -503,6 +508,8 @@ nested_plan(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* root_sch
             continue;
         }
         if (type->code == 16U) {
+            if (value.kind != QUARRY_BRF_ENCODE_ARRAY)
+                return QUARRY_GENERIC_TYPE_MISMATCH;
             if (type->reference >= q->type_count)
                 return QUARRY_GENERIC_TYPE_MISMATCH;
             const quarry_qbs_type_view_t* element = &q->types[type->reference];
@@ -514,6 +521,10 @@ nested_plan(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* root_sch
                 if (array->count > type->max_elements || array->count > UINT32_MAX)
                     return array->count > type->max_elements ? QUARRY_GENERIC_VALUE_OUT_OF_RANGE
                                                              : QUARRY_GENERIC_RESOURCE_LIMIT;
+                if (array->count == 0U) {
+                    pf->present = false;
+                    continue;
+                }
                 size_t count_size;
                 if (!varuint_size(array->count, &count_size))
                     return QUARRY_GENERIC_RESOURCE_LIMIT;
@@ -535,8 +546,12 @@ nested_plan(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* root_sch
             }
             const quarry_brf_array_provider_t* array =
                 (const quarry_brf_array_provider_t*)value.aggregate;
-            if (array == NULL || array->get_element == NULL)
+            if (array == NULL || (array->count != 0U && array->get_element == NULL))
                 return QUARRY_GENERIC_TYPE_MISMATCH;
+            if (array->count == 0U) {
+                pf->present = false;
+                continue;
+            }
             if (element->code == 15U || element->code == 16U)
                 return QUARRY_GENERIC_UNSUPPORTED_TYPE;
             if (array->count > type->max_elements ||
@@ -834,14 +849,27 @@ quarry_brf_encode(const quarry_qbs_view_t* q, const quarry_qbs_record_view_t* r,
         if (f->type_index >= q->type_count)
             return QUARRY_GENERIC_MALFORMED_QBS;
         t = &q->types[f->type_index];
+        if ((t->code == 13U && v.kind == QUARRY_BRF_ENCODE_STRING && v.string_value.size == 0U) ||
+            (t->code == 14U && v.kind == QUARRY_BRF_ENCODE_BYTES && v.bytes_value.size == 0U)) {
+            w->fields[i].present = false;
+            continue;
+        }
         if (t->code == 15U)
             return QUARRY_GENERIC_UNSUPPORTED_TYPE;
         if (t->code == 16U) {
+            if (v.kind != QUARRY_BRF_ENCODE_ARRAY)
+                return QUARRY_GENERIC_TYPE_MISMATCH;
             const quarry_brf_array_provider_t* a = (const quarry_brf_array_provider_t*)v.aggregate;
             size_t count_size;
-            if (a == NULL || a->get_element == NULL ||
+            if (a == NULL || (a->count != 0U && a->get_element == NULL) ||
                 (a->count != 0U && w->array_elements == NULL))
                 return QUARRY_GENERIC_TYPE_MISMATCH;
+            if (t->reference >= q->type_count)
+                return QUARRY_GENERIC_MALFORMED_QBS;
+            if (a->count == 0U) {
+                w->fields[i].present = false;
+                continue;
+            }
             if (a->count > t->max_elements || !varuint_size(a->count, &count_size))
                 return QUARRY_GENERIC_VALUE_OUT_OF_RANGE;
             if (w->array_element_count > w->array_element_capacity ||

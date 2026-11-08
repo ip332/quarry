@@ -110,6 +110,8 @@ static quarry_generic_status_t encode_fixture_field(const quarry_brf_value_provi
         out->kind = QUARRY_BRF_ENCODE_ABSENT;
         break;
     }
+    if (provider->context != NULL && index == 6U) out->string_value = (quarry_string_view_t){NULL, 0U};
+    if (provider->context != NULL && index == 7U) out->bytes_value = (quarry_bytes_view_t){NULL, 0U};
     return QUARRY_GENERIC_OK;
 }
 
@@ -626,6 +628,19 @@ int main(void) {
                 encoded_size);
         return 1;
     }
+    /* Typed empty leaf providers omit both fields, even with NULL zero-length spans. */
+    provider.context = &encoder_workspace;
+    if (quarry_brf_encode(&schema, parent, &provider, encoded, sizeof(encoded), &encoded_size,
+                          &encoder_workspace, NULL, NULL) != QUARRY_GENERIC_OK ||
+        quarry_brf_validate(&schema, parent, encoded, encoded_size, &encoded_view, NULL) != QUARRY_GENERIC_OK)
+        return 1;
+    quarry_brf_decoded_value_t empty_value;
+    if (quarry_brf_get_value(&encoded_view, 6U, &empty_value) != QUARRY_GENERIC_OK ||
+        empty_value.kind != QUARRY_BRF_VALUE_ABSENT ||
+        quarry_brf_get_value(&encoded_view, 7U, &empty_value) != QUARRY_GENERIC_OK ||
+        empty_value.kind != QUARRY_BRF_VALUE_ABSENT)
+        return 1;
+    provider.context = NULL;
     quarry_brf_record_view_t structural_record;
     if (quarry_brf_validate_with_workspace(&schema, parent, brf, brf_size, &structural_record,
                                            &workspace, &limits) != QUARRY_GENERIC_OK) {

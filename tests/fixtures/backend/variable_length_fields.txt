@@ -501,7 +501,7 @@ private:
 ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Example& value) {
   std::vector<::quarry::runtime::FieldBytes> fields;
   fields.reserve(12U);
-  if (value.has_name()) {
+  if (value.has_name() && !value.name()->empty()) {
     if (value.name()->size() > 16U) {
       return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
     }
@@ -514,7 +514,7 @@ private:
       .bytes = std::move(field_bytes),
     });
   }
-  if (value.has_payload()) {
+  if (value.has_payload() && !value.payload()->empty()) {
     if (value.payload()->size() > 4U) {
       return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}});
     }
@@ -525,7 +525,7 @@ private:
       .bytes = std::move(field_bytes),
     });
   }
-  if (value.has_counts()) {
+  if (value.has_counts() && !value.counts()->empty()) {
     if (value.counts()->size() > 4U) {
       return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 2U, .array_index = std::nullopt}});
     }
@@ -542,7 +542,7 @@ private:
       .bytes = std::move(field_bytes),
     });
   }
-  if (value.has_distances()) {
+  if (value.has_distances() && !value.distances()->empty()) {
     if (value.distances()->size() > 2U) {
       return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 3U, .array_index = std::nullopt}});
     }
@@ -559,7 +559,7 @@ private:
       .bytes = std::move(field_bytes),
     });
   }
-  if (value.has_modes()) {
+  if (value.has_modes() && !value.modes()->empty()) {
     if (value.modes()->size() > 2U) {
       return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 4U, .array_index = std::nullopt}});
     }
@@ -578,7 +578,7 @@ private:
       .bytes = std::move(field_bytes),
     });
   }
-  if (value.has_children()) {
+  if (value.has_children() && !value.children()->empty()) {
     if (value.children()->size() > 3U) {
       return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 5U, .array_index = std::nullopt}});
     }
@@ -602,7 +602,7 @@ private:
       .bytes = std::move(field_bytes),
     });
   }
-  if (value.has_flags()) {
+  if (value.has_flags() && !value.flags()->empty()) {
     if (value.flags()->size() > 3U) {
       return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 6U, .array_index = std::nullopt}});
     }
@@ -619,7 +619,7 @@ private:
       .bytes = std::move(field_bytes),
     });
   }
-  if (value.has_deltas()) {
+  if (value.has_deltas() && !value.deltas()->empty()) {
     if (value.deltas()->size() > 3U) {
       return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 7U, .array_index = std::nullopt}});
     }
@@ -636,7 +636,7 @@ private:
       .bytes = std::move(field_bytes),
     });
   }
-  if (value.has_ratios()) {
+  if (value.has_ratios() && !value.ratios()->empty()) {
     if (value.ratios()->size() > 2U) {
       return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 8U, .array_index = std::nullopt}});
     }
@@ -663,7 +663,7 @@ private:
       .bytes = std::move(field_bytes),
     });
   }
-  if (value.has_tags()) {
+  if (value.has_tags() && !value.tags()->empty()) {
     if (value.tags()->size() > 3U) {
       return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 10U, .array_index = std::nullopt}});
     }
@@ -684,7 +684,7 @@ private:
       .bytes = std::move(field_bytes),
     });
   }
-  if (value.has_chunks()) {
+  if (value.has_chunks() && !value.chunks()->empty()) {
     if (value.chunks()->size() > 3U) {
       return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 11U, .array_index = std::nullopt}});
     }

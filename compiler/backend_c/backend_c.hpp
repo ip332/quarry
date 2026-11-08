@@ -10,6 +10,7 @@
 namespace quarry::compiler::backend_c {
 
 struct CodegenOptions {
+    bool optimize_size = false;
     std::string output_directory = "generated";
     std::string root_file_stem = "schema";
     std::string header_extension = ".generated.h";
