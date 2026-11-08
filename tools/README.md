@@ -111,8 +111,53 @@ supported fields -- fails generation with a diagnostic identifying the record
 and field, rather than silently emitting a struct that drops that field.
 Generated C code that contains records checks a C
 generated-code API compatibility epoch
-(`QUARRY_C_GENERATED_CODE_API_VERSION`, currently epoch `2`), independent
+(`QUARRY_C_GENERATED_CODE_API_VERSION`, currently epoch `4`), independent
 from the C++ epoch described below.
+
+**Generated C header example.** The [C example schema](../examples/c/basic_encode_decode/schema.brd)
+generates [`demo/c.generated.h`](../examples/c/basic_encode_decode/generated-header/demo/c.generated.h).
+That checked-in snapshot is the complete, unmodified compiler output, including
+BRF layout metadata, host member descriptors, and the inline wrappers. Generate
+it locally with:
+
+```sh
+quarry-schema-compiler --language c --output-directory generated \
+  examples/c/basic_encode_decode/schema.brd
+```
+
+The generated data type is:
+
+```c
+typedef struct {
+    bool has_count;
+    uint32_t count;
+    bool has_label;
+    char label[17];
+    uint32_t label_length;
+    bool has_blob;
+    uint8_t blob[4];
+    uint32_t blob_length;
+} demo_c_Sample_t;
+```
+
+The header also defines `demo_c_Sample_init()`, `demo_c_Sample_encoded_size()`,
+`demo_c_Sample_encode()`, and `demo_c_Sample_decode()`. For example:
+
+```c
+demo_c_Sample_t sample;
+demo_c_Sample_init(&sample);
+sample.has_count = true;
+sample.count = 42U;
+
+demo_c_Sample_encoded_size_result_t measured = demo_c_Sample_encoded_size(&sample);
+if (measured.status == QUARRY_C_STATUS_OK) {
+    /* measured.size is the required output buffer capacity. */
+}
+```
+
+Include `demo/c.generated.h` and link `Quarry::runtime_c`; the
+[complete application](../examples/c/basic_encode_decode/main.c) shows encoding
+and decoding with status checks.
 
 **`--language python` supports scalar, enum, bounded string/bytes, nested
 record, and supported array fields.** It emits one `.py` module per namespace
