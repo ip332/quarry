@@ -116,21 +116,28 @@ add_custom_command(
     VERBATIM
 )
 
+# The generated headers delegate to this shared codec; compatibility .c files
+# no longer provide the implementation. Keep its archive separate for footprint reporting.
+add_library(quarry_cortex_m_codec STATIC "${CMAKE_CURRENT_SOURCE_DIR}/../runtime_c/typed_record.c")
+
 add_executable(quarry_cortex_m_smoke
     startup_cortex_m4.c
     smoke/workload_smoke.c
     "${QUARRY_GENERATED_SHARED_SOURCE}"
     "${QUARRY_GENERATED_WORKLOAD_SOURCE}"
 )
-target_include_directories(quarry_cortex_m_smoke PRIVATE
-    "${QUARRY_GENERATED_DIR}"
-    "${QUARRY_RUNTIME_C_INCLUDE_DIR}"
-    "${QUARRY_RUNTIME_C_VERSION_HEADER_DIR}"
-)
-target_compile_options(quarry_cortex_m_smoke PRIVATE
-    -Wall -Wextra -Wpedantic -Werror
-    -ffunction-sections -fdata-sections
-)
+foreach(target quarry_cortex_m_smoke quarry_cortex_m_codec)
+    target_include_directories(${target} PRIVATE
+        "${QUARRY_GENERATED_DIR}"
+        "${QUARRY_RUNTIME_C_INCLUDE_DIR}"
+        "${QUARRY_RUNTIME_C_VERSION_HEADER_DIR}"
+    )
+    target_compile_options(${target} PRIVATE
+        -Wall -Wextra -Wpedantic -Werror
+        -ffunction-sections -fdata-sections
+    )
+endforeach()
+target_link_libraries(quarry_cortex_m_smoke PRIVATE quarry_cortex_m_codec)
 target_link_options(quarry_cortex_m_smoke PRIVATE
     -nostartfiles
     -T "${CMAKE_CURRENT_SOURCE_DIR}/linker/stm32f446_illustrative.ld"

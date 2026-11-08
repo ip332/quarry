@@ -25,10 +25,9 @@ import sys
 CAVEATS = [
     ".bss is RAM (zero-initialized at startup); it is not flash payload. "
     "Flash consumption is .text + .rodata + .data.",
-    "quarry_runtime_c is header-only and its functions are 'static inline': "
-    "its code is compiled directly into whichever object file calls it "
-    "(generated code, in this case) and cannot be isolated as its own "
-    "object-level entry in the breakdown below.",
+    "The shared typed codec is reported separately when its archive is supplied. "
+    "Generated descriptors and inline wrappers are compiled into their callers; "
+    "include-only generated compatibility objects may therefore be empty.",
     "Stack and heap high-water-mark usage are not measured by this script.",
     "This is a single-schema (benchmark.workload), single build "
     "configuration snapshot. It is not a regression gate.",
