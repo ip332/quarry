@@ -141,6 +141,8 @@ int main(int argc, char** argv) {
         fprintf(stderr, "smoke=%d size=%zu\n", (int)smoke, output_size);
         return 1;
     }
+    if (output_size != 16U + root->fixed_region_size || (output[17U] & 4U) != 0U)
+        return 1; /* field 10's empty record array is absent */
     child_context_t child_values[4] = {{101U, "a", 0U}, {202U, "longer", 0U}, {303U, "xyz", 0U}, {404U, "four", 0U}};
     quarry_brf_record_provider_t child_providers[4];
     for (size_t i = 0U; i < 4U; ++i) child_providers[i] = (quarry_brf_record_provider_t){child_field, &child_values[i]};

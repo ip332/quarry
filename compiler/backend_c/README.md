@@ -56,7 +56,7 @@ UTF-8, enum values, bounds, and invalid arguments. Its `size` is zero on failure
 and is the encoded byte count only when `status == QUARRY_C_STATUS_OK`.
 The shared sizing and encoding paths use the same validation rules. Decode initializes its result value to zero and may retain
 partially decoded fields on failure; callers must check status. Wire bytes
-remain BRF v2. The generated C/runtime API epoch is now **4**; regenerate
+remain BRF v2. The generated C/runtime API epoch is now **5**; regenerate
 headers and link the matching runtime when upgrading.
 
 ## Supported data model
@@ -68,14 +68,16 @@ includes for their generated headers. Imported source units must be generated
 as separate explicit roots into the same output tree. Recursive by-value
 records and arrays of arrays are rejected.
 
-Each record struct stores fields in declaration order, with an adjacent
-`bool has_<field>` flag. String fields use `char[max_bytes + 1]` plus
+Each record struct stores fields in declaration order. Scalars, enums, and
+nested records have an adjacent `bool has_<field>` flag. Strings, bytes, and
+arrays have no presence flag: their length/count determines presence. String fields use `char[max_bytes + 1]` plus
 `uint32_t <field>_length`; bytes use `uint8_t[max_bytes]` plus length. Arrays
 use fixed-capacity element storage plus `uint32_t <field>_count`. String/bytes
 array elements have named structs containing `value` and `length`. Nested
 records are embedded by value. Empty records have a non-schema `reserved`
-member to keep them valid C99. Present-empty values remain distinct from
-absent fields. Decoded strings receive a trailing NUL, but explicit length
+member to keep them valid C99. Zero-length strings/bytes and zero-count arrays encode as absent. Empty
+string/bytes elements inside a nonempty array are retained. Legacy present-empty
+records remain decodable and normalize to absence when re-encoded. Decoded strings receive a trailing NUL, but explicit length
 remains authoritative for embedded NULs.
 
 Enums retain namespace-prefixed C typedefs and uppercase enumerators. Enum
@@ -120,3 +122,28 @@ failures, installed-package consumers, and byte-for-byte C/C++/Python
 interoperability for nested and variable-width values. The public C example
 builds with only its own application translation unit plus the generated
 header and installed runtime.
+
+
+### Compact C presence storage
+
+Use `quarry-schema-compiler --language c --c-optimize-size --output-directory generated schema.brd`
+to pack scalar, enum, and nested-record presence flags into `uint8_t quarry_presence_bits[]`.
+The default layout retains separate `bool has_<field>` members. Strings, bytes, and arrays
+continue to derive presence from length/count in both layouts.
+
+For the compact layout, use generated helpers instead of assigning a presence member:
+
+```c
+demo_c_Sample_t sample;
+demo_c_Sample_init(&sample);
+sample.count = 42;
+demo_c_Sample_set_count_present(&sample, true);
+if (demo_c_Sample_has_count(&sample)) { /* count is present */ }
+```
+
+Pass `false` to the setter to clear a bit. Encode, decode, and sizing APIs stay the same.
+The bitmap uses one bit per scalar/enum/record field, rounded up to whole bytes; structure
+alignment can affect the final size. This is a portable byte bitmap rather than native C
+bitfield members, whose layout is implementation-defined. Wire bytes are unchanged.
+Generate all bindings exchanged as C structs with the same option; these native layouts
+are not interchangeable. Separately generated translation units must also agree.

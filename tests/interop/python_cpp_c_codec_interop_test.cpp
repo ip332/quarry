@@ -196,17 +196,17 @@ constexpr std::string_view kCHarness =
     "  sample->has_f32 = true; sample->f32 = 1.5f;\n"
     "  sample->has_f64 = true; sample->f64 = 2.71828182845904;\n"
     "  sample->has_status = true; sample->status = ACME_TELEMETRY_STATUS_WARNING;\n"
-    "  sample->has_label = true;\n"
+    "  \n"
     "  memcpy(sample->label, \"caf\\xc3\\xa9\", 5); sample->label_length = 5;\n"
-    "  sample->has_blob = true;\n"
+    "  \n"
     "  {\n"
     "    uint8_t blob_content[] = {0x00U, 0xFFU, 0x80U};\n"
     "    memcpy(sample->blob, blob_content, 3);\n"
     "    sample->blob_length = 3;\n"
     "  }\n"
-    "  sample->has_readings = true; sample->readings_count = 2;\n"
+    "   sample->readings_count = 2;\n"
     "  sample->readings[0] = 1.5f; sample->readings[1] = -2.0f;\n"
-    "  sample->has_statuses = true; sample->statuses_count = 2;\n"
+    "   sample->statuses_count = 2;\n"
     "  sample->statuses[0] = ACME_TELEMETRY_STATUS_OK;\n"
     "  sample->statuses[1] = ACME_TELEMETRY_STATUS_ERROR;\n"
     "}\n"
@@ -224,16 +224,16 @@ constexpr std::string_view kCHarness =
     "  if (!v->has_f32 || v->f32 != 1.5f) return 10;\n"
     "  if (!v->has_f64 || v->f64 != 2.71828182845904) return 11;\n"
     "  if (!v->has_status || v->status != ACME_TELEMETRY_STATUS_WARNING) return 12;\n"
-    "  if (!v->has_label || v->label_length != 5 || memcmp(v->label, \"caf\\xc3\\xa9\", 5) != 0)\n"
+    "  if (!(v->label_length != 0U) || v->label_length != 5 || memcmp(v->label, \"caf\\xc3\\xa9\", 5) != 0)\n"
     "    return 13;\n"
     "  {\n"
     "    uint8_t expected_blob[] = {0x00U, 0xFFU, 0x80U};\n"
-    "    if (!v->has_blob || v->blob_length != 3 || memcmp(v->blob, expected_blob, 3) != 0)\n"
+    "    if (!(v->blob_length != 0U) || v->blob_length != 3 || memcmp(v->blob, expected_blob, 3) != 0)\n"
     "      return 14;\n"
     "  }\n"
-    "  if (!v->has_readings || v->readings_count != 2 || v->readings[0] != 1.5f ||\n"
+    "  if (!(v->readings_count != 0U) || v->readings_count != 2 || v->readings[0] != 1.5f ||\n"
     "      v->readings[1] != -2.0f) return 15;\n"
-    "  if (!v->has_statuses || v->statuses_count != 2 ||\n"
+    "  if (!(v->statuses_count != 0U) || v->statuses_count != 2 ||\n"
     "      v->statuses[0] != ACME_TELEMETRY_STATUS_OK ||\n"
     "      v->statuses[1] != ACME_TELEMETRY_STATUS_ERROR) return 16;\n"
     "  return 0;\n"
@@ -378,6 +378,26 @@ constexpr std::string_view kPythonHarness =
     "import sys\n"
     "from acme.telemetry.schema import Sample, Status\n"
     "\n"
+    "\n"
+    "# Empty fields normalize to absence; wrong types must still be rejected.\n"
+    "empty = Sample(label='', blob=b'', readings=[], statuses=[])\n"
+    "assert empty.encode() == Sample().encode()\n"
+    "assert empty.encoded_size() == Sample().encoded_size()\n"
+    "decoded_empty = Sample.decode(empty.encode())\n"
+    "assert decoded_empty.label is None and decoded_empty.blob is None\n"
+    "assert decoded_empty.readings is None and decoded_empty.statuses is None\n"
+    "nonempty = Sample(label=chr(0), blob=bytes([0]), readings=[0.0])\n"
+    "decoded_nonempty = Sample.decode(nonempty.encode())\n"
+    "assert decoded_nonempty.label == chr(0) and decoded_nonempty.blob == bytes([0])\n"
+    "assert decoded_nonempty.readings == [0.0]\n"
+    "from quarry.runtime.python.binary_record import EncodeError\n"
+    "for invalid in (Sample(label=[]), Sample(blob='')):\n"
+    "    try:\n"
+    "        invalid.encode()\n"
+    "    except EncodeError:\n"
+    "        pass\n"
+    "    else:\n"
+    "        raise AssertionError('empty field bypassed type validation')\n"
     "\n"
     "def make_sample():\n"
     "    return Sample(\n"
@@ -756,7 +776,7 @@ int main(int argc, char** argv) {
 
 static void make_sample(acme_telemetry_Sample_t* sample) {
   acme_telemetry_Sample_init(sample);
-  sample->has_labels = true;
+
   sample->labels_count = 3U;
   memcpy(sample->labels[0].value, "", 1U);
   sample->labels[0].length = 0U;
@@ -764,7 +784,7 @@ static void make_sample(acme_telemetry_Sample_t* sample) {
   sample->labels[1].length = 5U;
   memcpy(sample->labels[2].value, "12345678", 8U);
   sample->labels[2].length = 8U;
-  sample->has_blobs = true;
+
   sample->blobs_count = 2U;
   sample->blobs[0].length = 0U;
   sample->blobs[1].value[0] = 0x00U;
@@ -775,12 +795,12 @@ static void make_sample(acme_telemetry_Sample_t* sample) {
 }
 
 static int check_sample(const acme_telemetry_Sample_t* sample) {
-  return sample->has_labels && sample->labels_count == 3U &&
+  return (sample->labels_count != 0U) && sample->labels_count == 3U &&
          sample->labels[0].length == 0U && sample->labels[1].length == 5U &&
          memcmp(sample->labels[1].value, "caf\xC3\xA9", 5U) == 0 &&
          sample->labels[2].length == 8U &&
          memcmp(sample->labels[2].value, "12345678", 8U) == 0 &&
-         sample->has_blobs && sample->blobs_count == 2U &&
+         (sample->blobs_count != 0U) && sample->blobs_count == 2U &&
          sample->blobs[0].length == 0U && sample->blobs[1].length == 4U &&
          sample->blobs[1].value[0] == 0x00U && sample->blobs[1].value[1] == 0xFFU &&
          sample->blobs[1].value[2] == 0x80U && sample->blobs[1].value[3] == 0x7FU;
@@ -1015,7 +1035,7 @@ static void set_parent(Parent_t* parent) {
   parent->child.value = 7U;
   parent->has_count = true;
   parent->count = 42U;
-  parent->has_items = true;
+
   parent->items_count = 2;
   Child_init(&parent->items[0]);
   parent->items[0].has_value = true;
@@ -1027,7 +1047,7 @@ static void set_parent(Parent_t* parent) {
 
 static int check_parent(const Parent_t* parent) {
   return parent->has_child && parent->child.has_value && parent->child.value == 7U &&
-         parent->has_count && parent->count == 42U && parent->has_items &&
+         parent->has_count && parent->count == 42U && (parent->items_count != 0U) &&
          parent->items_count == 2 && parent->items[0].value == 1U &&
          parent->items[1].value == 3U;
 }
@@ -1346,27 +1366,27 @@ static void make_sample(acme_telemetry_Sample_t* value) {
   value->has_status = true; value->status = ACME_SHARED_STATUS_BUSY;
   value->has_child = true; acme_shared_Child_init(&value->child);
   value->child.has_value = true; value->child.value = 42U;
-  value->has_statuses = true; value->statuses_count = 2U;
+   value->statuses_count = 2U;
   value->statuses[0] = ACME_SHARED_STATUS_READY;
   value->statuses[1] = ACME_SHARED_STATUS_BUSY;
-  value->has_children = true; value->children_count = 2U;
+   value->children_count = 2U;
   acme_shared_Child_init(&value->children[0]);
   acme_shared_Child_init(&value->children[1]);
   value->children[0].has_value = true; value->children[0].value = 1U;
   value->children[1].has_value = true; value->children[1].value = 2U;
-  value->has_label = true; memcpy(value->label, "café", 5U); value->label_length = 5U;
-  value->has_blob = true; value->blob[0] = 0U; value->blob[1] = 0xFFU; value->blob_length = 2U;
+   memcpy(value->label, "café", 5U); value->label_length = 5U;
+   value->blob[0] = 0U; value->blob[1] = 0xFFU; value->blob_length = 2U;
 }
 
 static int check_sample(const acme_telemetry_Sample_t* value) {
   return value->has_status && value->status == ACME_SHARED_STATUS_BUSY &&
          value->has_child && value->child.has_value && value->child.value == 42U &&
-         value->has_statuses && value->statuses_count == 2U &&
+         (value->statuses_count != 0U) && value->statuses_count == 2U &&
          value->statuses[0] == ACME_SHARED_STATUS_READY &&
-         value->statuses[1] == ACME_SHARED_STATUS_BUSY && value->has_children &&
+         value->statuses[1] == ACME_SHARED_STATUS_BUSY && (value->children_count != 0U) &&
          value->children_count == 2U && value->children[0].value == 1U &&
-         value->children[1].value == 2U && value->has_label && value->label_length == 5U &&
-         memcmp(value->label, "café", 5U) == 0 && value->has_blob &&
+         value->children[1].value == 2U && (value->label_length != 0U) && value->label_length == 5U &&
+         memcmp(value->label, "café", 5U) == 0 && (value->blob_length != 0U) &&
          value->blob_length == 2U && value->blob[0] == 0U && value->blob[1] == 0xFFU ? 0 : 1;
 }
 

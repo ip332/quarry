@@ -42,8 +42,13 @@ typedef struct {
     void (*enum_store)(void*, uint64_t);
 } quarry_c_element_descriptor_t;
 
+/* Tagged presence offsets address a packed bit; ordinary offsets address bools. */
+#define QUARRY_C_PRESENCE_PACKED_FLAG ((size_t)1U << (sizeof(size_t) * 8U - 1U))
+#define QUARRY_C_PACKED_PRESENCE(byte_offset, bit) \
+    (QUARRY_C_PRESENCE_PACKED_FLAG | ((size_t)(byte_offset) * 8U + (bit)))
+
 typedef struct {
-    size_t presence_offset;
+    size_t presence_offset; /* Bool offset or QUARRY_C_PACKED_PRESENCE; ignored for variable fields. */
     size_t value_offset;
     size_t count_offset;
     uint32_t max_count; /* Zero for a non-array field. */

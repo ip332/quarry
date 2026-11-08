@@ -8,7 +8,7 @@
 
 #include <quarry/runtime_c/typed_record.h>
 
-#if QUARRY_C_GENERATED_CODE_API_VERSION != 4U
+#if QUARRY_C_GENERATED_CODE_API_VERSION != 5U
 #error "Generated Quarry C code is incompatible with the installed Quarry C runtime. Regenerate the code using a compatible quarry-schema-compiler release."
 #endif
 
@@ -19,10 +19,8 @@ extern "C" {
 typedef struct {
     bool has_count;
     uint32_t count;
-    bool has_label;
     char label[17];
     uint32_t label_length;
-    bool has_blob;
     uint8_t blob[4];
     uint32_t blob_length;
 } demo_c_Sample_t;
@@ -34,8 +32,8 @@ static const quarry_c_brf_v2_field_layout_t demo_c_Sample_brf_v2_fields[] = {
 static const quarry_c_brf_v2_record_layout_t demo_c_Sample_brf_v2_layout = { 1U, 1U, 21U, 3U, demo_c_Sample_brf_v2_fields };
 static const quarry_c_member_descriptor_t demo_c_Sample_members[] = {
     { offsetof(demo_c_Sample_t, has_count), offsetof(demo_c_Sample_t, count), 0U, 0U, { QUARRY_C_TYPED_U32, sizeof(((demo_c_Sample_t*)0)->count), 0U, 0U, 4U, NULL, 0U, false, NULL, 0U, NULL, NULL } },
-    { offsetof(demo_c_Sample_t, has_label), offsetof(demo_c_Sample_t, label), 0U, 0U, { QUARRY_C_TYPED_STRING, sizeof(((demo_c_Sample_t*)0)->label), offsetof(demo_c_Sample_t, label_length) - offsetof(demo_c_Sample_t, label), 16U, 0U, NULL, 0U, false, NULL, 0U, NULL, NULL } },
-    { offsetof(demo_c_Sample_t, has_blob), offsetof(demo_c_Sample_t, blob), 0U, 0U, { QUARRY_C_TYPED_BYTES, sizeof(((demo_c_Sample_t*)0)->blob), offsetof(demo_c_Sample_t, blob_length) - offsetof(demo_c_Sample_t, blob), 4U, 0U, NULL, 0U, false, NULL, 0U, NULL, NULL } },
+    { 0U, offsetof(demo_c_Sample_t, label), 0U, 0U, { QUARRY_C_TYPED_STRING, sizeof(((demo_c_Sample_t*)0)->label), offsetof(demo_c_Sample_t, label_length) - offsetof(demo_c_Sample_t, label), 16U, 0U, NULL, 0U, false, NULL, 0U, NULL, NULL } },
+    { 0U, offsetof(demo_c_Sample_t, blob), 0U, 0U, { QUARRY_C_TYPED_BYTES, sizeof(((demo_c_Sample_t*)0)->blob), offsetof(demo_c_Sample_t, blob_length) - offsetof(demo_c_Sample_t, blob), 4U, 0U, NULL, 0U, false, NULL, 0U, NULL, NULL } },
 };
 static const quarry_c_type_descriptor_t demo_c_Sample_type = { &demo_c_Sample_brf_v2_layout, sizeof(demo_c_Sample_t), demo_c_Sample_members };
 static inline void demo_c_Sample_init(demo_c_Sample_t* record) { memset(record, 0, sizeof(*record)); }

@@ -185,6 +185,21 @@ std::vector<std::uint8_t> generate(std::vector<std::uint8_t>& qbs) {
     GenericBrfEncodeError error = GenericBrfEncodeError::none;
     auto brf = quarry::runtime::encode_brf_record(*parsed, *parent, fields, &error);
     if (!brf) throw std::runtime_error("BRF encoding failed");
+    // Preserve the legacy present-empty array fixture for decoder compatibility.
+    // Current schema-aware encoders normalize this field to absence.
+    const auto legacy_empty = parsed->find_field(parent_index, 12U);
+    if (!legacy_empty) throw std::runtime_error("empty array field missing");
+    (*brf)[16U + legacy_empty->presence_bit_index / 8U] |=
+        static_cast<std::uint8_t>(1U << (legacy_empty->presence_bit_index % 8U));
+    const auto payload_offset = static_cast<std::uint32_t>(brf->size());
+    for (unsigned i = 0U; i < 4U; ++i) {
+        (*brf)[legacy_empty->byte_offset + i] =
+            static_cast<std::uint8_t>(payload_offset >> (8U * (3U - i)));
+        (*brf)[legacy_empty->byte_offset + 4U + i] = i == 3U ? 1U : 0U;
+    }
+    brf->push_back(0U);
+    for (unsigned i = 0U; i < 4U; ++i)
+        (*brf)[12U + i] = static_cast<std::uint8_t>(brf->size() >> (8U * (3U - i)));
     GenericBrfError read_error = GenericBrfError::none;
     auto view = quarry::runtime::validate_brf_record(*parsed, *parent, *brf, {}, &read_error);
     auto optional_field = parsed->find_field(parent_index, 11U);

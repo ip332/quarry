@@ -192,7 +192,7 @@ TEST(BinaryRecordV2RuntimeTest, EncodesApprovedExampleByteForByte) {
         42U);
 }
 
-TEST(BinaryRecordV2RuntimeTest, AbsenceDiffersFromPresentEmptyValues) {
+TEST(BinaryRecordV2RuntimeTest, EmptyVariableFieldsEncodeAsAbsent) {
     auto registry = example_layout();
     ASSERT_TRUE(registry.has_value());
     const BrfV2RecordLayout* layout = registry->find(1U);
@@ -212,20 +212,8 @@ TEST(BinaryRecordV2RuntimeTest, AbsenceDiffersFromPresentEmptyValues) {
     ASSERT_TRUE(present_empty.set_field(3U, Bytes{b(0x00)}));
     const auto present_result = present_empty.finalize();
     ASSERT_TRUE(present_result.ok());
-    EXPECT_EQ((*present_result.value)[16], b(0x0A));
-    EXPECT_EQ(present_result.value->size(), 40U);
-    EXPECT_EQ(quarry::runtime::read_raw_u32(
-                  std::span<const std::byte>(present_result.value->data() + 21U, 4U)),
-              39U);
-    EXPECT_EQ(quarry::runtime::read_raw_u32(
-                  std::span<const std::byte>(present_result.value->data() + 25U, 4U)),
-              0U);
-    EXPECT_EQ(quarry::runtime::read_raw_u32(
-                  std::span<const std::byte>(present_result.value->data() + 31U, 4U)),
-              39U);
-    EXPECT_EQ(quarry::runtime::read_raw_u32(
-                  std::span<const std::byte>(present_result.value->data() + 35U, 4U)),
-              1U);
+    EXPECT_EQ(*present_result.value, *absent_result.value);
+
 }
 
 TEST(BinaryRecordV2RuntimeTest, RejectsMalformedHeaderAndDescriptor) {

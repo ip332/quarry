@@ -101,7 +101,7 @@ add_custom_command(
     COMMAND "${QUARRY_HOST_SCHEMA_COMPILER}" --language c
             --output-directory "${QUARRY_GENERATED_DIR}"
             "${QUARRY_SHARED_SCHEMA}"
-    DEPENDS "${QUARRY_SHARED_SCHEMA}"
+    DEPENDS "${QUARRY_SHARED_SCHEMA}" "${QUARRY_HOST_SCHEMA_COMPILER}"
     COMMENT "Generating C code for benchmark.workload.shared (host quarry-schema-compiler)"
     VERBATIM
 )
@@ -110,7 +110,7 @@ add_custom_command(
     COMMAND "${QUARRY_HOST_SCHEMA_COMPILER}" --language c
             --output-directory "${QUARRY_GENERATED_DIR}"
             "${QUARRY_WORKLOAD_SCHEMA}"
-    DEPENDS "${QUARRY_WORKLOAD_SCHEMA}"
+    DEPENDS "${QUARRY_WORKLOAD_SCHEMA}" "${QUARRY_HOST_SCHEMA_COMPILER}"
             "${QUARRY_GENERATED_SHARED_HEADER}" "${QUARRY_GENERATED_SHARED_SOURCE}"
     COMMENT "Generating C code for benchmark.workload (host quarry-schema-compiler)"
     VERBATIM

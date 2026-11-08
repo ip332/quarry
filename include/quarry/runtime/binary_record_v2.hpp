@@ -459,6 +459,8 @@ public:
                 continue;
             }
             const std::vector<std::byte>& value = *values_[index];
+            if ((field.type.kind == BrfV2TypeKind::String || field.type.kind == BrfV2TypeKind::Bytes) && value.empty()) continue;
+            if (field.type.kind == BrfV2TypeKind::Array && value.size() == 1U && value[0] == std::byte{0}) continue;
             const std::uint64_t slot_end =
                 static_cast<std::uint64_t>(field.byte_offset) + field.slot_size;
             if (slot_end > fixed_end || field.byte_offset < kBinaryRecordV2HeaderSize ||

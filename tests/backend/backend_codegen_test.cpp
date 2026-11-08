@@ -1422,11 +1422,9 @@ TEST(BackendCodegenTest, GeneratedRecordArrayCodecPreservesPresenceAndElements) 
         "  ::ExampleBuilder empty_array_builder;\n"
         "  if (!empty_array_builder.set_children(std::vector<::Child>{})) { return 2; }\n"
         "  const auto empty_array = encode(empty_array_builder.build());\n"
-        "  if (!empty_array.has_value() || empty_array->size() != 108U ||\n"
-        "      (*empty_array)[16] != byte(0x20) || (*empty_array)[107] != byte(0x00)) { return 3; }\n"
+        "  if (!empty_array.has_value() || *empty_array != *absent) { return 3; }\n"
         "  const auto decoded_empty_array = decode_Example(*empty_array);\n"
-        "  if (!decoded_empty_array.has_value() || !decoded_empty_array->has_children() ||\n"
-        "      !decoded_empty_array->children()->empty()) {\n"
+        "  if (!decoded_empty_array.has_value() || decoded_empty_array->has_children()) {\n"
         "    return 4;\n"
         "  }\n"
         "\n"
@@ -1508,52 +1506,30 @@ TEST(BackendCodegenTest, GeneratedStringAndBytesEncoderEmitsExactBytes) {
     compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
 }
 
-TEST(BackendCodegenTest, GeneratedStringAndBytesEncoderDistinguishesEmptyPresence) {
+TEST(BackendCodegenTest, GeneratedStringAndBytesEncoderOmitsEmptyFields) {
     const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
     const std::string header_include =
         generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
-    const std::string translation_source =
-        "#include \"" + header_include +
-        "\"\n"
-        "#include <cstddef>\n"
-        "#include <string>\n"
-        "#include <vector>\n"
-        "int main() {\n"
-        "  const auto byte = [](unsigned int value) {\n"
-        "    return static_cast<std::byte>(static_cast<unsigned char>(value));\n"
-        "  };\n"
-        "  ::ExampleBuilder empty_builder;\n"
-        "  const auto empty_encoded = encode(empty_builder.build());\n"
-        "  if (!empty_encoded.has_value() || empty_encoded->size() != 107U) {\n"
-        "    return 1;\n"
-        "  }\n"
-        "  ::ExampleBuilder builder;\n"
-        "  if (!builder.set_name(std::string{}) || !builder.set_payload(std::vector<std::byte>{})) {\n"
-        "    return 2;\n"
-        "  }\n"
-        "  const auto encoded = encode(builder.build());\n"
-        "  if (!encoded.has_value()) {\n"
-        "    return 3;\n"
-        "  }\n"
-        "  if (encoded->size() != 107U || (*encoded)[0] != byte(0x02) ||\n"
-        "      (*encoded)[3] != byte(0x10) || (*encoded)[7] != byte(0x02) ||\n"
-        "      (*encoded)[16] != byte(0x03) || (*encoded)[17] != byte(0x00) ||\n"
-        "      (*encoded)[21] != byte(0x6B) || (*encoded)[25] != byte(0x00) ||\n"
-        "      (*encoded)[29] != byte(0x6B) || (*encoded)[33] != byte(0x00)) {\n"
-        "    return 4;\n"
-        "  }\n"
-        "  const auto decoded = decode_Example(*encoded);\n"
-        "  if (!decoded.has_value() || !decoded->has_name() || !decoded->has_payload()) {\n"
-        "    return 5;\n"
-        "  }\n"
-        "  if (decoded->name() == nullptr || !decoded->name()->empty()) {\n"
-        "    return 6;\n"
-        "  }\n"
-        "  return decoded->payload() == nullptr || !decoded->payload()->empty() ? 7 : 0;\n"
-        "}\n";
+    const std::string translation_source = "#include \"" + header_include + "\"\n" + R"cpp(
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+int main() {
+    ExampleBuilder absent;
+    ExampleBuilder builder;
+    if (!builder.set_name(std::string{}) || !builder.set_payload(std::vector<std::byte>{})) return 1;
+    const auto encoded = encode(builder.build());
+    const auto absent_encoded = encode(absent.build());
+    if (!encoded || !absent_encoded || *encoded != *absent_encoded) return 2;
+    const auto decoded = decode_Example(*encoded);
+    if (!decoded || decoded->has_name() || decoded->has_payload()) return 3;
+    return 0;
+}
+)cpp";
 
     compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
 }
@@ -1655,46 +1631,30 @@ TEST(BackendCodegenTest, GeneratedStringAndBytesDecoderRejectsMalformedWireValue
     compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
 }
 
-TEST(BackendCodegenTest, GeneratedArrayEncoderDistinguishesEmptyPresence) {
+TEST(BackendCodegenTest, GeneratedArrayEncoderOmitsEmptyFields) {
     const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
     const std::string header_include =
         generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
-    const std::string translation_source =
-        "#include \"" + header_include +
-        "\"\n"
-        "#include <cstddef>\n"
-        "#include <cstdint>\n"
-        "#include <vector>\n"
-        "int main() {\n"
-        "  const auto byte = [](unsigned int value) {\n"
-        "    return static_cast<std::byte>(static_cast<unsigned char>(value));\n"
-        "  };\n"
-        "  ::ExampleBuilder absent_builder;\n"
-        "  const auto absent_encoded = encode(absent_builder.build());\n"
-        "  if (!absent_encoded.has_value() || absent_encoded->size() != 107U) {\n"
-        "    return 1;\n"
-        "  }\n"
-        "  ::ExampleBuilder builder;\n"
-        "  if (!builder.set_counts(std::vector<std::uint32_t>{})) {\n"
-        "    return 2;\n"
-        "  }\n"
-        "  const auto encoded = encode(builder.build());\n"
-        "  if (!encoded.has_value()) {\n"
-        "    return 3;\n"
-        "  }\n"
-        "  if (!encoded.has_value()) {\n"
-        "    return 4;\n"
-        "  }\n"
-        "  const auto decoded = decode_Example(*encoded);\n"
-        "  if (!decoded.has_value() || !decoded->has_counts() || decoded->counts() == nullptr ||\n"
-        "      !decoded->counts()->empty()) {\n"
-        "    return 5;\n"
-        "  }\n"
-        "  return decode_Example(*absent_encoded)->has_counts() ? 6 : 0;\n"
-        "}\n";
+    const std::string translation_source = "#include \"" + header_include + "\"\n" + R"cpp(
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+int main() {
+    ExampleBuilder absent;
+    ExampleBuilder builder;
+    if (!builder.set_counts(std::vector<std::uint32_t>{})) return 1;
+    const auto encoded = encode(builder.build());
+    const auto absent_encoded = encode(absent.build());
+    if (!encoded || !absent_encoded || *encoded != *absent_encoded) return 2;
+    const auto decoded = decode_Example(*encoded);
+    if (!decoded || decoded->has_counts()) return 3;
+    return 0;
+}
+)cpp";
 
     compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
 }

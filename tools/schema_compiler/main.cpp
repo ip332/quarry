@@ -48,6 +48,7 @@ struct CommandLine {
     bool show_version = false;
     bool show_generated_code_api_version = false;
     bool list_outputs = false;
+    bool c_optimize_size = false;
     bool qbs_reflective = false;
     std::string qbs_output;
     Language language = Language::Cpp;
@@ -64,6 +65,7 @@ struct CommandLine {
            "      --file-extension EXT      Generated file extension for --language cpp\n"
            "                                (default: .generated.hpp)\n"
            "      --language {cpp,c,python} Target backend language (default: cpp)\n"
+           "      --c-optimize-size          Pack C presence flags into a bitmap\n"
            "      --emit-qbs PATH           Emit the resolved schema as a deterministic QBS image\n"
            "      --qbs-reflective          Include reflective record, field, and enum names in QBS\n"
            "      --list-outputs            Print generated output paths without writing files\n"
@@ -116,6 +118,14 @@ void print_generated_code_api_version(std::ostream& output) {
                 return std::nullopt;
             }
             command_line.show_generated_code_api_version = true;
+            continue;
+        }
+        if (argument == "--c-optimize-size") {
+            if (command_line.c_optimize_size) {
+                errors << "error: duplicate --c-optimize-size option\n";
+                return std::nullopt;
+            }
+            command_line.c_optimize_size = true;
             continue;
         }
         if (argument == "--list-outputs") {
@@ -220,6 +230,11 @@ void print_generated_code_api_version(std::ostream& output) {
                       "options or an input file\n";
             return std::nullopt;
         }
+    }
+
+    if (command_line.c_optimize_size && command_line.language != Language::C) {
+        errors << "error: --c-optimize-size requires --language c\n";
+        return std::nullopt;
     }
 
     if (command_line.language == Language::C && saw_file_extension) {
@@ -470,6 +485,7 @@ template <typename CodegenResultT>
 
     if (command_line.language == Language::C) {
         backend_c::CodegenOptions c_options;
+        c_options.optimize_size = command_line.c_optimize_size;
         c_options.output_directory = command_line.codegen_options.output_directory;
         c_options.root_file_stem = command_line.codegen_options.root_file_stem;
 

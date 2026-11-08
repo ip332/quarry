@@ -1192,6 +1192,28 @@ TEST(SchemaCompilerToolTest, InvalidLanguageReturnsUsageErrorNamingAcceptedValue
     EXPECT_NE(result.stderr_text.find("'cpp', 'c', or 'python'"), std::string::npos);
 }
 
+TEST(SchemaCompilerToolTest, CompactPresenceOptionRequiresCAndChangesGeneratedLayout) {
+    const auto root = make_temp_directory("c-optimize-size");
+    const auto input = root / "schema.brd";
+    write_text_file(input,
+                    "namespace: demo\nrecord: Sample\nversion: 1\ntype: data\nfields:\n"
+                    "  count:\n    type: uint32\n");
+    auto rejected = run_tool({"--c-optimize-size", input.string()}, root);
+    EXPECT_EQ(rejected.status, 2);
+    EXPECT_NE(rejected.stderr_text.find("requires --language c"), std::string::npos);
+    auto duplicate = run_tool({"--language", "c", "--c-optimize-size", "--c-optimize-size",
+                               input.string()}, root);
+    EXPECT_EQ(duplicate.status, 2);
+    auto generated = run_tool({"--language", "c", "--c-optimize-size", input.string()}, root);
+    ASSERT_EQ(generated.status, 0) << generated.stderr_text;
+    const auto header = read_text_file(root / "generated/demo.generated.h");
+    EXPECT_NE(header.find("uint8_t quarry_presence_bits[1]"), std::string::npos);
+    EXPECT_NE(header.find("demo_Sample_set_count_present"), std::string::npos);
+    auto planned = run_tool({"--language", "c", "--c-optimize-size", "--list-outputs",
+                             input.string()}, root);
+    EXPECT_EQ(planned.status, 0) << planned.stderr_text;
+}
+
 TEST(SchemaCompilerToolTest, FileExtensionIsRejectedWithLanguageC) {
     const std::filesystem::path root = make_temp_directory("language-c-file-extension");
     const std::filesystem::path input = root / "schema.brd";
@@ -1433,7 +1455,7 @@ TEST(SchemaCompilerToolTest, CBackendGeneratesStringFieldAndCompilesAsC) {
 
     const std::filesystem::path header = output / "quarry" / "telemetry.generated.h";
     const std::string header_text = read_text_file(header);
-    EXPECT_NE(header_text.find("bool has_label;"), std::string::npos);
+    EXPECT_EQ(header_text.find("bool has_label;"), std::string::npos);
     EXPECT_NE(header_text.find("char label[17];"), std::string::npos);
     EXPECT_NE(header_text.find("uint32_t label_length;"), std::string::npos);
 
@@ -1481,7 +1503,7 @@ TEST(SchemaCompilerToolTest, CBackendGeneratesBytesFieldAndCompilesAsC) {
 
     const std::filesystem::path header = output / "quarry" / "telemetry.generated.h";
     const std::string header_text = read_text_file(header);
-    EXPECT_NE(header_text.find("bool has_blob;"), std::string::npos);
+    EXPECT_EQ(header_text.find("bool has_blob;"), std::string::npos);
     EXPECT_NE(header_text.find("uint8_t blob[16];"), std::string::npos);
     EXPECT_NE(header_text.find("uint32_t blob_length;"), std::string::npos);
 
@@ -1538,7 +1560,7 @@ TEST(SchemaCompilerToolTest, CBackendGeneratesArrayFieldAndCompilesAsC) {
 
     const std::filesystem::path header = output / "quarry" / "telemetry.generated.h";
     const std::string header_text = read_text_file(header);
-    EXPECT_NE(header_text.find("bool has_readings;"), std::string::npos);
+    EXPECT_EQ(header_text.find("bool has_readings;"), std::string::npos);
     EXPECT_NE(header_text.find("float readings[4];"), std::string::npos);
     EXPECT_NE(header_text.find("uint32_t readings_count;"), std::string::npos);
     EXPECT_NE(header_text.find("quarry_telemetry_Status_t statuses[3];"), std::string::npos);

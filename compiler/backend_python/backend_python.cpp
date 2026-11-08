@@ -1339,6 +1339,11 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                    << field.presence_bit_index << ", _brf.pack_scalar(\""
                    << field.runtime_type_name << "\", value." << field.name << ")))\n";
         }
+        if (field.is_array || field.is_string || field.is_bytes) {
+            // Pack first so empty values cannot bypass type/bounds validation.
+            stream << "        if len(value." << field.name << ") == 0:\n";
+            stream << "            fields.pop()\n";
+        }
     }
     stream << "    return _brf.encode_record_v2(" << record.record_id << ", "
            << record.fixed_region_size << ", " << record.presence_bitmap_size << ", fields)\n";

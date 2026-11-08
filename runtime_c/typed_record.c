@@ -159,6 +159,14 @@ static quarry_c_status_t measure_field(const quarry_c_member_descriptor_t* m, co
 }
 
 static bool member_present(const uint8_t* value, const quarry_c_member_descriptor_t* m) {
+    if (m->max_count != 0U)
+        return load_count(value + m->count_offset) != 0U;
+    if (m->element.kind == QUARRY_C_TYPED_STRING || m->element.kind == QUARRY_C_TYPED_BYTES)
+        return load_count(value + m->value_offset + m->element.length_offset) != 0U;
+    if ((m->presence_offset & QUARRY_C_PRESENCE_PACKED_FLAG) != 0U) {
+        const size_t bit = m->presence_offset & ~QUARRY_C_PRESENCE_PACKED_FLAG;
+        return (value[bit / 8U] & (1U << (bit % 8U))) != 0U;
+    }
     bool present;
     memcpy(&present, value + m->presence_offset, sizeof(present));
     return present;
@@ -373,8 +381,17 @@ static quarry_c_status_t read_record(const quarry_c_type_descriptor_t* type, con
             *error = view.byte_offset + nested_error;
             return s;
         }
-        const bool present = true;
-        memcpy(value + type->members[i].presence_offset, &present, sizeof(present));
+        const quarry_c_member_descriptor_t* member = &type->members[i];
+        if (member->max_count == 0U && member->element.kind != QUARRY_C_TYPED_STRING &&
+            member->element.kind != QUARRY_C_TYPED_BYTES) {
+            if ((member->presence_offset & QUARRY_C_PRESENCE_PACKED_FLAG) != 0U) {
+                const size_t bit = member->presence_offset & ~QUARRY_C_PRESENCE_PACKED_FLAG;
+                value[bit / 8U] |= (uint8_t)(1U << (bit % 8U));
+            } else {
+                const bool present = true;
+                memcpy(value + member->presence_offset, &present, sizeof(present));
+            }
+        }
     }
     return QUARRY_C_STATUS_OK;
 }

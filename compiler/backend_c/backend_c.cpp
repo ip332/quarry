@@ -1011,6 +1011,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             }
             std::vector<PlannedField> planned_fields;
             CIdentifierAllocator field_names;
+            if (options.optimize_size)
+                (void)field_names.reserve("quarry_presence_bits");
             std::vector<std::uint64_t> dependencies;
             planned_fields.reserve(static_cast<std::size_t>(record_ir.fields_size()));
             std::size_t field_position = 0U;
@@ -1419,7 +1421,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 // --- Rendering ------------------------------------------------------------
 
 // Each generated binding describes host layout; serialization lives in runtime_c.
-void render_binding(std::ostringstream& stream, const PlannedRecord& record) {
+void render_binding(std::ostringstream& stream, const PlannedRecord& record, bool optimize_size) {
     if (record.fields.empty()) {
         stream << "static const quarry_c_brf_v2_record_layout_t " << record.symbol_name
                << "_brf_v2_layout = { " << record.record_id << "U, " << record.presence_bitmap_size
@@ -1462,6 +1464,7 @@ void render_binding(std::ostringstream& stream, const PlannedRecord& record) {
     if (!record.fields.empty()) {
         stream << "static const quarry_c_member_descriptor_t " << record.symbol_name
                << "_members[] = {\n";
+        std::size_t presence_bit = 0U;
         for (const PlannedField& field : record.fields) {
             const auto& e = field.encoding;
             const std::string type = record.symbol_name + "_t";
@@ -1479,8 +1482,16 @@ void render_binding(std::ostringstream& stream, const PlannedRecord& record) {
                 kind = "RECORD";
             const std::string name =
                 record.symbol_name + "_field_" + std::to_string(field.field_index);
-            stream << "    { offsetof(" << type << ", has_" << field.name << "), " << member
-                   << "), ";
+            stream << "    { ";
+            if (e.is_array || e.is_string || e.is_bytes) {
+                stream << "0U";
+            } else if (optimize_size) {
+                stream << "QUARRY_C_PACKED_PRESENCE(offsetof(" << type
+                       << ", quarry_presence_bits), " << presence_bit++ << "U)";
+            } else {
+                stream << "offsetof(" << type << ", has_" << field.name << ")";
+            }
+            stream << ", " << member << "), ";
             stream << (e.is_array ? member + "_count)" : "0U") << ", " << e.array_max_elements
                    << "U, { QUARRY_C_TYPED_" << kind << ", ";
             stream << "sizeof(((" << type << "*)0)->" << field.name << (e.is_array ? "[0]" : "")
@@ -1550,7 +1561,7 @@ void render_binding(std::ostringstream& stream, const PlannedRecord& record) {
            << "_decode_with_record_id(input, input_length, " << record.record_id << "U); }\n";
 }
 
-[[nodiscard]] std::string render_header(const PlannedNamespaceFile& file) {
+[[nodiscard]] std::string render_header(const PlannedNamespaceFile& file, bool optimize_size) {
     const std::string guard = header_guard_macro(file.relative_header_path);
 
     std::ostringstream stream;
@@ -1618,8 +1629,19 @@ void render_binding(std::ostringstream& stream, const PlannedRecord& record) {
             stream << "     * struct body); it is not a schema field. */\n";
             stream << "    uint8_t reserved;\n";
         } else {
+            if (optimize_size) {
+                std::size_t bits = 0U;
+                for (const auto& field : record.fields)
+                    if (!field.encoding.is_array && !field.encoding.is_string && !field.encoding.is_bytes)
+                        ++bits;
+                if (bits != 0U)
+                    stream << "    uint8_t quarry_presence_bits[" << (bits + 7U) / 8U << "];\n";
+            }
             for (const PlannedField& field : record.fields) {
-                stream << "    bool has_" << field.name << ";\n";
+                if (!optimize_size && !field.encoding.is_array && !field.encoding.is_string &&
+                    !field.encoding.is_bytes) {
+                    stream << "    bool has_" << field.name << ";\n";
+                }
                 if (field.encoding.is_array) {
                     stream << "    " << field.encoding.c_type << " " << field.name << "["
                            << field.encoding.array_max_elements << "];\n";
@@ -1651,7 +1673,25 @@ void render_binding(std::ostringstream& stream, const PlannedRecord& record) {
         }
         stream << "} " << record.symbol_name << "_t;\n";
 
-        render_binding(stream, record);
+        if (optimize_size) {
+            std::size_t bit = 0U;
+            for (const auto& field : record.fields) {
+                if (field.encoding.is_array || field.encoding.is_string || field.encoding.is_bytes)
+                    continue;
+                const auto& n = record.symbol_name;
+                stream << "static inline bool " << n << "_has_" << field.name
+                       << "(const " << n << "_t* value) { return (value->quarry_presence_bits["
+                       << bit / 8U << "] & " << (1U << (bit % 8U)) << "U) != 0U; }\n";
+                stream << "static inline void " << n << "_set_" << field.name
+                       << "_present(" << n << "_t* value, bool present) {\n"
+                       << "    if (present) value->quarry_presence_bits[" << bit / 8U
+                       << "] |= " << (1U << (bit % 8U)) << "U;\n"
+                       << "    else value->quarry_presence_bits[" << bit / 8U
+                       << "] &= (uint8_t)~" << (1U << (bit % 8U)) << "U;\n}\n";
+                ++bit;
+            }
+        }
+        render_binding(stream, record, optimize_size);
     }
 
     stream << "\n";
@@ -1719,7 +1759,7 @@ CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
         }
         result.files.push_back(GeneratedFile{
             .path = output_path_for_planned_file(options, file.relative_header_path),
-            .content = render_header(file),
+            .content = render_header(file, options.optimize_size),
         });
         result.files.push_back(GeneratedFile{
             .path = output_path_for_planned_file(options, file.relative_source_path),

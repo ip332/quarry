@@ -17,7 +17,7 @@ specific status and set `size` to zero. Descriptors are trusted
 compiler output; they are not a format for accepting untrusted host offsets.
 Buffers must not overlap their source/destination structs, and encode source
 values must remain stable for the complete call. Schema nesting bounds the
-runtime's recursive call stack. The C generated-code API epoch is 4.
+runtime's recursive call stack. The C generated-code API epoch is 5.
 
 ## BRF v2 generated bindings
 
@@ -32,8 +32,10 @@ as wire images.
 The typed codec supports bool, fixed-width integers, floats, non-negative
 enums, bounded string/bytes fields, bounded arrays, nested records, and record
 arrays, including imported types. Strings use explicit byte lengths and gain a
-trailing NUL on decode. Presence flags distinguish absent fields from present
-empty values. Enum values, bounds, UTF-8, array framing, and nested records
+trailing NUL on decode. Presence flags remain for scalars, enums, and nested records. String/bytes
+lengths and array counts determine presence directly: zero encodes as absent.
+Legacy present-empty wire fields remain decodable. Empty elements of nonempty
+arrays are retained. Enum values, bounds, UTF-8, array framing, and nested records
 are validated by the shared codec. Recursive by-value records and nested
 arrays remain unsupported by the schema/generator model.
 

@@ -247,7 +247,7 @@ namespace two {
     ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Basket& value) {
       std::vector<::quarry::runtime::FieldBytes> fields;
       fields.reserve(2U);
-      if (value.has_elements()) {
+      if (value.has_elements() && !value.elements()->empty()) {
         if (value.elements()->size() > 2U) {
           return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 0U, .array_index = std::nullopt}});
         }
@@ -271,7 +271,7 @@ namespace two {
           .bytes = std::move(field_bytes),
         });
       }
-      if (value.has_modes()) {
+      if (value.has_modes() && !value.modes()->empty()) {
         if (value.modes()->size() > 2U) {
           return ::quarry::runtime::encode_failure<std::vector<std::byte>>(::quarry::runtime::EncodeError::bounds_exceeded, {{.field_index = 1U, .array_index = std::nullopt}});
         }

@@ -74,6 +74,35 @@ void add_enum_value(EnumIR& enum_ir, std::string_view name, std::int64_t value) 
     value_ir->set_value(value);
 }
 
+TEST(BackendCTest, SizeOptionPacksFlagsAndReservesBitmapMemberName) {
+    SchemaIrModel schema;
+    schema.set_schema_ir_version(1);
+    auto* root = schema.mutable_root_namespace();
+    root->set_ir_id(1);
+    auto* record = add_zero_field_record(*root, 2, 1U, "Sample", "Sample");
+    for (unsigned i = 0U; i < 9U; ++i) {
+        auto* field = record->add_fields();
+        field->set_name(i == 0U ? "quarry_presence_bits" : "value" + std::to_string(i));
+        field->set_field_index(i);
+        field->mutable_type()->set_primitive(quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    }
+    assert_valid(schema);
+    CodegenOptions options;
+    options.optimize_size = true;
+    const auto packed = Backend{}.generate(schema, options);
+    ASSERT_TRUE(packed.success) << packed.error_message;
+    ASSERT_FALSE(packed.files.empty());
+    const auto& header = packed.files[0].content;
+    EXPECT_NE(header.find("uint8_t quarry_presence_bits[2]"), std::string::npos);
+    EXPECT_NE(header.find("uint32_t quarry_presence_bits_2;"), std::string::npos);
+    EXPECT_EQ(header.find("    bool has_value"), std::string::npos);
+    EXPECT_NE(header.find("Sample_set_value8_present"), std::string::npos);
+    EXPECT_NE(header.find("Sample_has_value8"), std::string::npos);
+    const auto ordinary = Backend{}.generate(schema, CodegenOptions{});
+    ASSERT_TRUE(ordinary.success);
+    EXPECT_NE(ordinary.files[0].content.find("bool has_value8;"), std::string::npos);
+}
+
 TEST(BackendCTest, EmptySchemaProducesNoFiles) {
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);
@@ -569,7 +598,7 @@ TEST(BackendCTest, StringFieldGeneratesFixedCapacityStructFieldAndCodec) {
     // Capacity is max_bytes + 1 (room for the trailing NUL the decoder
     // always writes); label_length is the authoritative wire byte length.
     const std::string& header = result.files[0].content;
-    EXPECT_NE(header.find("bool has_label;"), std::string::npos);
+    EXPECT_EQ(header.find("bool has_label;"), std::string::npos);
     EXPECT_NE(header.find("char label[17];"), std::string::npos);
     EXPECT_NE(header.find("uint32_t label_length;"), std::string::npos);
 
@@ -657,7 +686,7 @@ TEST(BackendCTest, BytesFieldGeneratesFixedCapacityStructFieldAndCodec) {
     // Capacity is exactly max_bytes -- unlike string, no "+1" for a NUL
     // terminator (arbitrary binary data has no such convenience).
     const std::string& header = result.files[0].content;
-    EXPECT_NE(header.find("bool has_blob;"), std::string::npos);
+    EXPECT_EQ(header.find("bool has_blob;"), std::string::npos);
     EXPECT_NE(header.find("uint8_t blob[16];"), std::string::npos);
     EXPECT_NE(header.find("uint32_t blob_length;"), std::string::npos);
 
@@ -750,7 +779,7 @@ TEST(BackendCTest, ArrayOfScalarFieldGeneratesFixedCapacityStructFieldAndCodec) 
     ASSERT_EQ(result.files.size(), 2U);
 
     const std::string& header = result.files[0].content;
-    EXPECT_NE(header.find("bool has_readings;"), std::string::npos);
+    EXPECT_EQ(header.find("bool has_readings;"), std::string::npos);
     EXPECT_NE(header.find("float readings[4];"), std::string::npos);
     EXPECT_NE(header.find("uint32_t readings_count;"), std::string::npos);
 
@@ -1166,7 +1195,7 @@ TEST(BackendCTest, ArrayOfRecordFieldGeneratesFixedCapacityStructFieldAndCodec) 
     ASSERT_EQ(result.files.size(), 2U);
 
     const std::string& header = result.files[0].content;
-    EXPECT_NE(header.find("bool has_items;"), std::string::npos);
+    EXPECT_EQ(header.find("bool has_items;"), std::string::npos);
     // Fixed-capacity array of the element record's own by-value struct
     // type -- the exact same [max_elements]/_count shape scalar/enum
     // arrays already use, with no new rendering code (see

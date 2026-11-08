@@ -319,6 +319,16 @@ TEST(QbsBrfEncoderTest, EncodesStringsBytesAndCanonicalVariableTail) {
     EXPECT_LT(name_offset, payload_offset);
     EXPECT_EQ(payload_offset - name_offset, 3U);
     EXPECT_EQ(bytes->size(), payload_offset + 3U);
+
+    auto empty = fields;
+    empty[3U] = BrfEncodeValue{std::string{}};
+    empty[4U] = BrfEncodeValue{std::vector<std::uint8_t>{}};
+    auto absent = fields;
+    absent[3U] = absent[4U] = std::nullopt;
+    const auto empty_bytes = encode_brf_record(*schema, *record, empty, &error);
+    ASSERT_TRUE(empty_bytes.has_value());
+    EXPECT_EQ(empty_bytes, encode_brf_record(*schema, *record, absent, &error));
+
 }
 
 TEST(QbsBrfEncoderTest, EncodesPrimitiveArraysWithCanonicalVaruint) {
@@ -367,6 +377,18 @@ TEST(QbsBrfEncoderTest, EncodesPrimitiveArraysWithCanonicalVaruint) {
     EXPECT_EQ(view->array(5U)->element(1U)->as_unsigned(), 1U);
     ASSERT_TRUE(view->array(6U).has_value());
     EXPECT_EQ(view->array(6U)->element(0U)->kind(), GenericBrfValueKind::float32);
+
+    auto empty = fields;
+    auto absent = fields;
+    for (size_t i = 3U; i < empty.size(); ++i) {
+        empty[i] = i == 4U ? BrfEncodeValue{BrfEncodeArray{BrfBoolArray{}}}
+                   : i == 6U ? BrfEncodeValue{BrfEncodeArray{BrfFloat32Array{}}}
+                             : BrfEncodeValue{BrfEncodeArray{BrfUnsignedArray{}}};
+        absent[i] = std::nullopt;
+    }
+    const auto empty_bytes = encode_brf_record(*schema, *record, empty, &error);
+    ASSERT_TRUE(empty_bytes.has_value());
+    EXPECT_EQ(empty_bytes, encode_brf_record(*schema, *record, absent, &error));
 
     auto too_many = fields;
     too_many[3U] = BrfEncodeValue{BrfEncodeArray{BrfUnsignedArray{1U, 2U, 3U, 4U, 5U}}};
@@ -517,7 +539,7 @@ TEST(QbsBrfEncoderTest, EncodesFixedAndVariableRecordArrays) {
     }
 }
 
-TEST(QbsBrfEncoderTest, PresentEmptyRecordArrayHasCanonicalZeroCount) {
+TEST(QbsBrfEncoderTest, EmptyRecordArrayEncodesAsAbsent) {
     DiagnosticCollection diagnostics;
     const auto source = record_array_schema(false);
     const auto layout = quarry::compiler::layout::LayoutComputer{}.compute(source, diagnostics);
@@ -541,8 +563,11 @@ TEST(QbsBrfEncoderTest, PresentEmptyRecordArrayHasCanonicalZeroCount) {
     GenericBrfError read_error = GenericBrfError::none;
     const auto view = validate_brf_record(*schema, *parent, *bytes, {}, &read_error);
     ASSERT_TRUE(view.has_value());
-    ASSERT_TRUE(view->record_array(0U).has_value());
-    EXPECT_EQ(view->record_array(0U)->size(), 0U);
+    EXPECT_FALSE(view->record_array(0U).has_value());
+    const std::vector<std::optional<BrfEncodeValue>> absent{std::nullopt};
+    const auto absent_bytes = encode_brf_record(*schema, *parent, absent, &error);
+    ASSERT_TRUE(absent_bytes.has_value());
+    EXPECT_EQ(*bytes, *absent_bytes);
 }
 
 } // namespace

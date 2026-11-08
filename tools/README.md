@@ -111,7 +111,7 @@ supported fields -- fails generation with a diagnostic identifying the record
 and field, rather than silently emitting a struct that drops that field.
 Generated C code that contains records checks a C
 generated-code API compatibility epoch
-(`QUARRY_C_GENERATED_CODE_API_VERSION`, currently epoch `4`), independent
+(`QUARRY_C_GENERATED_CODE_API_VERSION`, currently epoch `5`), independent
 from the C++ epoch described below.
 
 **Generated C header example.** The [C example schema](../examples/c/basic_encode_decode/schema.brd)
@@ -131,14 +131,16 @@ The generated data type is:
 typedef struct {
     bool has_count;
     uint32_t count;
-    bool has_label;
     char label[17];
     uint32_t label_length;
-    bool has_blob;
     uint8_t blob[4];
     uint32_t blob_length;
 } demo_c_Sample_t;
 ```
+
+String/bytes fields and arrays use their length/count as presence: zero means
+absent, so they have no `has_` member. Scalars and nested records retain flags.
+Empty elements inside a nonempty array are preserved.
 
 The header also defines `demo_c_Sample_init()`, `demo_c_Sample_encoded_size()`,
 `demo_c_Sample_encode()`, and `demo_c_Sample_decode()`. For example:
@@ -426,3 +428,28 @@ provides `debug`/`coverage` presets for native builds and
 reported, remove or abandon the contaminated build directory and reconfigure
 with the matching preset; do not reuse host-generated protobuf files inside a
 container.
+
+
+### Compact C presence storage
+
+Use `quarry-schema-compiler --language c --c-optimize-size --output-directory generated schema.brd`
+to pack scalar, enum, and nested-record presence flags into `uint8_t quarry_presence_bits[]`.
+The default layout retains separate `bool has_<field>` members. Strings, bytes, and arrays
+continue to derive presence from length/count in both layouts.
+
+For the compact layout, use generated helpers instead of assigning a presence member:
+
+```c
+demo_c_Sample_t sample;
+demo_c_Sample_init(&sample);
+sample.count = 42;
+demo_c_Sample_set_count_present(&sample, true);
+if (demo_c_Sample_has_count(&sample)) { /* count is present */ }
+```
+
+Pass `false` to the setter to clear a bit. Encode, decode, and sizing APIs stay the same.
+The bitmap uses one bit per scalar/enum/record field, rounded up to whole bytes; structure
+alignment can affect the final size. This is a portable byte bitmap rather than native C
+bitfield members, whose layout is implementation-defined. Wire bytes are unchanged.
+Generate all bindings exchanged as C structs with the same option; these native layouts
+are not interchangeable. Separately generated translation units must also agree.

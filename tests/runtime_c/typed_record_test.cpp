@@ -60,6 +60,35 @@ const quarry_c_member_descriptor_t members[] = {
 const quarry_c_type_descriptor_t type = {&layout, sizeof(Scalars), members};
 #undef SCALARS
 
+TEST(TypedRecordTest, PackedPresenceCrossesByteBoundaryAndPreservesScalarZero) {
+    struct Packed { uint8_t bits[2]; Scalars values; };
+    std::array<quarry_c_member_descriptor_t, 11> bindings{};
+    for (size_t i = 0U; i < bindings.size(); ++i) {
+        bindings[i] = members[i];
+        bindings[i].presence_offset = QUARRY_C_PACKED_PRESENCE(offsetof(Packed, bits), i);
+        bindings[i].value_offset += offsetof(Packed, values);
+    }
+    const quarry_c_type_descriptor_t packed_type = {&layout, sizeof(Packed), bindings.data()};
+    Packed value{};
+    value.bits[0] = 1U; // Present false boolean.
+    value.bits[1] = 4U; // Field 10, in the second byte.
+    value.values.f64 = 3.5;
+    std::array<uint8_t, 128> bytes{};
+    const auto encoded = quarry_c_typed_encode(&packed_type, &value, 42U, bytes.data(), bytes.size());
+    ASSERT_EQ(encoded.status, QUARRY_C_STATUS_OK);
+    EXPECT_EQ(bytes[16], 1U);
+    EXPECT_EQ(bytes[17], 4U);
+    Packed decoded;
+    std::memset(&decoded, 0xff, sizeof(decoded));
+    const auto result = quarry_c_typed_decode(&packed_type, bytes.data(), encoded.bytes_written, 42U, &decoded);
+    ASSERT_EQ(result.status, QUARRY_C_STATUS_OK);
+    EXPECT_EQ(decoded.bits[0], 1U);
+    EXPECT_EQ(decoded.bits[1], 4U);
+    EXPECT_FALSE(decoded.values.boolean);
+    EXPECT_DOUBLE_EQ(decoded.values.f64, 3.5);
+    EXPECT_EQ(quarry_c_typed_encoded_size(&packed_type, &value).size, encoded.bytes_written);
+}
+
 TEST(TypedRecordTest, ScalarExtremesRoundTripWithoutHostLayoutAssumptions) {
     Scalars value{};
     value.has_boolean = value.has_i8 = value.has_u8 = value.has_i16 = value.has_u16 = true;
@@ -148,5 +177,86 @@ TEST(TypedRecordTest, NullArgumentsFailWithoutDereferencing) {
               QUARRY_C_STATUS_INVALID_HEADER);
     EXPECT_EQ(quarry_c_typed_decode(&type, nullptr, 0U, 42U, nullptr).status,
               QUARRY_C_STATUS_INVALID_ARGUMENT);
+}
+} // namespace
+
+namespace {
+struct VariableFields {
+    char text[5];
+    uint32_t text_length;
+    uint8_t bytes[4];
+    uint32_t bytes_length;
+    uint8_t items[4];
+    uint32_t items_count;
+};
+const quarry_c_brf_v2_field_layout_t variable_fields[] = {
+    {0U, 0U, 17U, 0U, 0U, 8U, QUARRY_C_BRF_V2_STORAGE_VARIABLE_DESCRIPTOR},
+    {1U, 1U, 25U, 0U, 0U, 8U, QUARRY_C_BRF_V2_STORAGE_VARIABLE_DESCRIPTOR},
+    {2U, 2U, 33U, 0U, 8U, 8U, QUARRY_C_BRF_V2_STORAGE_VARIABLE_DESCRIPTOR},
+};
+const quarry_c_brf_v2_record_layout_t variable_layout = {9U, 1U, 25U, 3U, variable_fields};
+const quarry_c_member_descriptor_t variable_members[] = {
+    {0U, offsetof(VariableFields, text), 0U, 0U,
+     {QUARRY_C_TYPED_STRING, 5U, offsetof(VariableFields, text_length) - offsetof(VariableFields, text),
+      4U, 0U, nullptr, 0U, false, nullptr, 0U, nullptr, nullptr}},
+    {0U, offsetof(VariableFields, bytes), 0U, 0U,
+     {QUARRY_C_TYPED_BYTES, 4U, offsetof(VariableFields, bytes_length) - offsetof(VariableFields, bytes),
+      4U, 0U, nullptr, 0U, false, nullptr, 0U, nullptr, nullptr}},
+    {0U, offsetof(VariableFields, items), offsetof(VariableFields, items_count), 4U,
+     {QUARRY_C_TYPED_U8, 1U, 0U, 0U, 1U, nullptr, 0U, false, nullptr, 0U, nullptr, nullptr}},
+};
+const quarry_c_type_descriptor_t variable_type = {&variable_layout, sizeof(VariableFields), variable_members};
+
+TEST(TypedRecordTest, LengthAndCountDeterminePresenceWithoutFlags) {
+    VariableFields value{};
+    std::memset(value.text, 0xFF, sizeof(value.text)); // Ignored when length is zero.
+    std::array<uint8_t, 64> output{};
+    auto measured = quarry_c_typed_encoded_size(&variable_type, &value);
+    ASSERT_EQ(measured.status, QUARRY_C_STATUS_OK);
+    EXPECT_EQ(measured.size, 41U);
+    auto encoded = quarry_c_typed_encode(&variable_type, &value, 9U, output.data(), output.size());
+    ASSERT_EQ(encoded.status, QUARRY_C_STATUS_OK);
+    EXPECT_EQ(encoded.bytes_written, measured.size);
+    EXPECT_EQ(output[16U], 0U);
+    for (size_t i = 17U; i < encoded.bytes_written; ++i) EXPECT_EQ(output[i], 0U);
+
+    value.text[0] = '\0'; // A one-byte NUL string is nonempty.
+    value.text_length = value.bytes_length = value.items_count = 1U;
+    encoded = quarry_c_typed_encode(&variable_type, &value, 9U, output.data(), output.size());
+    ASSERT_EQ(encoded.status, QUARRY_C_STATUS_OK);
+    EXPECT_EQ(encoded.bytes_written, 45U);
+    EXPECT_EQ(output[16U], 7U);
+    VariableFields decoded{};
+    auto result = quarry_c_typed_decode(&variable_type, output.data(), encoded.bytes_written, 9U, &decoded);
+    ASSERT_EQ(result.status, QUARRY_C_STATUS_OK);
+    EXPECT_EQ(decoded.text_length, 1U);
+    EXPECT_EQ(decoded.bytes_length, 1U);
+    EXPECT_EQ(decoded.items_count, 1U);
+    EXPECT_EQ(decoded.text[0], '\0');
+    EXPECT_EQ(decoded.bytes[0], 0U);
+    EXPECT_EQ(decoded.items[0], 0U);
+}
+
+TEST(TypedRecordTest, LegacyPresentEmptyFieldsRemainDecodableAndReencodeAsAbsent) {
+    std::array<uint8_t, 64> legacy{};
+    VariableFields value{};
+    ASSERT_EQ(quarry_c_typed_encode(&variable_type, &value, 9U, legacy.data(), legacy.size()).status,
+              QUARRY_C_STATUS_OK);
+    legacy[16U] = 7U;
+    quarry_c_brf_v2_write_u32(legacy.data() + 12U, 42U);
+    quarry_c_brf_v2_write_u32(legacy.data() + 17U, 41U);
+    quarry_c_brf_v2_write_u32(legacy.data() + 25U, 41U);
+    quarry_c_brf_v2_write_u32(legacy.data() + 33U, 41U);
+    quarry_c_brf_v2_write_u32(legacy.data() + 37U, 1U);
+    auto result = quarry_c_typed_decode(&variable_type, legacy.data(), 42U, 9U, &value);
+    ASSERT_EQ(result.status, QUARRY_C_STATUS_OK);
+    EXPECT_EQ(value.text_length, 0U);
+    EXPECT_EQ(value.bytes_length, 0U);
+    EXPECT_EQ(value.items_count, 0U);
+    std::array<uint8_t, 64> normalized{};
+    auto encoded = quarry_c_typed_encode(&variable_type, &value, 9U, normalized.data(), normalized.size());
+    ASSERT_EQ(encoded.status, QUARRY_C_STATUS_OK);
+    EXPECT_EQ(encoded.bytes_written, 41U);
+    EXPECT_EQ(normalized[16U], 0U);
 }
 } // namespace

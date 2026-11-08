@@ -472,9 +472,10 @@ The count SHALL NOT exceed `max_elements`.
 The Field Directory `fieldLength` SHALL cover the complete array payload,
 including the encoded element count and all encoded element data.
 
-An array count of zero is valid. A present empty array SHALL be encoded as a
-Field Directory entry whose payload is the canonical zero count byte `0x00`.
-An absent array SHALL have no Field Directory entry.
+An array count of zero is accepted when decoding legacy records. Schema-aware
+encoders SHALL omit an array field whose count is zero; no Field Directory
+entry is emitted. This does not remove empty string/bytes elements inside a
+nonempty array: their positions and length prefixes are retained.
 
 For fixed-width element types, array elements SHALL be encoded immediately after
 the count, tightly packed, in index order, with no padding or alignment bytes.
@@ -711,8 +712,19 @@ corresponding parent presence bit is set. When the parent presence bit is set,
 the inline nested-record slot SHALL contain a complete valid BRF v2 record and
 SHALL be validated according to the normal nested-record rules.
 
-A present zero-length string, bytes value, or variable array is distinct from
-an absent field.
+Schema-aware encoders SHALL encode a zero-length string or bytes field, and
+an array field with zero elements, as absent. They SHALL clear its presence bit,
+leave its fixed-region descriptor zero, and emit no variable object for it.
+Nonzero length/count determines presence for these field kinds; the contents
+of unused capacity do not determine presence. A string containing a NUL byte
+with length one, or an array containing one empty element, is nonempty.
+
+Decoders SHALL continue accepting legacy records whose presence bits mark
+zero-length string/bytes fields or zero-count arrays as present. Such records
+can retain their explicit presence in APIs that expose it, but re-encoding
+normalizes these empty fields to absence. Empty elements inside nonempty arrays
+remain valid, preserve array indexes, and SHALL NOT be omitted. Scalar fields
+and nested-record fields retain their independent presence semantics.
 
 ## BRF v2 Canonical Fixed Region
 
@@ -854,9 +866,9 @@ element bytes
 The array count is required at runtime and is therefore retained inside the
 array object rather than duplicated in the common field descriptor.
 
-A present empty array has `element_count = 0` and a canonical one-byte array
-object containing `00`. An absent array has a clear presence bit and a zeroed
-descriptor.
+An empty array field SHALL be encoded as absent, with a clear presence bit and
+a zeroed descriptor. The legacy representation, with a set presence bit and a
+one-byte array object containing `00`, remains accepted by decoders.
 
 ### Nested records
 

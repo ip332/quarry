@@ -48,7 +48,8 @@ endif()
 # epoch guard's clear, actionable #error.
 # Epoch 3 moves generated C codecs into the shared typed-record runtime.
 # Epoch 4 makes encoded_size return an explicit status/size result.
-set(QUARRY_GENERATED_CODE_API_VERSION_C 4)
+# Epoch 5 derives string/bytes/array presence from length/count in C structs.
+set(QUARRY_GENERATED_CODE_API_VERSION_C 5)
 if(NOT QUARRY_GENERATED_CODE_API_VERSION_C MATCHES "^[0-9]+$")
     message(FATAL_ERROR "QUARRY_GENERATED_CODE_API_VERSION_C must be a non-negative integer")
 endif()
