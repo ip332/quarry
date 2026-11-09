@@ -19,8 +19,8 @@ typedef struct { benchmark_workload_Workload_t* record; } RootCtx;
 static quarry_generic_status_t child_field(const quarry_brf_record_provider_t* p, uint16_t i, quarry_brf_value_t* out) {
     const ChildCtx* c = (const ChildCtx*)p->context; *out = (quarry_brf_value_t){0};
     if (i == 0U && c->child->has_id) { out->kind = QUARRY_BRF_ENCODE_UINT; out->uint_value = c->child->id; return QUARRY_GENERIC_OK; }
-    if (i == 1U && c->child->has_label) { out->kind = QUARRY_BRF_ENCODE_STRING; out->string_value = (quarry_string_view_t){c->child->label, c->child->label_length}; return QUARRY_GENERIC_OK; }
-    if (i == 2U && c->child->has_payload) { out->kind = QUARRY_BRF_ENCODE_BYTES; out->bytes_value = (quarry_bytes_view_t){c->child->payload, c->child->payload_length}; return QUARRY_GENERIC_OK; }
+    if (i == 1U && c->child->label_length != 0U) { out->kind = QUARRY_BRF_ENCODE_STRING; out->string_value = (quarry_string_view_t){c->child->label, c->child->label_length}; return QUARRY_GENERIC_OK; }
+    if (i == 2U && c->child->payload_length != 0U) { out->kind = QUARRY_BRF_ENCODE_BYTES; out->bytes_value = (quarry_bytes_view_t){c->child->payload, c->child->payload_length}; return QUARRY_GENERIC_OK; }
     return QUARRY_GENERIC_OK;
 }
 static quarry_generic_status_t uint_element(const quarry_brf_array_provider_t* p, size_t i, quarry_brf_value_t* out) {
@@ -41,17 +41,17 @@ static quarry_generic_status_t root_field(const quarry_brf_value_provider_t* p, 
     else if (i == 3U && r->has_ratio) { out->kind=QUARRY_BRF_ENCODE_FLOAT; out->float_value=r->ratio; }
     else if (i == 4U && r->has_enabled) { out->kind=QUARRY_BRF_ENCODE_BOOL; out->bool_value=r->enabled; }
     else if (i == 5U && r->has_status) { out->kind=QUARRY_BRF_ENCODE_ENUM; out->int_value=r->status; }
-    else if (i == 6U && r->has_name) { out->kind=QUARRY_BRF_ENCODE_STRING; out->string_value=(quarry_string_view_t){r->name,r->name_length}; }
-    else if (i == 7U && r->has_payload) { out->kind=QUARRY_BRF_ENCODE_BYTES; out->bytes_value=(quarry_bytes_view_t){r->payload,r->payload_length}; }
-    else if (i == 8U && r->has_values) { values_ctx=(UintArrayCtx){r->values,r->values_count}; values=(quarry_brf_array_provider_t){uint_element,r->values_count,&values_ctx}; out->kind=QUARRY_BRF_ENCODE_ARRAY; out->aggregate=&values; }
+    else if (i == 6U && r->name_length != 0U) { out->kind=QUARRY_BRF_ENCODE_STRING; out->string_value=(quarry_string_view_t){r->name,r->name_length}; }
+    else if (i == 7U && r->payload_length != 0U) { out->kind=QUARRY_BRF_ENCODE_BYTES; out->bytes_value=(quarry_bytes_view_t){r->payload,r->payload_length}; }
+    else if (i == 8U && r->values_count != 0U) { values_ctx=(UintArrayCtx){r->values,r->values_count}; values=(quarry_brf_array_provider_t){uint_element,r->values_count,&values_ctx}; out->kind=QUARRY_BRF_ENCODE_ARRAY; out->aggregate=&values; }
     else if (i == 9U && r->has_child) { child_ctx.child=&r->child; child=(quarry_brf_record_provider_t){child_field,&child_ctx}; out->kind=QUARRY_BRF_ENCODE_RECORD; out->aggregate=&child; }
-    else if (i == 10U && r->has_children) { children_ctx=(ChildArrayCtx){r->children,r->children_count}; children=(quarry_brf_record_array_provider_t){child_element,r->children_count,&children_ctx}; out->kind=QUARRY_BRF_ENCODE_ARRAY; out->aggregate=&children; }
+    else if (i == 10U && r->children_count != 0U) { children_ctx=(ChildArrayCtx){r->children,r->children_count}; children=(quarry_brf_record_array_provider_t){child_element,r->children_count,&children_ctx}; out->kind=QUARRY_BRF_ENCODE_ARRAY; out->aggregate=&children; }
     return QUARRY_GENERIC_OK;
 }
 static int load(const char* path, uint8_t* b, size_t* n) { FILE* f=fopen(path,"rb"); long z; if(!f||fseek(f,0,SEEK_END)|| (z=ftell(f))<0 || (size_t)z>QBS_BYTES || fseek(f,0,SEEK_SET)) return 0; *n=(size_t)z; int ok=fread(b,1,*n,f)==*n; fclose(f); return ok; }
 static size_t file_size(const char* path) { FILE* f=fopen(path,"rb"); long z; if(f==NULL||fseek(f,0,SEEK_END)!=0){if(f!=NULL)fclose(f);return 0U;} z=ftell(f); fclose(f); return z<0?0U:(size_t)z; }
 static double ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return (double)t.tv_sec*1e9+t.tv_nsec; }
-static void init_record(benchmark_workload_Workload_t* r) { benchmark_workload_Workload_init(r); r->has_sequence=true;r->sequence=153;r->has_timestamp=true;r->timestamp=1700000000;r->has_counter=true;r->counter=9001;r->has_ratio=true;r->ratio=0.875F;r->has_enabled=true;r->enabled=true;r->has_status=true;r->status=BENCHMARK_WORKLOAD_STATUS_ACTIVE;r->has_name=true;memcpy(r->name,"qbs-workload",12);r->name_length=12;r->has_payload=true;r->payload_length=4;r->payload[0]=1;r->payload[1]=0;r->payload[2]=0xff;r->payload[3]=2;r->has_values=true;r->values_count=4;for(size_t i=0;i<4;i++)r->values[i]=(uint32_t)(i+10);r->has_child=true;r->child.has_id=true;r->child.id=7;r->child.has_label=true;memcpy(r->child.label,"child",5);r->child.label_length=5;r->child.has_payload=true;r->child.payload_length=2;r->child.payload[0]=0;r->child.payload[1]=0xff;r->has_children=true;r->children_count=2;r->children[0]=r->child;r->children[1]=r->child;r->children[1].id=8; }
+static void init_record(benchmark_workload_Workload_t* r) { benchmark_workload_Workload_init(r); r->has_sequence=true;r->sequence=153;r->has_timestamp=true;r->timestamp=1700000000;r->has_counter=true;r->counter=9001;r->has_ratio=true;r->ratio=0.875F;r->has_enabled=true;r->enabled=true;r->has_status=true;r->status=BENCHMARK_WORKLOAD_STATUS_ACTIVE;memcpy(r->name,"qbs-workload",12);r->name_length=12;r->payload_length=4;r->payload[0]=1;r->payload[1]=0;r->payload[2]=0xff;r->payload[3]=2;r->values_count=4;for(size_t i=0;i<4;i++)r->values[i]=(uint32_t)(i+10);r->has_child=true;r->child.has_id=true;r->child.id=7;memcpy(r->child.label,"child",5);r->child.label_length=5;r->child.payload_length=2;r->child.payload[0]=0;r->child.payload[1]=0xff;r->children_count=2;r->children[0]=r->child;r->children[1]=r->child;r->children[1].id=8; }
 static int generic_access(const quarry_brf_record_view_t* view, uint64_t* sum) {
     uint64_t value; quarry_string_view_t text; quarry_bytes_view_t bytes;
     quarry_brf_array_view_t array; quarry_brf_record_view_t child, element;
@@ -70,8 +70,8 @@ static int generic_access(const quarry_brf_record_view_t* view, uint64_t* sum) {
     return 1;
 }
 static int generated_access(const benchmark_workload_Workload_t* r, uint64_t* sum) {
-    if (!r->has_sequence || !r->has_name || !r->has_payload || !r->has_values ||
-        !r->has_child || !r->has_children || r->children_count != 2U) return 0;
+    if (!r->has_sequence || r->name_length == 0U || r->payload_length == 0U || r->values_count == 0U ||
+        !r->has_child || r->children_count != 2U) return 0;
     *sum += r->sequence + r->name_length + r->payload_length;
     for (uint32_t i = 0U; i < r->values_count; ++i) *sum += r->values[i];
     *sum += r->child.id;
