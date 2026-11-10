@@ -49,7 +49,9 @@ endif()
 # Epoch 3 moves generated C codecs into the shared typed-record runtime.
 # Epoch 4 makes encoded_size return an explicit status/size result.
 # Epoch 5 derives string/bytes/array presence from length/count in C structs.
-set(QUARRY_GENERATED_CODE_API_VERSION_C 5)
+# Epoch 6 resolves count/length presence operations in generated descriptors.
+# Epoch 7 adds generated per-field decode operations to the type descriptor.
+set(QUARRY_GENERATED_CODE_API_VERSION_C 7)
 if(NOT QUARRY_GENERATED_CODE_API_VERSION_C MATCHES "^[0-9]+$")
     message(FATAL_ERROR "QUARRY_GENERATED_CODE_API_VERSION_C must be a non-negative integer")
 endif()

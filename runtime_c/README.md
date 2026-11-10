@@ -10,14 +10,14 @@ include-only generated `.c` compatibility file is optional to compile.
 
 This codec supports all currently generated C field kinds, uses the canonical
 BRF v2 layout, performs no heap allocation, and validates encode values and
-capacity before writing. Host member offsets, enum representation, and array
-strides come from generated descriptors rather than serialized storage.
+capacity as each field is written. Failed output must be discarded or cleared.
+Host member offsets, enum representation, and array strides come from generated descriptors rather than serialized storage.
 `_encoded_size()` returns a result with `status` and `size`; failures report the
 specific status and set `size` to zero. Descriptors are trusted
 compiler output; they are not a format for accepting untrusted host offsets.
 Buffers must not overlap their source/destination structs, and encode source
 values must remain stable for the complete call. Schema nesting bounds the
-runtime's recursive call stack. The C generated-code API epoch is 5.
+runtime's recursive call stack. The C generated-code API epoch is 7.
 
 ## BRF v2 generated bindings
 
@@ -39,13 +39,34 @@ arrays are retained. Enum values, bounds, UTF-8, array framing, and nested recor
 are validated by the shared codec. Recursive by-value records and nested
 arrays remain unsupported by the schema/generator model.
 
-Encoding first measures and validates the complete value, checks output
-capacity, and then writes the BRF v2 header, fixed slots, and contiguous
-variable tail directly into caller-owned output. Schema-specific worst-case
-scratch buffers are unnecessary. Decode validates structural layout before
-copying field values into caller-owned storage. Result values are zeroed
-initially and may contain partially decoded fields on failure; applications
-must check status before using them.
+Encoding validates each field immediately before writing it, in one traversal,
+without a sizing pass or per-call plan cache. It fills record lengths and variable
+field descriptors after their payloads are written. Failure returns an error and
+`bytes_written` reports the output span touched, including fixed-region clearing
+and partial nested writes. Bytes beyond that span remain untouched. The span
+may contain partial or invalid bytes; it is not a valid record length on error. Callers
+must discard or clear it before reuse. The runtime does not roll back or clear
+failed output. Error precedence follows traversal and available capacity.
+`encoded_size()` remains a separate validating sizing operation when needed.
+Decode validates structure and copies field values in one traversal, reading
+each presence bit and slot once. Structural errors (header, presence bitmap,
+slot bounds, nonzero absent slots, descriptor chaining, record length) take
+precedence over value errors (bool, enum, bounds, UTF-8, nested records): the
+first value error is held while the rest of the structure is validated, so
+statuses and byte offsets are the same as validating the whole record first.
+Absent slots are checked a word at a time. Result values are zeroed initially
+and may contain partially decoded fields on failure, including after a
+structural error; applications must check status before using them.
+
+Generated type descriptors also carry per-field decode operations
+(`quarry_c_field_decode_op_t`): the wire presence byte/mask, slot size, a
+resolved decode kind (direct 1/2/4/8-byte integer/float copy, bool, other
+scalar, fixed or variable field), and the native presence operation, offsets
+and clear size. They are immutable schema metadata emitted by the compiler, so
+decode does not reclassify fields from the layout and member descriptors on
+every record. A descriptor with `decode_ops == NULL` (for example, a hand-built
+one) decodes from the layout and member descriptors alone with identical
+results.
 
 The common typed-runtime boundary uses fixed-width kind/status members so
 application enum-storage options do not change descriptor/result layouts.
@@ -100,7 +121,10 @@ bytes are rendered as hexadecimal. Enum values are rendered numerically.
 
 Generated wrappers retain the common `quarry_c_status_t` status values for
 structural errors and schema violations such as unknown enums, bounds, and
-invalid UTF-8. Encode results carry `bytes_written`; failures leave it zero.
+invalid UTF-8. Encode results carry `bytes_written` on success and failure: the extent of the
+output span touched, never exceeding capacity. Zero means nothing was written.
+A nonzero failure count includes partial nested writes and is only suitable for
+discarding or clearing that span, not transmitting a record.
 Decode results carry `has_byte_offset` and `byte_offset`, composing failures
 across nested fields and record-array elements. The runtime does not allocate
 diagnostic strings; applications may map statuses to presentation text.
@@ -126,3 +150,22 @@ Public runtime headers use the canonical `quarry/runtime_c/` include path.
 legacy byte primitives and `binary_record_v2.h` provides BRF v2 structural
 helpers; neither alone replaces linking the typed codec for current generated
 bindings. The C and C++ runtimes are independent sibling implementations.
+
+### Shared typed codec work per call
+
+The typed encoder validates and writes in a single recursive traversal. Presence
+is checked once per field using a generated bool/bitmap/count operation; enum membership, bounds and UTF-8 are checked as
+values are written. Fixed-width scalars write directly from the record loop,
+bypassing array/element dispatch while retaining scalar and enum checks.
+There is no encode-plan workspace or preliminary measurement.
+The wire header/fixed region is zeroed for canonical absent slots and padding;
+variable payload bytes are overwritten without a preliminary clear. Lengths and
+offsets are backfilled. Prefixed array elements reserve one byte, then shift their
+encoded payload if a longer canonical varuint prefix is needed. This accepts
+exact-size output buffers without measuring elements first. `encoded_size()`
+still performs a separate complete validation and size calculation.
+
+The typed decoder validates the wire layout before reading values, then accesses
+fields directly by their layout ordinal rather than searching their schema field
+indexes. Native decode storage is still fully zero-initialized, including absent
+values and unused capacity. This preserves the existing decode behavior.

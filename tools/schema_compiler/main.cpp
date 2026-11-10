@@ -49,6 +49,7 @@ struct CommandLine {
     bool show_generated_code_api_version = false;
     bool list_outputs = false;
     bool c_optimize_size = false;
+    bool cpp_c_storage = false;
     bool qbs_reflective = false;
     std::string qbs_output;
     Language language = Language::Cpp;
@@ -65,6 +66,7 @@ struct CommandLine {
            "      --file-extension EXT      Generated file extension for --language cpp\n"
            "                                (default: .generated.hpp)\n"
            "      --language {cpp,c,python} Target backend language (default: cpp)\n"
+           "      --cpp-storage {owning,c}  C++ owning containers or fixed C storage\n"
            "      --c-optimize-size          Pack C presence flags into a bitmap\n"
            "      --emit-qbs PATH           Emit the resolved schema as a deterministic QBS image\n"
            "      --qbs-reflective          Include reflective record, field, and enum names in QBS\n"
@@ -89,7 +91,8 @@ void print_generated_code_api_version(std::ostream& output) {
 
 [[nodiscard]] bool option_requires_value(std::string_view option) {
     return option == "-o" || option == "--output-directory" || option == "--root-file-stem" ||
-           option == "--file-extension" || option == "--language" || option == "--emit-qbs";
+           option == "--file-extension" || option == "--language" || option == "--emit-qbs" ||
+           option == "--cpp-storage";
 }
 
 [[nodiscard]] std::optional<CommandLine> parse_command_line(int argc, char** argv,
@@ -99,6 +102,7 @@ void print_generated_code_api_version(std::ostream& output) {
     bool saw_root_file_stem = false;
     bool saw_file_extension = false;
     bool saw_language = false;
+    bool saw_cpp_storage = false;
     bool saw_qbs_output = false;
     bool saw_qbs_reflective = false;
 
@@ -149,6 +153,15 @@ void print_generated_code_api_version(std::ostream& output) {
             }
 
             const std::string value = argv[++index];
+            if (argument == "--cpp-storage") {
+                if (saw_cpp_storage || (value != "owning" && value != "c")) {
+                    errors << "error: --cpp-storage must be specified once as owning or c\n";
+                    return std::nullopt;
+                }
+                saw_cpp_storage = true;
+                command_line.cpp_c_storage = value == "c";
+                continue;
+            }
             if (value.empty()) {
                 errors << "error: empty value for " << argument << '\n';
                 return std::nullopt;
@@ -224,7 +237,7 @@ void print_generated_code_api_version(std::ostream& output) {
             command_line.codegen_options.root_file_stem != "schema" ||
             command_line.codegen_options.file_extension != ".generated.hpp" ||
             command_line.language != Language::Cpp || !command_line.qbs_output.empty() ||
-            command_line.qbs_reflective;
+            command_line.qbs_reflective || saw_cpp_storage;
         if (has_generation_arguments) {
             errors << "error: --print-generated-code-api-version does not accept generation "
                       "options or an input file\n";
@@ -232,8 +245,17 @@ void print_generated_code_api_version(std::ostream& output) {
         }
     }
 
-    if (command_line.c_optimize_size && command_line.language != Language::C) {
-        errors << "error: --c-optimize-size requires --language c\n";
+    if (saw_cpp_storage && command_line.language != Language::Cpp) {
+        errors << "error: --cpp-storage requires --language cpp\n";
+        return std::nullopt;
+    }
+    if (command_line.cpp_c_storage && saw_file_extension) {
+        errors << "error: --file-extension is not supported with --cpp-storage c\n";
+        return std::nullopt;
+    }
+    if (command_line.c_optimize_size && command_line.language != Language::C &&
+        !command_line.cpp_c_storage) {
+        errors << "error: --c-optimize-size requires --language c or --cpp-storage c\n";
         return std::nullopt;
     }
 
@@ -483,8 +505,13 @@ template <typename CodegenResultT>
         return exit_success;
     }
 
-    if (command_line.language == Language::C) {
+    if (command_line.language == Language::C || command_line.cpp_c_storage) {
         backend_c::CodegenOptions c_options;
+        c_options.cpp_wrapper = command_line.cpp_c_storage;
+        if (c_options.cpp_wrapper) {
+            c_options.header_extension = ".generated.hpp";
+            c_options.source_extension = ".generated.cpp";
+        }
         c_options.optimize_size = command_line.c_optimize_size;
         c_options.output_directory = command_line.codegen_options.output_directory;
         c_options.root_file_stem = command_line.codegen_options.root_file_stem;

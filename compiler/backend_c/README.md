@@ -43,8 +43,10 @@ Imported record descriptors retain the containing schema's resolved record ID.
 Descriptors and wrappers have internal linkage and can be included in multiple
 translation units. Their addresses are not stable type identities across TUs.
 
-The shared runtime validates and measures values before modifying the encode
-destination, then writes directly into it. Scalars, enums, strings, bytes,
+The shared runtime validates each field immediately before writing it, in one
+traversal. On failure, `bytes_written` reports the span touched, including partial nested
+writes, and the destination may contain partial or invalid output; callers must discard or clear it. No rollback is
+performed. `encoded_size()` remains a separate validating sizing operation. Scalars, enums, strings, bytes,
 bounded arrays, nested records, and record arrays use the same codec. There
 is no heap allocation or worst-case generated scratch buffer. Input/output
 buffers and source/destination structs must not overlap, and encoding source
@@ -56,8 +58,19 @@ UTF-8, enum values, bounds, and invalid arguments. Its `size` is zero on failure
 and is the encoded byte count only when `status == QUARRY_C_STATUS_OK`.
 The shared sizing and encoding paths use the same validation rules. Decode initializes its result value to zero and may retain
 partially decoded fields on failure; callers must check status. Wire bytes
-remain BRF v2. The generated C/runtime API epoch is now **5**; regenerate
-headers and link the matching runtime when upgrading.
+remain BRF v2. The generated C/runtime API epoch is now **7**; regenerate
+headers and link the matching runtime when upgrading. Epoch 6 precomputes
+length/count presence offsets, eliminating runtime field-kind classification.
+Epoch 7 adds a per-record `_decode_ops[]` table (`quarry_c_field_decode_op_t`)
+referenced from the type descriptor. Each entry resolves, at generation time,
+the wire presence byte/mask, slot size, decode kind (direct integer/float copy
+by width, bool, enum/other scalar, fixed or variable field) and native
+presence operation (bool, packed bit with first-in-byte initialization, or
+length/count), so decode does not rediscover them per record. The table must
+match the layout and member descriptors; the runtime's descriptor-only path
+defines the behavior it reproduces, and a tool test checks the two agree for
+every field kind in both presence layouts.
+Native C structure layouts and successful wire bytes are unchanged.
 
 ## Supported data model
 
@@ -147,3 +160,16 @@ alignment can affect the final size. This is a portable byte bitmap rather than 
 bitfield members, whose layout is implementation-defined. Wire bytes are unchanged.
 Generate all bindings exchanged as C structs with the same option; these native layouts
 are not interchangeable. Separately generated translation units must also agree.
+
+### C++ wrappers with fixed C storage
+
+Use `--language cpp --cpp-storage c` to generate C++20 classes over the C structs
+and the shared C runtime. Add `--c-optimize-size` for packed presence. Output is
+`.generated.hpp` plus an include-only `.generated.cpp`; link `Quarry::runtime_c`.
+The classes live in `quarry::cxx` and use the C record symbol as their name.
+They provide bounded setters, const string/span views, native storage access,
+and caller-buffer encode/in-place decode, without heap allocation or additional
+object storage. The default owning C++ API is unchanged.
+
+See [the runnable example](../../examples/cpp/c_storage_encode_decode/README.md)
+for API details, failure behavior, and build instructions.

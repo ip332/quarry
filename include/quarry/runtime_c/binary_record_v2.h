@@ -97,6 +97,22 @@ static inline bool quarry_c_brf_v2_present_bit(const uint8_t* record, uint32_t b
             (uint8_t)(1U << (bit_index % 8U))) != 0U;
 }
 
+/* Returns the index of the first nonzero byte in p[0, n), or n if all are zero.
+ * Zero spans, the common case for absent slots, are checked a word at a time
+ * with alignment-free loads; only a failing span is rescanned byte-wise. */
+static inline uint32_t quarry_c_brf_v2_find_nonzero(const uint8_t* p, uint32_t n) {
+    uint32_t i = 0U;
+    for (; n - i >= 4U; i += 4U) {
+        uint32_t word;
+        memcpy(&word, p + i, sizeof(word));
+        if (word != 0U) break;
+    }
+    for (; i < n; ++i) {
+        if (p[i] != 0U) return i;
+    }
+    return n;
+}
+
 static inline void quarry_c_brf_v2_set_present(uint8_t* record, uint32_t field_index) {
     record[QUARRY_C_BRF_V2_HEADER_SIZE + field_index / 8U] |=
         (uint8_t)(1U << (field_index % 8U));
@@ -258,11 +274,10 @@ static inline quarry_c_status_t quarry_c_brf_v2_parse_record(
         const bool present = quarry_c_brf_v2_present_bit(input, field->presence_bit_index);
         const uint8_t* slot = input + field->byte_offset;
         if (!present) {
-            for (uint32_t j = 0U; j < field->slot_size; ++j) {
-                if (slot[j] != 0U) {
-                    if (error_offset != NULL) *error_offset = field->byte_offset + j;
-                    return QUARRY_C_STATUS_INVALID_FIELD_RANGE;
-                }
+            const uint32_t nonzero = quarry_c_brf_v2_find_nonzero(slot, field->slot_size);
+            if (nonzero != field->slot_size) {
+                if (error_offset != NULL) *error_offset = field->byte_offset + nonzero;
+                return QUARRY_C_STATUS_INVALID_FIELD_RANGE;
             }
             continue;
         }
@@ -292,6 +307,34 @@ static inline quarry_c_status_t quarry_c_brf_v2_parse_record(
     return QUARRY_C_STATUS_OK;
 }
 
+/* Access a validated record by layout ordinal, without searching field indexes. */
+static inline quarry_c_status_t quarry_c_brf_v2_field_at(
+    const quarry_c_brf_v2_parsed_record_t* parsed,
+    const quarry_c_brf_v2_record_layout_t* layout, uint32_t ordinal,
+    quarry_c_brf_v2_field_view_t* view) {
+    if (parsed == NULL || layout == NULL || view == NULL) return QUARRY_C_STATUS_INVALID_ARGUMENT;
+    if (ordinal >= layout->field_count) return QUARRY_C_STATUS_INVALID_FIELD_RANGE;
+    const quarry_c_brf_v2_field_layout_t* field = &layout->fields[ordinal];
+    view->present = quarry_c_brf_v2_present_bit(parsed->bytes, field->presence_bit_index);
+    view->byte_offset = field->byte_offset;
+    if (!view->present) {
+        view->bytes = NULL;
+        view->length = 0U;
+        return QUARRY_C_STATUS_OK;
+    }
+    if (field->storage == QUARRY_C_BRF_V2_STORAGE_VARIABLE_DESCRIPTOR) {
+        const uint8_t* descriptor = parsed->bytes + field->byte_offset;
+        const uint32_t offset = quarry_c_brf_v2_read_u32(descriptor);
+        const uint32_t length = quarry_c_brf_v2_read_u32(descriptor + 4U);
+        view->bytes = parsed->bytes + offset;
+        view->length = length;
+    } else {
+        view->bytes = parsed->bytes + field->byte_offset;
+        view->length = field->slot_size;
+    }
+    return QUARRY_C_STATUS_OK;
+}
+
 static inline quarry_c_status_t quarry_c_brf_v2_find_field(
     const quarry_c_brf_v2_parsed_record_t* parsed,
     const quarry_c_brf_v2_record_layout_t* layout, uint32_t field_index,
@@ -300,24 +343,7 @@ static inline quarry_c_status_t quarry_c_brf_v2_find_field(
     for (uint32_t i = 0U; i < layout->field_count; ++i) {
         const quarry_c_brf_v2_field_layout_t* field = &layout->fields[i];
         if (field->field_index != field_index) continue;
-        view->present = quarry_c_brf_v2_present_bit(parsed->bytes, field->presence_bit_index);
-        view->byte_offset = field->byte_offset;
-        if (!view->present) {
-            view->bytes = NULL;
-            view->length = 0U;
-            return QUARRY_C_STATUS_OK;
-        }
-        if (field->storage == QUARRY_C_BRF_V2_STORAGE_VARIABLE_DESCRIPTOR) {
-            const uint8_t* descriptor = parsed->bytes + field->byte_offset;
-            const uint32_t offset = quarry_c_brf_v2_read_u32(descriptor);
-            const uint32_t length = quarry_c_brf_v2_read_u32(descriptor + 4U);
-            view->bytes = parsed->bytes + offset;
-            view->length = length;
-        } else {
-            view->bytes = parsed->bytes + field->byte_offset;
-            view->length = field->slot_size;
-        }
-        return QUARRY_C_STATUS_OK;
+        return quarry_c_brf_v2_field_at(parsed, layout, i, view);
     }
     view->present = false;
     view->bytes = NULL;
