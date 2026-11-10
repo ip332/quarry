@@ -120,6 +120,66 @@ using ::quarry::compiler::layout::RecordLayout;
            std::end(keywords);
 }
 
+constexpr std::string_view cpp_keywords[] = {"alignas",
+                                             "alignof",
+                                             "and",
+                                             "and_eq",
+                                             "asm",
+                                             "bitand",
+                                             "bitor",
+                                             "bool",
+                                             "catch",
+                                             "char8_t",
+                                             "char16_t",
+                                             "char32_t",
+                                             "class",
+                                             "compl",
+                                             "concept",
+                                             "consteval",
+                                             "constexpr",
+                                             "constinit",
+                                             "const_cast",
+                                             "co_await",
+                                             "co_return",
+                                             "co_yield",
+                                             "decltype",
+                                             "delete",
+                                             "dynamic_cast",
+                                             "explicit",
+                                             "export",
+                                             "false",
+                                             "friend",
+                                             "mutable",
+                                             "namespace",
+                                             "new",
+                                             "noexcept",
+                                             "not",
+                                             "not_eq",
+                                             "nullptr",
+                                             "operator",
+                                             "or",
+                                             "or_eq",
+                                             "private",
+                                             "protected",
+                                             "public",
+                                             "reinterpret_cast",
+                                             "requires",
+                                             "static_assert",
+                                             "static_cast",
+                                             "template",
+                                             "this",
+                                             "thread_local",
+                                             "throw",
+                                             "true",
+                                             "try",
+                                             "typeid",
+                                             "typename",
+                                             "using",
+                                             "virtual",
+                                             "wchar_t",
+                                             "xor",
+                                             "xor_eq"};
+
 [[nodiscard]] bool is_c_identifier(std::string_view identifier) {
     if (identifier.empty()) {
         return false;
@@ -276,8 +336,9 @@ struct FieldEncoding {
 // function-local scratch variables. Reserve all of those names together so
 // two fields cannot collide after lowering.
 [[nodiscard]] std::string allocate_field_name(CIdentifierAllocator& allocator,
-                                               std::string_view source_name,
-                                               const FieldEncoding& encoding) {
+                                              std::string_view source_name,
+                                              const FieldEncoding& encoding,
+                                              bool cpp_wrapper = false) {
     const std::string base = safe_c_identifier(source_name);
     for (std::uint32_t suffix = 0U;; ++suffix) {
         const std::string candidate = suffix == 0U
@@ -286,6 +347,10 @@ struct FieldEncoding {
         std::vector<std::string> generated_names;
         generated_names.push_back(candidate);
         generated_names.push_back("has_" + candidate);
+        if (cpp_wrapper) {
+            generated_names.push_back("set_" + candidate);
+            generated_names.push_back("clear_" + candidate);
+        }
         if (encoding.is_array) {
             generated_names.push_back(candidate + "_count");
         } else if (encoding.is_string || encoding.is_bytes) {
@@ -489,6 +554,7 @@ struct PlannedField {
 struct PlannedRecord {
     std::uint64_t ir_id = 0U;
     std::string symbol_name;
+    std::string cpp_name;
     std::uint32_t record_id = 0U;
     std::uint32_t presence_bitmap_size = 0U;
     std::uint32_t fixed_region_size = 0U;
@@ -1000,6 +1066,12 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         // leaves it at 0 and records the dependency in
         // same_namespace_dependencies instead, for Phase 2 to consume.
         std::vector<PlannedRecord> planned_records;
+        CIdentifierAllocator cpp_names;
+        for (const auto keyword : cpp_keywords)
+            (void)cpp_names.reserve(keyword);
+        for (const auto* name :
+             {"native", "native_type", "encode", "decode", "encoded_size", "storage_"})
+            (void)cpp_names.reserve(name);
         planned_records.reserve(static_cast<std::size_t>(ns.records_size()));
         for (const RecordIR& record_ir : ns.records()) {
             const RecordLayout* canonical_layout = layout_model.find_record(record_ir.fqn());
@@ -1009,10 +1081,20 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                                 record_ir.fqn() + "' or has an inconsistent field count";
                 return false;
             }
+            const auto cpp_name =
+                cpp_names.allocate(safe_c_identifier(symbol_prefix + record_ir.name()));
             std::vector<PlannedField> planned_fields;
             CIdentifierAllocator field_names;
             if (options.optimize_size)
                 (void)field_names.reserve("quarry_presence_bits");
+            if (options.cpp_wrapper) {
+                for (const auto keyword : cpp_keywords)
+                    (void)field_names.reserve(keyword);
+                for (const auto* name :
+                     {"native", "native_type", "encode", "decode", "encoded_size", "storage_"})
+                    (void)field_names.reserve(name);
+                (void)field_names.reserve(cpp_name);
+            }
             std::vector<std::uint64_t> dependencies;
             planned_fields.reserve(static_cast<std::size_t>(record_ir.fields_size()));
             std::size_t field_position = 0U;
@@ -1030,10 +1112,12 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                     }
                 }
                 PlannedField planned_field{
-                    .name = allocate_field_name(field_names, field_ir.name(), *encoding),
+                    .name = allocate_field_name(field_names, field_ir.name(), *encoding,
+                                                options.cpp_wrapper),
                     .source_name = field_ir.name(),
                     .field_index = field_ir.field_index(),
-                    .presence_bit_index = canonical_layout->fields[field_position].presence_bit_index,
+                    .presence_bit_index =
+                        canonical_layout->fields[field_position].presence_bit_index,
                     .byte_offset = canonical_layout->fields[field_position].location.byte_offset,
                     .slot_size = canonical_layout->fields[field_position].slot_size,
                     .storage = canonical_layout->fields[field_position].storage,
@@ -1118,6 +1202,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             planned_records.push_back(PlannedRecord{
                 .ir_id = record_ir.ir_id(),
                 .symbol_name = safe_c_identifier(symbol_prefix + record_ir.name()),
+                .cpp_name = cpp_name,
                 .record_id = record_ir.record_id(),
                 .presence_bitmap_size = canonical_layout->presence_bitmap_size,
                 .fixed_region_size = canonical_layout->fixed_region_size,
@@ -1420,6 +1505,78 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 
 // --- Rendering ------------------------------------------------------------
 
+// Per-field decode operations (quarry_c_field_decode_op_t), resolved here so the
+// runtime decode loop does not reclassify fields on every record. They must
+// describe exactly the layout and member descriptors rendered alongside them;
+// the runtime's descriptor-only path (decode_ops == NULL) defines the
+// behavior they reproduce.
+void render_decode_ops(std::ostringstream& stream, const PlannedRecord& record,
+                       bool optimize_size) {
+    stream << "static const quarry_c_field_decode_op_t " << record.symbol_name
+           << "_decode_ops[] = {\n";
+    const std::string type = record.symbol_name + "_t";
+    std::uint32_t presence_bit = 0U; // Native packed bit; same order as _members.
+    for (const PlannedField& field : record.fields) {
+        const auto& e = field.encoding;
+        const bool counted = e.is_array || e.is_string || e.is_bytes;
+        const bool fixed = field.storage == FieldStorage::Fixed;
+        const bool variable = field.storage == FieldStorage::VariableDescriptor;
+        const char* kind =
+            variable ? "QUARRY_C_DECODE_VARIABLE_FIELD" : "QUARRY_C_DECODE_FIXED_FIELD";
+        if (!counted && !e.is_record && fixed) {
+            const bool exact = field.slot_size == e.width_bytes;
+            if (e.is_enum || !exact) {
+                kind = "QUARRY_C_DECODE_SCALAR";
+            } else if (e.runtime_verb == "bool") {
+                kind = e.width_bytes == 1U ? "QUARRY_C_DECODE_BOOL" : "QUARRY_C_DECODE_SCALAR";
+            } else if (e.width_bytes == 1U) {
+                kind = "QUARRY_C_DECODE_FIXED_1";
+            } else if (e.width_bytes == 2U) {
+                kind = "QUARRY_C_DECODE_FIXED_2";
+            } else if (e.width_bytes == 4U) {
+                kind = "QUARRY_C_DECODE_FIXED_4";
+            } else if (e.width_bytes == 8U) {
+                kind = "QUARRY_C_DECODE_FIXED_8";
+            } else {
+                kind = "QUARRY_C_DECODE_SCALAR";
+            }
+        }
+        std::string presence;
+        std::string presence_offset;
+        unsigned native_mask = 0U;
+        if (e.is_array) {
+            presence = "QUARRY_C_DECODE_PRESENCE_COUNT";
+            presence_offset = "offsetof(" + type + ", " + field.name + "_count)";
+        } else if (e.is_string || e.is_bytes) {
+            presence = e.is_string ? "QUARRY_C_DECODE_PRESENCE_COUNT_STRING"
+                                   : "QUARRY_C_DECODE_PRESENCE_COUNT";
+            presence_offset = "offsetof(" + type + ", " + field.name + "_length)";
+        } else if (optimize_size) {
+            // Bits are dense and in field order, so bit % 8 == 0 is the first
+            // member to touch its native bitmap byte.
+            presence = presence_bit % 8U == 0U ? "QUARRY_C_DECODE_PRESENCE_PACKED_FIRST"
+                                               : "QUARRY_C_DECODE_PRESENCE_PACKED";
+            presence_offset = "offsetof(" + type + ", quarry_presence_bits) + " +
+                              std::to_string(presence_bit / 8U) + "U";
+            native_mask = 1U << (presence_bit % 8U);
+            ++presence_bit;
+        } else {
+            presence = "QUARRY_C_DECODE_PRESENCE_BOOL";
+            presence_offset = "offsetof(" + type + ", has_" + field.name + ")";
+        }
+        // Absent non-counted, non-record values are zeroed, as the member path does.
+        const std::string clear = (counted || e.is_record)
+                                      ? std::string("0U")
+                                      : "sizeof(((" + type + "*)0)->" + field.name + ")";
+        stream << "    { " << field.byte_offset << "U, " << field.slot_size << "U, "
+               << 16U + field.presence_bit_index / 8U << "U, "
+               << (1U << (field.presence_bit_index % 8U)) << "U, " << kind << ", " << presence
+               << ", " << native_mask << "U, " << presence_offset << ", offsetof(" << type << ", "
+               << field.name << "), " << clear << " },\n";
+    }
+    stream << "};\n";
+}
+
 // Each generated binding describes host layout; serialization lives in runtime_c.
 void render_binding(std::ostringstream& stream, const PlannedRecord& record, bool optimize_size) {
     if (record.fields.empty()) {
@@ -1483,8 +1640,10 @@ void render_binding(std::ostringstream& stream, const PlannedRecord& record, boo
             const std::string name =
                 record.symbol_name + "_field_" + std::to_string(field.field_index);
             stream << "    { ";
-            if (e.is_array || e.is_string || e.is_bytes) {
-                stream << "0U";
+            if (e.is_array) {
+                stream << "QUARRY_C_COUNT_PRESENCE(" << member << "_count))";
+            } else if (e.is_string || e.is_bytes) {
+                stream << "QUARRY_C_COUNT_PRESENCE(" << member << "_length))";
             } else if (optimize_size) {
                 stream << "QUARRY_C_PACKED_PRESENCE(offsetof(" << type
                        << ", quarry_presence_bits), " << presence_bit++ << "U)";
@@ -1519,11 +1678,13 @@ void render_binding(std::ostringstream& stream, const PlannedRecord& record, boo
             stream << " } },\n";
         }
         stream << "};\n";
+        render_decode_ops(stream, record, optimize_size);
     }
     const std::string& n = record.symbol_name;
     stream << "static const quarry_c_type_descriptor_t " << n << "_type = { &" << n
            << "_brf_v2_layout, sizeof(" << n << "_t), "
-           << (record.fields.empty() ? "NULL" : n + "_members") << " };\n";
+           << (record.fields.empty() ? "NULL, NULL" : n + "_members, " + n + "_decode_ops")
+           << " };\n";
     stream << "static inline void " << n << "_init(" << n
            << "_t* record) { memset(record, 0, sizeof(*record)); }\n";
     stream << "typedef struct { quarry_c_status_t status; size_t size; } " << n
@@ -1561,7 +1722,104 @@ void render_binding(std::ostringstream& stream, const PlannedRecord& record, boo
            << "_decode_with_record_id(input, input_length, " << record.record_id << "U); }\n";
 }
 
-[[nodiscard]] std::string render_header(const PlannedNamespaceFile& file, bool optimize_size) {
+std::string cpp_storage_type(const std::string& type) {
+    return type == "bool" || type == "float" || type == "double" ? type : "::" + type;
+}
+
+void render_cpp_wrapper(::std::ostringstream& stream, const PlannedRecord& record, bool compact) {
+    const auto& n = record.symbol_name;
+    const auto& cpp_name = record.cpp_name;
+    stream
+        << "class " << cpp_name << " final {\npublic:\n"
+        << "    using native_type = ::" << n << "_t;\n"
+        << "    " << cpp_name << "() noexcept : storage_{} {}\n"
+        << "    native_type& native() noexcept { return storage_; }\n"
+        << "    const native_type& native() const noexcept { return storage_; }\n"
+        << "    auto encoded_size() const noexcept { return ::" << n
+        << "_encoded_size(&storage_); }\n"
+        << "    static auto encode(const native_type& value, ::std::span<::std::byte> output) "
+           "noexcept {\n"
+        << "        return ::" << n
+        << "_encode(&value, reinterpret_cast<::uint8_t*>(output.data()), output.size());\n    }\n"
+        << "    auto encode(::std::span<::std::byte> output) const noexcept { return "
+           "encode(storage_, output); }\n"
+        << "    static auto decode(native_type& value, ::std::span<const ::std::byte> input) "
+           "noexcept {\n"
+        << "        return ::quarry_c_typed_decode(&::" << n
+        << "_type, reinterpret_cast<const ::uint8_t*>(input.data()), input.size(), "
+        << record.record_id << "U, &value);\n    }\n"
+        << "    auto decode(::std::span<const ::std::byte> input) noexcept { return "
+           "decode(storage_, input); }\n";
+    for (const auto& field : record.fields) {
+        const auto& e = field.encoding;
+        const auto& f = field.name;
+        const bool variable = e.is_array || e.is_string || e.is_bytes;
+        ::std::string presence =
+            compact ? "::" + n + "_has_" + f + "(&storage_)" : "storage_.has_" + f;
+        if (variable)
+            presence = "storage_." + f + (e.is_array ? "_count" : "_length") + " != 0U";
+        stream << "    bool has_" << f << "() const noexcept { return " << presence << "; }\n";
+        const auto set_presence = [&](bool present) {
+            if (compact)
+                stream << "::" << n << "_set_" << f << "_present(&storage_, "
+                       << (present ? "true" : "false") << ");";
+            else
+                stream << "storage_.has_" << f << " = " << (present ? "true" : "false") << ";";
+        };
+        stream << "    void clear_" << f << "() noexcept { ";
+        if (variable)
+            stream << "storage_." << f << (e.is_array ? "_count" : "_length") << " = 0U;";
+        else
+            set_presence(false);
+        if (e.is_string && !e.is_array)
+            stream << " storage_." << f << "[0] = '\\0';";
+        stream << " }\n";
+        if (e.is_array) {
+            stream << "    ::std::span<const " << cpp_storage_type(e.c_type) << "> " << f
+                   << "() const noexcept { return {storage_." << f << ", storage_." << f
+                   << "_count}; }\n"
+                   << "    bool set_" << f << "(::std::span<const " << cpp_storage_type(e.c_type)
+                   << "> value) noexcept {\n"
+                   << "        if (value.size() > " << e.array_max_elements << "U) return false;\n"
+                   << "        if (!value.empty()) ::std::memmove(storage_." << f
+                   << ", value.data(), value.size_bytes());\n"
+                   << "        storage_." << f
+                   << "_count = static_cast<::uint32_t>(value.size()); return true;\n    }\n";
+        } else if (e.is_string || e.is_bytes) {
+            const auto view = e.is_string ? "::std::string_view" : "::std::span<const ::std::byte>";
+            stream << "    " << view << " " << f << "() const noexcept { return {";
+            if (e.is_bytes)
+                stream << "reinterpret_cast<const ::std::byte*>(storage_." << f << ")";
+            else
+                stream << "storage_." << f;
+            stream << ", storage_." << f << "_length}; }\n"
+                   << "    bool set_" << f << "(" << view << " value) noexcept {\n"
+                   << "        if (value.size() > "
+                   << (e.is_string ? e.string_max_bytes : e.bytes_max_bytes) << "U) return false;\n"
+                   << "        if (!value.empty()) ::std::memmove(storage_." << f
+                   << ", value.data(), value.size());\n"
+                   << "        storage_." << f
+                   << "_length = static_cast<::uint32_t>(value.size());\n";
+            if (e.is_string)
+                stream << "        storage_." << f << "[value.size()] = '\\0';\n";
+            stream << "        return true;\n    }\n";
+        } else {
+            // Fundamental types cannot be qualified with :: (e.g. ::bool).
+            const ::std::string type = cpp_storage_type(e.c_type);
+            stream << "    const " << type << "& " << f << "() const noexcept { return storage_."
+                   << f << "; }\n"
+                   << "    void set_" << f << "(const " << type << "& value) noexcept { storage_."
+                   << f << " = value; ";
+            set_presence(true);
+            stream << " }\n";
+        }
+    }
+    stream << "private:\n    native_type storage_;\n};\n"
+           << "static_assert(sizeof(" << cpp_name << ") == sizeof(::" << n << "_t));\n";
+}
+
+[[nodiscard]] std::string render_header(const PlannedNamespaceFile& file, bool optimize_size,
+                                        bool cpp_wrapper) {
     const std::string guard = header_guard_macro(file.relative_header_path);
 
     std::ostringstream stream;
@@ -1643,9 +1901,13 @@ void render_binding(std::ostringstream& stream, const PlannedRecord& record, boo
                     stream << "    bool has_" << field.name << ";\n";
                 }
                 if (field.encoding.is_array) {
-                    stream << "    " << field.encoding.c_type << " " << field.name << "["
-                           << field.encoding.array_max_elements << "];\n";
-                    stream << "    uint32_t " << field.name << "_count;\n";
+                    stream << "    "
+                           << (cpp_wrapper ? cpp_storage_type(field.encoding.c_type)
+                                           : field.encoding.c_type)
+                           << " " << field.name << "[" << field.encoding.array_max_elements
+                           << "];\n";
+                    stream << (cpp_wrapper ? "    ::uint32_t " : "    uint32_t ") << field.name
+                           << "_count;\n";
                 } else if (field.encoding.is_string) {
                     // Capacity is max_bytes + 1: room for a trailing NUL
                     // the generated decoder always writes, so decoded
@@ -1657,17 +1919,22 @@ void render_binding(std::ostringstream& stream, const PlannedRecord& record, boo
                     // strlen() if the content has an embedded NUL.
                     stream << "    char " << field.name << "["
                            << (field.encoding.string_max_bytes + 1U) << "];\n";
-                    stream << "    uint32_t " << field.name << "_length;\n";
+                    stream << (cpp_wrapper ? "    ::uint32_t " : "    uint32_t ") << field.name
+                           << "_length;\n";
                 } else if (field.encoding.is_bytes) {
                     // Capacity is exactly max_bytes: unlike string, there is
                     // no NUL-termination convenience to offer for arbitrary
                     // binary data (compiler/backend_c/README.md's "Bytes
                     // fields" section).
-                    stream << "    uint8_t " << field.name << "[" << field.encoding.bytes_max_bytes
-                           << "];\n";
-                    stream << "    uint32_t " << field.name << "_length;\n";
+                    stream << (cpp_wrapper ? "    ::uint8_t " : "    uint8_t ") << field.name << "["
+                           << field.encoding.bytes_max_bytes << "];\n";
+                    stream << (cpp_wrapper ? "    ::uint32_t " : "    uint32_t ") << field.name
+                           << "_length;\n";
                 } else {
-                    stream << "    " << field.encoding.c_type << " " << field.name << ";\n";
+                    stream << "    "
+                           << (cpp_wrapper ? cpp_storage_type(field.encoding.c_type)
+                                           : field.encoding.c_type)
+                           << " " << field.name << ";\n";
                 }
             }
         }
@@ -1699,6 +1966,14 @@ void render_binding(std::ostringstream& stream, const PlannedRecord& record, boo
     stream << "}\n";
     stream << "#endif\n";
     stream << "\n";
+    if (cpp_wrapper) {
+        stream << "#ifdef __cplusplus\n#include <cstddef>\n#include <cstring>\n#include "
+                  "<span>\n#include <string_view>\n"
+               << "namespace quarry::cxx {\n";
+        for (const auto& record : file.records)
+            render_cpp_wrapper(stream, record, optimize_size);
+        stream << "} // namespace quarry::cxx\n#endif\n";
+    }
     stream << "#endif /* " << guard << " */\n";
     return stream.str();
 }
@@ -1759,7 +2034,7 @@ CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
         }
         result.files.push_back(GeneratedFile{
             .path = output_path_for_planned_file(options, file.relative_header_path),
-            .content = render_header(file, options.optimize_size),
+            .content = render_header(file, options.optimize_size, options.cpp_wrapper),
         });
         result.files.push_back(GeneratedFile{
             .path = output_path_for_planned_file(options, file.relative_source_path),

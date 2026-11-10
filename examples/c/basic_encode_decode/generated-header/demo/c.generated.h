@@ -8,7 +8,7 @@
 
 #include <quarry/runtime_c/typed_record.h>
 
-#if QUARRY_C_GENERATED_CODE_API_VERSION != 5U
+#if QUARRY_C_GENERATED_CODE_API_VERSION != 7U
 #error "Generated Quarry C code is incompatible with the installed Quarry C runtime. Regenerate the code using a compatible quarry-schema-compiler release."
 #endif
 
@@ -32,10 +32,15 @@ static const quarry_c_brf_v2_field_layout_t demo_c_Sample_brf_v2_fields[] = {
 static const quarry_c_brf_v2_record_layout_t demo_c_Sample_brf_v2_layout = { 1U, 1U, 21U, 3U, demo_c_Sample_brf_v2_fields };
 static const quarry_c_member_descriptor_t demo_c_Sample_members[] = {
     { offsetof(demo_c_Sample_t, has_count), offsetof(demo_c_Sample_t, count), 0U, 0U, { QUARRY_C_TYPED_U32, sizeof(((demo_c_Sample_t*)0)->count), 0U, 0U, 4U, NULL, 0U, false, NULL, 0U, NULL, NULL } },
-    { 0U, offsetof(demo_c_Sample_t, label), 0U, 0U, { QUARRY_C_TYPED_STRING, sizeof(((demo_c_Sample_t*)0)->label), offsetof(demo_c_Sample_t, label_length) - offsetof(demo_c_Sample_t, label), 16U, 0U, NULL, 0U, false, NULL, 0U, NULL, NULL } },
-    { 0U, offsetof(demo_c_Sample_t, blob), 0U, 0U, { QUARRY_C_TYPED_BYTES, sizeof(((demo_c_Sample_t*)0)->blob), offsetof(demo_c_Sample_t, blob_length) - offsetof(demo_c_Sample_t, blob), 4U, 0U, NULL, 0U, false, NULL, 0U, NULL, NULL } },
+    { QUARRY_C_COUNT_PRESENCE(offsetof(demo_c_Sample_t, label_length)), offsetof(demo_c_Sample_t, label), 0U, 0U, { QUARRY_C_TYPED_STRING, sizeof(((demo_c_Sample_t*)0)->label), offsetof(demo_c_Sample_t, label_length) - offsetof(demo_c_Sample_t, label), 16U, 0U, NULL, 0U, false, NULL, 0U, NULL, NULL } },
+    { QUARRY_C_COUNT_PRESENCE(offsetof(demo_c_Sample_t, blob_length)), offsetof(demo_c_Sample_t, blob), 0U, 0U, { QUARRY_C_TYPED_BYTES, sizeof(((demo_c_Sample_t*)0)->blob), offsetof(demo_c_Sample_t, blob_length) - offsetof(demo_c_Sample_t, blob), 4U, 0U, NULL, 0U, false, NULL, 0U, NULL, NULL } },
 };
-static const quarry_c_type_descriptor_t demo_c_Sample_type = { &demo_c_Sample_brf_v2_layout, sizeof(demo_c_Sample_t), demo_c_Sample_members };
+static const quarry_c_field_decode_op_t demo_c_Sample_decode_ops[] = {
+    { 17U, 4U, 16U, 1U, QUARRY_C_DECODE_FIXED_4, QUARRY_C_DECODE_PRESENCE_BOOL, 0U, offsetof(demo_c_Sample_t, has_count), offsetof(demo_c_Sample_t, count), sizeof(((demo_c_Sample_t*)0)->count) },
+    { 21U, 8U, 16U, 2U, QUARRY_C_DECODE_VARIABLE_FIELD, QUARRY_C_DECODE_PRESENCE_COUNT_STRING, 0U, offsetof(demo_c_Sample_t, label_length), offsetof(demo_c_Sample_t, label), 0U },
+    { 29U, 8U, 16U, 4U, QUARRY_C_DECODE_VARIABLE_FIELD, QUARRY_C_DECODE_PRESENCE_COUNT, 0U, offsetof(demo_c_Sample_t, blob_length), offsetof(demo_c_Sample_t, blob), 0U },
+};
+static const quarry_c_type_descriptor_t demo_c_Sample_type = { &demo_c_Sample_brf_v2_layout, sizeof(demo_c_Sample_t), demo_c_Sample_members, demo_c_Sample_decode_ops };
 static inline void demo_c_Sample_init(demo_c_Sample_t* record) { memset(record, 0, sizeof(*record)); }
 typedef struct { quarry_c_status_t status; size_t size; } demo_c_Sample_encoded_size_result_t;
 static inline demo_c_Sample_encoded_size_result_t demo_c_Sample_encoded_size(const demo_c_Sample_t* record) {

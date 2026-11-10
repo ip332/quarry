@@ -1214,6 +1214,283 @@ TEST(SchemaCompilerToolTest, CompactPresenceOptionRequiresCAndChangesGeneratedLa
     EXPECT_EQ(planned.status, 0) << planned.stderr_text;
 }
 
+TEST(SchemaCompilerToolTest, CppCStorageCompilesRoundTripsWithoutAllocations) {
+    const auto root = make_temp_directory("cpp-c-storage");
+    const auto schema = std::filesystem::path(QUARRY_TEST_SOURCE_DIR) / "benchmarks/schemas";
+    for (const bool compact : {false, true}) {
+        const auto output = root / (compact ? "compact" : "default");
+        for (const auto* name : {"workload_shared.brd", "workload.brd"}) {
+            std::vector<std::string> options = {
+                "--language",         "cpp",           "--cpp-storage",         "c",
+                "--output-directory", output.string(), (schema / name).string()};
+            if (compact)
+                options.insert(options.end(), {"--c-optimize-size"});
+            const auto generated = run_tool(options, root);
+            ASSERT_EQ(generated.status, 0) << generated.stderr_text;
+        }
+        auto planned =
+            run_tool({"--language", "cpp", "--cpp-storage", "c", "--list-outputs",
+                      "--output-directory", output.string(), (schema / "workload.brd").string()},
+                     root);
+        ASSERT_EQ(planned.status, 0) << planned.stderr_text;
+        EXPECT_NE(planned.stdout_text.find("workload.generated.hpp"), std::string::npos);
+        EXPECT_NE(planned.stdout_text.find("workload.generated.cpp"), std::string::npos);
+        const auto harness = output / "test.cpp";
+        write_text_file(harness, R"CPP(
+#include "benchmark/workload.generated.hpp"
+#include <array>
+#include <cstdlib>
+#include <new>
+#include <type_traits>
+static size_t allocations;
+void* operator new(size_t n) { ++allocations; if (void* p = std::malloc(n)) return p; throw std::bad_alloc(); }
+void* operator new[](size_t n) { return ::operator new(n); }
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete[](void* p) noexcept { std::free(p); }
+void operator delete(void* p, size_t) noexcept { std::free(p); }
+void operator delete[](void* p, size_t) noexcept { std::free(p); }
+int main() {
+    using Record = quarry::cxx::benchmark_workload_Workload;
+    static_assert(sizeof(Record) == sizeof(Record::native_type));
+    static_assert(std::is_trivially_copyable_v<Record>);
+    const auto before = allocations;
+    Record value;
+    value.set_sequence(0); value.set_enabled(false); value.set_status(BENCHMARK_WORKLOAD_STATUS_ACTIVE);
+    if (!value.has_sequence() || !value.has_enabled() || value.enabled()) return 1;
+    if (!value.set_name("hello")) return 2;
+    if (!value.set_name(value.name().substr(1)) || value.name() != "ello") return 3;
+    const std::array<std::byte, 2> blob{std::byte{0}, std::byte{255}};
+    if (!value.set_payload(blob)) return 4;
+    const std::array<uint32_t, 2> numbers{0, 42};
+    if (!value.set_values(numbers)) return 5;
+    quarry::cxx::benchmark_workload_shared_Child child;
+    child.set_id(7); if (!child.set_label("child")) return 6;
+    value.set_child(child.native());
+    const std::array<benchmark_workload_shared_Child_t, 1> children{child.native()};
+    if (!value.set_children(children)) return 7;
+    std::array<char, 257> too_long{};
+    if (value.set_name(std::string_view(too_long.data(), too_long.size())) || value.name() != "ello") return 8;
+    std::array<std::byte, 16384> bytes{}, reference{};
+    const auto encoded = value.encode(bytes);
+    const auto native = benchmark_workload_Workload_encode(&value.native(), reinterpret_cast<uint8_t*>(reference.data()), reference.size());
+    if (encoded.status || native.status || encoded.bytes_written != native.bytes_written || bytes != reference) return 9;
+    const auto measured = value.encoded_size();
+    if (measured.status || measured.size != encoded.bytes_written) return 10;
+    Record decoded;
+    const auto input = std::span<const std::byte>(bytes).first(encoded.bytes_written);
+    if (decoded.decode(input).status || decoded.sequence() != 0 || !decoded.has_sequence() ||
+        decoded.name() != "ello" || decoded.payload()[1] != std::byte{255} ||
+        decoded.values()[1] != 42 || decoded.child().id != 7 || decoded.children()[0].id != 7) return 11;
+    decoded.clear_sequence(); decoded.clear_name(); decoded.clear_values(); decoded.clear_children();
+    if (decoded.has_sequence() || decoded.has_name() || decoded.has_values() || decoded.has_children()) return 12;
+    if (value.encode(std::span<std::byte>(bytes).first(1)).status == QUARRY_C_STATUS_OK) return 13;
+    if (decoded.decode(input.first(1)).status == QUARRY_C_STATUS_OK) return 14;
+    if (!value.set_name({}) || !value.set_payload({}) || !value.set_values({}) ||
+        value.has_name() || value.has_payload() || value.has_values()) return 15;
+    return allocations == before ? 0 : 16;
+}
+)CPP");
+        const auto executable = output / "test";
+        std::ostringstream command;
+        command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER))
+                << " -std=c++20 -Wall -Wextra -Wpedantic -Werror"
+                << " -I" << std::quoted(output.string()) << " -I"
+                << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR)) << " -I"
+                << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << ' '
+                << std::quoted(harness.string()) << ' '
+                << std::quoted(std::string(QUARRY_TEST_RUNTIME_C_LIBRARY)) << " -o "
+                << std::quoted(executable.string());
+        ASSERT_EQ(std::system(command.str().c_str()), 0) << command.str();
+        EXPECT_EQ(std::system(executable.string().c_str()), 0);
+    }
+    const auto unusual = root / "unusual.brd";
+    write_text_file(
+        unusual,
+        "namespace: collision\nrecord: Sample\nversion: 1\ntype: data\nfields:\n"
+        "  class:\n    type: uint32\n  native:\n    type: uint32\n  encode:\n    type: uint32\n"
+        "  uint32_t:\n    type: uint32\n  std:\n    type: uint32\n  set_x:\n    type: uint32\n  "
+        "x:\n    type: uint32\n"
+        "  flags:\n    type: bool[]\n    max_elements: 2\n");
+    const auto special = root / "unusual";
+    const auto generated = run_tool(
+        {"--cpp-storage", "c", "--output-directory", special.string(), unusual.string()}, root);
+    ASSERT_EQ(generated.status, 0) << generated.stderr_text;
+    const auto use = root / "unusual.cpp";
+    write_text_file(use, "#include \"collision.generated.hpp\"\nint main() { "
+                         "quarry::cxx::collision_Sample value; return value.has_flags(); }\n");
+    std::ostringstream compile;
+    compile
+        << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER))
+        << " -std=c++20 -Wall -Wextra -Wpedantic -Werror -fno-exceptions -fno-rtti -fsyntax-only"
+        << " -I" << std::quoted(special.string()) << " -I"
+        << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR)) << " -I"
+        << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << ' '
+        << std::quoted(use.string());
+    EXPECT_EQ(std::system(compile.str().c_str()), 0);
+    EXPECT_EQ(run_tool({"--language", "c", "--cpp-storage", "c", "schema.brd"}, root).status, 2);
+    EXPECT_EQ(run_tool({"--cpp-storage", "invalid", "schema.brd"}, root).status, 2);
+}
+
+// Generated decode operations must reproduce the descriptor-only decode path
+// exactly. For every field kind, in default and compact presence, decode
+// mutated records through the generated types and through deep copies with
+// decode_ops removed (nested records included), and require identical status,
+// byte offset and destination bytes. Values are synthesized from the public
+// descriptors alone, so the harness is schema-independent.
+TEST(SchemaCompilerToolTest, GeneratedDecodeOpsMatchDescriptorDecodeForAllFieldKinds) {
+    const auto root = make_temp_directory("c-decode-ops");
+    const auto kinds = root / "kinds.brd";
+    write_text_file(
+        kinds,
+        "namespace: opskinds\nrecord: Sample\nversion: 1\ntype: data\n"
+        "enums:\n  Mode:\n    values:\n      off: 0\n      low: 3\n      high: 300\n"
+        "fields:\n"
+        "  flag:\n    type: bool\n  a:\n    type: i8\n  b:\n    type: u8\n"
+        "  c:\n    type: i16\n  d:\n    type: u16\n  e:\n    type: i32\n  f:\n    type: u32\n"
+        "  g:\n    type: i64\n  h:\n    type: u64\n  r:\n    type: f32\n  s:\n    type: f64\n"
+        "  mode:\n    type: Mode\n  text:\n    type: string\n    max_bytes: 9\n"
+        "  blob:\n    type: bytes\n    max_bytes: 5\n"
+        "  numbers:\n    type: u16[]\n    max_elements: 4\n"
+        "  modes:\n    type: Mode[]\n    max_elements: 3\n"
+        "  flags:\n    type: bool[]\n    max_elements: 9\n");
+    const auto schemas = std::filesystem::path(QUARRY_TEST_SOURCE_DIR) / "benchmarks/schemas";
+    for (const bool compact : {false, true}) {
+        const auto output = root / (compact ? "compact" : "default");
+        for (const auto& schema :
+             {kinds, schemas / "workload_shared.brd", schemas / "workload.brd"}) {
+            std::vector<std::string> options = {"--language", "c", "--output-directory",
+                                                output.string(), schema.string()};
+            if (compact)
+                options.insert(options.begin(), "--c-optimize-size");
+            const auto generated = run_tool(options, root);
+            ASSERT_EQ(generated.status, 0) << generated.stderr_text;
+        }
+        const auto harness = output / "decode_ops.cpp";
+        write_text_file(harness, R"CPP(
+#include "opskinds.generated.h"
+#include "benchmark/workload.generated.h"
+#include <cstdio>
+#include <cstring>
+#include <map>
+#include <memory>
+#include <vector>
+namespace {
+uint32_t state = 2463534242U;
+uint32_t next() { state ^= state << 13U; state ^= state >> 17U; state ^= state << 5U; return state; }
+void fill_record(const quarry_c_type_descriptor_t& type, uint8_t* value);
+void fill_element(const quarry_c_element_descriptor_t& e, uint8_t* p) {
+    switch (e.kind) {
+    case QUARRY_C_TYPED_BOOL: { const bool v = (next() & 1U) != 0U; std::memcpy(p, &v, sizeof(v)); break; }
+    case QUARRY_C_TYPED_ENUM: e.enum_store(p, e.enum_values[next() % e.enum_count]); break;
+    case QUARRY_C_TYPED_STRING:
+    case QUARRY_C_TYPED_BYTES: {
+        const uint32_t n = next() % (e.bound + 1U);
+        for (uint32_t i = 0U; i < n; ++i)
+            p[i] = static_cast<uint8_t>(e.kind == QUARRY_C_TYPED_STRING ? 'a' + next() % 26U : next());
+        if (e.kind == QUARRY_C_TYPED_STRING) p[n] = 0U;
+        std::memcpy(p + e.length_offset, &n, sizeof(n));
+        break;
+    }
+    case QUARRY_C_TYPED_RECORD: fill_record(*e.record, p); break;
+    default: for (size_t i = 0U; i < e.size; ++i) p[i] = static_cast<uint8_t>(next());
+    }
+}
+void fill_record(const quarry_c_type_descriptor_t& type, uint8_t* value) {
+    for (uint32_t i = 0U; i < type.layout->field_count; ++i) {
+        const quarry_c_member_descriptor_t& m = type.members[i];
+        const bool present = next() % 3U != 0U;
+        if ((m.presence_offset & QUARRY_C_PRESENCE_COUNT_FLAG) != 0U) {
+            if (!present) continue;
+            if (m.max_count == 0U) { fill_element(m.element, value + m.value_offset); continue; }
+            const uint32_t count = next() % (m.max_count + 1U);
+            for (uint32_t j = 0U; j < count; ++j)
+                fill_element(m.element, value + m.value_offset + j * m.element.size);
+            std::memcpy(value + m.count_offset, &count, sizeof(count));
+            continue;
+        }
+        if (!present) continue;
+        if ((m.presence_offset & QUARRY_C_PRESENCE_PACKED_FLAG) != 0U) {
+            const size_t bit = m.presence_offset & ~QUARRY_C_PRESENCE_PACKED_FLAG;
+            value[bit / 8U] = static_cast<uint8_t>(value[bit / 8U] | (1U << (bit % 8U)));
+        } else {
+            const bool yes = true;
+            std::memcpy(value + m.presence_offset, &yes, sizeof(yes));
+        }
+        fill_element(m.element, value + m.value_offset);
+    }
+}
+struct Stripped { quarry_c_type_descriptor_t type; std::vector<quarry_c_member_descriptor_t> members; };
+std::map<const quarry_c_type_descriptor_t*, std::unique_ptr<Stripped>> stripped;
+const quarry_c_type_descriptor_t* strip(const quarry_c_type_descriptor_t* type) {
+    auto& slot = stripped[type];
+    if (slot) return &slot->type;
+    slot = std::make_unique<Stripped>();
+    Stripped* s = slot.get();
+    s->type = *type;
+    s->type.decode_ops = nullptr;
+    s->members.assign(type->members, type->members + type->layout->field_count);
+    for (auto& m : s->members)
+        if (m.element.record != nullptr) m.element.record = strip(m.element.record);
+    s->type.members = s->members.empty() ? nullptr : s->members.data();
+    return &s->type;
+}
+int check(const char* name, const quarry_c_type_descriptor_t& type, uint32_t record_id) {
+    if (type.decode_ops == nullptr) { std::printf("%s: no decode ops\n", name); return 1; }
+    const quarry_c_type_descriptor_t* reference = strip(&type);
+    size_t ok = 0U, failed = 0U;
+    for (int round = 0; round < 60; ++round) {
+        std::vector<uint8_t> value(type.size, 0U), wire(1U << 16U);
+        fill_record(type, value.data());
+        const auto encoded = quarry_c_typed_encode(&type, value.data(), record_id, wire.data(), wire.size());
+        if (encoded.status != QUARRY_C_STATUS_OK) { std::printf("%s: encode %u\n", name, encoded.status); return 2; }
+        wire.resize(encoded.bytes_written);
+        for (int trial = 0; trial < 400; ++trial) {
+            std::vector<uint8_t> bytes = wire;
+            if (trial != 0) {
+                static const uint8_t boundary[] = {0U, 1U, 2U, 0x80U, 0xFFU};
+                for (uint32_t k = 0U, n = 1U + next() % 2U; k < n; ++k)
+                    bytes[16U + next() % (bytes.size() - 16U)] =
+                        next() % 2U ? boundary[next() % 5U] : static_cast<uint8_t>(next());
+            }
+            std::vector<uint8_t> expected(type.size, 0xA5U), actual(type.size, 0xA5U);
+            const auto e = quarry_c_typed_decode(reference, bytes.data(), bytes.size(), record_id, expected.data());
+            const auto a = quarry_c_typed_decode(&type, bytes.data(), bytes.size(), record_id, actual.data());
+            if (a.status != e.status || a.has_byte_offset != e.has_byte_offset || a.byte_offset != e.byte_offset ||
+                (e.status == QUARRY_C_STATUS_OK && actual != expected)) {
+                std::printf("%s: round %d trial %d: ops %u@%zu vs descriptors %u@%zu\n", name, round, trial,
+                            a.status, a.byte_offset, e.status, e.byte_offset);
+                return 3;
+            }
+            (e.status == QUARRY_C_STATUS_OK ? ok : failed) += 1U;
+        }
+    }
+    if (ok == 0U || failed == 0U) { std::printf("%s: ok %zu failed %zu\n", name, ok, failed); return 4; }
+    return 0;
+}
+} // namespace
+int main() {
+    if (int s = check("Sample", opskinds_Sample_type, opskinds_Sample_type.layout->record_id)) return s;
+    if (int s = check("Child", benchmark_workload_shared_Child_type,
+                      benchmark_workload_shared_Child_type.layout->record_id)) return s;
+    return check("Workload", benchmark_workload_Workload_type,
+                 benchmark_workload_Workload_type.layout->record_id);
+}
+)CPP");
+        const auto executable = output / "decode_ops";
+        std::ostringstream command;
+        command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER))
+                << " -std=c++20 -Wall -Wextra -Wpedantic -Werror"
+                << " -I" << std::quoted(output.string()) << " -I"
+                << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR)) << " -I"
+                << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << ' '
+                << std::quoted(harness.string()) << ' '
+                << std::quoted(std::string(QUARRY_TEST_RUNTIME_C_LIBRARY)) << " -o "
+                << std::quoted(executable.string());
+        ASSERT_EQ(std::system(command.str().c_str()), 0) << command.str();
+        EXPECT_EQ(std::system(executable.string().c_str()), 0) << (compact ? "compact" : "default");
+    }
+}
+
 TEST(SchemaCompilerToolTest, FileExtensionIsRejectedWithLanguageC) {
     const std::filesystem::path root = make_temp_directory("language-c-file-extension");
     const std::filesystem::path input = root / "schema.brd";

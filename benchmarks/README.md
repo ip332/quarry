@@ -251,3 +251,42 @@ runner prints generated schema-object sections when `llvm-size` is available.
 These are schema-specific measurements, while linked generic/runtime sections
 remain shared implementation costs.
 Embedded footprint and multi-schema scaling are deferred for this case.
+
+## Raspberry Pi native comparison
+
+Use `--backend native` to compare Quarry C, Quarry C++, Protobuf C++, and
+Protobuf C++ Arena on one Linux device without requiring Python codec packages.
+The harness measures the existing public APIs, including their documented
+allocation policies; it does not isolate serialization from allocation.
+
+On the Pi, use a C++20 toolchain, CMake 3.25 or newer, matching `protoc` and
+`libprotobuf`, Abseil, libyaml, and Python 3. Build natively in a dedicated
+checkout. Keep build parallelism low on memory-constrained boards:
+
+```sh
+cmake --preset benchmark
+python3 benchmarks/scripts/run_benchmarks.py \
+  --build-dir build/benchmark --backend native --build-jobs 2 \
+  --case all --operation all --warmup 2 --iterations 10 --samples 5 \
+  --output-dir benchmark-results/pi-native
+python3 benchmarks/scripts/summarize_results.py \
+  --result-dir benchmark-results/pi-native \
+  --json benchmark-results/pi-native/summary.json \
+  --markdown benchmark-results/pi-native/summary.md
+```
+
+For a first correctness check, add `--count 8 --warmup 0 --iterations 1 --samples 1`
+and use a separate output directory. These smoke timings are not performance results.
+The runner checks correctness and payload-size parity within each wire format.
+The C variant currently uses default presence storage; compact presence is not
+included in this comparison.
+
+For measured runs, use an idle board with adequate cooling and stable power.
+Record `uname -a`, `getconf LONG_BIT`, CPU affinity, and CPU frequency/governor
+settings alongside the results. Where available, capture `vcgencmd get_throttled`
+and `vcgencmd measure_temp` before and after each run. Run the measurements under
+`taskset -c <available-cpu>` to hold all codec processes to the same core; choose
+that CPU from the process's allowed affinity. Repeat runs into separate directories.
+Compare codecs only within the same machine and configuration.
+
+For minimal Pi images without build tools or Python, use the [static ARM cross-build and SSH runner](raspberry_pi/README.md).

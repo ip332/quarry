@@ -21,8 +21,8 @@ example does not compile.
 
 A complete [generated header snapshot](generated-header/demo/c.generated.h)
 is checked in for inspection. It is unmodified output for [schema.brd](schema.brd),
-using C generated-code API epoch 5. It contains the structs, layout/member
-descriptors, and inline sizing/encode/decode wrappers. The CMake example
+using C generated-code API epoch 7. It contains the structs, layout/member
+descriptors, decode operations, and inline sizing/encode/decode wrappers. The CMake example
 regenerates its own header in the build directory rather than compiling against
 this snapshot.
 
@@ -40,3 +40,8 @@ String/bytes lengths and array counts now determine presence: zero means the
 field is omitted. The header retains `has_count` for the scalar, but has no
 `has_label` or `has_blob` flag. Empty elements inside a nonempty array remain
 part of that array.
+
+Encoding validates fields as it writes them. On any encode error, discard or
+clear the affected output span; `bytes_written` reports its extent even on
+failure, including partial nested writes. It is not a valid record length on error. The codec does not roll back failed writes. `encoded_size()` remains
+available for a separate validating size calculation.
