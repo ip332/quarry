@@ -16,6 +16,7 @@ import tempfile
 
 QUARRY_BACKENDS = ("cpp", "c", "python")
 PROTOBUF_BACKENDS = ("protobuf-cpp", "protobuf-cpp-arena", "protobuf-python")
+NATIVE_BACKENDS = ("cpp", "c", "protobuf-cpp", "protobuf-cpp-arena")
 BACKENDS = QUARRY_BACKENDS + PROTOBUF_BACKENDS
 CASES = ("telemetry", "configuration", "nested", "large", "stress")
 EPOCHS = {"cpp": 3, "c": 2, "python": 1}
@@ -96,7 +97,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--source-dir", type=Path, default=Path(__file__).resolve().parents[2])
-    parser.add_argument("--backend", choices=BACKENDS + ("protobuf", "all"), default="all")
+    parser.add_argument("--backend", choices=BACKENDS + ("protobuf", "native", "all"), default="all")
     parser.add_argument("--case", choices=CASES + ("all",), default="all")
     parser.add_argument("--operation", choices=("encode", "decode", "round_trip", "all"), default="round_trip")
     parser.add_argument("--output-dir", type=Path, default=Path("benchmark-results"))
@@ -105,9 +106,12 @@ def main() -> None:
     parser.add_argument("--samples", type=int, default=5)
     parser.add_argument("--seed", type=int, default=153)
     parser.add_argument("--count", type=int)
+    parser.add_argument("--build-jobs", type=int, help="Limit concurrent build jobs (use 1 or 2 on Raspberry Pi)")
     args = parser.parse_args()
     if args.warmup < 0 or args.iterations <= 0 or args.samples <= 0:
         parser.error("warmup must be non-negative; iterations and samples must be positive")
+    if args.build_jobs is not None and args.build_jobs < 1:
+        parser.error("build-jobs must be positive")
     if args.samples > 5:
         parser.error("benchmark harnesses support at most five samples")
 
@@ -119,18 +123,21 @@ def main() -> None:
         cases = CASES if args.case == "all" else (args.case,)
         operations = ("encode", "decode", "round_trip") if args.operation == "all" else (args.operation,)
         build_targets = []
-        if args.backend in ("all", "cpp", "c", "python"):
+        if args.backend in ("all", "native", "cpp", "c", "python"):
             build_targets += ["quarry_benchmark_cpp", "quarry_benchmark_c"]
-        if args.backend in ("all", "c"):
+        if args.backend in ("all", "native", "c"):
             build_targets += ["quarry_benchmark_qbs"]
-        if args.backend in ("all", "protobuf", "protobuf-cpp", "protobuf-cpp-arena", "protobuf-python"):
+        if args.backend in ("all", "native", "protobuf", "protobuf-cpp", "protobuf-cpp-arena", "protobuf-python"):
             build_targets += ["quarry_benchmark_protobuf_cpp", "quarry_benchmark_protobuf_cpp_arena"]
-        run(["cmake", "--build", str(build), "--target", *dict.fromkeys(build_targets), "--parallel"])
+        build_command = ["cmake", "--build", str(build), "--target", *dict.fromkeys(build_targets), "--parallel"]
+        if args.build_jobs is not None:
+            build_command.append(str(args.build_jobs))
+        run(build_command)
         compiler = find_file(build, "quarry-schema-compiler")
         compiler_version = version([str(compiler), "--version"])
         quarry_version = compiler_version.split()[1] if len(compiler_version.split()) > 1 else compiler_version
         executable = {}
-        if args.backend in ("all", "cpp", "c", "python"):
+        if args.backend in ("all", "native", "cpp", "c", "python"):
             executable.update({"cpp": find_file(build, "quarry_benchmark_cpp"),
                                "c": find_file(build, "quarry_benchmark_c"),
                                "qbs": find_file(build, "quarry_benchmark_qbs")})
@@ -138,13 +145,15 @@ def main() -> None:
                                          capture_output=True, text=True)
             print(qbs_report.stdout, end="")
             print_qbs_footprint(build)
-        if args.backend in ("all", "protobuf", "protobuf-cpp", "protobuf-cpp-arena", "protobuf-python"):
+        if args.backend in ("all", "native", "protobuf", "protobuf-cpp", "protobuf-cpp-arena", "protobuf-python"):
             executable.update({"protobuf-cpp": find_file(build, "quarry_benchmark_protobuf_cpp"),
                                "protobuf-cpp-arena": find_file(build, "quarry_benchmark_protobuf_cpp_arena")})
         generated = build / "benchmarks/generated"
         protobuf_generated = build / "benchmarks/protobuf_generated"
         if args.backend == "all":
             selected = BACKENDS
+        elif args.backend == "native":
+            selected = NATIVE_BACKENDS
         elif args.backend == "protobuf":
             selected = PROTOBUF_BACKENDS
         else:

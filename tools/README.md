@@ -111,7 +111,7 @@ supported fields -- fails generation with a diagnostic identifying the record
 and field, rather than silently emitting a struct that drops that field.
 Generated C code that contains records checks a C
 generated-code API compatibility epoch
-(`QUARRY_C_GENERATED_CODE_API_VERSION`, currently epoch `5`), independent
+(`QUARRY_C_GENERATED_CODE_API_VERSION`, currently epoch `7`), independent
 from the C++ epoch described below.
 
 **Generated C header example.** The [C example schema](../examples/c/basic_encode_decode/schema.brd)
@@ -453,3 +453,21 @@ alignment can affect the final size. This is a portable byte bitmap rather than 
 bitfield members, whose layout is implementation-defined. Wire bytes are unchanged.
 Generate all bindings exchanged as C structs with the same option; these native layouts
 are not interchangeable. Separately generated translation units must also agree.
+
+### C++ wrappers with fixed C storage
+
+Use `--language cpp --cpp-storage c` to generate C++20 classes over the C structs
+and the shared C runtime. Add `--c-optimize-size` for packed presence. Output is
+`.generated.hpp` plus an include-only `.generated.cpp`; link `Quarry::runtime_c`.
+The classes live in `quarry::cxx` and use the C record symbol as their name.
+They provide bounded setters, const string/span views, native storage access,
+and caller-buffer encode/in-place decode, without heap allocation or additional
+object storage. The default owning C++ API is unchanged.
+
+See [the runnable example](../examples/cpp/c_storage_encode_decode/README.md)
+for API details, failure behavior, and build instructions.
+
+Encoding validates fields as it writes them. On any encode error, discard or
+clear the affected output span; `bytes_written` reports its extent even on
+failure, including partial nested writes. It is not a valid record length on error. The codec does not roll back failed writes. `encoded_size()` remains
+available for a separate validating size calculation.

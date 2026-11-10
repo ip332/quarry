@@ -74,6 +74,21 @@ target_link_libraries(quarry_benchmark_c PRIVATE quarry_runtime_c quarry_project
 set_target_properties(quarry_benchmark_c PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON
                       C_EXTENSIONS OFF)
 
+set(QUARRY_BENCHMARK_C_STORAGE_DIR ${CMAKE_CURRENT_BINARY_DIR}/c_storage_generated)
+add_custom_target(quarry_benchmark_c_storage_generated
+    COMMAND $<TARGET_FILE:quarry_schema_compiler> --language cpp --cpp-storage c
+            --output-directory ${QUARRY_BENCHMARK_C_STORAGE_DIR} ${QUARRY_BENCHMARK_DEPENDENCY_SCHEMA}
+    COMMAND $<TARGET_FILE:quarry_schema_compiler> --language cpp --cpp-storage c
+            --output-directory ${QUARRY_BENCHMARK_C_STORAGE_DIR} ${QUARRY_BENCHMARK_SCHEMA}
+    BYPRODUCTS ${QUARRY_BENCHMARK_C_STORAGE_DIR}/benchmark/workload.generated.hpp
+               ${QUARRY_BENCHMARK_C_STORAGE_DIR}/benchmark/workload/shared.generated.hpp
+    DEPENDS quarry_schema_compiler ${QUARRY_BENCHMARK_SCHEMA} ${QUARRY_BENCHMARK_DEPENDENCY_SCHEMA}
+    VERBATIM)
+add_executable(quarry_benchmark_cpp_c_storage cpp/c_storage_benchmark.cpp)
+add_dependencies(quarry_benchmark_cpp_c_storage quarry_benchmark_c_storage_generated)
+target_include_directories(quarry_benchmark_cpp_c_storage PRIVATE ${QUARRY_BENCHMARK_C_STORAGE_DIR})
+target_link_libraries(quarry_benchmark_cpp_c_storage PRIVATE quarry_runtime_c quarry_project_options)
+
 add_executable(quarry_benchmark_qbs c/qbs_benchmark.c ${QUARRY_BENCHMARK_C_SOURCE}
                ${QUARRY_BENCHMARK_DEPENDENCY_C_SOURCE})
 add_dependencies(quarry_benchmark_qbs quarry_benchmark_generated quarry_benchmark_qbs_generated)
