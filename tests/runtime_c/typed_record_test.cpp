@@ -418,8 +418,9 @@ TEST(TypedRecordTest, EnumValidationFailureRequiresDiscardingOutput) {
                                                 : QUARRY_C_STATUS_UNKNOWN_ENUM_VALUE);
         EXPECT_EQ(result.bytes_written, capacity == 0U ? 0U : 18U);
         EXPECT_EQ(output.back(), before.back());
-        if (capacity == output.size())
+        if (capacity == output.size()) {
             EXPECT_NE(output, before); // The header was written before the enum failed.
+        }
     }
     value.u32 = 2U;
     ASSERT_EQ(quarry_c_typed_encode(&descriptor, &value, 42U, output.data(), output.size()).status,
@@ -487,8 +488,9 @@ TEST(TypedRecordTest, OnePassPrefixedArraysAcceptExactCapacityAndStayWithinBound
                                           ? QUARRY_C_STATUS_OK
                                           : QUARRY_C_STATUS_INSUFFICIENT_CAPACITY);
             EXPECT_LE(encoded.bytes_written, capacity);
-            if (capacity == measured.size)
+            if (capacity == measured.size) {
                 EXPECT_EQ(encoded.bytes_written, measured.size);
+            }
             for (size_t i = encoded.bytes_written; i < bytes.size(); ++i)
                 ASSERT_EQ(bytes[i], 0xA5U);
             for (size_t i = capacity; i < bytes.size(); ++i)
@@ -870,8 +872,9 @@ TEST(TypedRecordTest, EmptyLayoutWithoutBitmapMatchesReference) {
         Empty decoded{};
         const auto result = quarry_c_typed_decode(&descriptor, bytes.data(), length, 42U, &decoded);
         EXPECT_EQ(result.status, expected) << length;
-        if (expected != QUARRY_C_STATUS_OK)
+        if (expected != QUARRY_C_STATUS_OK) {
             EXPECT_EQ(result.byte_offset, expected_offset);
+        }
     }
 }
 } // namespace
