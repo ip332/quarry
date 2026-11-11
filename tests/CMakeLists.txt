@@ -315,8 +315,27 @@ target_compile_definitions(python_cpp_c_codec_interop_test PRIVATE
 add_quarry_gtest(diagnostics_smoke_test diagnostics/diagnostics_smoke_test.cpp quarry_compiler_context)
 add_quarry_gtest(support_test support/support_test.cpp quarry_compiler_support)
 
+# Go backend: generated Go is built and run with the Go toolchain when one is
+# available (tests skip otherwise), and checked against the C codec.
+find_program(QUARRY_GO_EXECUTABLE go)
+find_program(QUARRY_GOFMT_EXECUTABLE gofmt)
+if(NOT QUARRY_GO_EXECUTABLE)
+    message(STATUS "Go toolchain not found: Go backend tests will be skipped")
+endif()
+add_quarry_gtest(go_codec_interop_test interop/go_codec_interop_test.cpp
+                      quarry_compiler_backend_go)
+add_dependencies(go_codec_interop_test quarry_schema_compiler)
+target_compile_definitions(go_codec_interop_test PRIVATE
+    QUARRY_SCHEMA_COMPILER_TOOL="$<TARGET_FILE:quarry_schema_compiler>"
+    QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
+    QUARRY_TEST_REPO_INCLUDE_DIR="${CMAKE_SOURCE_DIR}/include"
+    QUARRY_TEST_GENERATED_INCLUDE_DIR="${QUARRY_GENERATED_INCLUDE_DIR}"
+    QUARRY_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    QUARRY_TEST_GO="$<$<BOOL:${QUARRY_GO_EXECUTABLE}>:${QUARRY_GO_EXECUTABLE}>"
+    QUARRY_TEST_GOFMT="$<$<BOOL:${QUARRY_GOFMT_EXECUTABLE}>:${QUARRY_GOFMT_EXECUTABLE}>")
+
 # Harnesses compile generated headers in subprocesses and link the shared codec.
-foreach(typed_consumer c_cpp_codec_interop_test c_cpp_nested_record_interop_test python_cpp_c_codec_interop_test)
+foreach(typed_consumer c_cpp_codec_interop_test c_cpp_nested_record_interop_test python_cpp_c_codec_interop_test go_codec_interop_test)
     add_dependencies(${typed_consumer} quarry_runtime_c)
     target_compile_definitions(${typed_consumer} PRIVATE
         QUARRY_TEST_RUNTIME_C_LIBRARY="$<TARGET_FILE:quarry_runtime_c>")

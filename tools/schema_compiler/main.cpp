@@ -1,6 +1,7 @@
 #include "compiler/backend/backend.hpp"
 #include "compiler/backend/generated_code_api_version.hpp"
 #include "compiler/backend_c/backend_c.hpp"
+#include "compiler/backend_go/backend_go.hpp"
 #include "compiler/backend_python/backend_python.hpp"
 #include "compiler/context/compiler_context.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
@@ -28,6 +29,7 @@ namespace {
 
 namespace backend = quarry::compiler::backend;
 namespace backend_c = quarry::compiler::backend_c;
+namespace backend_go = quarry::compiler::backend_go;
 namespace backend_python = quarry::compiler::backend_python;
 namespace context = quarry::compiler::context;
 namespace diagnostics = quarry::compiler::diagnostics;
@@ -41,6 +43,7 @@ enum class Language {
     Cpp,
     C,
     Python,
+    Go,
 };
 
 struct CommandLine {
@@ -52,6 +55,7 @@ struct CommandLine {
     bool cpp_c_storage = false;
     bool qbs_reflective = false;
     std::string qbs_output;
+    std::string go_import_prefix;
     Language language = Language::Cpp;
     std::string input_path;
     backend::CodegenOptions codegen_options;
@@ -65,9 +69,12 @@ struct CommandLine {
            "      --root-file-stem NAME     Root namespace file stem (default: schema)\n"
            "      --file-extension EXT      Generated file extension for --language cpp\n"
            "                                (default: .generated.hpp)\n"
-           "      --language {cpp,c,python} Target backend language (default: cpp)\n"
+           "      --language {cpp,c,python,go}\n"
+           "                                Target backend language (default: cpp)\n"
            "      --cpp-storage {owning,c}  C++ owning containers or fixed C storage\n"
            "      --c-optimize-size          Pack C presence flags into a bitmap\n"
+           "      --go-import-prefix PATH   Go import path of the output directory, for\n"
+           "                                cross-namespace imports with --language go\n"
            "      --emit-qbs PATH           Emit the resolved schema as a deterministic QBS image\n"
            "      --qbs-reflective          Include reflective record, field, and enum names in QBS\n"
            "      --list-outputs            Print generated output paths without writing files\n"
@@ -92,7 +99,7 @@ void print_generated_code_api_version(std::ostream& output) {
 [[nodiscard]] bool option_requires_value(std::string_view option) {
     return option == "-o" || option == "--output-directory" || option == "--root-file-stem" ||
            option == "--file-extension" || option == "--language" || option == "--emit-qbs" ||
-           option == "--cpp-storage";
+           option == "--cpp-storage" || option == "--go-import-prefix";
 }
 
 [[nodiscard]] std::optional<CommandLine> parse_command_line(int argc, char** argv,
@@ -105,6 +112,7 @@ void print_generated_code_api_version(std::ostream& output) {
     bool saw_cpp_storage = false;
     bool saw_qbs_output = false;
     bool saw_qbs_reflective = false;
+    bool saw_go_import_prefix = false;
 
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument{argv[index]};
@@ -198,6 +206,15 @@ void print_generated_code_api_version(std::ostream& output) {
                     command_line.qbs_output = value;
                     continue;
                 }
+                if (argument == "--go-import-prefix") {
+                    if (saw_go_import_prefix) {
+                        errors << "error: duplicate --go-import-prefix option\n";
+                        return std::nullopt;
+                    }
+                    saw_go_import_prefix = true;
+                    command_line.go_import_prefix = value;
+                    continue;
+                }
                 if (saw_language) {
                     errors << "error: duplicate language option\n";
                     return std::nullopt;
@@ -209,9 +226,11 @@ void print_generated_code_api_version(std::ostream& output) {
                     command_line.language = Language::C;
                 } else if (value == "python") {
                     command_line.language = Language::Python;
+                } else if (value == "go") {
+                    command_line.language = Language::Go;
                 } else {
                     errors << "error: invalid value for --language: " << value
-                           << " (expected 'cpp', 'c', or 'python')\n";
+                           << " (expected 'cpp', 'c', 'python', or 'go')\n";
                     return std::nullopt;
                 }
             }
@@ -237,7 +256,7 @@ void print_generated_code_api_version(std::ostream& output) {
             command_line.codegen_options.root_file_stem != "schema" ||
             command_line.codegen_options.file_extension != ".generated.hpp" ||
             command_line.language != Language::Cpp || !command_line.qbs_output.empty() ||
-            command_line.qbs_reflective || saw_cpp_storage;
+            command_line.qbs_reflective || saw_cpp_storage || saw_go_import_prefix;
         if (has_generation_arguments) {
             errors << "error: --print-generated-code-api-version does not accept generation "
                       "options or an input file\n";
@@ -273,6 +292,14 @@ void print_generated_code_api_version(std::ostream& output) {
 
     if (command_line.language == Language::Python && saw_file_extension) {
         errors << "error: --file-extension is not supported with --language python\n";
+        return std::nullopt;
+    }
+    if (command_line.language == Language::Go && saw_file_extension) {
+        errors << "error: --file-extension is not supported with --language go\n";
+        return std::nullopt;
+    }
+    if (saw_go_import_prefix && command_line.language != Language::Go) {
+        errors << "error: --go-import-prefix requires --language go\n";
         return std::nullopt;
     }
 
@@ -549,6 +576,41 @@ template <typename CodegenResultT>
             return exit_failure;
         }
 
+        return exit_success;
+    }
+
+    if (command_line.language == Language::Go) {
+        backend_go::CodegenOptions go_options;
+        go_options.output_directory = command_line.codegen_options.output_directory;
+        go_options.root_file_stem = command_line.codegen_options.root_file_stem;
+        go_options.go_import_prefix = command_line.go_import_prefix;
+
+        backend_go::Backend backend;
+        if (command_line.list_outputs) {
+            const backend_go::PlanResult plan_result =
+                backend.plan(*compilation_result.schema_ir, go_options,
+                             &*compilation_result.output_plan);
+            if (!plan_result.success) {
+                errors << "backend error: " << plan_result.error_message << '\n';
+                return exit_failure;
+            }
+            for (const backend_go::PlannedGeneratedFile& file : plan_result.plan.files) {
+                output << backend_go::output_path_for_planned_file(go_options,
+                                                                    file.relative_output_path)
+                       << '\n';
+            }
+            return exit_success;
+        }
+
+        const backend_go::CodegenResult codegen_result = backend.generate(
+            *compilation_result.schema_ir, go_options, &*compilation_result.output_plan);
+        if (!codegen_result.success) {
+            errors << "backend error: " << codegen_result.error_message << '\n';
+            return exit_failure;
+        }
+        if (!write_generated_files(codegen_result, go_options.output_directory, errors)) {
+            return exit_failure;
+        }
         return exit_success;
     }
 
