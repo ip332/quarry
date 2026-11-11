@@ -379,6 +379,24 @@ target_link_libraries(quarry_compiler_backend_c
         quarry_schema_ir_warning_tweaks
 )
 
+# Go backend: an independent sibling of the other backends, depending only on
+# Schema IR, layout and output planning. See docs/design/go-backend.md.
+add_library(quarry_compiler_backend_go
+    backend_go/backend_go.cpp
+)
+target_include_directories(quarry_compiler_backend_go
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(quarry_compiler_backend_go
+    PUBLIC
+        quarry_compiler_schema_ir
+        quarry_compiler_output_planning
+        quarry_project_options
+    PRIVATE
+        quarry_schema_ir_warning_tweaks
+)
+
 # Independent sibling of quarry_compiler_backend and quarry_compiler_backend_c:
 # the Python backend depends only on Schema IR and support, never on the C++
 # or C backend implementations. See docs/design/python-backend.md.

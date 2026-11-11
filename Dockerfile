@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         cmake \
         gcc-arm-none-eabi \
         git \
+        golang-go \
         libabsl-dev \
         libnewlib-arm-none-eabi \
         libprotobuf-dev \

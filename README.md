@@ -2,16 +2,16 @@
 
 Quarry is a deterministic, language-neutral schema compiler and binary
 serialization framework for embedded and systems programming. It consumes
-`.brd` schemas and generates BRF-compatible C++, strict-C99 C, and Python code
-for bounded, embedded-friendly data models.
+`.brd` schemas and generates BRF-compatible C++, strict-C99 C, Python, and Go
+code for bounded, embedded-friendly data models.
 
 ## What is Quarry?
 
 Quarry lets you define structured data once and generate type-safe APIs for
-multiple environments. The generated C, C++, and Python implementations use
-the same binary record format and serialization rules, so an embedded producer
-and a Python tool can exchange the same data without maintaining separate data
-models by hand.
+multiple environments. The generated C, C++, Python, and Go implementations
+use the same binary record format and serialization rules, so an embedded
+producer, a Python tool, and a Go cloud service can exchange the same data
+without maintaining separate data models by hand.
 
 Quarry is intended for bounded data exchanged in systems such as:
 

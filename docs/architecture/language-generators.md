@@ -66,9 +66,9 @@ namespace mechanism provided by the target language.
 C has no native namespace mechanism, so generators normalize the namespace into
 a symbol prefix.
 
-Of the languages above, C, C++, and (since PR-118, as an architecture
-skeleton with no serialization logic yet) Python are implemented; the rest
-remain aspirational. Python's "Package / module hierarchy" row is realized
+Of the languages above, C, C++, Python and Go are implemented; the rest remain
+aspirational. Go maps each namespace segment to a package directory, with the
+last segment as the package name -- see `docs/design/go-backend.md`. Python's "Package / module hierarchy" row is realized
 literally: every namespace segment becomes its own real package directory
 with its own `__init__.py`, not a flattened symbol-prefix or single-file
 convention like C's -- see `docs/design/python-backend.md`.

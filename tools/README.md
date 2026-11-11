@@ -33,7 +33,7 @@ module imports with generated aliases.
 
 `quarry-schema-compiler` is the installed schema compiler command. It compiles
 one YAML `.brd` source file through the production YAML frontend and writes
-generated files for the selected C++, C, or Python backend.
+generated files for the selected C++, C, Python, or Go backend.
 
 ```text
 quarry-schema-compiler [options] INPUT
@@ -43,7 +43,10 @@ Options:
       --root-file-stem NAME     Root namespace file stem (default: schema)
       --file-extension EXT      Generated file extension for --language cpp
                                 (default: .generated.hpp)
-      --language {cpp,c,python} Target backend language (default: cpp)
+      --language {cpp,c,python,go}
+                                Target backend language (default: cpp)
+      --go-import-prefix PATH   Go import path of the output directory, for
+                                cross-namespace imports with --language go
       --emit-qbs PATH           Emit a deterministic binary QBS image
       --list-outputs            Print generated output paths without writing files
       --print-generated-code-api-version
@@ -53,10 +56,10 @@ Options:
 ```
 
 `--language` selects which backend generates output: `cpp` (the default,
-unchanged behavior), `c`, or `python`. Omitting `--language` and passing
+unchanged behavior), `c`, `python`, or `go`. Omitting `--language` and passing
 `--language cpp` explicitly behave identically. An unrecognized value is a
-usage error (exit code `2`) naming the invalid value and the three accepted
-ones.
+usage error (exit code `2`) naming the invalid value and the accepted ones.
+`--go-import-prefix` is accepted only with `--language go`.
 
 To emit the resolved schema as a self-contained binary QBS image, use the
 explicit QBS output mode:
@@ -71,10 +74,10 @@ generic C runtime through `quarry_qbs_parse()`. Combining `--list-outputs`
 with `--emit-qbs` prints the requested path without writing the image; normal
 language generation is unchanged unless QBS output is explicitly requested.
 `--file-extension` configures only the C++ backend's single generated file
-extension; combining it with `--language c` or `--language python` is a
-usage error, since neither backend's fixed extension
-(`.generated.h`/`.generated.c` for C; `.py` for Python) is yet independently
-configurable from the command line.
+extension; combining it with `--language c`, `--language python`, or
+`--language go` is a usage error, since those backends' fixed extensions
+(`.generated.h`/`.generated.c` for C; `.py` for Python; `.quarry.go` for Go)
+are not configurable from the command line.
 
 **`--language c` supports scalar, enum, bounded string/bytes, bounded arrays,
 nested records, and compiler-resolved cross-namespace enum/record references
@@ -197,6 +200,36 @@ independently of CMake) and raises `ImportError` at import time on a
 mismatch, mirroring the philosophy of the C/C++ compile-time epoch guards
 in an idiomatic Python (import-time, not compile-time) way. See
 `docs/design/python-backend.md` for the full scope and roadmap.
+
+**`--language go` supports every field kind the C and Python backends
+support**: `bool`, fixed-width integers, `f32`/`f64`, non-negative enums,
+bounded `string`/`bytes`, bounded arrays of those kinds and of records, and
+nested records, including compiler-resolved cross-namespace references. It
+emits one Go package per namespace that owns records or enums
+(`<namespace segments>/<root-file-stem>.quarry.go`, package named after the
+last segment), for services that decode device data in the cloud. Each record
+is a Go struct with `MarshalBRF`, `AppendBRF`, `UnmarshalBRF` and
+`...WithRecordID` methods; optional scalars, enums and nested records are
+pointers (nil when absent), while strings, bytes and arrays are absent when
+empty. Generated code imports only `github.com/ip332/quarry/runtime/go/brf`
+(`runtime/go/`) and fails to compile against a runtime with a different Go
+generated-code epoch (currently `1`). Generated files are gofmt-formatted.
+
+Packages that refer to another namespace import it as
+`<go-import-prefix>/<namespace segments>`, so pass the Go import path that
+corresponds to `--output-directory`, and generate each dependency root into
+the same directory:
+
+```sh
+quarry-schema-compiler --language go --go-import-prefix example.com/svc/gen \
+  --output-directory gen schemas/workload_shared.brd
+quarry-schema-compiler --language go --go-import-prefix example.com/svc/gen \
+  --output-directory gen schemas/workload.brd
+```
+
+Go output is checked byte for byte against the C codec, including agreement on
+which malformed inputs are rejected (`tests/interop/go_codec_interop_test.cpp`).
+See `docs/design/go-backend.md` and `runtime/go/README.md`.
 
 For downstream use, build and install the runtime package separately:
 

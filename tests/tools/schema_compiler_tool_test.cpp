@@ -1189,7 +1189,7 @@ TEST(SchemaCompilerToolTest, InvalidLanguageReturnsUsageErrorNamingAcceptedValue
 
     EXPECT_EQ(result.status, 2);
     EXPECT_NE(result.stderr_text.find("invalid value for --language: rust"), std::string::npos);
-    EXPECT_NE(result.stderr_text.find("'cpp', 'c', or 'python'"), std::string::npos);
+    EXPECT_NE(result.stderr_text.find("'cpp', 'c', 'python', or 'go'"), std::string::npos);
 }
 
 TEST(SchemaCompilerToolTest, CompactPresenceOptionRequiresCAndChangesGeneratedLayout) {
