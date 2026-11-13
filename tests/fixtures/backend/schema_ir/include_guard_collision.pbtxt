@@ -1,0 +1,31 @@
+schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  namespaces {
+    ir_id: 2
+    name: "a"
+    fqn: "a"
+    namespaces {
+      ir_id: 3
+      name: "b"
+      fqn: "a.b"
+      records {
+        ir_id: 4
+        record_id: 1
+        name: "First"
+        fqn: "a.b.First"
+      }
+    }
+  }
+  namespaces {
+    ir_id: 5
+    name: "a_b"
+    fqn: "a_b"
+    records {
+      ir_id: 6
+      record_id: 2
+      name: "Second"
+      fqn: "a_b.Second"
+    }
+  }
+}

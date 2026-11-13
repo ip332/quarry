@@ -1491,6 +1491,46 @@ int main() {
     }
 }
 
+// Two generated C++ headers that import the same record ("diamond" imports)
+// must be includable in one translation unit; the shared dependency's header
+// is reached twice.
+TEST(SchemaCompilerToolTest, GeneratedCppHeadersSharingADependencyCompileTogether) {
+    const auto root = make_temp_directory("cpp-diamond");
+    write_text_file(root / "leaf.brd", "namespace: z\nrecord: Leaf\nversion: 1\ntype: data\n"
+                                       "fields:\n  v:\n    type: u32\n");
+    write_text_file(root / "left.brd",
+                    "namespace: l\nrecord: Left\nversion: 1\ntype: data\n"
+                    "imports:\n  - leaf.brd\nfields:\n  leaf:\n    type: z.Leaf\n");
+    write_text_file(root / "right.brd",
+                    "namespace: r\nrecord: Right\nversion: 1\ntype: data\n"
+                    "imports:\n  - leaf.brd\nfields:\n  leaf:\n    type: z.Leaf\n");
+    const auto output = root / "generated";
+    for (const auto* name : {"leaf.brd", "left.brd", "right.brd"}) {
+        const auto generated =
+            run_tool({"--output-directory", output.string(), (root / name).string()}, root);
+        ASSERT_EQ(generated.status, 0) << generated.stderr_text;
+    }
+    EXPECT_NE(read_text_file(output / "z.generated.hpp")
+                  .find("\n#ifndef QUARRY_GENERATED_CPP_Z_GENERATED_HPP_\n"
+                        "#define QUARRY_GENERATED_CPP_Z_GENERATED_HPP_\n"),
+              std::string::npos);
+    const auto use = root / "diamond.cpp";
+    write_text_file(use, "#include \"l.generated.hpp\"\n#include \"r.generated.hpp\"\n"
+                         "#include \"z.generated.hpp\"\n"
+                         "int main() { return l::decode_Left({}).has_value() ||\n"
+                         "                    r::decode_Right({}).has_value() ? 1 : 0; }\n");
+    std::ostringstream compile;
+    compile << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER))
+            // -Wextra is omitted: generated validators currently trip
+            // -Wunused-parameter, which is unrelated to include safety.
+            << " -std=c++20 -Wall -Wpedantic -Werror -fsyntax-only"
+            << " -I" << std::quoted(output.string()) << " -I"
+            << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR)) << " -I"
+            << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << ' '
+            << std::quoted(use.string());
+    EXPECT_EQ(std::system(compile.str().c_str()), 0) << compile.str();
+}
+
 TEST(SchemaCompilerToolTest, FileExtensionIsRejectedWithLanguageC) {
     const std::filesystem::path root = make_temp_directory("language-c-file-extension");
     const std::filesystem::path input = root / "schema.brd";
