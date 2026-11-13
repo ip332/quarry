@@ -1320,6 +1320,18 @@ TEST(BackendCodegenTest, GeneratedDiagnosticCodecsPropagateNestedAndRecordArrayE
         "}\n");
 }
 
+TEST(BackendCodegenTest, CollidingIncludeGuardsAreRejected) {
+    // "a.b" -> a/b.generated.hpp and "a_b" -> a_b.generated.hpp normalize to the
+    // same guard macro; emitting both would make one header hide the other.
+    const CodegenResult result = run_backend_fixture("include_guard_collision", CodegenOptions{});
+    EXPECT_FALSE(result.success);
+    EXPECT_NE(result.error_message.find("include guards collide"), std::string::npos)
+        << result.error_message;
+    EXPECT_NE(result.error_message.find("QUARRY_GENERATED_CPP_A_B_GENERATED_HPP_"),
+              std::string::npos)
+        << result.error_message;
+}
+
 TEST(BackendCodegenTest, MultipleEnumsHaveStableOrder) {
     const CodegenResult result = run_backend_fixture("multiple_enums", CodegenOptions{});
     ASSERT_TRUE(result.success) << result.error_message;
