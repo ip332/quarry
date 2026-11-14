@@ -590,6 +590,17 @@ decode_root_mapping(const YamlMappingNode& mapping, const YamlDocument& document
             return std::nullopt;
         }
 
+        if (key->value == "configuration") {
+            const std::optional<DecodedScalar> value = decode_scalar(
+                *entry.value, diagnostics, "schema root", "configuration", schema_pass, "BC2302");
+            if (!value.has_value()) {
+                return std::nullopt;
+            }
+            schema.configuration_name = value->value;
+            schema.configuration_range = value->range;
+            continue;
+        }
+
         if (key->value == "namespace") {
             const std::optional<DecodedScalar> value =
                 decode_scalar(*entry.value, diagnostics, "schema root", "namespace", schema_pass,
@@ -774,6 +785,37 @@ decode_root_mapping(const YamlMappingNode& mapping, const YamlDocument& document
         builder.at(schema.source_range);
         diagnostics.emit(builder.build());
     };
+
+    if (schema.configuration_name.has_value()) {
+        // A configuration file names a compilation root and imports the schemas
+        // it is made of. It declares nothing itself.
+        for (const auto& [property, range] : seen) {
+            if (property == "configuration" || property == "imports") {
+                continue;
+            }
+            auto builder =
+                diagnostics::Diagnostic::create(
+                    diagnostic_id("BC2307"), diagnostics::Severity::Error,
+                    "property '" + property +
+                        "' is not allowed in a configuration file; a configuration contains "
+                        "only 'configuration' and 'imports'")
+                    .from_pass(std::string(schema_pass));
+            builder.at(range);
+            diagnostics.emit(builder.build());
+            return std::nullopt;
+        }
+        if (!schema.imports.has_value() || schema.imports->entries.empty()) {
+            auto builder = diagnostics::Diagnostic::create(
+                               diagnostic_id("BC2308"), diagnostics::Severity::Error,
+                               "configuration '" + *schema.configuration_name +
+                                   "' must import at least one schema")
+                               .from_pass(std::string(schema_pass));
+            builder.at(schema.configuration_range);
+            diagnostics.emit(builder.build());
+            return std::nullopt;
+        }
+        return schema;
+    }
 
     if (!has_namespace) {
         emit_missing("namespace");

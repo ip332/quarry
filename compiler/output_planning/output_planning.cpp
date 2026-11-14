@@ -17,60 +17,116 @@ constexpr std::string_view output_planning_pass = "output-planning";
     return *parsed;
 }
 
-void emit_duplicate_output(diagnostics::DiagnosticCollection& diagnostics,
-                           const PlannedSourceUnit& current,
-                           const PlannedSourceUnit& previous) {
-    diagnostics.emit(
-        diagnostics::Diagnostic::create(
-            diagnostic_id("BC8001"), diagnostics::Severity::Error,
-            "source units '" + current.source_unit_identity + "' and '" +
-                previous.source_unit_identity + "' produce the same generated output '" +
-                current.output_key + "'")
-            .at(current.source_range)
-            .with_note("first source unit: " + previous.canonical_path)
-            .with_note("second source unit: " + current.canonical_path)
-            .from_pass(std::string(output_planning_pass))
-            .build());
+[[nodiscard]] std::string display_namespace(std::string_view namespace_fqn) {
+    return namespace_fqn.empty() ? "<root>" : std::string(namespace_fqn);
+}
+
+void emit_unknown_namespace(diagnostics::DiagnosticCollection& diagnostics,
+                            support::SourceRange root_range, std::string_view requested,
+                            const std::map<std::string, PlannedNamespace>& namespaces) {
+    std::string available;
+    for (const auto& [namespace_fqn, planned] : namespaces) {
+        available += (available.empty() ? "" : ", ") + display_namespace(namespace_fqn);
+    }
+    auto builder = diagnostics::Diagnostic::create(
+                       diagnostic_id("BC8002"), diagnostics::Severity::Error,
+                       "cannot generate namespace '" + std::string(requested) +
+                           "': no record in the compilation root's import closure declares it")
+                       .with_note("namespaces declaring records: " + available)
+                       .from_pass(std::string(output_planning_pass));
+    if (root_range.is_valid()) {
+        builder.at(root_range);
+    }
+    diagnostics.emit(builder.build());
 }
 
 } // namespace
 
 OutputPlan OutputPlanner::plan(const context::CompilerContext& context,
                                diagnostics::DiagnosticCollection& diagnostics) const {
+    return plan(context, GenerationSelection{}, diagnostics);
+}
+
+OutputPlan OutputPlanner::plan(const context::CompilerContext& context,
+                               const GenerationSelection& selection,
+                               diagnostics::DiagnosticCollection& diagnostics) const {
     OutputPlan output_plan;
     output_plan.units.reserve(context.source_units().size());
     output_plan.generation_order.reserve(context.source_units().size());
 
-    std::map<std::string, const PlannedSourceUnit*> output_keys;
+    // Aggregate record-declaring units by namespace.
+    std::map<std::string, PlannedNamespace> namespaces;
+    std::optional<std::string> root_namespace;
+    support::SourceRange root_range = support::SourceRange::invalid();
     for (const context::SourceUnit& source_unit : context.source_units()) {
+        if (source_unit.is_root) {
+            root_range = source_unit.source_range;
+        }
+        if (source_unit.is_configuration) {
+            output_plan.root_is_configuration = source_unit.is_root;
+            continue;
+        }
+        PlannedNamespace& planned = namespaces[source_unit.namespace_fqn];
+        planned.namespace_fqn = source_unit.namespace_fqn;
+        planned.source_unit_identities.push_back(source_unit.identity);
+        if (source_unit.is_root) {
+            root_namespace = source_unit.namespace_fqn;
+        }
+    }
+
+    // Decide which namespaces are emitted.
+    if (!selection.namespaces.empty()) {
+        bool valid = true;
+        for (const std::string& requested : selection.namespaces) {
+            const auto found = namespaces.find(requested);
+            if (found == namespaces.end()) {
+                emit_unknown_namespace(diagnostics, root_range, requested, namespaces);
+                valid = false;
+                continue;
+            }
+            found->second.emits_output = true;
+        }
+        if (!valid) {
+            return output_plan;
+        }
+    } else if (output_plan.root_is_configuration) {
+        for (auto& [namespace_fqn, planned] : namespaces) {
+            planned.emits_output = true;
+        }
+    } else if (root_namespace.has_value()) {
+        namespaces.at(*root_namespace).emits_output = true;
+    }
+
+    for (const context::SourceUnit& source_unit : context.source_units()) {
+        if (source_unit.is_configuration) {
+            continue;
+        }
         PlannedSourceUnit planned;
         planned.source_unit_identity = source_unit.identity;
         planned.canonical_path = source_unit.canonical_path;
         planned.namespace_fqn = source_unit.namespace_fqn;
         planned.source_range = source_unit.source_range;
         planned.is_root = source_unit.is_root;
-        planned.emits_output = source_unit.is_root;
-        planned.output_key = source_unit.namespace_fqn.empty() ? "<root>"
-                                                               : source_unit.namespace_fqn;
+        planned.emits_output = namespaces.at(source_unit.namespace_fqn).emits_output;
+        planned.output_key = display_namespace(source_unit.namespace_fqn);
 
         std::set<std::string> dependency_identities;
         for (const context::SourceUnitImport& import : source_unit.imports) {
             const context::SourceUnit* dependency =
                 context.find_source_unit(import.resolved_path);
-            if (dependency != nullptr && dependency_identities.insert(dependency->identity).second) {
+            if (dependency != nullptr && !dependency->is_configuration &&
+                dependency_identities.insert(dependency->identity).second) {
                 planned.dependency_identities.push_back(dependency->identity);
             }
         }
 
         output_plan.generation_order.push_back(planned.source_unit_identity);
         output_plan.units.push_back(std::move(planned));
-        const PlannedSourceUnit& inserted = output_plan.units.back();
-        if (inserted.emits_output) {
-            const auto [it, inserted_key] = output_keys.emplace(inserted.output_key, &inserted);
-            if (!inserted_key) {
-                emit_duplicate_output(diagnostics, inserted, *it->second);
-            }
-        }
+    }
+
+    output_plan.namespaces.reserve(namespaces.size());
+    for (auto& [namespace_fqn, planned] : namespaces) {
+        output_plan.namespaces.push_back(std::move(planned));
     }
     return output_plan;
 }

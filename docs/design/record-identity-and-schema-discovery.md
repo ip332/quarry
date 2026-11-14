@@ -1,7 +1,8 @@
 # Record Identity and Schema Discovery
 
-Status: **accepted; Stage A in progress.** A1 (C++ include guards) is merged (#81). A2 (hierarchical
-record IDs, §3) is implemented in the layout pass. A3 onward are not implemented.
+Status: **accepted; Stage A in progress.** A1 (C++ include guards) is merged (#81), and so is A2
+(hierarchical record IDs, §3, #84). A3 (configuration roots and `--generate`, §4) is implemented. A4
+onward are not implemented.
 `v0.1.31-rc.1` is blocked on Stage A.
 
 ## 1. Summary
@@ -127,8 +128,15 @@ ruled out.
 
 ## 4. Generation from the configuration root
 
-- The CLI compiles the configuration root. `--generate <ns>[,<ns>...]` selects namespaces (default: all
-  domains). IDs, QBS output and `schema_id` never depend on the selection.
+- The CLI compiles the configuration root. `--generate <ns>[,<ns>...]` selects namespaces. IDs, QBS
+  output and `schema_id` never depend on the selection.
+- **As implemented in A3:** a root is either a record schema or a *configuration file*,
+  `configuration: <name>` plus `imports`, which declares nothing, has no namespace or domain, and is
+  identified by its canonical path. Without `--generate`, a record root emits its own namespace (the
+  historical behavior) and a configuration root emits every namespace. Output planning works per
+  namespace, and unselected namespaces stay planned so emitted files reference their separately
+  generated bindings. Separate runs from one root are byte-identical to one full run. The truck
+  configuration is `examples/truck`.
 - Every backend then emits one file per selected namespace, containing *all* of that namespace's
   records. This fixes the multi-file overwrite.
 - Compiling an imported file on its own remains valid but **defines a different configuration**. The
@@ -155,8 +163,7 @@ ruled out.
 
   The prefix changes only names, never IDs or `schema_id`.
 
-  A warning remains possible for generation from a root that has no importers among the given inputs.
-  That's an open question (§12).
+  No heuristic warning is emitted: the compiler can't reliably tell a component from a root (§15).
 - The CMake helper takes the configuration root plus `GENERATE <namespaces>`.
 
 ## 5. Configuration identity
@@ -399,7 +406,7 @@ configuration root. Its domains are `truck.common` = 1 and `truck.engine` = 2, s
 |---|---|
 | A1 | C++ include guards: macro guards (`#pragma once` warns in GCC when a header is compiled directly), updated goldens, diamond-import test, GCC verification. **Merged (#81).** |
 | A2 | Hierarchical IDs in the layout pass (§3): sorted-namespace domains, local ordering, limits and reserved values, diagnostics; Schema IR and QBS goldens. **Implemented.** Specs for the ID rule (BRF reserved ranges, layout algorithm, compiler passes, QBS note, schema identity) updated with it. |
-| A3 | Root-wide generation: output planning emits all or the `--generate`-selected namespaces, one file per namespace with all its records, in every backend (C, C++, C++/C-storage, Python, Go); CMake helper; docs. Regression tests: `schema_id`, record IDs and QBS bytes identical across every selection (none, single, subset, all) |
+| A3 | Root-wide generation: output planning emits all or the `--generate`-selected namespaces, one file per namespace with all its records, in every backend (C, C++, C++/C-storage, Python, Go); CMake helper; docs. Regression tests: `schema_id`, record IDs and QBS bytes identical across every selection (none, single, subset, all). **Implemented**, with configuration files (`configuration: <name>`). |
 | A4 | Configuration identity in generated code: `schema_id` computed once from the full root compilation and passed to backends; build-time consistency checks only between generated files of one output, never across separately generated configurations; opt-in per-configuration name prefix (C symbols, C++ outer namespace, Python package) so several configurations can coexist in one program; C runtime `schema_id` accessor; `--describe` text (levels 0 and 1). Tests: mixing within one output fails; two prefixed configurations link and decode side by side |
 | A5 | Cross-language matrix (ported from the exploration branch) plus the truck reference configuration |
 | A6 | Specifications (BRF `recordId` assignment, QBS note, schema identity, layout algorithm, compiler passes, versioning epochs), `tools/README.md`, release notes and readiness report |
@@ -451,9 +458,9 @@ version gates the release.
 
 ## 15. Open questions
 
-1. Should generation warn when the input looks like a component rather than a configuration root? The
-   compiler can't know for certain; a schema-level `configuration: true` marker would be a language
-   change.
+1. ~~Should generation warn when the input looks like a component rather than a configuration root?~~
+   Resolved in A3: no heuristic warning. Configuration files (`configuration: <name>`) make roots
+   explicit, and the A4 `schema_id` checks catch mixed bindings.
 2. ~~Should the reserved escape values stay reserved?~~ Resolved for A2: domain `0x0000` and locals
    `0x0000`/`0xFFFF` are reserved; domains `0xFF00`–`0xFFFF` are Quarry system domains.
 3. Should the record-set compatibility class (§7) be exposed in Stage A's `--describe`, or only in

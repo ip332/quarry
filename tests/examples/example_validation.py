@@ -83,6 +83,22 @@ def main() -> None:
         environment["PYTHONPATH"] = str(interop_output)
         run([str(python), str(interop / "decode.py"), str(encoded)], cwd=interop, env=environment)
 
+        # Class 8 truck: embedded C for the engine ECU (--generate
+        # truck.engine,truck.common) and cloud Python for every namespace, both
+        # generated from the same configuration root.
+        truck = examples / "truck"
+        truck_build = root / "truck-ecu-build"
+        run(["cmake", "-S", str(truck / "ecu"), "-B", str(truck_build),
+             f"-DCMAKE_PREFIX_PATH={prefix}"], cwd=root)
+        run(["cmake", "--build", str(truck_build), "--parallel"], cwd=root)
+        report = root / "engine_status.brf"
+        run([str(truck_build / "quarry_truck_engine_ecu"), str(report)], cwd=root)
+        truck_python = root / "truck-cloud-generated"
+        generate_python(compiler, truck / "schemas/configuration.brd", truck_python)
+        environment["PYTHONPATH"] = str(truck_python)
+        run([str(python), str(truck / "cloud/decode.py"), str(report)], cwd=truck,
+            env=environment)
+
 
 if __name__ == "__main__":
     main()

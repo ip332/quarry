@@ -59,6 +59,8 @@ struct CommandLine {
     Language language = Language::Cpp;
     std::string input_path;
     backend::CodegenOptions codegen_options;
+    // --generate: namespaces to emit (empty: the root's default).
+    std::vector<std::string> generate_namespaces;
 };
 
 [[nodiscard]] std::string usage_text() {
@@ -75,6 +77,9 @@ struct CommandLine {
            "      --c-optimize-size          Pack C presence flags into a bitmap\n"
            "      --go-import-prefix PATH   Go import path of the output directory, for\n"
            "                                cross-namespace imports with --language go\n"
+           "      --generate NS[,NS...]     Emit only these namespaces (repeatable). Default: the\n"
+           "                                root's namespace, or every namespace of a\n"
+           "                                configuration root. IDs and QBS never change.\n"
            "      --emit-qbs PATH           Emit the resolved schema as a deterministic QBS image\n"
            "      --qbs-reflective          Include reflective record, field, and enum names in QBS\n"
            "      --list-outputs            Print generated output paths without writing files\n"
@@ -99,7 +104,7 @@ void print_generated_code_api_version(std::ostream& output) {
 [[nodiscard]] bool option_requires_value(std::string_view option) {
     return option == "-o" || option == "--output-directory" || option == "--root-file-stem" ||
            option == "--file-extension" || option == "--language" || option == "--emit-qbs" ||
-           option == "--cpp-storage" || option == "--go-import-prefix";
+           option == "--cpp-storage" || option == "--go-import-prefix" || option == "--generate";
 }
 
 [[nodiscard]] std::optional<CommandLine> parse_command_line(int argc, char** argv,
@@ -161,6 +166,24 @@ void print_generated_code_api_version(std::ostream& output) {
             }
 
             const std::string value = argv[++index];
+            if (argument == "--generate") {
+                std::size_t begin = 0U;
+                while (begin <= value.size()) {
+                    const std::size_t end = std::min(value.find(',', begin), value.size());
+                    const std::string name = value.substr(begin, end - begin);
+                    if (name.empty()) {
+                        errors << "error: empty namespace in --generate " << value << '\n';
+                        return std::nullopt;
+                    }
+                    if (std::find(command_line.generate_namespaces.begin(),
+                                  command_line.generate_namespaces.end(),
+                                  name) == command_line.generate_namespaces.end()) {
+                        command_line.generate_namespaces.push_back(name);
+                    }
+                    begin = end + 1U;
+                }
+                continue;
+            }
             if (argument == "--cpp-storage") {
                 if (saw_cpp_storage || (value != "owning" && value != "c")) {
                     errors << "error: --cpp-storage must be specified once as owning or c\n";
@@ -256,7 +279,8 @@ void print_generated_code_api_version(std::ostream& output) {
             command_line.codegen_options.root_file_stem != "schema" ||
             command_line.codegen_options.file_extension != ".generated.hpp" ||
             command_line.language != Language::Cpp || !command_line.qbs_output.empty() ||
-            command_line.qbs_reflective || saw_cpp_storage || saw_go_import_prefix;
+            command_line.qbs_reflective || saw_cpp_storage || saw_go_import_prefix ||
+            !command_line.generate_namespaces.empty();
         if (has_generation_arguments) {
             errors << "error: --print-generated-code-api-version does not accept generation "
                       "options or an input file\n";
@@ -483,7 +507,9 @@ template <typename CodegenResultT>
     diagnostics::DiagnosticEngine diagnostic_engine;
     frontend::YamlCompiler compiler;
     const frontend::YamlCompilationResult compilation_result =
-        compiler.compile(source_file_id, compiler_context, diagnostic_engine);
+        compiler.compile(source_file_id, compiler_context, diagnostic_engine,
+                         quarry::compiler::output_planning::GenerationSelection{
+                             .namespaces = command_line.generate_namespaces});
 
     if (!diagnostic_engine.empty()) {
         errors << diagnostics::DiagnosticFormatter::format_all(

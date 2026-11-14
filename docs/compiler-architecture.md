@@ -91,12 +91,15 @@ protobufs, tools, tests, fuzzers, and examples.
 contract, native imported-target discovery policy, and downstream CMake
 integration boundaries.
 
-The compiler output-planning pass first builds a language-neutral source-unit
-generation graph. It records explicit generation roots, imported-unit
-dependencies, logical output keys, and deterministic dependency-first order;
-imported units remain dependency nodes rather than standalone outputs under the
-current one-root CLI contract. Duplicate logical output keys are diagnosed
-before backend generation.
+The compiler output-planning pass first builds a language-neutral generation
+plan at namespace granularity. Every record-declaring namespace of the
+compilation root's import closure is planned, with the source units that
+contribute to it; the selection (`--generate`, or the root's default: its own
+namespace for a record root, every namespace for a configuration root) marks
+which namespaces are emitted. Unselected namespaces stay planned so emitted
+files can reference their separately generated bindings. Selecting an unknown
+namespace is diagnosed (`BC8002`) before backend generation. Selection never
+changes Schema IR, record IDs or QBS.
 
 Backend-specific output naming belongs to backend-owned planning. `GenerationPlan`
 (backend-internal `build_render_generation_plan`) is the single, canonical
@@ -124,8 +127,10 @@ The compiler pipeline is:
 * The production-facing YAML frontend loads a root source unit and its
   transitive relative-import graph, builds one compiler-wide symbol index, and
   resolves record and enum references against that graph before layout
-  computation and Schema IR lowering. The C++, C, and Python backends consume
-  the output plan for deterministic generated dependency headers or modules.
+  computation and Schema IR lowering. The root is a schema document or a
+  configuration document (`configuration: <name>` plus `imports`). The C++, C,
+  Python and Go backends consume the output plan for the emitted namespaces and
+  for deterministic generated dependency headers, modules or packages.
 * Legacy declaration-syntax source files flow only through the parser-owned
   AST compatibility surface. YAML source-unit imports are handled by the
   production frontend graph loader; legacy parser import declarations remain

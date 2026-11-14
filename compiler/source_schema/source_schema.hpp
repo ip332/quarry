@@ -62,6 +62,10 @@ struct SourceSchemaImports {
 
 struct SourceSchemaDocument {
     support::SourceRange source_range = support::SourceRange::invalid();
+    // Set for a configuration file (`configuration: <name>` plus `imports`).
+    // A configuration declares no namespace, record, version, fields or enums.
+    std::optional<std::string> configuration_name;
+    support::SourceRange configuration_range = support::SourceRange::invalid();
     std::string namespace_spelling;
     support::SourceRange namespace_range = support::SourceRange::invalid();
     std::string record_name;
@@ -176,6 +180,9 @@ struct NormalizedSourceSchemaImports {
 
 struct NormalizedSourceSchemaDocument {
     support::SourceRange source_range = support::SourceRange::invalid();
+    // Set for a configuration file; namespace_name and record_name are then
+    // empty and the document contributes no declarations of its own.
+    std::optional<SourceSchemaIdentifier> configuration_name;
     SourceSchemaQualifiedName namespace_name;
     SourceSchemaIdentifier record_name;
     support::SourceRange record_source_range = support::SourceRange::invalid();

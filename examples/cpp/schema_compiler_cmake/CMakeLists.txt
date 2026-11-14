@@ -10,23 +10,20 @@ endif()
 
 set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
+# One compilation root, schema.brd, defines the configuration: its complete
+# import closure (here shared.brd) determines every record ID. GENERATE emits
+# both namespaces from that root, so the bindings share one ID mapping.
 quarry_generate_cpp(
     SCHEMA schema.brd
+    GENERATE "quarry.telemetry,quarry.shared"
     OUTPUT_DIR "${generated_dir}"
     OUT_FILES generated_files
-)
-
-quarry_generate_cpp(
-    SCHEMA shared.brd
-    OUTPUT_DIR "${generated_dir}"
-    OUT_FILES dependency_files
 )
 
 add_executable(quarry_schema_compiler_cmake
     main.cpp
 )
 target_sources(quarry_schema_compiler_cmake PRIVATE ${generated_files})
-target_sources(quarry_schema_compiler_cmake PRIVATE ${dependency_files})
 target_compile_definitions(quarry_schema_compiler_cmake
     PRIVATE
         QUARRY_PACKAGE_GENERATED_CODE_API_VERSION=${Quarry_GENERATED_CODE_API_VERSION}

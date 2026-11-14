@@ -1355,6 +1355,27 @@ TEST(SchemaCompilerPackageTest, HelperReportsConfigureFailures) {
     EXPECT_NE(cross_result.status, 0);
     EXPECT_NE(cross_result.stderr_text.find("cross-compiling requires SCHEMA_COMPILER"),
               std::string::npos);
+
+    const std::filesystem::path selection_source = root / "unknown selection source";
+    write_text_file(selection_source / "schema.brd", "namespace: quarry.telemetry\n"
+                                                     "record: Sample\n"
+                                                     "version: 1\n"
+                                                     "type: data\n"
+                                                     "fields: {}\n");
+    write_text_file(selection_source / "CMakeLists.txt",
+                    "cmake_minimum_required(VERSION 3.20)\n"
+                    "project(unknown_selection LANGUAGES NONE)\n"
+                    "find_package(Quarry CONFIG REQUIRED)\n"
+                    "quarry_generate_cpp(SCHEMA schema.brd GENERATE \"quarry.other\" "
+                    "OUTPUT_DIR generated OUT_FILES files)\n");
+    const CommandResult selection_result = run_executable(
+        QUARRY_TEST_CMAKE_COMMAND,
+        {"-S", selection_source.string(), "-B", (root / "unknown selection build").string(),
+         "-DCMAKE_PREFIX_PATH=" + install_prefix.string()},
+        root, "unknown-selection");
+    EXPECT_NE(selection_result.status, 0);
+    EXPECT_NE(selection_result.stderr_text.find("BC8002"), std::string::npos)
+        << selection_result.stderr_text;
 }
 
 TEST(SchemaCompilerPackageTest, CConsumerBuildsAndRunsAgainstInstalledPackage) {

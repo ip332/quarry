@@ -210,14 +210,22 @@ quarry_generate_cpp(
     OUT_FILES <variable>
     [ROOT_FILE_STEM <stem>]
     [FILE_EXTENSION <extension>]
+    [GENERATE <namespace>[,<namespace>...]]
     [SCHEMA_COMPILER <absolute-host-executable>]
 )
 ```
 
+`SCHEMA` is the compilation root: a record schema or a configuration file
+(`configuration: <name>`). Its complete import closure determines every record
+ID. `GENERATE` passes `--generate` to the compiler: a comma-separated list of the
+namespaces to emit. Without it, a record root emits its own namespace and a
+configuration root emits every namespace. Several invocations may emit
+different namespaces of the same root into one output directory.
+
 The helper is deliberately narrow:
 
 * installed package use only
-* exactly one schema input per invocation
+* exactly one compilation root per invocation
 * native builds use `Quarry::schema_compiler` by default
 * cross-compiling builds require `SCHEMA_COMPILER` with an absolute
   host-runnable compiler path
@@ -284,7 +292,7 @@ Both are lexically normalized to absolute paths. The schema file must exist at
 configure time; the output directory does not need to exist.
 
 The helper rejects generator expressions in `SCHEMA`, `OUTPUT_DIR`,
-`ROOT_FILE_STEM`, and `FILE_EXTENSION`. It also rejects semicolons, newlines,
+`ROOT_FILE_STEM`, `FILE_EXTENSION`, and `GENERATE`. It also rejects semicolons, newlines,
 and carriage returns in schema paths, output directories, compiler paths,
 option values, and reported output paths. Spaces are supported.
 

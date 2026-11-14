@@ -1,0 +1,14 @@
+namespace: truck.transmission
+record: GearState
+version: 1
+type: data
+imports:
+  - common_time.brd
+  - engine.brd
+fields:
+  time:
+    type: truck.common.Timestamp
+  gear:
+    type: i8
+  engine:
+    type: truck.engine.EngineStatus

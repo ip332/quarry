@@ -1,0 +1,14 @@
+namespace: truck.brakes
+record: BrakeStatus
+version: 1
+type: data
+imports:
+  - common_time.brd
+  - abs_event.brd
+fields:
+  time:
+    type: truck.common.Timestamp
+  air_pressure_kpa:
+    type: u16
+  last_abs_event:
+    type: truck.brakes.AbsEvent

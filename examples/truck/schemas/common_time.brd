@@ -1,0 +1,7 @@
+namespace: truck.common
+record: Timestamp
+version: 1
+type: data
+fields:
+  unix_ms:
+    type: u64

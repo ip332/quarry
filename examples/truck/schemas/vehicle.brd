@@ -1,0 +1,21 @@
+namespace: truck
+record: VehicleSnapshot
+version: 1
+type: data
+imports:
+  - engine.brd
+  - transmission.brd
+  - brakes.brd
+  - cms.brd
+fields:
+  time:
+    type: truck.common.Timestamp
+  engine:
+    type: truck.engine.EngineStatus
+  gear:
+    type: truck.transmission.GearState
+  brakes:
+    type: truck.brakes.BrakeStatus
+  cameras:
+    type: truck.cms.CameraHealth[]
+    max_elements: 4

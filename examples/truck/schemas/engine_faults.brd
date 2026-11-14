@@ -1,0 +1,13 @@
+namespace: truck.engine
+record: FaultCode
+version: 1
+type: event
+imports:
+  - common_time.brd
+fields:
+  time:
+    type: truck.common.Timestamp
+  spn:
+    type: u32
+  fmi:
+    type: u8

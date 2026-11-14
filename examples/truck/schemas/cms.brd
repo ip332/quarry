@@ -1,0 +1,14 @@
+namespace: truck.cms
+record: CameraHealth
+version: 1
+type: data
+imports:
+  - common_time.brd
+fields:
+  time:
+    type: truck.common.Timestamp
+  camera:
+    type: string
+    max_bytes: 16
+  ok:
+    type: bool

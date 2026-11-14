@@ -6,12 +6,15 @@
 #include <functional>
 #include <iomanip>
 #include <iterator>
+#include <map>
+#include <regex>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <vector>
 #include <utility>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include "quarry/runtime_c/generic_brf.h"
@@ -1945,4 +1948,302 @@ TEST(SchemaCompilerToolTest, CBackendGeneratedSourceCompilesAsC) {
     const int status = std::system(command.str().c_str());
     EXPECT_EQ(status, 0) << "command: " << command.str();
     EXPECT_TRUE(std::filesystem::exists(object_file));
+}
+
+// --- A3: configuration roots and --generate ---------------------------------
+
+namespace {
+
+[[nodiscard]] std::filesystem::path truck_schemas() {
+    return std::filesystem::path(QUARRY_TEST_SOURCE_DIR) / "examples" / "truck" / "schemas";
+}
+
+const std::vector<std::string> kTruckNamespaces = {
+    "truck", "truck.brakes", "truck.cms", "truck.common", "truck.engine", "truck.transmission"};
+
+// Language options for every backend (C, C++ owning, C++/C storage, Python, Go).
+const std::vector<std::pair<std::string, std::vector<std::string>>> kBackends = {
+    {"c", {"--language", "c"}},
+    {"cpp", {"--language", "cpp"}},
+    {"cpp-c-storage", {"--language", "cpp", "--cpp-storage", "c"}},
+    {"python", {"--language", "python"}},
+    {"go", {"--language", "go", "--go-import-prefix", "example.com/truck"}},
+};
+
+[[nodiscard]] std::string read_binary_file(const std::filesystem::path& path) {
+    std::ifstream input{path, std::ios::binary};
+    return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+}
+
+// Relative path -> content of every file under `directory`.
+[[nodiscard]] std::map<std::string, std::string> tree(const std::filesystem::path& directory) {
+    std::map<std::string, std::string> files;
+    for (const std::filesystem::path& file : regular_files_under(directory)) {
+        files[std::filesystem::relative(file, directory).generic_string()] = read_binary_file(file);
+    }
+    return files;
+}
+
+[[nodiscard]] std::vector<std::string> with(std::vector<std::string> arguments,
+                                            const std::vector<std::string>& more) {
+    arguments.insert(arguments.end(), more.begin(), more.end());
+    return arguments;
+}
+
+[[nodiscard]] std::string join(const std::vector<std::string>& parts) {
+    std::string joined;
+    for (const std::string& part : parts) {
+        joined += (joined.empty() ? "" : ",") + part;
+    }
+    return joined;
+}
+
+[[nodiscard]] std::string qbs_for(const std::filesystem::path& schema,
+                                  const std::vector<std::string>& extra,
+                                  const std::filesystem::path& root, const std::string& name) {
+    const std::filesystem::path qbs = root / (name + ".qbs");
+    const CommandResult result =
+        run_tool(with({"--emit-qbs", qbs.string()}, with(extra, {schema.string()})), root);
+    EXPECT_EQ(result.status, 0) << result.stderr_text;
+    return read_binary_file(qbs);
+}
+
+// Every `<symbol>_brf_v2_layout = { <id>U` (own ID) and `&<symbol>_type, <id>U`
+// (expected nested ID) in generated C sources.
+[[nodiscard]] std::multimap<std::string, std::uint32_t>
+c_record_ids(const std::filesystem::path& directory, const std::string& pattern) {
+    std::multimap<std::string, std::uint32_t> ids;
+    const std::regex expression(pattern);
+    for (const auto& [path, content] : tree(directory)) {
+        for (auto it = std::sregex_iterator(content.begin(), content.end(), expression);
+             it != std::sregex_iterator(); ++it) {
+            ids.emplace((*it)[1].str(), static_cast<std::uint32_t>(std::stoul((*it)[2].str())));
+        }
+    }
+    return ids;
+}
+
+const std::string kOwnId = R"((\w+)_brf_v2_layout = \{ (\d+)U)";
+const std::string kNestedId = R"(&(\w+)_type, (\d+)U)";
+
+} // namespace
+
+TEST(SchemaCompilerToolTest, ConfigurationRootGeneratesEveryNamespaceByDefault) {
+    const std::filesystem::path root = make_temp_directory("a3-configuration-default");
+    const CommandResult listed =
+        run_tool({"--language", "c", "--list-outputs", "--output-directory", "out",
+                  (truck_schemas() / "configuration.brd").string()},
+                 root);
+    ASSERT_EQ(listed.status, 0) << listed.stderr_text;
+    std::set<std::string> namespaces_seen;
+    for (const std::string& line : non_empty_lines(listed.stdout_text)) {
+        namespaces_seen.insert(line);
+    }
+    EXPECT_EQ(namespaces_seen.size(), 2U * kTruckNamespaces.size()) << listed.stdout_text;
+    EXPECT_TRUE(namespaces_seen.contains("out/truck.generated.h"));
+    EXPECT_TRUE(namespaces_seen.contains("out/truck/transmission.generated.c"));
+}
+
+TEST(SchemaCompilerToolTest, RecordRootStillGeneratesOnlyItsOwnNamespace) {
+    const std::filesystem::path root = make_temp_directory("a3-record-root-default");
+    const CommandResult listed =
+        run_tool({"--language", "c", "--list-outputs", "--output-directory", "out",
+                  (truck_schemas() / "engine.brd").string()},
+                 root);
+    ASSERT_EQ(listed.status, 0) << listed.stderr_text;
+    EXPECT_EQ(
+        non_empty_lines(listed.stdout_text),
+        (std::vector<std::string>{"out/truck/engine.generated.h", "out/truck/engine.generated.c"}));
+}
+
+TEST(SchemaCompilerToolTest, ListOutputsMatchesGenerationForEverySelectionAndBackend) {
+    const std::vector<std::vector<std::string>> selections = {
+        {}, {"truck.engine"}, {"truck.engine", "truck.common"}, kTruckNamespaces};
+    for (const auto& [name, language] : kBackends) {
+        for (const std::vector<std::string>& selection : selections) {
+            const std::filesystem::path root = make_temp_directory("a3-list-" + name);
+            std::vector<std::string> arguments = language;
+            if (!selection.empty()) {
+                arguments = with(arguments, {"--generate", join(selection)});
+            }
+            arguments = with(arguments, {"--output-directory", "out",
+                                         (truck_schemas() / "configuration.brd").string()});
+            const CommandResult listed = run_tool(with({"--list-outputs"}, arguments), root);
+            ASSERT_EQ(listed.status, 0) << name << ": " << listed.stderr_text;
+            const CommandResult generated = run_tool(arguments, root);
+            ASSERT_EQ(generated.status, 0) << name << ": " << generated.stderr_text;
+
+            std::vector<std::string> listed_paths = non_empty_lines(listed.stdout_text);
+            std::sort(listed_paths.begin(), listed_paths.end());
+            std::vector<std::string> generated_paths;
+            for (const auto& [path, content] : tree(root / "out")) {
+                generated_paths.push_back("out/" + path);
+            }
+            EXPECT_EQ(listed_paths, generated_paths) << name << " --generate " << join(selection);
+            EXPECT_FALSE(generated_paths.empty());
+        }
+    }
+}
+
+TEST(SchemaCompilerToolTest, SeparatelyGeneratedNamespacesReproduceFullGeneration) {
+    // Components generated in separate runs from the same configuration root
+    // are byte-identical to one full generation, so they compose exactly.
+    for (const auto& [name, language] : kBackends) {
+        const std::filesystem::path root = make_temp_directory("a3-compose-" + name);
+        const std::string schema = (truck_schemas() / "configuration.brd").string();
+        const CommandResult all =
+            run_tool(with(language, {"--output-directory", "all", schema}), root);
+        ASSERT_EQ(all.status, 0) << name << ": " << all.stderr_text;
+        for (const std::string& ns : kTruckNamespaces) {
+            const CommandResult one = run_tool(
+                with(language, {"--generate", ns, "--output-directory", "split", schema}), root);
+            ASSERT_EQ(one.status, 0) << name << " " << ns << ": " << one.stderr_text;
+        }
+        EXPECT_EQ(tree(root / "split"), tree(root / "all")) << name;
+    }
+}
+
+TEST(SchemaCompilerToolTest, MultiFileNamespaceIsGeneratedAsOneUnit) {
+    // truck.engine is declared by engine.brd and engine_faults.brd.
+    const std::filesystem::path root = make_temp_directory("a3-multi-file-namespace");
+    const CommandResult generated =
+        run_tool({"--language", "c", "--generate", "truck.engine", "--output-directory", "out",
+                  (truck_schemas() / "configuration.brd").string()},
+                 root);
+    ASSERT_EQ(generated.status, 0) << generated.stderr_text;
+    const std::string header = read_text_file(root / "out" / "truck" / "engine.generated.h");
+    EXPECT_NE(header.find("truck_engine_EngineStatus_t"), std::string::npos);
+    EXPECT_NE(header.find("truck_engine_FaultCode_t"), std::string::npos);
+    EXPECT_EQ(tree(root / "out").size(), 2U);
+}
+
+TEST(SchemaCompilerToolTest, GenerationSelectionNeverChangesIdsOrQbs) {
+    const std::filesystem::path root = make_temp_directory("a3-qbs-invariance");
+    const std::filesystem::path schema = truck_schemas() / "configuration.brd";
+    const std::string full = qbs_for(schema, {}, root, "default");
+    ASSERT_FALSE(full.empty());
+    EXPECT_EQ(qbs_for(schema, {"--generate", "truck.engine"}, root, "one"), full);
+    EXPECT_EQ(qbs_for(schema, {"--generate", "truck.engine,truck.common"}, root, "two"), full);
+    EXPECT_EQ(qbs_for(schema, {"--generate", join(kTruckNamespaces)}, root, "all"), full);
+
+    // The record IDs embedded in generated code are the reference
+    // architecture's, whatever the selection.
+    const std::map<std::string, std::uint32_t> expected = {
+        {"truck_VehicleSnapshot", 0x00010001U},    {"truck_brakes_AbsEvent", 0x00020001U},
+        {"truck_brakes_BrakeStatus", 0x00020002U}, {"truck_cms_CameraHealth", 0x00030001U},
+        {"truck_common_Timestamp", 0x00040001U},   {"truck_engine_EngineStatus", 0x00050001U},
+        {"truck_engine_FaultCode", 0x00050002U},   {"truck_transmission_GearState", 0x00060001U}};
+    for (const std::vector<std::string>& selection : std::vector<std::vector<std::string>>{
+             {"truck.engine", "truck.common"}, {"truck.transmission"}, kTruckNamespaces}) {
+        const std::filesystem::path out = root / ("c-" + std::to_string(selection.size()));
+        const CommandResult generated =
+            run_tool({"--language", "c", "--generate", join(selection), "--output-directory",
+                      out.string(), schema.string()},
+                     root);
+        ASSERT_EQ(generated.status, 0) << generated.stderr_text;
+        for (const std::string& pattern : {kOwnId, kNestedId}) {
+            for (const auto& [symbol, id] : c_record_ids(out, pattern)) {
+                ASSERT_TRUE(expected.contains(symbol)) << symbol;
+                EXPECT_EQ(id, expected.at(symbol)) << symbol << " with " << join(selection);
+            }
+        }
+    }
+}
+
+TEST(SchemaCompilerToolTest, UnknownGenerateNamespaceFailsWithoutWritingFiles) {
+    const std::filesystem::path root = make_temp_directory("a3-unknown-namespace");
+    const CommandResult result =
+        run_tool({"--language", "c", "--generate", "truck.engine,truck.bogus", "--output-directory",
+                  "out", (truck_schemas() / "configuration.brd").string()},
+                 root);
+    EXPECT_EQ(result.status, 1);
+    EXPECT_NE(result.stderr_text.find("BC8002"), std::string::npos) << result.stderr_text;
+    EXPECT_NE(result.stderr_text.find("truck.bogus"), std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(root / "out"));
+
+    const CommandResult empty = run_tool(
+        {"--generate", "truck.engine,", (truck_schemas() / "configuration.brd").string()}, root);
+    EXPECT_NE(empty.status, 0);
+    EXPECT_NE(empty.stderr_text.find("empty namespace"), std::string::npos) << empty.stderr_text;
+}
+
+TEST(SchemaCompilerToolTest, ConfigurationMetadataDoesNotAffectSchemaIdentity) {
+    // vehicle.brd already imports every truck schema, so a configuration that
+    // imports only vehicle.brd, the full configuration, and vehicle.brd
+    // compiled directly all resolve the same schema: identical QBS bytes.
+    const std::filesystem::path root = make_temp_directory("a3-configuration-identity");
+    write_text_file(root / "only_vehicle.brd",
+                    "configuration: other_name\nimports:\n  - " +
+                        (truck_schemas() / "vehicle.brd").generic_string() + "\n");
+    const std::string direct = qbs_for(truck_schemas() / "vehicle.brd", {}, root, "direct");
+    ASSERT_FALSE(direct.empty());
+    EXPECT_EQ(qbs_for(truck_schemas() / "configuration.brd", {}, root, "full"), direct);
+    EXPECT_EQ(qbs_for(root / "only_vehicle.brd", {}, root, "named"), direct);
+}
+
+TEST(SchemaCompilerToolTest, IndependentComponentRootIsADifferentConfiguration) {
+    // Compiling engine.brd as its own root is valid but defines a different
+    // configuration: truck.common = 1, truck.engine = 2.
+    const std::filesystem::path root = make_temp_directory("a3-component-root");
+    const std::string component = qbs_for(truck_schemas() / "engine.brd", {}, root, "component");
+    const std::string configuration =
+        qbs_for(truck_schemas() / "configuration.brd", {}, root, "configuration");
+    EXPECT_NE(component, configuration);
+
+    const CommandResult generated = run_tool(
+        {"--language", "c", "--output-directory", "out", (truck_schemas() / "engine.brd").string()},
+        root);
+    ASSERT_EQ(generated.status, 0) << generated.stderr_text;
+    const auto ids = c_record_ids(root / "out", kOwnId);
+    ASSERT_TRUE(ids.contains("truck_engine_EngineStatus"));
+    EXPECT_EQ(ids.find("truck_engine_EngineStatus")->second, 0x00020001U);
+}
+
+TEST(SchemaCompilerToolTest, RootBasedGenerationResolvesTopMidLeafIdDisagreement) {
+    // The original defect: generating each schema from its own root gives each
+    // file a different configuration, so a parent's expected nested record ID
+    // disagrees with the ID the child's own bindings write.
+    const std::filesystem::path root = make_temp_directory("a3-top-mid-leaf");
+    write_text_file(root / "leaf.brd", "namespace: z\nrecord: Leaf\nversion: 1\ntype: data\n"
+                                       "fields:\n  v:\n    type: u32\n");
+    write_text_file(root / "mid.brd",
+                    "namespace: m\nrecord: Mid\nversion: 1\ntype: data\n"
+                    "imports:\n  - leaf.brd\nfields:\n  leaf:\n    type: z.Leaf\n");
+    write_text_file(root / "top.brd", "namespace: a\nrecord: Top\nversion: 1\ntype: data\n"
+                                      "imports:\n  - mid.brd\nfields:\n  mid:\n    type: m.Mid\n");
+    write_text_file(root / "configuration.brd",
+                    "configuration: top_mid_leaf\nimports:\n  - top.brd\n");
+
+    const auto check = [&](const std::filesystem::path& out) {
+        const auto own = c_record_ids(out, kOwnId);
+        const auto nested = c_record_ids(out, kNestedId);
+        bool consistent = true;
+        for (const auto& [symbol, expected_id] : nested) {
+            const auto written = own.find(symbol);
+            EXPECT_NE(written, own.end()) << symbol;
+            if (written != own.end() && written->second != expected_id) {
+                consistent = false;
+            }
+        }
+        EXPECT_EQ(nested.size(), 2U); // a.Top -> m.Mid, m.Mid -> z.Leaf
+        return consistent;
+    };
+
+    // Old workflow: one compiler run per schema, each its own root.
+    for (const char* schema : {"top.brd", "mid.brd", "leaf.brd"}) {
+        const CommandResult result = run_tool(
+            {"--language", "c", "--output-directory", "per-root", (root / schema).string()}, root);
+        ASSERT_EQ(result.status, 0) << result.stderr_text;
+    }
+    EXPECT_FALSE(check(root / "per-root")) << "expected the per-root ID disagreement";
+
+    // A3: one configuration root, each namespace generated separately.
+    for (const char* ns : {"a", "m", "z"}) {
+        const CommandResult result =
+            run_tool({"--language", "c", "--generate", ns, "--output-directory", "configured",
+                      (root / "configuration.brd").string()},
+                     root);
+        ASSERT_EQ(result.status, 0) << result.stderr_text;
+    }
+    EXPECT_TRUE(check(root / "configured"));
 }

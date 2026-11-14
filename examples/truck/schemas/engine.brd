@@ -1,0 +1,17 @@
+namespace: truck.engine
+record: EngineStatus
+version: 1
+type: data
+imports:
+  - common_time.brd
+  - engine_faults.brd
+fields:
+  time:
+    type: truck.common.Timestamp
+  rpm:
+    type: u16
+  coolant_c:
+    type: i16
+  faults:
+    type: truck.engine.FaultCode[]
+    max_elements: 8

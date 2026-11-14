@@ -297,6 +297,36 @@ normalize_source_schema(const SourceSchemaDocument& schema,
 
     NormalizedSourceSchemaDocument normalized;
     normalized.source_range = schema.source_range;
+    const auto normalize_imports = [&]() {
+        if (!schema.imports.has_value()) {
+            return;
+        }
+        NormalizedSourceSchemaImports imports;
+        imports.source_range = schema.imports->source_range;
+        imports.empty = schema.imports->empty;
+        imports.entries.reserve(schema.imports->entries.size());
+        for (const SourceSchemaImports::Import& import : schema.imports->entries) {
+            imports.entries.push_back(NormalizedSourceSchemaImports::Import{
+                .path = import.path,
+                .source_range = import.source_range,
+            });
+        }
+        normalized.imports = imports;
+        normalized.imports_range = schema.imports->source_range;
+    };
+
+    if (schema.configuration_name.has_value()) {
+        normalized.configuration_name =
+            lower_identifier(*schema.configuration_name, schema.configuration_range, diagnostics,
+                             "configuration identifier");
+        if (normalized.configuration_name->text.empty()) {
+            return result;
+        }
+        normalize_imports();
+        result.document = std::move(normalized);
+        return result;
+    }
+
     normalized.namespace_name =
         lower_qualified_name(schema.namespace_spelling, schema.namespace_range, diagnostics,
                              "namespace identifier");
@@ -315,20 +345,7 @@ normalize_source_schema(const SourceSchemaDocument& schema,
     normalized.version_range = schema.version_range;
     normalized.record_type_spelling = schema.record_type_spelling;
     normalized.record_type_range = schema.record_type_range;
-    if (schema.imports.has_value()) {
-        NormalizedSourceSchemaImports imports;
-        imports.source_range = schema.imports->source_range;
-        imports.empty = schema.imports->empty;
-        imports.entries.reserve(schema.imports->entries.size());
-        for (const SourceSchemaImports::Import& import : schema.imports->entries) {
-            imports.entries.push_back(NormalizedSourceSchemaImports::Import{
-                .path = import.path,
-                .source_range = import.source_range,
-            });
-        }
-        normalized.imports = imports;
-        normalized.imports_range = schema.imports->source_range;
-    }
+    normalize_imports();
 
     for (const SourceSchemaAnnotation& annotation : schema.annotations) {
         const std::optional<NormalizedSourceSchemaAnnotation> normalized_annotation =

@@ -77,8 +77,9 @@ Native C structure layouts and successful wire bytes are unchanged.
 Fields support bool, fixed-width signed/unsigned integers, float32/float64,
 non-negative enums, bounded strings/bytes, bounded arrays of these types,
 nested records, and record arrays. Cross-namespace enums and records use
-includes for their generated headers. Imported source units must be generated
-as separate explicit roots into the same output tree. Recursive by-value
+includes for their generated headers. Referenced namespaces must be generated
+from the same compilation root (`--generate` or a configuration root) into the
+same output tree. Recursive by-value
 records and arrays of arrays are rejected.
 
 Each record struct stores fields in declaration order. Scalars, enums, and

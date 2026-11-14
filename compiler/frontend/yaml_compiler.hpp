@@ -20,6 +20,13 @@ public:
     [[nodiscard]] YamlCompilationResult
     compile(support::SourceFileId source_file_id, context::CompilerContext& context,
             diagnostics::DiagnosticCollection& diagnostics) const;
+
+    // Compiles the complete import closure of the root, then plans output for
+    // `selection` (--generate). Selection never changes Schema IR or record IDs.
+    [[nodiscard]] YamlCompilationResult
+    compile(support::SourceFileId source_file_id, context::CompilerContext& context,
+            diagnostics::DiagnosticCollection& diagnostics,
+            const output_planning::GenerationSelection& selection) const;
 };
 
 } // namespace quarry::compiler::frontend

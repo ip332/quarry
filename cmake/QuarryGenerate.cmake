@@ -217,7 +217,8 @@ function(_quarry_generate_validate_package_generated_code_api_version output_var
 endfunction()
 
 function(_quarry_generate_parse_arguments)
-    set(_keywords SCHEMA OUTPUT_DIR OUT_FILES ROOT_FILE_STEM FILE_EXTENSION SCHEMA_COMPILER)
+    set(_keywords SCHEMA OUTPUT_DIR OUT_FILES ROOT_FILE_STEM FILE_EXTENSION SCHEMA_COMPILER
+        GENERATE)
     set(_pending_keyword)
 
     foreach(_arg IN LISTS ARGN)
@@ -285,10 +286,13 @@ function(_quarry_generate_validate_outputs output_dir schema outputs)
 endfunction()
 
 function(_quarry_generate_query_outputs compiler output_dir schema root_file_stem file_extension
-         output_variable)
+         generate output_variable)
     set(_quarry_list_args
         --list-outputs
         --output-directory "${output_dir}")
+    if(NOT "${generate}" STREQUAL "")
+        list(APPEND _quarry_list_args --generate "${generate}")
+    endif()
     if(NOT "${root_file_stem}" STREQUAL "")
         list(APPEND _quarry_list_args --root-file-stem "${root_file_stem}")
     endif()
@@ -401,6 +405,10 @@ function(_quarry_generate_verify_output_inventory)
     if(DEFINED QUARRY_VERIFY_FILE_EXTENSION)
         set(_file_extension "${QUARRY_VERIFY_FILE_EXTENSION}")
     endif()
+    set(_generate)
+    if(DEFINED QUARRY_VERIFY_GENERATE)
+        set(_generate "${QUARRY_VERIFY_GENERATE}")
+    endif()
 
     _quarry_generate_reject_unsafe("${QUARRY_VERIFY_COMPILER}" "compiler path")
     _quarry_generate_reject_genex("${QUARRY_VERIFY_COMPILER}" "compiler path")
@@ -415,6 +423,7 @@ function(_quarry_generate_verify_output_inventory)
         "${QUARRY_VERIFY_SCHEMA}"
         "${_root_file_stem}"
         "${_file_extension}"
+        "${_generate}"
         _current_outputs)
 
     set(_expected_outputs ${QUARRY_VERIFY_EXPECTED_OUTPUTS})
@@ -501,10 +510,21 @@ function(quarry_generate_cpp)
         list(APPEND _quarry_generate_args --file-extension
              "${QUARRY_GENERATE_FILE_EXTENSION}")
     endif()
+    # GENERATE: comma-separated namespaces to emit from the SCHEMA root. The
+    # root's complete import closure is always compiled, so every selection
+    # shares the same record IDs.
+    set(_quarry_generate_selection)
+    if(DEFINED QUARRY_GENERATE_GENERATE)
+        _quarry_generate_reject_unsafe("${QUARRY_GENERATE_GENERATE}" "GENERATE")
+        _quarry_generate_reject_genex("${QUARRY_GENERATE_GENERATE}" "GENERATE")
+        set(_quarry_generate_selection "${QUARRY_GENERATE_GENERATE}")
+        list(APPEND _quarry_generate_args --generate "${QUARRY_GENERATE_GENERATE}")
+    endif()
 
     _quarry_generate_query_outputs("${_quarry_compiler}" "${_quarry_output_dir}"
                                         "${_quarry_schema}" "${_quarry_root_file_stem}"
-                                        "${_quarry_file_extension}" _quarry_outputs)
+                                        "${_quarry_file_extension}"
+                                        "${_quarry_generate_selection}" _quarry_outputs)
     _quarry_generate_register_outputs("${_quarry_schema}" "${_quarry_outputs}")
 
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -523,6 +543,7 @@ function(quarry_generate_cpp)
             "-DQUARRY_VERIFY_EXPECTED_OUTPUTS=${_quarry_outputs}"
             "-DQUARRY_VERIFY_ROOT_FILE_STEM=${_quarry_root_file_stem}"
             "-DQUARRY_VERIFY_FILE_EXTENSION=${_quarry_file_extension}"
+            "-DQUARRY_VERIFY_GENERATE=${_quarry_generate_selection}"
             -P "${_quarry_module}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${_quarry_output_dir}"
         COMMAND "${_quarry_compiler}" ${_quarry_generate_args}

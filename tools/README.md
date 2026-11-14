@@ -26,14 +26,10 @@ remain private implementation details.
 
 ## quarry-schema-compiler
 
-The C and Python backends support compiler-resolved cross-namespace record and
-enum references, including arrays, when imported dependency roots are generated
-separately into the same output directory. Python emits deterministic absolute
-module imports with generated aliases.
-
 `quarry-schema-compiler` is the installed schema compiler command. It compiles
-one YAML `.brd` source file through the production YAML frontend and writes
-generated files for the selected C++, C, Python, or Go backend.
+one compilation root (a YAML `.brd` file) with its complete import closure
+through the production YAML frontend and writes generated files for the
+selected namespaces and the selected C++, C, Python, or Go backend.
 
 ```text
 quarry-schema-compiler [options] INPUT
@@ -47,6 +43,9 @@ Options:
                                 Target backend language (default: cpp)
       --go-import-prefix PATH   Go import path of the output directory, for
                                 cross-namespace imports with --language go
+      --generate NS[,NS...]     Emit only these namespaces (repeatable). Default: the
+                                root's namespace, or every namespace of a
+                                configuration root. IDs and QBS never change.
       --emit-qbs PATH           Emit a deterministic binary QBS image
       --list-outputs            Print generated output paths without writing files
       --print-generated-code-api-version
@@ -60,6 +59,59 @@ unchanged behavior), `c`, `python`, or `go`. Omitting `--language` and passing
 `--language cpp` explicitly behave identically. An unrecognized value is a
 usage error (exit code `2`) naming the invalid value and the accepted ones.
 `--go-import-prefix` is accepted only with `--language go`.
+
+### Compilation roots and `--generate`
+
+The input file is the **compilation root**. The compiler always loads its
+complete import closure, the *configuration*, and assigns every record ID from
+it (see "recordId Structure and Reserved Ranges" in
+`docs/specifications/binary-record-format.md`). Which namespaces are written is
+a separate choice:
+
+| Root | Without `--generate` | With `--generate` |
+|---|---|---|
+| Record schema (`namespace:`/`record:`) | its own namespace (unchanged) | exactly the listed namespaces |
+| Configuration file (`configuration: <name>`) | every namespace of the closure | exactly the listed namespaces |
+
+A configuration file names the configuration and imports the schemas it is made
+of. It declares no namespace, record, version, fields or enums, gets no record
+domain and no bindings of its own, and cannot itself be imported:
+
+```yaml
+configuration: class8_truck
+imports:
+  - vehicle.brd
+  - engine.brd
+```
+
+`--generate` takes comma-separated namespace FQNs and may be repeated. A name
+that no record of the closure declares fails with `BC8002`, listing the
+namespaces that can be generated, and writes nothing. Output is planned per
+namespace: every record of a selected namespace is generated together, whichever
+file declares it.
+
+Selected namespaces may reference records and enums of unselected namespaces.
+Their generated files include or import those namespaces' bindings by their
+planned paths. Generate those bindings from the **same root**, in the same run or
+another one, into the same output directory. The compiler never generates them
+implicitly. Separate runs selecting different namespaces of one root write
+byte-identical files to one run selecting all of them, so the outputs compose.
+Record IDs, Schema IR, the `--emit-qbs` image and its `schema_id` do not depend
+on the selection.
+
+```sh
+# Embedded ECU: two namespaces of the truck configuration.
+quarry-schema-compiler --language c --generate truck.engine,truck.common \
+  --output-directory ecu examples/truck/schemas/configuration.brd
+# Cloud: every namespace of the same configuration.
+quarry-schema-compiler --language python --output-directory cloud \
+  examples/truck/schemas/configuration.brd
+```
+
+Compiling an imported schema as its own root is still supported. It defines a
+**different configuration** whose record IDs and `schema_id` generally differ,
+so its bindings do not interoperate with bindings generated from the full root.
+The compiler cannot tell a component from a root and doesn't warn about it.
 
 To emit the resolved schema as a self-contained binary QBS image, use the
 explicit QBS output mode:
@@ -105,9 +157,9 @@ installed `Quarry::runtime_c` C runtime -- see
 `compiler/backend_c/README.md`, `runtime_c/README.md`, and
 `docs/design/c-backend.md` for the full scope, the generated codec API
 design, and the roadmap. Cross-namespace C++ record and enum references
-(including arrays) are supported when imported dependency roots are generated
-into the same output directory. C and Python follow the same explicit
-dependency-root workflow; Python generated modules import dependencies through
+(including arrays) are supported when the referenced namespaces are generated
+from the same compilation root into the same output directory. C, Python and Go
+follow the same workflow; Python generated modules import dependencies through
 deterministic full-module aliases.
 Any record containing an unsupported field -- even mixed with otherwise-
 supported fields -- fails generation with a diagnostic identifying the record
@@ -217,14 +269,13 @@ generated-code epoch (currently `1`). Generated files are gofmt-formatted.
 
 Packages that refer to another namespace import it as
 `<go-import-prefix>/<namespace segments>`, so pass the Go import path that
-corresponds to `--output-directory`, and generate each dependency root into
-the same directory:
+corresponds to `--output-directory`, and generate the referenced namespaces from
+the same root into the same directory:
 
 ```sh
 quarry-schema-compiler --language go --go-import-prefix example.com/svc/gen \
-  --output-directory gen schemas/workload_shared.brd
-quarry-schema-compiler --language go --go-import-prefix example.com/svc/gen \
-  --output-directory gen schemas/workload.brd
+  --generate benchmark.workload,benchmark.workload.shared \
+  --output-directory gen benchmarks/schemas/workload.brd
 ```
 
 Go output is checked byte for byte against the C codec, including agreement on
@@ -269,8 +320,9 @@ The command-line parser treats `--help` first, `--version` second, and
 
 `--list-outputs` is a terminal generation mode. It still requires a valid input
 schema and accepts generation options that affect output names:
-`--output-directory`, `--root-file-stem`, and (for `--language cpp`)
-`--file-extension`. It compiles and validates the schema through backend
+`--output-directory`, `--root-file-stem`, `--generate`, and (for
+`--language cpp`) `--file-extension`. It uses the same namespace output plan as
+generation, so it lists exactly the files the same command writes. It compiles and validates the schema through backend
 output planning, prints one planned generated path per line to stdout, writes
 diagnostics to stderr on failure, and does not render generated content or
 write files. For `--language c`, each planned namespace file contributes two
@@ -299,25 +351,23 @@ Exit codes:
   write failure
 * `2`: command-line usage error
 
-The command supports exactly one root input file. That root may now load a
-transitive relative-import graph; the root is the only generating output and
-imports are dependency nodes for planning. Multiple explicit roots, stale-output
-deletion, response files, configuration files, installed package integration,
-color diagnostics, and JSON diagnostics remain out of scope.
+The command supports exactly one root input file. That root may load a
+transitive relative-import graph, all of which is compiled; `--generate` and the
+root kind decide which namespaces are emitted. Multiple roots per invocation,
+stale-output deletion, response files, color diagnostics, and JSON diagnostics
+remain out of scope.
 
 Relative input and output paths are resolved relative to the process working
 directory. Absolute input and output paths work from unrelated working
 directories, including directories whose paths contain spaces. The tool does
 not rebase relative paths against the input file's parent directory.
 
-That input file contains one YAML document and one source schema unit. The
-current schema unit has one dotted namespace path and one primary record, with
-zero or more fields and zero or more enum declarations in that namespace.
-Multiple primary records, multiple namespace roots, and YAML document streams
-remain unsupported. Imports are loaded into the compiler context and resolved
-before Schema IR lowering. C++, C, and Python generation consume imported
-declarations when each required dependency is also generated as an explicit
-root into the same output directory.
+That input file contains one YAML document: either a configuration file or one
+source schema unit. A schema unit has one dotted namespace path and one primary
+record, with zero or more fields and zero or more enum declarations in that
+namespace. Several files may declare records in the same namespace. Multiple
+primary records per file and YAML document streams remain unsupported. Imports
+are loaded into the compiler context and resolved before Schema IR lowering.
 
 Generated files are written from backend-provided in-memory `GeneratedFile`
 values. Compiler and backend failures do not write output files. Output writes

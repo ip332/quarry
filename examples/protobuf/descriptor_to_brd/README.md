@@ -37,14 +37,14 @@ protoc --descriptor_set_out=build/schema.pb \
   --options bounds.yaml --output-dir build/generated-brd
 
 "$COMPILER" --language cpp --output-directory build/generated-cpp \
-  build/generated-brd/demo/common/reading/reading.brd
-"$COMPILER" --language cpp --output-directory build/generated-cpp \
+  --generate demo.device,demo.common.reading \
   build/generated-brd/demo/device/device.brd
 ```
 
 The translator emits `manifest.json` with the complete declaration mapping and
-the explicit roots. The dependency root is generated separately before the
-root record, and both compiler invocations share `build/generated-cpp`.
+the explicit roots. The root record `demo.Device` is the compilation root: one
+compiler invocation compiles it with its imported dependency and emits both
+namespaces, so they share one record-ID mapping.
 
 This example uses a bounded string and a nested imported record. It does not
 claim protobuf wire compatibility: the translator maps logical protobuf
