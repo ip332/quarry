@@ -11,7 +11,7 @@ root_namespace {
       fqn: "quarry.enums"
       records {
         ir_id: 5
-        record_id: 1
+        record_id: 65537
         schema_version: 1
         record_type: RECORD_TYPE_DATA
         name: "Example"

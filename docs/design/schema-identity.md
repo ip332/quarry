@@ -81,14 +81,20 @@ The Schema Compiler assigns `recordId` values.
 
 Schema authors never manually assign `recordId` values.
 
-The compiler preserves previously assigned `recordId` values.
+The current assignment is hierarchical and derived from the complete
+configuration, without persistent state: `recordId = (domain_id << 16) |
+local_record_id`, where domains are the record-declaring namespaces in sorted
+order and local IDs the records of each namespace in sorted name order. The
+algorithm and the reserved ranges are specified in
+`docs/specifications/binary-record-format.md` ("recordId Structure and
+Reserved Ranges") and `docs/layout-algorithm.md`; the rationale is in
+`docs/design/record-identity-and-schema-discovery.md`.
 
-The Schema Compiler maintains persistent state that associates each logical
-record identity with its assigned `recordId`. The representation of this
-persistent state, for example a manifest, is intentionally left unspecified at
-this stage.
-
-This document does not define the assignment algorithm.
+Earlier drafts of this document assumed that the compiler would preserve
+previously assigned `recordId` values in persistent state, such as a manifest.
+That is not implemented and is not part of the current design: `recordId`
+values are consistent within one configuration, and stability across
+configuration changes, if it is needed, is future compatibility work.
 
 ---
 

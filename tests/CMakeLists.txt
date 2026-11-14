@@ -315,6 +315,15 @@ target_compile_definitions(python_cpp_c_codec_interop_test PRIVATE
 add_quarry_gtest(diagnostics_smoke_test diagnostics/diagnostics_smoke_test.cpp quarry_compiler_context)
 add_quarry_gtest(support_test support/support_test.cpp quarry_compiler_support)
 
+# Hierarchical record IDs (A2): one mapping per root compilation, consumed by
+# Schema IR, QBS and every backend.
+add_quarry_gtest(hierarchical_record_id_test interop/hierarchical_record_id_test.cpp
+                      quarry_compiler_frontend)
+target_link_libraries(hierarchical_record_id_test PRIVATE
+    quarry_compiler_backend quarry_compiler_backend_c quarry_compiler_backend_go
+    quarry_compiler_backend_python quarry_compiler_qbs quarry_compiler_layout
+    quarry_schema_ir_warning_tweaks)
+
 # Go backend: generated Go is built and run with the Go toolchain when one is
 # available (tests skip otherwise), and checked against the C codec.
 find_program(QUARRY_GO_EXECUTABLE go)

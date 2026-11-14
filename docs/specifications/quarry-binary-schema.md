@@ -85,11 +85,16 @@ REQ-QBS-003: A logical record MAY retain its `record_id` while its exact
 `record_id`.
 
 QBS serializes the `record_id` supplied by the canonical BRF Layout IR; QBS
-does not allocate, renumber, or otherwise derive record IDs. The current
-compiler's initial Layout IR allocation is position-derived from canonical FQN
-order. Consequently, inserting a new record whose FQN sorts before an existing
-record can currently change the existing assigned IDs. That is a known
-implementation limitation, not a QBS guarantee.
+does not allocate, renumber, or otherwise derive record IDs. The compiler
+assigns hierarchical IDs, `(domain_id << 16) | local_record_id`, from the
+complete configuration: domains are the record-declaring namespaces in sorted
+order, local IDs the records of each namespace in sorted name order (see
+"recordId Structure and Reserved Ranges" in the BRF specification). Adding a
+namespace or a record can therefore still renumber IDs that sort after it in
+the same configuration. The record table remains FQN ordered, and the
+`schema_id` algorithm is unchanged; because the canonical identity input
+includes each record's `record_id`, `schema_id` values of a configuration
+changed once when hierarchical IDs replaced position-derived ones.
 
 Stable preservation of logical `record_id` values across compatible schema
 evolution is an architectural prerequisite for future schema exchange and
@@ -779,7 +784,7 @@ complete fixed size      not applicable (variable record)
 The canonical QBS table assignment is:
 
 ```text
-record table index 0: Example, record_id 1
+record table index 0: Example, record_id 0x00010001
 type table index 0:  uint16, fixed, width 2
 type table index 1:  uint32, fixed, width 4
 type table index 2:  string, variable, max_bytes = schema bound
@@ -790,7 +795,7 @@ type table index 3:  array, variable, element type index 0,
 The record descriptor fields are:
 
 ```text
-record_id                  1
+record_id                  0x00010001
 field_start                0
 field_count                4
 record_flags               variable
@@ -924,8 +929,9 @@ framing are deliberately not defined here.
 
 ## Open Questions
 
-1. Define and implement stable persistent `record_id` allocation; the current
-   position-derived Layout IR allocation is insufficient for schema exchange.
+1. Decide whether schema exchange needs `record_id` values that survive adding
+   namespaces or records; the current configuration-derived hierarchical
+   allocation is deterministic but not stable across such changes.
 2. Confirm the production maximums for QBS image size and 16-bit table indexes
    using actual schemas and embedded targets.
 3. Measure whether a future optional compressed enum-value section materially

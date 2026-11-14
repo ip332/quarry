@@ -387,7 +387,7 @@ TEST(SchemaIrBuilderDirectNormalizedSourceTest,
     EXPECT_EQ(lowered_record.schema_version(), 7U);
     ASSERT_TRUE(lowered_record.has_record_type());
     EXPECT_EQ(lowered_record.record_type(), quarry::schema_ir::RECORD_TYPE_DATA);
-    EXPECT_EQ(lowered_record.record_id(), 1U);
+    EXPECT_EQ(lowered_record.record_id(), quarry::compiler::layout::compose_record_id(1U, 1U));
     ASSERT_EQ(lowered_record.fields_size(), 5);
 
     EXPECT_EQ(lowered_record.fields(0).name(), "mode");

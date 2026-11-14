@@ -369,7 +369,9 @@ void collect_semantic_record(const source_schema::NormalizedSourceSchemaDocument
                              diagnostics::DiagnosticEngine& diagnostics, SemanticModel& model) {
     SemanticRecord record;
     record.source_range = schema.record_source_range;
-    record.fqn = qualify_fqn(schema.namespace_name.text(), schema.record_name.text);
+    record.namespace_fqn = schema.namespace_name.text();
+    record.name = schema.record_name.text;
+    record.fqn = qualify_fqn(record.namespace_fqn, record.name);
 
     const std::optional<std::uint32_t> version =
         validate_positive_u32(schema.version, schema.version_range, diagnostics,

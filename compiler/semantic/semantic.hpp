@@ -100,7 +100,13 @@ struct SemanticField {
 
 struct SemanticRecord {
     support::SourceRange source_range;
+    // Canonical identity: fqn == namespace_fqn + "." + name, or name alone in
+    // the unnamed root namespace. namespace_fqn and name are the validated
+    // canonical spellings the fqn is built from; layout uses them to assign
+    // hierarchical record IDs without re-parsing the fqn.
     std::string fqn;
+    std::string namespace_fqn;
+    std::string name;
     std::optional<std::uint32_t> version = std::nullopt;
     std::optional<SemanticRecordType> record_type = std::nullopt;
     std::vector<SemanticField> fields;

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cassert>
 #include <limits>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -45,6 +46,45 @@ void emit_duplicate_record_fqn(const semantic::SemanticRecord& record,
                          .from_pass(std::string(layout_pass))
                          .build());
     (void)context;
+}
+
+void emit_too_many_domains(const semantic::SemanticRecord& record, std::size_t domain_count,
+                           diagnostics::DiagnosticCollection& diagnostics) {
+    diagnostics.emit(diagnostics::Diagnostic::create(
+                         diagnostic_id("BC7004"), diagnostics::Severity::Error,
+                         "the configuration declares records in " + std::to_string(domain_count) +
+                             " namespaces; at most " + std::to_string(kLastApplicationDomainId) +
+                             " application record domains (0x0001-0xFEFF) are available")
+                         .at(record.source_range)
+                         .from_pass(std::string(layout_pass))
+                         .build());
+}
+
+void emit_too_many_records_in_domain(const semantic::SemanticRecord& record,
+                                     std::string_view namespace_fqn, std::size_t record_count,
+                                     diagnostics::DiagnosticCollection& diagnostics) {
+    diagnostics.emit(diagnostics::Diagnostic::create(
+                         diagnostic_id("BC7005"), diagnostics::Severity::Error,
+                         "namespace '" +
+                             std::string(namespace_fqn.empty() ? "<root>" : namespace_fqn) +
+                             "' declares " + std::to_string(record_count) + " records; at most " +
+                             std::to_string(kLastLocalRecordId) +
+                             " local record IDs (0x0001-0xFFFE) are available per namespace")
+                         .at(record.source_range)
+                         .from_pass(std::string(layout_pass))
+                         .build());
+}
+
+void emit_inconsistent_record_identity(const semantic::SemanticRecord& record,
+                                       diagnostics::DiagnosticCollection& diagnostics) {
+    diagnostics.emit(
+        diagnostics::Diagnostic::create(diagnostic_id("BC7006"), diagnostics::Severity::Error,
+                                        "record '" + record.fqn +
+                                            "' has inconsistent canonical identity (namespace '" +
+                                            record.namespace_fqn + "', name '" + record.name + "')")
+            .at(record.source_range)
+            .from_pass(std::string(layout_pass))
+            .build());
 }
 
 void emit_brf_v2_error(diagnostics::DiagnosticCollection& diagnostics, std::string message) {
@@ -572,6 +612,44 @@ LayoutModel LayoutComputer::compute(const semantic::SemanticModel& semantic_mode
         }
     }
 
+    // Hierarchical record IDs over the complete compilation. std::string
+    // comparison is bytewise (char_traits<char>::compare behaves like memcmp),
+    // so ordering is locale-independent.
+    std::map<std::string, std::vector<const semantic::SemanticRecord*>> records_by_namespace;
+    for (const semantic::SemanticRecord* record : ordered_records) {
+        const std::string expected_fqn = record->namespace_fqn.empty()
+                                             ? record->name
+                                             : record->namespace_fqn + "." + record->name;
+        if (record->name.empty() || expected_fqn != record->fqn) {
+            emit_inconsistent_record_identity(*record, diagnostics);
+            return {};
+        }
+        records_by_namespace[record->namespace_fqn].push_back(record);
+    }
+    std::unordered_map<std::string, std::uint32_t> record_id_by_fqn;
+    std::uint32_t domain_id = kFirstApplicationDomainId - 1U;
+    for (auto& [namespace_fqn, records] : records_by_namespace) {
+        if (domain_id == kLastApplicationDomainId) {
+            emit_too_many_domains(*records.front(), records_by_namespace.size(), diagnostics);
+            return {};
+        }
+        ++domain_id;
+        std::stable_sort(records.begin(), records.end(),
+                         [](const semantic::SemanticRecord* lhs,
+                            const semantic::SemanticRecord* rhs) { return lhs->name < rhs->name; });
+        if (records.size() > kLastLocalRecordId) {
+            emit_too_many_records_in_domain(*records[kLastLocalRecordId], namespace_fqn,
+                                            records.size(), diagnostics);
+            return {};
+        }
+        for (std::size_t local = 0; local < records.size(); ++local) {
+            record_id_by_fqn.emplace(
+                records[local]->fqn,
+                compose_record_id(domain_id,
+                                  kFirstLocalRecordId + static_cast<std::uint32_t>(local)));
+        }
+    }
+
     for (std::size_t index = 0; index < ordered_records.size(); ++index) {
         const semantic::SemanticRecord& record = *ordered_records[index];
         if (record.fields.size() > 256U) {
@@ -581,7 +659,7 @@ LayoutModel LayoutComputer::compute(const semantic::SemanticModel& semantic_mode
 
         RecordLayout record_layout;
         record_layout.fqn = record.fqn;
-        record_layout.record_id = static_cast<std::uint32_t>(index + 1U);
+        record_layout.record_id = record_id_by_fqn.at(record.fqn);
         record_layout.fields.reserve(record.fields.size());
         for (std::size_t field_index = 0; field_index < record.fields.size(); ++field_index) {
             FieldLayout field_layout;

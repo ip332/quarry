@@ -1,6 +1,7 @@
 #include "compiler/layout/layout.hpp"
 #include "compiler/semantic/semantic.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
@@ -66,6 +67,9 @@ struct LayoutOutput {
 
 [[nodiscard]] SemanticRecord make_record(std::string fqn, std::size_t field_count = 0U) {
     SemanticRecord record;
+    const std::size_t dot = fqn.rfind('.');
+    record.namespace_fqn = dot == std::string::npos ? std::string() : fqn.substr(0, dot);
+    record.name = dot == std::string::npos ? fqn : fqn.substr(dot + 1U);
     record.fqn = std::move(fqn);
     record.source_range = {};
     record.fields.reserve(field_count);
@@ -209,7 +213,8 @@ TEST(LayoutSmokeTest, OneEmptyRecordGetsInitialIdentity) {
     ASSERT_EQ(output.layout_model.records.size(), 1U);
     const auto* layout = find_record(output.layout_model, "Example");
     ASSERT_NE(layout, nullptr);
-    EXPECT_EQ(layout->record_id, 1U);
+    // Unnamed root namespace = domain 1; first record = local 1.
+    EXPECT_EQ(layout->record_id, quarry::compiler::layout::compose_record_id(1U, 1U));
     EXPECT_TRUE(layout->fields.empty());
 }
 
@@ -238,8 +243,11 @@ TEST(LayoutSmokeTest, CanonicalFqnOrderControlsRecordIds) {
     ASSERT_NE(find_record(output.layout_model, "alpha.Alpha"), nullptr);
     EXPECT_EQ(output.layout_model.records[0].fqn, "Zeta");
     EXPECT_EQ(output.layout_model.records[1].fqn, "alpha.Alpha");
-    EXPECT_EQ(output.layout_model.records[0].record_id, 1U);
-    EXPECT_EQ(output.layout_model.records[1].record_id, 2U);
+    // Domains: "" (root) = 1, "alpha" = 2.
+    EXPECT_EQ(output.layout_model.records[0].record_id,
+              quarry::compiler::layout::compose_record_id(1U, 1U));
+    EXPECT_EQ(output.layout_model.records[1].record_id,
+              quarry::compiler::layout::compose_record_id(2U, 1U));
 }
 
 TEST(LayoutSmokeTest, NestedNamespaceRecordsAreIndependent) {
@@ -676,6 +684,117 @@ TEST(BrfV2LayoutTest, InvalidVariableBoundsFailBeforeLayoutIsPublished) {
     const BrfV2LayoutOutput output = run_brf_v2_layout(schema);
     EXPECT_FALSE(output.diagnostics.empty());
     EXPECT_TRUE(output.layout_model.records.empty());
+}
+
+// --- Hierarchical record IDs (record_id = domain << 16 | local) ----------------
+
+using quarry::compiler::layout::compose_record_id;
+
+[[nodiscard]] std::uint32_t id_of(const LayoutOutput& output, std::string_view fqn) {
+    const auto* record = find_record(output.layout_model, fqn);
+    return record == nullptr ? 0U : record->record_id;
+}
+
+TEST(HierarchicalRecordIdTest, DomainsAreSortedNamespacesAndLocalsAreSortedNames) {
+    // Input deliberately unsorted; several records share namespaces.
+    const LayoutOutput output = run_layout_pipeline(
+        make_model({make_record("truck.engine.FaultCode"), make_record("truck.VehicleSnapshot"),
+                    make_record("truck.common.Timestamp"), make_record("truck.engine.EngineStatus"),
+                    make_record("truck.cms.CameraHealth"), make_record("truck.brakes.BrakeStatus"),
+                    make_record("truck.brakes.AbsEvent")}));
+    ASSERT_TRUE(output.layout_diagnostics.empty())
+        << diagnostics_summary(output.layout_diagnostics);
+    // Domains: truck=1, truck.brakes=2, truck.cms=3, truck.common=4 ('m' < 'o'),
+    // truck.engine=5.
+    EXPECT_EQ(id_of(output, "truck.VehicleSnapshot"), compose_record_id(1U, 1U));
+    EXPECT_EQ(id_of(output, "truck.brakes.AbsEvent"), compose_record_id(2U, 1U));
+    EXPECT_EQ(id_of(output, "truck.brakes.BrakeStatus"), compose_record_id(2U, 2U));
+    EXPECT_EQ(id_of(output, "truck.cms.CameraHealth"), compose_record_id(3U, 1U));
+    EXPECT_EQ(id_of(output, "truck.common.Timestamp"), compose_record_id(4U, 1U));
+    EXPECT_EQ(id_of(output, "truck.engine.EngineStatus"), compose_record_id(5U, 1U));
+    EXPECT_EQ(id_of(output, "truck.engine.FaultCode"), compose_record_id(5U, 2U));
+    EXPECT_EQ(compose_record_id(5U, 2U), 0x00050002U);
+}
+
+TEST(HierarchicalRecordIdTest, AssignmentIsIndependentOfInputOrder) {
+    std::vector<SemanticRecord> records = {make_record("b.Two"), make_record("a.Zed"),
+                                           make_record("b.One"), make_record("a.Alpha"),
+                                           make_record("Root")};
+    const LayoutOutput forward = run_layout_pipeline(make_model(records));
+    std::reverse(records.begin(), records.end());
+    const LayoutOutput reversed = run_layout_pipeline(make_model(records));
+    for (const auto* fqn : {"Root", "a.Alpha", "a.Zed", "b.One", "b.Two"}) {
+        EXPECT_EQ(id_of(forward, fqn), id_of(reversed, fqn)) << fqn;
+    }
+    // Unnamed root namespace "" sorts first.
+    EXPECT_EQ(id_of(forward, "Root"), compose_record_id(1U, 1U));
+    EXPECT_EQ(id_of(forward, "a.Alpha"), compose_record_id(2U, 1U));
+    EXPECT_EQ(id_of(forward, "a.Zed"), compose_record_id(2U, 2U));
+    EXPECT_EQ(id_of(forward, "b.One"), compose_record_id(3U, 1U));
+    EXPECT_EQ(id_of(forward, "b.Two"), compose_record_id(3U, 2U));
+}
+
+TEST(HierarchicalRecordIdTest, OrderingIsBytewiseNotLocaleAware) {
+    // Bytewise: uppercase (0x41-0x5A) sorts before lowercase (0x61-0x7A).
+    const LayoutOutput output =
+        run_layout_pipeline(make_model({make_record("ns.apple"), make_record("ns.Zebra"),
+                                        make_record("b.X"), make_record("B.X")}));
+    ASSERT_TRUE(output.layout_diagnostics.empty())
+        << diagnostics_summary(output.layout_diagnostics);
+    EXPECT_EQ(id_of(output, "B.X"), compose_record_id(1U, 1U));
+    EXPECT_EQ(id_of(output, "b.X"), compose_record_id(2U, 1U));
+    EXPECT_EQ(id_of(output, "ns.Zebra"), compose_record_id(3U, 1U));
+    EXPECT_EQ(id_of(output, "ns.apple"), compose_record_id(3U, 2U));
+}
+
+TEST(HierarchicalRecordIdTest, ApplicationDomainLimitIsEnforced) {
+    // 0xFEFF application domains fit; one more is an error. 0xFF00-0xFFFF are
+    // reserved for Quarry system records and are never assigned here.
+    std::vector<SemanticRecord> records;
+    records.reserve(0xFF00U);
+    for (std::uint32_t i = 0U; i < 0xFEFFU; ++i) {
+        records.push_back(make_record("n" + std::to_string(100000U + i) + ".R"));
+    }
+    const LayoutOutput fits = run_layout_pipeline(make_model(records));
+    ASSERT_TRUE(fits.layout_diagnostics.empty()) << diagnostics_summary(fits.layout_diagnostics);
+    std::uint32_t highest = 0U;
+    for (const auto& record : fits.layout_model.records) {
+        highest = std::max(highest, record.record_id >> 16U);
+    }
+    EXPECT_EQ(highest, quarry::compiler::layout::kLastApplicationDomainId);
+
+    records.push_back(make_record("n9999999.R"));
+    const LayoutOutput overflow = run_layout_pipeline(make_model(records));
+    const std::string summary = diagnostics_summary(overflow.layout_diagnostics);
+    EXPECT_NE(summary.find("BC7004"), std::string::npos) << summary;
+    EXPECT_NE(summary.find("65280 namespaces"), std::string::npos) << summary;
+    EXPECT_TRUE(overflow.layout_model.records.empty());
+}
+
+TEST(HierarchicalRecordIdTest, LocalRecordLimitIsEnforced) {
+    std::vector<SemanticRecord> records;
+    records.reserve(0xFFFFU);
+    for (std::uint32_t i = 0U; i < 0xFFFEU; ++i) {
+        records.push_back(make_record("big.R" + std::to_string(100000U + i)));
+    }
+    const LayoutOutput fits = run_layout_pipeline(make_model(records));
+    ASSERT_TRUE(fits.layout_diagnostics.empty()) << diagnostics_summary(fits.layout_diagnostics);
+    EXPECT_EQ(id_of(fits, "big.R165533"), compose_record_id(1U, 0xFFFEU)); // last = 0xFFFE
+
+    records.push_back(make_record("big.R999999"));
+    const LayoutOutput overflow = run_layout_pipeline(make_model(records));
+    const std::string summary = diagnostics_summary(overflow.layout_diagnostics);
+    EXPECT_NE(summary.find("BC7005"), std::string::npos) << summary;
+    EXPECT_NE(summary.find("namespace 'big' declares 65535 records"), std::string::npos) << summary;
+    EXPECT_TRUE(overflow.layout_model.records.empty());
+}
+
+TEST(HierarchicalRecordIdTest, InconsistentCanonicalIdentityIsRejected) {
+    SemanticRecord record = make_record("a.Real");
+    record.namespace_fqn = "b"; // does not compose to the fqn
+    const LayoutOutput output = run_layout_pipeline(make_model({record}));
+    const std::string summary = diagnostics_summary(output.layout_diagnostics);
+    EXPECT_NE(summary.find("BC7006"), std::string::npos) << summary;
 }
 
 } // namespace

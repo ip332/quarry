@@ -17,6 +17,29 @@ namespace quarry::compiler::layout {
 inline constexpr std::uint32_t kBrfV2HeaderSize = 16U;
 inline constexpr std::uint32_t kBrfV2VariableDescriptorSize = 8U;
 
+// --- Hierarchical BRF record IDs ---------------------------------------------
+//
+// record_id = (domain_id << 16) | local_record_id, assigned once per compilation
+// from its complete import closure (docs/specifications/binary-record-format.md,
+// "recordId Structure and Reserved Ranges"):
+//   * domains are the namespaces that declare records, numbered from 1 in
+//     bytewise order of the namespace FQN (the unnamed root namespace "" first);
+//   * local IDs number a namespace's records from 1 in bytewise order of the
+//     record name.
+// Domain 0, local 0 and local 0xFFFF are reserved; domains 0xFF00-0xFFFF are
+// reserved for Quarry system records with explicitly assigned IDs.
+inline constexpr std::uint32_t kFirstApplicationDomainId = 0x0001U;
+inline constexpr std::uint32_t kLastApplicationDomainId = 0xFEFFU;
+inline constexpr std::uint32_t kFirstSystemDomainId = 0xFF00U;
+inline constexpr std::uint32_t kLastSystemDomainId = 0xFFFFU;
+inline constexpr std::uint32_t kFirstLocalRecordId = 0x0001U;
+inline constexpr std::uint32_t kLastLocalRecordId = 0xFFFEU;
+
+[[nodiscard]] constexpr std::uint32_t compose_record_id(std::uint32_t domain_id,
+                                                        std::uint32_t local_record_id) {
+    return (domain_id << 16U) | local_record_id;
+}
+
 enum class RecordClassification {
     FixedSize,
     VariableSize,

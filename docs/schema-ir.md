@@ -265,7 +265,9 @@ the compiler and binary record model. Schema IR references should not rely on
 unresolved text names when a compiler identifier is available.
 
 `recordId` values are assigned by the Layout Model, copied into `RecordIR`, and
-validated to be nonzero and globally unique within Schema IR.
+validated to be nonzero and globally unique within Schema IR. They are
+hierarchical, `(domain_id << 16) | local_record_id`; see
+`docs/layout-algorithm.md`.
 
 ---
 

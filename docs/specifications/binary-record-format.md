@@ -148,6 +148,68 @@ Detailed schema compatibility, field evolution, and exact schema identity rules
 are outside this BRF specification and belong to future schema/QBS evolution
 work.
 
+## recordId Structure and Reserved Ranges
+
+This section is part of the protocol contract. It applies to BRF v1 and BRF v2
+alike; the header field remains an unsigned 32-bit big-endian integer.
+
+A `recordId` is hierarchical:
+
+```text
+recordId = (domain_id << 16) | local_record_id
+
+bits 31..16   domain_id         record domain (one per namespace)
+bits 15..0    local_record_id   record within the domain
+```
+
+Reserved and assigned ranges:
+
+| Range | Meaning |
+| --- | --- |
+| `domain_id = 0x0000` | Reserved. No valid `recordId` has domain 0, so `recordId = 0` and every value below `0x00010000` is invalid. |
+| `domain_id = 0x0001`–`0xFEFF` | Application domains (65,279), assigned by the schema compiler. |
+| `domain_id = 0xFF00`–`0xFFFF` | Quarry system domains (256). Reserved for Quarry-defined records; each is assigned an explicit constant by this specification when defined. None is defined yet. |
+| `local_record_id = 0x0000` | Reserved. |
+| `local_record_id = 0x0001`–`0xFFFE` | Application records (65,534 per domain). |
+| `local_record_id = 0xFFFF` | Reserved. |
+
+The schema compiler assigns application IDs from one complete compilation root
+(the root schema and its complete import closure, called the configuration):
+
+1. A record domain is a canonical namespace, not a source file. Several source
+   files MAY contribute records to one namespace; they share its domain. Every
+   namespace in the configuration that declares at least one record receives a
+   domain, whether or not its records are referenced.
+2. Domains are numbered from `0x0001` in ascending bytewise order of the
+   namespace's canonical fully qualified name. Ordering is locale independent.
+   Records declared in the root (unnamed) namespace form a domain whose name is
+   the empty string, which therefore sorts first.
+3. Within a domain, records are numbered from `0x0001` in ascending bytewise
+   order of the record's local name, independent of declaration order and of
+   which file declares them. Two records with the same name in one namespace
+   are rejected as duplicate fully qualified names.
+4. A configuration with more than 65,279 record domains, or a namespace with
+   more than 65,534 records, is rejected at compile time.
+
+IDs are therefore a deterministic function of the configuration's set of
+namespaces and record names. They are not hashes of fully qualified names and
+are not persisted in a registry. Adding, removing, or renaming a namespace or a
+record can renumber other domains or other records within the same domain; such
+a change defines a different configuration. Generated code, QBS images, and
+encoded data are consistent only within one configuration.
+
+Every generated binding (C, C++, Python, Go) and every QBS image of a
+configuration embeds the same mapping, including the expected `recordId` of
+nested records and record-array elements.
+
+**Compatibility note.** The hierarchical assignment replaced an earlier
+position-based assignment (`recordId = 1, 2, 3, ...` in sorted fully qualified
+name order). The header layout and the BRF and QBS format versions are
+unchanged, but generated `recordId` values are different, so data encoded by
+bindings generated before the change is rejected by strict readers generated
+after it (and vice versa) as an unexpected `recordId`. Regenerate all bindings
+of a configuration together.
+
 ---
 
 ## Record Body Layout
@@ -1011,7 +1073,7 @@ The header is conceptually:
 brf_format_version = 2
 flags = 0
 header_size = 16
-record_id = 1
+record_id = 0x00010001   (domain 1, local record 1)
 fixed_region_size = 23
 record_size = 47
 ```

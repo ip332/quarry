@@ -1,6 +1,7 @@
 #include "compiler/context/compiler_context.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/frontend/yaml_compiler.hpp"
+#include "compiler/layout/layout.hpp"
 #include "compiler/output_planning/output_planning.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "compiler/support/source_manager.hpp"
@@ -156,7 +157,7 @@ fields:
     EXPECT_TRUE(record.has_schema_version());
     EXPECT_TRUE(record.has_record_type());
     EXPECT_EQ(record.record_type(), quarry::schema_ir::RECORD_TYPE_DATA);
-    EXPECT_EQ(record.record_id(), 1U);
+    EXPECT_EQ(record.record_id(), quarry::compiler::layout::compose_record_id(1U, 1U));
     ASSERT_EQ(record.fields_size(), 1);
     EXPECT_EQ(record.fields(0).name(), "count");
     EXPECT_EQ(record.fields(0).field_index(), 0U);
