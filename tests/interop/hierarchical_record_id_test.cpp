@@ -337,6 +337,32 @@ TEST_F(HierarchicalRecordIdTest, ImportOrderDoesNotAffectIdsOrSchemaId) {
     const QbsResult b = build_qbs(*reordered);
     EXPECT_EQ(a.ids, b.ids);
     EXPECT_EQ(a.schema_id, b.schema_id);
+    // Not just the IDs: the whole QBS image is byte-identical.
+    EXPECT_FALSE(a.bytes.empty());
+    EXPECT_EQ(a.bytes, b.bytes);
+}
+
+TEST_F(HierarchicalRecordIdTest, ImportOrderDoesNotAffectGeneratedCode) {
+    // Same root path both times, so only the import order differs.
+    const auto forward = compile("top.brd");
+    write_text(root / "top.brd",
+               top_schema({"unused.brd", "aardvark.brd", "other.brd", "mid.brd"}));
+    const auto reordered = compile("top.brd");
+    ASSERT_TRUE(forward.has_value());
+    ASSERT_TRUE(reordered.has_value());
+    EXPECT_EQ(build_qbs(*forward).bytes, build_qbs(*reordered).bytes);
+    // Every backend embeds the same (record, ID) pairs. The order in which
+    // declarations are emitted still follows source load order (Schema IR
+    // keeps it), so compare order-insensitively; canonical emission order is
+    // A3 (root-wide generation) work.
+    auto ids_forward = backend_ids(*forward);
+    auto ids_reordered = backend_ids(*reordered);
+    for (auto* ids : {&ids_forward, &ids_reordered}) {
+        for (auto& [language, occurrences] : *ids) {
+            std::sort(occurrences.begin(), occurrences.end());
+        }
+    }
+    EXPECT_EQ(ids_forward, ids_reordered);
 }
 
 TEST_F(HierarchicalRecordIdTest, RepeatedCompilationIsDeterministic) {

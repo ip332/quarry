@@ -795,6 +795,23 @@ TEST(HierarchicalRecordIdTest, InconsistentCanonicalIdentityIsRejected) {
     const LayoutOutput output = run_layout_pipeline(make_model({record}));
     const std::string summary = diagnostics_summary(output.layout_diagnostics);
     EXPECT_NE(summary.find("BC7006"), std::string::npos) << summary;
+
+    SemanticRecord unnamed = make_record("a.Real");
+    unnamed.name.clear(); // an empty local name is never a valid identity
+    const LayoutOutput empty_name = run_layout_pipeline(make_model({unnamed}));
+    const std::string empty_summary = diagnostics_summary(empty_name.layout_diagnostics);
+    EXPECT_NE(empty_summary.find("BC7006"), std::string::npos) << empty_summary;
+    EXPECT_TRUE(empty_name.layout_model.records.empty());
+}
+
+TEST(HierarchicalRecordIdTest, RootNamespaceIsTheFirstDomain) {
+    // The unnamed root namespace is the empty string, which sorts first.
+    const LayoutOutput output =
+        run_layout_pipeline(make_model({make_record("a.First"), make_record("Rooted")}));
+    ASSERT_TRUE(output.layout_diagnostics.empty())
+        << diagnostics_summary(output.layout_diagnostics);
+    EXPECT_EQ(id_of(output, "Rooted"), compose_record_id(1U, 1U));
+    EXPECT_EQ(id_of(output, "a.First"), compose_record_id(2U, 1U));
 }
 
 } // namespace
