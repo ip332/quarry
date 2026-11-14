@@ -696,9 +696,9 @@ contract can change on its own schedule.
   schema frontend does not expose per-element `max_bytes` for array fields;
   PR-123 therefore consumes that already-defined constraint at the validated
   Schema IR/backend boundary without changing the frontend pipeline.
-* **Explicit dependency generation.** Imported source units must be invoked
-  as explicit roots so their generated modules are present in the same output
-  package tree. Python modules use absolute imports with full deterministic
+* **Explicit dependency generation.** Referenced namespaces must be generated
+  from the same compilation root (`--generate` or a configuration root) so
+  their generated modules are present in the same output package tree. Python modules use absolute imports with full deterministic
   aliases. Source-unit import cycles are rejected by the compiler before
   backend generation, so generated module imports do not rely on partially
   initialized modules. Recursive by-value record graphs remain unsupported.

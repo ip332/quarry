@@ -123,13 +123,32 @@ private:
 
         context::SourceUnit source_unit;
         source_unit.canonical_path = canonical_path;
-        source_unit.identity = document->namespace_name.text() + "." +
-                               document->record_name.text;
-        source_unit.namespace_fqn = document->namespace_name.text();
         source_unit.source_file_id = source_file_id;
         source_unit.source_range = document->source_range;
         source_unit.is_root = is_root;
-        source_unit.schema = *document;
+        if (document->configuration_name.has_value()) {
+            if (!is_root) {
+                emit_graph_diagnostic(diagnostics_, "BC2408",
+                                      "configuration file '" + canonical_path +
+                                          "' can only be a compilation root; it cannot be "
+                                          "imported",
+                                      incoming_import_range);
+                states_.erase(canonical_path);
+                stack_paths_.pop_back();
+                stack_import_ranges_.pop_back();
+                return std::nullopt;
+            }
+            // A configuration declares nothing, so it has no namespace, no
+            // record identity and no schema of its own.
+            source_unit.identity = canonical_path;
+            source_unit.is_configuration = true;
+            source_unit.configuration_name = document->configuration_name->text;
+        } else {
+            source_unit.identity =
+                document->namespace_name.text() + "." + document->record_name.text;
+            source_unit.namespace_fqn = document->namespace_name.text();
+            source_unit.schema = *document;
+        }
 
         const auto previous_identity = identities_.find(source_unit.identity);
         if (previous_identity != identities_.end() &&
@@ -280,6 +299,13 @@ private:
 YamlCompilationResult YamlCompiler::compile(support::SourceFileId source_file_id,
                                             context::CompilerContext& context,
                                             diagnostics::DiagnosticCollection& diagnostics) const {
+    return compile(source_file_id, context, diagnostics, output_planning::GenerationSelection{});
+}
+
+YamlCompilationResult
+YamlCompiler::compile(support::SourceFileId source_file_id, context::CompilerContext& context,
+                      diagnostics::DiagnosticCollection& diagnostics,
+                      const output_planning::GenerationSelection& selection) const {
     YamlCompilationResult result;
 
     SourceUnitGraphLoader graph_loader(source_file_id, context, diagnostics);
@@ -311,7 +337,8 @@ YamlCompilationResult YamlCompiler::compile(support::SourceFileId source_file_id
     }
 
     output_planning::OutputPlanner output_planner;
-    const output_planning::OutputPlan output_plan = output_planner.plan(context, diagnostics);
+    const output_planning::OutputPlan output_plan =
+        output_planner.plan(context, selection, diagnostics);
     if (has_fatal_diagnostics(diagnostics)) {
         return result;
     }

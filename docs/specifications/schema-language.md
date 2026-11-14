@@ -83,8 +83,10 @@ the record's fields.
 
 ## REQ-SL-003
 
-The document root SHALL be a YAML mapping containing the top-level keys
-`namespace`, `record`, `version`, `type`, and `fields`.
+The root of a schema document SHALL be a YAML mapping containing the top-level
+keys `namespace`, `record`, `version`, `type`, and `fields`. A document whose
+root contains the `configuration` key is a configuration document instead
+(REQ-SL-054 to REQ-SL-059).
 
 ## REQ-SL-004
 
@@ -318,15 +320,63 @@ is converted into compiler models.
 The source-language specification SHALL defer binary record format, runtime API
 behavior, and transport protocols to separate specifications.
 
+## REQ-SL-054
+
+A configuration document SHALL name a configuration with the top-level key
+`configuration`, whose value SHALL be an identifier. It describes a
+compilation root made of the schemas it imports:
+
+```yaml
+configuration: class8_truck
+imports:
+  - vehicle.brd
+  - engine.brd
+```
+
+The `configuration` key is unrelated to the record type value `configuration`
+(REQ-SL-010), which classifies a record.
+
+## REQ-SL-055
+
+A configuration document SHALL contain only the keys `configuration` and
+`imports`. `namespace`, `record`, `version`, `type`, `fields`, `enums`,
+`annotations` and any other key SHALL be invalid in it.
+
+## REQ-SL-056
+
+A configuration document SHALL import at least one schema document.
+
+## REQ-SL-057
+
+A configuration document SHALL be used only as a compilation root. Importing a
+configuration document SHALL be invalid.
+
+## REQ-SL-058
+
+A configuration document SHALL declare no namespace, record, field, enum or
+version, and SHALL introduce no record domain. Its own source-unit identity is
+its canonical path. Its configuration name and its location SHALL NOT affect
+record IDs, Schema IR declarations, QBS output or `schema_id`. A configuration
+document resolving the same schemas as a schema document compiled as the root
+yields the same record IDs and the same `schema_id`.
+
+## REQ-SL-059
+
+The compilation root, a configuration document or a schema document, defines
+the configuration: its complete transitive import closure. Every record ID is
+assigned from that closure. Which namespaces are generated is selected
+separately (see `tools/README.md`, `--generate`) and SHALL NOT affect record
+IDs or `schema_id`.
+
 ---
 
 # Implementation Status
 
 The YAML frontend (`frontend::YamlCompiler`) is the production path: it loads
-the root and its transitive relative-import graph, then feeds the root's
-normalized source schema directly through symbols, semantic validation, layout,
-and Schema IR. External type resolution and imported backend output planning
-remain future compiler stages.
+the root, which is a schema document or a configuration document, and its
+transitive relative-import graph. It then feeds every loaded schema through
+symbols, semantic validation, layout and Schema IR, and plans generated output
+per namespace for the selected namespaces.
 
 A legacy declaration-syntax lexer/parser and AST (`compiler/parser`,
 `compiler/ast`) also exist, but only for parser/AST compatibility testing. They

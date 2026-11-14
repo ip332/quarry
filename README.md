@@ -128,8 +128,9 @@ results.
 
 The quickest complete path is the installed CMake workflow in
 [`examples/cpp/schema_compiler_cmake`](examples/cpp/schema_compiler_cmake). It
-generates a root schema and its imported dependency into one output tree,
-builds a C++ consumer, and performs a BRF encode/decode round trip.
+compiles a root schema with its imported dependency, generates both namespaces
+from that one root into one output tree, builds a C++ consumer, and performs a
+BRF encode/decode round trip.
 
 Requirements: Git, CMake 3.20 or newer, and a C++20 compiler.
 
@@ -160,7 +161,8 @@ fields:
 ```
 
 Its imported `shared.brd` defines `quarry.shared.Child`. The CMake helper
-invokes the installed `Quarry::schema_compiler` target for both source units.
+invokes the installed `Quarry::schema_compiler` target once, on the root, with
+`GENERATE "quarry.telemetry,quarry.shared"`.
 
 Configure the example against the local installation:
 
@@ -271,8 +273,7 @@ After the Quick Start, continue with the topic you need:
 - [Versioning](docs/versioning.md)
 - [Release notes](docs/release-notes-v0.1.7-rc.1.md)
 
-Current limitations include separate explicit generation of imported roots,
-rejected source-unit import cycles, unsupported recursive by-value records and
+Current limitations include rejected source-unit import cycles, unsupported recursive by-value records and
 nested arrays, and a bounded supported subset in the protobuf translator.
 
 ## Community
@@ -335,12 +336,17 @@ attachment, runtime linkage, and stale-output cleanup. The canonical pattern is
 shown in
 `examples/cpp/schema_compiler_cmake`.
 
-For C++ schemas that reference imported records or enums, generate each
-imported source unit as an explicit root into the same output directory before
-generating the root schema. The root header then includes the dependency
-headers and uses fully qualified C++ types deterministically. C and Python
-cross-namespace dependency generation are also supported; generate each
-imported source unit as an explicit root into the same output tree.
+Record IDs are assigned from the compilation root's complete import closure
+(the *configuration*), so every binding of a system must be generated from the
+same root. Name the root with `SCHEMA` and the namespaces to emit with
+`GENERATE` (comma-separated); without `GENERATE` a record root emits only its
+own namespace. A root may also be a configuration file that only imports
+(`configuration: <name>`); without `GENERATE` it emits every namespace. Each
+generated file includes or imports the bindings of the namespaces it
+references, which must be generated from the same root (in the same or another
+invocation) into the same output tree. Generating an imported schema as its
+own root defines a different configuration with different record IDs; see
+`examples/truck` and `tools/README.md`.
 
 At build time, the helper reruns `--list-outputs` before generation and fails
 before writing files if the current inventory no longer matches the inventory
@@ -369,8 +375,8 @@ integers, `f32`/`f64`, bounded `string`/`bytes` fields, non-negative enum
 references, bounded arrays of those scalar/enum/string/bytes/record element
 kinds, or a record reference (embedded by value, no pointer or heap
 allocation). Compiler-resolved cross-namespace enum/record references use
-imported generated headers and remain separate explicit generation roots,
-with real BRF encode/decode backed by the installed `Quarry::runtime_c` C
+imported generated headers generated from the same compilation root, with
+real BRF encode/decode backed by the installed `Quarry::runtime_c` C
 runtime and verified byte-for-byte wire-compatible with the C++ backend,
 including identical unknown-enum-value rejection (plain field or array
 element), identical string/bytes/array-field bounds-violation rejection
@@ -411,8 +417,8 @@ bounded arrays of string and bytes elements, are supported using the BRF
 count-prefix encoding. Nested record fields and arrays of records, including
 compiler-resolved cross-namespace enum/record references, are supported by
 composing the existing generated record helpers and BRF array framing.
-Imported schemas must be generated as separate explicit roots into the same
-output tree. Nested arrays and recursive by-value record graphs remain
+Imported namespaces must be generated from the same compilation root (with
+`--generate` or a configuration root) into the same output tree. Nested arrays and recursive by-value record graphs remain
 unsupported and fail generation with a diagnostic naming the record and field.
 Generated modules check a
 Python generated-code API compatibility epoch

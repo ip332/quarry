@@ -1,0 +1,11 @@
+namespace: truck.brakes
+record: AbsEvent
+version: 1
+type: event
+imports:
+  - common_time.brd
+fields:
+  time:
+    type: truck.common.Timestamp
+  wheel:
+    type: u8

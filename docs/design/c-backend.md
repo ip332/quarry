@@ -3,7 +3,7 @@
 > Current status (PR-139): the C backend supports compiler-resolved
 > cross-namespace enum and record fields, including arrays, by consuming
 > `OutputPlan` dependency metadata and emitting deterministic generated-header
-> includes. Imported source units remain separate explicit generation roots.
+> includes. Referenced namespaces are generated from the same compilation root.
 > Nested arrays and recursive by-value records remain out of scope.
 
 ## Implementation Status
@@ -137,7 +137,7 @@ buffer, no byte copy, no new runtime function, no generated-code API
 epoch bump. Decode composes the element type's own `_decode()` exactly
 like a plain nested-record field already does, needing no new runtime
 code either. Arrays of records across namespaces are supported by PR-139
-when their dependency headers are generated as explicit roots. See
+when their dependency headers are generated from the same compilation root. See
 `compiler/backend_c/README.md`'s "Record array fields" section for the
 full representation rationale, the write-side investigation, and
 scratch-buffer sizing.
@@ -760,7 +760,7 @@ complexity (arrays of records), and land diagnostics and packaging/examples
 only once there is a real, multi-feature generator to diagnose and package.
 **Also remaining:** nested arrays and recursive by-value records. C,
 C++, and Python cross-namespace enum and record references are implemented;
-all imported source units still require separate explicit generation roots.
+referenced namespaces are generated from the same compilation root (A3).
 
 ---
 

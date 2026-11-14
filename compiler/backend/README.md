@@ -160,8 +160,8 @@ Current C++ generation behavior:
 * lowers named record and enum references to fully qualified C++ names
 * consumes output-plan dependency metadata to emit each required generated
   dependency header exactly once in deterministic order
-* supports imported record and enum fields, including arrays, when imported
-  source units are generated as dependency roots
+* supports imported record and enum fields, including arrays, when the
+  referenced namespaces are generated from the same compilation root
 * emits namespace blocks matching the Schema IR namespace hierarchy
 * includes standard headers only when required
   * `<cstddef>` for `std::byte`

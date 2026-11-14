@@ -1,0 +1,10 @@
+# Configuration root of the Class 8 truck. It declares nothing itself: it names
+# the configuration and imports every schema of the vehicle, so every binding
+# generated from it shares one record-ID mapping and one schema_id.
+configuration: class8_truck
+imports:
+  - vehicle.brd
+  - engine.brd
+  - transmission.brd
+  - brakes.brd
+  - cms.brd

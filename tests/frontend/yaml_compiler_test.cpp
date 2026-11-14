@@ -6,13 +6,17 @@
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "compiler/support/source_manager.hpp"
 
-#include <string>
-#include <string_view>
+#include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
-#include <algorithm>
+#include <map>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -27,6 +31,12 @@ using quarry::compiler::frontend::YamlCompilationResult;
 using quarry::compiler::frontend::YamlCompiler;
 using quarry::compiler::schema_ir::SchemaIrModel;
 using quarry::compiler::support::SourceFileId;
+
+[[nodiscard]] std::string diagnostics_text(const DiagnosticEngine& diagnostics,
+                                           const CompilerContext& context) {
+    return quarry::compiler::diagnostics::DiagnosticFormatter::format_all(diagnostics,
+                                                                          context.source_manager());
+}
 
 [[nodiscard]] bool has_diagnostic(const DiagnosticEngine& diagnostics, std::string_view pass,
                                   std::string_view id) {
@@ -525,7 +535,9 @@ fields:
     EXPECT_TRUE(has_diagnostic(diagnostics, "semantic", "BC5001"));
 }
 
-TEST(YamlCompilerTest, DetectsDuplicateRootOutputKeys) {
+TEST(YamlCompilerTest, AggregatesSourceUnitsOfOneNamespaceIntoOnePlannedOutput) {
+    // Output is planned per namespace: two files contributing records to one
+    // namespace share its generated output instead of colliding.
     context::CompilerContext context;
     context::SourceUnit first;
     first.canonical_path = "/test/first.yaml";
@@ -538,14 +550,271 @@ TEST(YamlCompilerTest, DetectsDuplicateRootOutputKeys) {
     second.canonical_path = "/test/second.yaml";
     second.identity = "vehicle.Configuration";
     second.namespace_fqn = "vehicle";
-    second.is_root = true;
     ASSERT_TRUE(context.register_source_unit(std::move(second)));
 
     DiagnosticEngine diagnostics;
     const output_planning::OutputPlan plan =
         output_planning::OutputPlanner{}.plan(context, diagnostics);
 
+    EXPECT_TRUE(diagnostics.empty());
     ASSERT_EQ(plan.units.size(), 2U);
-    ASSERT_FALSE(diagnostics.empty());
-    EXPECT_TRUE(has_diagnostic(diagnostics, "output-planning", "BC8001"));
+    EXPECT_TRUE(plan.units[0].emits_output);
+    EXPECT_TRUE(plan.units[1].emits_output);
+    ASSERT_EQ(plan.namespaces.size(), 1U);
+    EXPECT_EQ(plan.namespaces[0].namespace_fqn, "vehicle");
+    EXPECT_TRUE(plan.namespaces[0].emits_output);
+    EXPECT_EQ(plan.namespaces[0].source_unit_identities,
+              (std::vector<std::string>{"vehicle.Telemetry", "vehicle.Configuration"}));
+}
+
+namespace {
+
+// A small configuration: two unrelated components (one unreferenced by the
+// other), a shared leaf imported by both (diamond), and a second file in the
+// leaf's namespace.
+[[nodiscard]] std::filesystem::path write_configuration_fixture(std::string_view name) {
+    const std::filesystem::path directory = make_graph_test_directory(name);
+    write_graph_test_file(directory / "leaf.yaml", R"(namespace: cfg.leaf
+record: Leaf
+version: 1
+type: data
+fields:
+  v:
+    type: u32
+)");
+    write_graph_test_file(directory / "leaf_extra.yaml", R"(namespace: cfg.leaf
+record: Extra
+version: 1
+type: data
+fields:
+  w:
+    type: u8
+)");
+    write_graph_test_file(directory / "a.yaml", R"(namespace: cfg.a
+record: A
+version: 1
+type: data
+imports:
+  - leaf.yaml
+fields:
+  leaf:
+    type: cfg.leaf.Leaf
+)");
+    write_graph_test_file(directory / "b.yaml", R"(namespace: cfg.b
+record: B
+version: 1
+type: data
+imports:
+  - leaf.yaml
+fields:
+  leaves:
+    type: cfg.leaf.Leaf[]
+    max_elements: 2
+)");
+    write_graph_test_file(directory / "config.yaml", R"(configuration: fleet
+imports:
+  - a.yaml
+  - b.yaml
+  - leaf_extra.yaml
+)");
+    return directory;
+}
+
+void collect_record_ids(const quarry::schema_ir::NamespaceIR& ns,
+                        std::map<std::string, std::uint32_t>& ids) {
+    for (const auto& record : ns.records()) {
+        ids[record.fqn()] = record.record_id();
+    }
+    for (const auto& child : ns.namespaces()) {
+        collect_record_ids(child, ids);
+    }
+}
+
+[[nodiscard]] YamlCompilationResult
+compile_graph_root_selecting(const std::filesystem::path& root, CompilerContext& context,
+                             DiagnosticEngine& diagnostics, std::vector<std::string> namespaces) {
+    std::ifstream input(root);
+    const std::string text{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+    const SourceFileId source_file_id = context.source_manager().add_source(root.string(), text);
+    return YamlCompiler{}.compile(source_file_id, context, diagnostics,
+                                  output_planning::GenerationSelection{.namespaces = namespaces});
+}
+
+[[nodiscard]] std::vector<std::string> emitted_namespaces(const output_planning::OutputPlan& plan) {
+    std::vector<std::string> emitted;
+    for (const auto& planned : plan.namespaces) {
+        if (planned.emits_output) {
+            emitted.push_back(planned.namespace_fqn);
+        }
+    }
+    return emitted;
+}
+
+} // namespace
+
+TEST(YamlCompilerTest, ConfigurationRootCompilesItsCompleteImportClosure) {
+    const std::filesystem::path directory =
+        write_configuration_fixture("quarry_a3_configuration_root");
+    CompilerContext context;
+    DiagnosticEngine diagnostics;
+    const YamlCompilationResult result =
+        compile_graph_root(directory / "config.yaml", context, diagnostics);
+    ASSERT_TRUE(result.succeeded()) << diagnostics_text(diagnostics, context);
+    ASSERT_TRUE(result.output_plan.has_value());
+    EXPECT_TRUE(result.output_plan->root_is_configuration);
+
+    // The configuration declares nothing: no namespace of its own, no domain.
+    // Every imported record, referenced or not, has an ID.
+    using quarry::compiler::layout::compose_record_id;
+    std::map<std::string, std::uint32_t> ids;
+    collect_record_ids(result.schema_ir->root_namespace(), ids);
+    EXPECT_EQ(ids, (std::map<std::string, std::uint32_t>{
+                       {"cfg.a.A", compose_record_id(1U, 1U)},
+                       {"cfg.b.B", compose_record_id(2U, 1U)},
+                       {"cfg.leaf.Extra", compose_record_id(3U, 1U)},
+                       {"cfg.leaf.Leaf", compose_record_id(3U, 2U)},
+                   }));
+
+    // Default for a configuration root: every namespace of the closure.
+    EXPECT_EQ(emitted_namespaces(*result.output_plan),
+              (std::vector<std::string>{"cfg.a", "cfg.b", "cfg.leaf"}));
+    // The configuration unit is not an output unit; the leaf namespace
+    // aggregates both of its files.
+    for (const auto& unit : result.output_plan->units) {
+        EXPECT_NE(unit.canonical_path, (directory / "config.yaml").string());
+    }
+    ASSERT_EQ(result.output_plan->namespaces.size(), 3U);
+    EXPECT_EQ(result.output_plan->namespaces[2].source_unit_identities.size(), 2U);
+}
+
+TEST(YamlCompilerTest, GenerationSelectionNeverChangesSchemaIr) {
+    const std::filesystem::path directory =
+        write_configuration_fixture("quarry_a3_selection_schema_ir");
+    std::optional<std::string> baseline;
+    for (const std::vector<std::string>& selection : std::vector<std::vector<std::string>>{
+             {}, {"cfg.a"}, {"cfg.leaf", "cfg.b"}, {"cfg.a", "cfg.b", "cfg.leaf"}}) {
+        CompilerContext context;
+        DiagnosticEngine diagnostics;
+        const YamlCompilationResult result = compile_graph_root_selecting(
+            directory / "config.yaml", context, diagnostics, selection);
+        ASSERT_TRUE(result.succeeded()) << diagnostics_text(diagnostics, context);
+        if (!selection.empty()) {
+            std::vector<std::string> expected = selection;
+            std::sort(expected.begin(), expected.end());
+            EXPECT_EQ(emitted_namespaces(*result.output_plan), expected);
+        }
+        const std::string serialized = result.schema_ir->SerializeAsString();
+        if (!baseline) {
+            baseline = serialized;
+        }
+        EXPECT_EQ(serialized, *baseline) << "selection changed Schema IR";
+    }
+}
+
+TEST(YamlCompilerTest, OutputPlanningIsDeterministic) {
+    const std::filesystem::path directory =
+        write_configuration_fixture("quarry_a3_plan_determinism");
+    const auto plan_once = [&]() {
+        CompilerContext context;
+        DiagnosticEngine diagnostics;
+        const YamlCompilationResult result = compile_graph_root_selecting(
+            directory / "config.yaml", context, diagnostics, {"cfg.b", "cfg.leaf"});
+        EXPECT_TRUE(result.succeeded());
+        std::string text;
+        for (const auto& planned : result.output_plan->namespaces) {
+            text += planned.namespace_fqn + (planned.emits_output ? "+" : "-") + ":";
+            for (const auto& identity : planned.source_unit_identities) {
+                text += identity + ",";
+            }
+            text += "\n";
+        }
+        for (const auto& identity : result.output_plan->generation_order) {
+            text += identity + "\n";
+        }
+        return text;
+    };
+    EXPECT_EQ(plan_once(), plan_once());
+}
+
+TEST(YamlCompilerTest, RecordRootDefaultsToItsOwnNamespace) {
+    const std::filesystem::path directory =
+        write_configuration_fixture("quarry_a3_record_root_default");
+    CompilerContext context;
+    DiagnosticEngine diagnostics;
+    const YamlCompilationResult result =
+        compile_graph_root(directory / "a.yaml", context, diagnostics);
+    ASSERT_TRUE(result.succeeded()) << diagnostics_text(diagnostics, context);
+    EXPECT_FALSE(result.output_plan->root_is_configuration);
+    EXPECT_EQ(emitted_namespaces(*result.output_plan), (std::vector<std::string>{"cfg.a"}));
+}
+
+TEST(YamlCompilerTest, RejectsUnknownGenerationSelection) {
+    const std::filesystem::path directory =
+        write_configuration_fixture("quarry_a3_unknown_selection");
+    CompilerContext context;
+    DiagnosticEngine diagnostics;
+    const YamlCompilationResult result = compile_graph_root_selecting(
+        directory / "config.yaml", context, diagnostics, {"cfg.a", "cfg"});
+    EXPECT_FALSE(result.succeeded());
+    EXPECT_TRUE(has_diagnostic(diagnostics, "output-planning", "BC8002"));
+}
+
+TEST(YamlCompilerTest, RejectsInvalidConfigurationFiles) {
+    struct Case {
+        std::string_view text;
+        std::string_view pass;
+        std::string_view id;
+    };
+    const std::vector<Case> cases = {
+        {"configuration: fleet\nnamespace: cfg\nimports:\n  - a.yaml\n", "yaml-schema-decoder",
+         "BC2307"},
+        {"configuration: fleet\nrecord: R\nimports:\n  - a.yaml\n", "yaml-schema-decoder",
+         "BC2307"},
+        {"configuration: fleet\nversion: 1\nimports:\n  - a.yaml\n", "yaml-schema-decoder",
+         "BC2307"},
+        {"configuration: fleet\ntype: data\nimports:\n  - a.yaml\n", "yaml-schema-decoder",
+         "BC2307"},
+        {"configuration: fleet\nimports:\n  - a.yaml\nfields:\n  x:\n    type: u8\n",
+         "yaml-schema-decoder", "BC2307"},
+        {"configuration: fleet\nimports:\n  - a.yaml\nenums:\n  E:\n    values:\n      A: 0\n",
+         "yaml-schema-decoder", "BC2307"},
+        {"configuration: fleet\n", "yaml-schema-decoder", "BC2308"},
+        {"configuration: fleet\nimports: []\n", "yaml-schema-decoder", "BC2308"},
+        {"configuration: 9fleet\nimports:\n  - a.yaml\n", "source-schema-normalization", "BC2401"},
+        {"configuration: fleet\nconfiguration: other\nimports:\n  - a.yaml\n",
+         "yaml-schema-decoder", "BC2304"},
+    };
+    const std::filesystem::path directory =
+        write_configuration_fixture("quarry_a3_invalid_configurations");
+    for (const Case& test_case : cases) {
+        write_graph_test_file(directory / "bad.yaml", test_case.text);
+        CompilerContext context;
+        DiagnosticEngine diagnostics;
+        const YamlCompilationResult result =
+            compile_graph_root(directory / "bad.yaml", context, diagnostics);
+        EXPECT_FALSE(result.succeeded()) << test_case.text;
+        EXPECT_TRUE(has_diagnostic(diagnostics, test_case.pass, test_case.id))
+            << test_case.text << diagnostics_text(diagnostics, context);
+    }
+}
+
+TEST(YamlCompilerTest, RejectsImportedConfigurationFile) {
+    const std::filesystem::path directory =
+        write_configuration_fixture("quarry_a3_imported_configuration");
+    write_graph_test_file(directory / "outer.yaml", R"(namespace: cfg.outer
+record: Outer
+version: 1
+type: data
+imports:
+  - config.yaml
+fields:
+  x:
+    type: u8
+)");
+    CompilerContext context;
+    DiagnosticEngine diagnostics;
+    const YamlCompilationResult result =
+        compile_graph_root(directory / "outer.yaml", context, diagnostics);
+    EXPECT_FALSE(result.succeeded());
+    EXPECT_TRUE(has_diagnostic(diagnostics, "source-unit-graph", "BC2408"));
 }

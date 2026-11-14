@@ -25,6 +25,10 @@ struct SourceUnit {
     support::SourceFileId source_file_id = support::SourceFileId::invalid();
     support::SourceRange source_range = support::SourceRange::invalid();
     bool is_root = false;
+    // A configuration unit (`configuration: <name>`) only imports. It has no
+    // namespace and no schema; its identity is its canonical path.
+    bool is_configuration = false;
+    std::string configuration_name;
     std::vector<SourceUnitImport> imports;
     std::optional<source_schema::NormalizedSourceSchemaDocument> schema;
 };
