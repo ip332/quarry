@@ -29,7 +29,7 @@ static const quarry_c_brf_v2_field_layout_t demo_c_Sample_brf_v2_fields[] = {
     { 1U, 1U, 21U, 0U, 0U, 8U, QUARRY_C_BRF_V2_STORAGE_VARIABLE_DESCRIPTOR },
     { 2U, 2U, 29U, 0U, 0U, 8U, QUARRY_C_BRF_V2_STORAGE_VARIABLE_DESCRIPTOR },
 };
-static const quarry_c_brf_v2_record_layout_t demo_c_Sample_brf_v2_layout = { 1U, 1U, 21U, 3U, demo_c_Sample_brf_v2_fields };
+static const quarry_c_brf_v2_record_layout_t demo_c_Sample_brf_v2_layout = { 65537U, 1U, 21U, 3U, demo_c_Sample_brf_v2_fields };
 static const quarry_c_member_descriptor_t demo_c_Sample_members[] = {
     { offsetof(demo_c_Sample_t, has_count), offsetof(demo_c_Sample_t, count), 0U, 0U, { QUARRY_C_TYPED_U32, sizeof(((demo_c_Sample_t*)0)->count), 0U, 0U, 4U, NULL, 0U, false, NULL, 0U, NULL, NULL } },
     { QUARRY_C_COUNT_PRESENCE(offsetof(demo_c_Sample_t, label_length)), offsetof(demo_c_Sample_t, label), 0U, 0U, { QUARRY_C_TYPED_STRING, sizeof(((demo_c_Sample_t*)0)->label), offsetof(demo_c_Sample_t, label_length) - offsetof(demo_c_Sample_t, label), 16U, 0U, NULL, 0U, false, NULL, 0U, NULL, NULL } },
@@ -54,7 +54,7 @@ static inline demo_c_Sample_encode_result_t demo_c_Sample_encode_with_record_id(
     quarry_c_typed_encode_result_t encoded = quarry_c_typed_encode(&demo_c_Sample_type, record, record_id, output, output_capacity);
     demo_c_Sample_encode_result_t result; result.status = (quarry_c_status_t)encoded.status; result.bytes_written = encoded.bytes_written; return result;
 }
-static inline demo_c_Sample_encode_result_t demo_c_Sample_encode(const demo_c_Sample_t* record, uint8_t* output, size_t output_capacity) { return demo_c_Sample_encode_with_record_id(record, 1U, output, output_capacity); }
+static inline demo_c_Sample_encode_result_t demo_c_Sample_encode(const demo_c_Sample_t* record, uint8_t* output, size_t output_capacity) { return demo_c_Sample_encode_with_record_id(record, 65537U, output, output_capacity); }
 typedef struct { quarry_c_status_t status; demo_c_Sample_t value; bool has_byte_offset; size_t byte_offset; } demo_c_Sample_decode_result_t;
 static inline demo_c_Sample_decode_result_t demo_c_Sample_decode_with_record_id(const uint8_t* input, size_t input_length, uint32_t expected_record_id) {
     demo_c_Sample_decode_result_t result;
@@ -62,7 +62,7 @@ static inline demo_c_Sample_decode_result_t demo_c_Sample_decode_with_record_id(
     result.status = (quarry_c_status_t)decoded.status; result.has_byte_offset = decoded.has_byte_offset; result.byte_offset = decoded.byte_offset;
     return result;
 }
-static inline demo_c_Sample_decode_result_t demo_c_Sample_decode(const uint8_t* input, size_t input_length) { return demo_c_Sample_decode_with_record_id(input, input_length, 1U); }
+static inline demo_c_Sample_decode_result_t demo_c_Sample_decode(const uint8_t* input, size_t input_length) { return demo_c_Sample_decode_with_record_id(input, input_length, 65537U); }
 
 #ifdef __cplusplus
 }

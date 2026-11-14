@@ -381,7 +381,11 @@ known, and unsupported language constructs have already been rejected.
 
 * sort records deterministically by fully qualified name
 * reject duplicate record fully qualified names
-* assign a compiler-managed `recordId` to each record
+* assign a compiler-managed hierarchical `recordId` to each record:
+  `(domain_id << 16) | local_record_id`, where domains number the
+  record-declaring namespaces of the complete configuration in bytewise
+  sorted order and local IDs number each namespace's records by sorted local
+  name (see `docs/layout-algorithm.md`)
 * assign a compiler-managed `fieldIndex` to each field, in declaration order
 * enforce a 256-field-per-record limit
 
@@ -399,13 +403,21 @@ Context note above.
 * every field has a compiler-managed `fieldIndex`
 * `fieldIndex` values fit within the binary record format's one-byte limit (at
   most 256 fields per record)
+* every `recordId` has a domain in `0x0001`–`0xFEFF` and a local ID in
+  `0x0001`–`0xFFFE`
 * Layout Model output is deterministic for the same validated input, because
-  record ordering is derived from a stable sort over fully qualified names
+  record ordering is derived from a stable sort over fully qualified names and
+  `recordId` values depend only on namespace and record names
 
 ### Diagnostics Emitted
 
 * too many fields for one record (`BC7001`)
 * duplicate record fully qualified name in layout input (`BC7002`)
+* more record-declaring namespaces than application record domains
+  (`0x0001`–`0xFEFF`) (`BC7004`)
+* more records in one namespace than local record IDs (`0x0001`–`0xFFFE`)
+  (`BC7005`)
+* record FQN inconsistent with its namespace and local name (`BC7006`)
 
 Layout-overflow diagnostics beyond the field-count limit, and
 compatibility-aware layout-change diagnostics, are not implemented yet.

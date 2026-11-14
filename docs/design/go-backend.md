@@ -70,7 +70,7 @@ const (
 
 func (v Status) Valid() bool
 
-const SampleRecordID = 1
+const SampleRecordID = 65537 // 0x00010001: domain 1, local record 1
 
 type Sample struct {
 	Count    *uint32       // scalar: nil when absent

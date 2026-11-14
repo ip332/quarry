@@ -408,7 +408,7 @@ TEST(PythonExecutionTest, ScalarRecordEncodeDecodeRoundTripsWithRealValues) {
                                 "sample = Sample(active=True, count=42, ratio=3.14, level=-5)\n"
                                 "data = sample.encode()\n"
                                 "assert data == bytes.fromhex(\n"
-                                "    '02000010000000010000000f0000001f0f010000002a40091eb851eb851ffb'), data.hex()\n"
+                                "    '02000010000100010000000f0000001f0f010000002a40091eb851eb851ffb'), data.hex()\n"
                                 "decoded = Sample.decode(data)\n"
                                 "assert decoded == sample, (decoded, sample)\n"
                                 "assert sample.encoded_size() == len(data)\n"

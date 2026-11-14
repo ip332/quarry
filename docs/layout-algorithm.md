@@ -95,14 +95,38 @@ The assignment algorithm has these goals:
 
 ## Initial Compilation
 
-During an initial compilation, records are processed in deterministic record
-order.
+The layout pass is the single authority for `recordId` values. Its input is the
+Semantic Model of the complete compilation root (the root schema and its whole
+import closure), so every record of the configuration, referenced or not, is
+assigned exactly once. Schema IR, QBS, and every backend copy the assigned
+values; none computes IDs itself.
 
-Each record receives the next available `recordId` from the compiler-managed
-allocation state.
+IDs are hierarchical, `recordId = (domain_id << 16) | local_record_id`:
 
-The same input Semantic Model and same initial allocation state must produce the
-same `recordId` assignments.
+1. Group records by their canonical namespace (`SemanticRecord::namespace_fqn`,
+   taken from the schema's namespace declaration, not parsed out of the FQN).
+   Several source files may contribute to one namespace.
+2. Number the namespaces from `0x0001` in ascending bytewise order of their
+   FQN. The root (empty) namespace sorts first.
+3. Within each namespace, number the records from `0x0001` in ascending
+   bytewise order of their local name.
+
+The result does not depend on import order, declaration order, or file
+boundaries. The same configuration always produces the same `recordId`
+assignments.
+
+Limits and reserved values (see "recordId Structure and Reserved Ranges" in
+`docs/specifications/binary-record-format.md`):
+
+* application domains `0x0001`–`0xFEFF`; more namespaces declaring records is
+  `BC7004`;
+* local IDs `0x0001`–`0xFFFE`; more records in one namespace is `BC7005`;
+* domains `0x0000` and `0xFF00`–`0xFFFF`, and locals `0x0000` and `0xFFFF`,
+  are never assigned to application records.
+
+The layout pass also verifies that each record's FQN is its namespace FQN and
+local name joined by `.` (`BC7006`), so the grouping and the canonical identity
+cannot disagree.
 
 ## Recompilation With Preserved Compiler State
 

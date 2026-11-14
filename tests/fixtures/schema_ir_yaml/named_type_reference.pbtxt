@@ -11,7 +11,7 @@ root_namespace {
       fqn: "quarry.geo"
       records {
         ir_id: 5
-        record_id: 1
+        record_id: 65537
         schema_version: 1
         record_type: RECORD_TYPE_EVENT
         name: "Route"
