@@ -263,8 +263,16 @@ Internal rendering helper architecture:
 
 Allowed dependencies:
 
+* `compiler/layout` (read-only, for the BRF v2 layout supplied by the caller or
+  computed by the self-contained entry points)
 * `compiler/schema_ir`
 * `compiler/support`
+
+Both `Backend::plan()` and `Backend::generate()` also have an overload taking the
+caller's `layout::LayoutModel`, computed once from the same Schema IR.
+`quarry-schema-compiler` uses those overloads so one compilation computes its BRF layout
+once (see `docs/compiler-architecture.md`, "Configuration Preparation"); the overloads
+without a layout compute it themselves.
 
 This layer must not parse source, resolve names, perform semantic analysis,
 compute layout, or assign compiler-managed identifiers.

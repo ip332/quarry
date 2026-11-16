@@ -37,3 +37,11 @@ The wheel or a wheel rebuilt from the sdist can be installed into a clean
 virtual environment. Generated modules import `quarry.runtime.python` from
 that installation only; they do not require the Quarry source tree on
 `PYTHONPATH`. The package is not published to PyPI yet.
+
+## Shared layout
+
+Both `Backend::plan()` and `Backend::generate()` also have an overload taking the
+caller's `layout::LayoutModel`, computed once from the same Schema IR.
+`quarry-schema-compiler` uses those overloads so one compilation computes its BRF layout
+once (see `docs/compiler-architecture.md`, "Configuration Preparation"); the overloads
+without a layout compute it themselves.

@@ -333,6 +333,45 @@ Backends should not depend on import declarations as first-class model objects.
 Backends should preserve the compiler's resolved names, semantic decisions,
 layout metadata, `recordId`, and `fieldIndex` values.
 
+## Configuration Preparation
+
+After the frontend produces Schema IR, the compiler driver
+(`tools/schema_compiler`) prepares the resolved configuration once per
+invocation and hands the results to every consumer:
+
+```text
+Schema IR (complete resolved configuration)
+  -> authoritative BRF v2 layout   LayoutComputer::compute(SchemaIR), exactly once
+  -> configuration identity        SHA-256 of the canonical QBS identity input,
+                                   at most once and only where an output needs it
+  -> consumers, all borrowing the same layout:
+       backend plan()/generate()   C++, C, C++/C storage, Python, Go
+       QbsModelBuilder::build()    --emit-qbs
+```
+
+* `PreparedConfiguration` (`tools/schema_compiler/configuration_preparation.hpp`)
+  owns the layout and the optional identity for the whole invocation. Consumers
+  receive `const` references, use them only during the call, and keep no copy.
+* The layout always covers the complete configuration, never a `--generate`
+  subset, so identity and record IDs do not depend on selection.
+* Identity is hashed for ordinary generation and `--print-schema-id`. With
+  `--emit-qbs` the QBS builder hashes the same input once instead. With
+  `--list-outputs` nothing is hashed, including `--emit-qbs --list-outputs`, which
+  still builds and validates the QBS model (`QbsBuildOptions::compute_configuration_identity = false`).
+* Each backend's identity arrives as `CodegenOptions::configuration_identity`;
+  backends never recompute it.
+* Each backend has two entry points. The layout-taking `plan()`/`generate()`
+  overloads are what the driver uses. The self-contained overloads compute the
+  layout themselves and remain for direct callers and tests. If layout
+  computation fails there is no prepared configuration, and the driver calls the
+  self-contained overload so that the backend reports its established
+  backend-specific diagnostic. That path recomputes the failing layout once, and
+  it occurs only for invocations that fail.
+
+The frontend's semantic-model `LayoutComputer::compute` overload is a different
+pass: it assigns only `recordId` and `fieldIndex` for Schema IR lowering, and it
+does not compute the BRF v2 layout.
+
 ---
 
 ## Open Questions

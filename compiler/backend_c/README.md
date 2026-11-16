@@ -113,6 +113,12 @@ enums gets a `.generated.h` header and `.generated.c` compatibility file.
 Namespaces map to paths such as `quarry/telemetry.generated.h` and symbol
 prefixes such as `quarry_telemetry_`. The synthetic root uses `root_file_stem`.
 
+Both `Backend::plan()` and `Backend::generate()` also have an overload taking the
+caller's `layout::LayoutModel`, computed once from the same Schema IR.
+`quarry-schema-compiler` uses those overloads so one compilation computes its BRF layout
+once (see `docs/compiler-architecture.md`, "Configuration Preparation"); the overloads
+without a layout compute it themselves.
+
 The backend consumes Schema IR and canonical BRF v2 layout metadata. It does
 not recompute wire offsets, bitmap positions, fixed/variable storage classes,
 or record IDs in the runtime. Descriptor host offsets are C constant

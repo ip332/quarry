@@ -2412,3 +2412,65 @@ TEST(SchemaCompilerToolTest, RootBasedGenerationResolvesTopMidLeafIdDisagreement
     }
     EXPECT_TRUE(check(root / "configured"));
 }
+
+// Issue #92: the driver prepares the layout once and backends reuse it. When
+// layout computation itself fails, generation and output planning must still
+// report each backend's established diagnostic, and write nothing.
+TEST(SchemaCompilerToolTest, LayoutFailureKeepsBackendDiagnosticsInGenerationAndListOutputs) {
+    const std::filesystem::path root = make_temp_directory("issue-92-layout-failure");
+    const std::filesystem::path input = root / "schema.brd";
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  status:\n"
+                           "    type: Status\n"
+                           "enums:\n"
+                           "  Status:\n"
+                           "    values:\n"
+                           "      OK: 0\n"
+                           "      NEGATIVE: -1\n");
+    const std::vector<std::pair<std::vector<std::string>, std::string>> variants = {
+        {{}, "backend error: backend codegen BRF v2 layout computation failed: "},
+        {{"--language", "c"}, "backend error: backend_c: field 'quarry.telemetry.Sample.status'"},
+        {{"--cpp-storage", "c"},
+         "backend error: backend_c: field 'quarry.telemetry.Sample.status'"},
+        {{"--language", "python"}, "backend error: backend_python: BRF v2 layout computation "},
+        {{"--language", "go"}, "backend error: backend_go: BRF v2 layout computation failed: "},
+    };
+    for (const auto& [variant, expected_prefix] : variants) {
+        const std::filesystem::path output = root / "generated";
+        std::vector<std::string> arguments = variant;
+        arguments.insert(arguments.end(), {"--output-directory", output.string(), input.string()});
+        const CommandResult generated = run_tool(arguments, root);
+        arguments.insert(arguments.begin(), "--list-outputs");
+        const CommandResult listed = run_tool(arguments, root);
+
+        EXPECT_EQ(generated.status, 1) << expected_prefix;
+        EXPECT_EQ(listed.status, 1) << expected_prefix;
+        EXPECT_EQ(generated.stderr_text.rfind(expected_prefix, 0), 0U) << generated.stderr_text;
+        EXPECT_EQ(listed.stderr_text, generated.stderr_text);
+        EXPECT_TRUE(generated.stdout_text.empty());
+        EXPECT_TRUE(listed.stdout_text.empty());
+        EXPECT_FALSE(std::filesystem::exists(output));
+    }
+}
+
+TEST(SchemaCompilerToolTest, QbsListOutputsPrintsPathWithoutWritingTheImage) {
+    const std::filesystem::path root = make_temp_directory("issue-92-qbs-list-outputs");
+    const std::filesystem::path schema = truck_schemas() / "configuration.brd";
+    for (const bool reflective : {false, true}) {
+        const std::filesystem::path image = root / "images" / "truck.qbs";
+        std::vector<std::string> arguments = {"--emit-qbs", image.string(), "--list-outputs"};
+        if (reflective) {
+            arguments.emplace_back("--qbs-reflective");
+        }
+        arguments.push_back(schema.string());
+        const CommandResult result = run_tool(arguments, root);
+        ASSERT_EQ(result.status, 0) << result.stderr_text;
+        EXPECT_EQ(result.stdout_text, image.string() + "\n");
+        EXPECT_TRUE(result.stderr_text.empty());
+        EXPECT_FALSE(std::filesystem::exists(image));
+    }
+}
