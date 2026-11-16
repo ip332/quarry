@@ -2,6 +2,7 @@
 
 #include "compiler/output_planning/output_planning.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
+#include "compiler/support/configuration_identity.hpp"
 
 #include <string>
 #include <string_view>
@@ -16,6 +17,7 @@ struct CodegenOptions {
     std::string root_file_stem = "schema";
     std::string header_extension = ".generated.h";
     std::string source_extension = ".generated.c";
+    support::ConfigurationIdentity configuration_identity;
 };
 
 struct GeneratedFile {

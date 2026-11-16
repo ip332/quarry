@@ -2,6 +2,7 @@
 
 #include "compiler/output_planning/output_planning.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
+#include "compiler/support/configuration_identity.hpp"
 
 #include <cstdint>
 #include <string>
@@ -28,6 +29,7 @@ struct CodegenOptions {
     // "example.com/telemetry/gen". Required only when a generated package
     // refers to a record or enum declared in another namespace.
     std::string go_import_prefix;
+    support::ConfigurationIdentity configuration_identity;
 };
 
 struct GeneratedFile {

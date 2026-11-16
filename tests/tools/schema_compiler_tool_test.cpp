@@ -1,5 +1,7 @@
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -9,6 +11,7 @@
 #include <map>
 #include <regex>
 #include <set>
+#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -16,8 +19,9 @@
 #include <utility>
 #include <vector>
 
-#include <gtest/gtest.h>
+#include "compiler/qbs/serializer.hpp"
 #include "quarry/runtime_c/generic_brf.h"
+#include <gtest/gtest.h>
 
 #ifndef QUARRY_TEST_GENERATED_CODE_API_VERSION
 #error "QUARRY_TEST_GENERATED_CODE_API_VERSION must be defined"
@@ -2008,6 +2012,48 @@ const std::vector<std::pair<std::string, std::vector<std::string>>> kBackends = 
     return read_binary_file(qbs);
 }
 
+[[nodiscard]] std::string hex_string(std::string_view bytes) {
+    constexpr char kHexDigits[] = "0123456789abcdef";
+    std::string result;
+    result.reserve(bytes.size() * 2U);
+    for (const char character : bytes) {
+        const auto byte = static_cast<unsigned char>(character);
+        result.push_back(kHexDigits[byte >> 4U]);
+        result.push_back(kHexDigits[byte & 0x0FU]);
+    }
+    return result;
+}
+
+[[nodiscard]] std::string sha256_hex(std::span<const std::uint8_t> bytes) {
+    const auto digest = quarry::compiler::qbs::sha256(bytes);
+    return hex_string(
+        std::string_view(reinterpret_cast<const char*>(digest.data()), digest.size()));
+}
+
+void append_u64(std::vector<std::uint8_t>& output, std::uint64_t value) {
+    for (int shift = 56; shift >= 0; shift -= 8) {
+        output.push_back(static_cast<std::uint8_t>(value >> shift));
+    }
+}
+
+[[nodiscard]] std::string tree_sha256(const std::filesystem::path& directory) {
+    std::vector<std::uint8_t> contents;
+    for (const auto& [relative_path, file_contents] : tree(directory)) {
+        append_u64(contents, relative_path.size());
+        contents.insert(contents.end(), relative_path.begin(), relative_path.end());
+        append_u64(contents, file_contents.size());
+        contents.insert(contents.end(), file_contents.begin(), file_contents.end());
+    }
+    return sha256_hex(contents);
+}
+
+[[nodiscard]] std::string qbs_schema_id(std::string_view image) {
+    if (image.size() < 28U) {
+        return {};
+    }
+    return hex_string(image.substr(12U, 16U));
+}
+
 // Every `<symbol>_brf_v2_layout = { <id>U` (own ID) and `&<symbol>_type, <id>U`
 // (expected nested ID) in generated C sources.
 [[nodiscard]] std::multimap<std::string, std::uint32_t>
@@ -2027,6 +2073,125 @@ const std::string kOwnId = R"((\w+)_brf_v2_layout = \{ (\d+)U)";
 const std::string kNestedId = R"(&(\w+)_type, (\d+)U)";
 
 } // namespace
+
+TEST(SchemaCompilerToolTest, PrintSchemaIdMatchesTruckGoldenAndQbsHeader) {
+    const std::filesystem::path root = make_temp_directory("a4-1-schema-id-golden");
+    const std::filesystem::path schema = truck_schemas() / "configuration.brd";
+
+    const CommandResult query = run_tool({"--print-schema-id", schema.string()}, root);
+    ASSERT_EQ(query.status, 0) << query.stderr_text;
+    EXPECT_EQ(query.stdout_text, "9200ca494f010801b830d0857cf66dde\n");
+    EXPECT_TRUE(query.stderr_text.empty());
+
+    const std::string minimal = qbs_for(schema, {}, root, "minimal");
+    const std::string reflective = qbs_for(schema, {"--qbs-reflective"}, root, "reflective");
+    EXPECT_EQ(qbs_schema_id(minimal), query.stdout_text.substr(0U, 32U));
+    EXPECT_EQ(qbs_schema_id(reflective), query.stdout_text.substr(0U, 32U));
+}
+
+TEST(SchemaCompilerToolTest, PrintSchemaIdIgnoresImportOrderConfigurationNameAndSelection) {
+    const std::filesystem::path root = make_temp_directory("a4-1-schema-id-invariance");
+    const std::filesystem::path first = root / "first";
+    const std::filesystem::path second = root / "second";
+    std::filesystem::copy(truck_schemas(), first, std::filesystem::copy_options::recursive);
+    std::filesystem::copy(truck_schemas(), second, std::filesystem::copy_options::recursive);
+
+    const std::vector<std::string> imports = {"vehicle.brd", "engine.brd", "transmission.brd",
+                                              "brakes.brd", "cms.brd"};
+    std::vector<std::string> reversed_imports = imports;
+    std::reverse(reversed_imports.begin(), reversed_imports.end());
+    const auto configuration = [](std::string_view name,
+                                  const std::vector<std::string>& import_paths) {
+        std::string text = "configuration: " + std::string(name) + "\nimports:\n";
+        for (const std::string& import_path : import_paths) {
+            text += "  - " + import_path + "\n";
+        }
+        return text;
+    };
+    write_text_file(first / "identity-root.brd", configuration("name_a", imports));
+    write_text_file(second / "identity-root.brd", configuration("name_b", reversed_imports));
+
+    const CommandResult first_query =
+        run_tool({"--print-schema-id", (first / "identity-root.brd").string()}, root);
+    const CommandResult second_query =
+        run_tool({"--print-schema-id", (second / "identity-root.brd").string()}, root);
+    ASSERT_EQ(first_query.status, 0) << first_query.stderr_text;
+    ASSERT_EQ(second_query.status, 0) << second_query.stderr_text;
+    EXPECT_EQ(first_query.stdout_text, second_query.stdout_text);
+
+    const CommandResult selected = run_tool(
+        {"--print-schema-id", "--generate", "truck.engine", (first / "identity-root.brd").string()},
+        root);
+    ASSERT_EQ(selected.status, 0) << selected.stderr_text;
+    EXPECT_EQ(selected.stdout_text, first_query.stdout_text);
+}
+
+TEST(SchemaCompilerToolTest, PrintSchemaIdIgnoresSourcePathAndDiffersByResolvedConfiguration) {
+    const std::filesystem::path root = make_temp_directory("a4-1-schema-id-path");
+    const std::string schema_text =
+        "namespace: quarry.identity\nrecord: Sample\nversion: 1\ntype: data\nfields:\n"
+        "  value:\n    type: uint32\n";
+    const std::filesystem::path first_schema = root / "one" / "schema.brd";
+    const std::filesystem::path second_schema = root / "another" / "schema.brd";
+    write_text_file(first_schema, schema_text);
+    write_text_file(second_schema, schema_text);
+
+    const CommandResult first = run_tool({"--print-schema-id", first_schema.string()}, root);
+    const CommandResult second = run_tool({"--print-schema-id", second_schema.string()}, root);
+    ASSERT_EQ(first.status, 0) << first.stderr_text;
+    ASSERT_EQ(second.status, 0) << second.stderr_text;
+    EXPECT_EQ(first.stdout_text, second.stdout_text);
+
+    const CommandResult truck =
+        run_tool({"--print-schema-id", (truck_schemas() / "configuration.brd").string()}, root);
+    const CommandResult component =
+        run_tool({"--print-schema-id", (truck_schemas() / "engine.brd").string()}, root);
+    ASSERT_EQ(truck.status, 0) << truck.stderr_text;
+    ASSERT_EQ(component.status, 0) << component.stderr_text;
+    EXPECT_NE(truck.stdout_text, component.stdout_text);
+}
+
+TEST(SchemaCompilerToolTest, PrintSchemaIdInvalidSchemaHasDiagnosticsAndNoStdout) {
+    const std::filesystem::path root = make_temp_directory("a4-1-invalid-schema-id");
+    const std::filesystem::path schema = root / "invalid.brd";
+    write_text_file(schema, "namespace: quarry.identity\nrecord: Sample\nfields: [\n");
+
+    const CommandResult result = run_tool({"--print-schema-id", schema.string()}, root);
+
+    EXPECT_NE(result.status, 0);
+    EXPECT_TRUE(result.stdout_text.empty());
+    EXPECT_FALSE(result.stderr_text.empty());
+}
+
+TEST(SchemaCompilerToolTest, TruckBindingsAndQbsImagesMatchMainByteForByte) {
+    const std::filesystem::path root = make_temp_directory("a4-1-main-output-golden");
+    const std::filesystem::path schema = truck_schemas() / "configuration.brd";
+    const std::map<std::string, std::string> expected_tree_hashes = {
+        {"c", "5efa52e1cd39771464dc0fc651f95530ea2901765bdcaa9ee02136e61e12a2f7"},
+        {"cpp", "f0e2bc1fba4ecd9c2a6c2ca98d16746a6293152ef37a4695ecb7d6cafe875b2a"},
+        {"cpp-c-storage", "e1f3f0117272d548ffff5571a75cf7dbd6215f6c3088ede9bbf2197e19a22449"},
+        {"python", "bee113659615b1714c07255e54298f9cbd719991436bc457120b40422090bbca"},
+        {"go", "ca49fed7126ea8a5ff21f2cebb37575a1aa282d9c7c874636f399c8116b4ed24"},
+    };
+
+    for (const auto& [name, options] : kBackends) {
+        const std::filesystem::path output = root / name;
+        const CommandResult generated = run_tool(
+            with(with(options, {"--output-directory", output.string()}), {schema.string()}), root);
+        ASSERT_EQ(generated.status, 0) << name << ": " << generated.stderr_text;
+        ASSERT_TRUE(expected_tree_hashes.contains(name));
+        EXPECT_EQ(tree_sha256(output), expected_tree_hashes.at(name)) << name;
+    }
+
+    const std::string minimal = qbs_for(schema, {}, root, "minimal");
+    const std::string reflective = qbs_for(schema, {"--qbs-reflective"}, root, "reflective");
+    EXPECT_EQ(sha256_hex(
+                  std::span(reinterpret_cast<const std::uint8_t*>(minimal.data()), minimal.size())),
+              "d6b1c74fd51d9b48083fbe849e8ae5cfe68f26ae18b126bb0fc05a76ab9ab960");
+    EXPECT_EQ(sha256_hex(std::span(reinterpret_cast<const std::uint8_t*>(reflective.data()),
+                                   reflective.size())),
+              "a987d9b1abb7435e72fefec2a5eec6d7661ef4955db3bf0f44b163c8be7a3d3c");
+}
 
 TEST(SchemaCompilerToolTest, ConfigurationRootGeneratesEveryNamespaceByDefault) {
     const std::filesystem::path root = make_temp_directory("a3-configuration-default");

@@ -635,3 +635,19 @@ TEST(QbsModelTest, RejectsInvalidSchemaLayoutInputs) {
 }
 
 } // namespace
+
+TEST(QbsModelTest, ConfigurationIdentityIgnoresCompilerVersion) {
+    auto schema = enum_schema({0, 1});
+    const auto layout = enum_layout({0U, 1U});
+    schema.set_compiler_version("0.1.31-rc.1");
+    DiagnosticCollection first_diagnostics;
+    const auto first = build(schema, layout, BuildMode::Minimal, first_diagnostics);
+    schema.set_compiler_version("99.0.0-future");
+    DiagnosticCollection second_diagnostics;
+    const auto second = build(schema, layout, BuildMode::Reflective, second_diagnostics);
+    ASSERT_TRUE(first.has_value());
+    ASSERT_TRUE(second.has_value());
+    ASSERT_TRUE(first->configuration_identity.has_value());
+    EXPECT_EQ(first->schema_identity_input, second->schema_identity_input);
+    EXPECT_EQ(first->configuration_identity, second->configuration_identity);
+}

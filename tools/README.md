@@ -50,6 +50,7 @@ Options:
       --list-outputs            Print generated output paths without writing files
       --print-generated-code-api-version
                                 Print the generated-code API compatibility version and exit
+      --print-schema-id         Print the resolved configuration's 128-bit schema_id
       --version                 Show version information
   -h, --help                    Show help
 ```
@@ -314,6 +315,15 @@ integer followed by a newline, writes nothing to stderr on success, requires no
 input schema, performs no generation, and is terminal like `--help` and
 `--version`. `quarry_generate_cpp()` uses this query during CMake
 configuration before it discovers outputs.
+
+`--print-schema-id INPUT` compiles the complete resolved configuration and
+prints its QBS schema identity as exactly 32 lowercase hexadecimal digits and a
+newline. It writes no files and writes no other stdout on success. A valid
+`--generate` selection may also be supplied; selection does not affect the
+identity. Invalid schemas or selections produce diagnostics on stderr and no
+identity on stdout. The query reuses the same identity calculation used by QBS
+serialization and backend code-generation inputs, without serializing a QBS
+image unless `--emit-qbs` is requested.
 
 The command-line parser treats `--help` first, `--version` second, and
 `--print-generated-code-api-version` third.

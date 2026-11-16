@@ -2,6 +2,7 @@
 
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/layout/layout.hpp"
+#include "compiler/support/configuration_identity.hpp"
 #include "quarry/schema_ir.pb.h"
 
 #include <cstdint>
@@ -116,6 +117,7 @@ struct QbsImageModel {
     std::vector<std::uint64_t> enum_values;
     std::vector<std::string> strings;
     std::vector<std::uint8_t> schema_identity_input;
+    std::optional<support::ConfigurationIdentity> configuration_identity;
 
     friend bool operator==(const QbsImageModel&, const QbsImageModel&) = default;
 };
@@ -133,5 +135,11 @@ public:
     [[nodiscard]] bool validate(const QbsImageModel& model,
                                 diagnostics::DiagnosticCollection& diagnostics) const;
 };
+
+// Supply the complete resolved configuration, never a generation subset. This is
+// the canonical QBS v1 identity input, shared by QBS and ordinary code generation.
+[[nodiscard]] std::vector<std::uint8_t>
+build_configuration_identity_input(const ::quarry::schema_ir::SchemaIR& schema_ir,
+                                   const layout::LayoutModel& layout_model);
 
 } // namespace quarry::compiler::qbs
