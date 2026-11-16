@@ -1,5 +1,6 @@
 #pragma once
 
+#include "compiler/layout/layout.hpp"
 #include "compiler/output_planning/output_planning.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "compiler/support/configuration_identity.hpp"
@@ -55,9 +56,27 @@ public:
                                   const CodegenOptions& options,
                                   const output_planning::OutputPlan* output_plan = nullptr) const;
 
-    [[nodiscard]] CodegenResult generate(const schema_ir::SchemaIrModel& schema_ir,
-                                         const CodegenOptions& options,
-                                         const output_planning::OutputPlan* output_plan = nullptr) const;
+    // Same as above, but uses `layout_model`, the complete BRF layout that the
+    // caller already computed from `schema_ir` with layout::LayoutComputer, so
+    // one compilation computes its layout once. The layout is only read during
+    // the call and must have been computed without errors.
+    [[nodiscard]] PlanResult plan(const schema_ir::SchemaIrModel& schema_ir,
+                                  const layout::LayoutModel& layout_model,
+                                  const CodegenOptions& options,
+                                  const output_planning::OutputPlan* output_plan = nullptr) const;
+
+    [[nodiscard]] CodegenResult
+    generate(const schema_ir::SchemaIrModel& schema_ir, const CodegenOptions& options,
+             const output_planning::OutputPlan* output_plan = nullptr) const;
+
+    // Same as above, but uses `layout_model`, the complete BRF layout that the
+    // caller already computed from `schema_ir` with layout::LayoutComputer, so
+    // one compilation computes its layout once. The layout is only read during
+    // the call and must have been computed without errors.
+    [[nodiscard]] CodegenResult
+    generate(const schema_ir::SchemaIrModel& schema_ir, const layout::LayoutModel& layout_model,
+             const CodegenOptions& options,
+             const output_planning::OutputPlan* output_plan = nullptr) const;
 };
 
 } // namespace quarry::compiler::backend_python

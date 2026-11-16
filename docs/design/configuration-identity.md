@@ -30,7 +30,7 @@ ABI changes; do not assume that an epoch bump is unnecessary.
 | Area | Current state | Consequence for A4 |
 |---|---|---|
 | `schema_id` | Bytes 12–27 of the QBS header: SHA-256 truncated to 128 bits over a canonical identity input (domain tag, BRF version, each record's FQN, `record_id` and layout, and the enums records use). Algorithm byte 8 = `1`, length field = 16. | Reused unchanged. The input contains no compiler version, configuration name, path, field names or QBS mode. Minimal and reflective images of the truck configuration share `9200ca494f010801b830d0857cf66dde`. |
-| Where it's computed | A4.1 computes it once from the complete resolved configuration's canonical identity input. The serializer writes the precomputed value and does not hash again. | The CLI passes the same identity to each backend's code-generation options. Ordinary code generation does not build or serialize a QBS image. |
+| Where it's computed | A4.1 computes it once from the complete resolved configuration's canonical identity input. The serializer writes the precomputed value and does not hash again. Since #92 the CLI computes the BRF layout once and shares it with identity computation, QBS construction and the backends; `--list-outputs` hashes nothing. | The CLI passes the same identity to each backend's code-generation options. Ordinary code generation does not build or serialize a QBS image. See `docs/compiler-architecture.md`, "Configuration Preparation". |
 | C runtime | `quarry_qbs_parse()` validates algorithm `1` and length `16`. `quarry_qbs_view_t` keeps `bytes` but exposes no `schema_id`. | An accessor can copy 16 bytes from an already validated view. |
 | Generated C | All functions are `static inline` and tables `static const`. The compatibility `.c` file has **no external symbols**. Future guard: `QUARRY_GENERATED_C_TRUCK_ENGINE_9200CA494F010801B830D0857CF66DDE_GENERATED_H_`. | Two configurations in different C translation units can't collide at link time. Within one translation unit, the full identity prevents the second header from being silently skipped by a shared guard. |
 | Generated C++ | Functions such as `truck::engine::brf_v2_layout_EngineStatus()` have external linkage and hold record IDs in function-local statics. | Mixing configurations in different translation units can violate the ODR: inline definitions may be silently coalesced, while non-inline encode/decode functions cause multiple-definition errors (#82). |
@@ -55,7 +55,8 @@ ConfigurationIdentity
   without constructing or serializing a QBS image for ordinary code generation. Explicit QBS output
   uses the same canonical identity input. The result is independent of `--generate` (A3 invariant)
   and of `--name-prefix`.
-- **Passed to every backend** as `CodegenOptions::configuration_identity`. Backends never recompute it.
+- **Passed to every backend** as `CodegenOptions::configuration_identity`, together with the
+  authoritative layout it was computed from. Backends never recompute either.
 - **Only the algorithm and the 16 bytes enter generated identity checks.** The configuration name,
   root path and compiler version are never hashed. Future generated bindings expose compiler and
   format versions as compile-time constants or equivalent module metadata, without mandatory runtime

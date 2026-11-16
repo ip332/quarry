@@ -646,7 +646,7 @@ QbsModelBuilder::build(const ::quarry::schema_ir::SchemaIR& schema_ir,
                        diagnostics::DiagnosticCollection& diagnostics) const {
     std::optional<QbsImageModel> model =
         Builder(schema_ir, layout_model, options, diagnostics).run();
-    if (model.has_value()) {
+    if (model.has_value() && options.compute_configuration_identity) {
         model->configuration_identity = compute_configuration_identity(*model);
     }
     return model;

@@ -1,3 +1,21 @@
+# Configuration preparation shared by the schema compiler CLI and its tests.
+# Internal: not installed or exported.
+add_library(quarry_schema_compiler_preparation STATIC
+    schema_compiler/configuration_preparation.cpp
+)
+target_link_libraries(quarry_schema_compiler_preparation
+    PUBLIC
+        quarry_compiler_diagnostics
+        quarry_compiler_layout
+        quarry_compiler_output_planning
+        quarry_compiler_schema_ir
+        quarry_compiler_support
+        quarry_project_options
+    PRIVATE
+        quarry_compiler_qbs
+        quarry_schema_ir_warning_tweaks
+)
+
 add_executable(quarry_schema_compiler
     schema_compiler/main.cpp
 )
@@ -19,6 +37,7 @@ target_link_libraries(quarry_schema_compiler
         quarry_compiler_layout
         quarry_compiler_support
         quarry_project_options
+        quarry_schema_compiler_preparation
         quarry_schema_ir_warning_tweaks
 )
 target_include_directories(quarry_schema_compiler

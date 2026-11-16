@@ -1532,22 +1532,54 @@ std::string output_path_for_planned_file(const CodegenOptions& options,
     return options.output_directory + "/" + std::string(relative_path);
 }
 
-PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir,
-                        const CodegenOptions& options,
-                        const output_planning::OutputPlan* output_plan) const {
-    PlanResult result;
+namespace {
 
+// The self-contained entry points compute the complete layout themselves; the
+// compiler driver instead passes its authoritative layout to the overloads
+// below, so a successful compilation computes its layout once.
+[[nodiscard]] std::optional<LayoutModel> compute_layout(const schema_ir::SchemaIrModel& schema_ir,
+                                                        std::string& error_message) {
     ::quarry::compiler::diagnostics::DiagnosticEngine layout_diagnostics;
-    ::quarry::compiler::layout::LayoutComputer layout_computer;
-    const LayoutModel layout_model = layout_computer.compute(schema_ir, layout_diagnostics);
+    LayoutModel layout_model =
+        ::quarry::compiler::layout::LayoutComputer{}.compute(schema_ir, layout_diagnostics);
     if (layout_diagnostics.has_errors()) {
-        result.success = false;
-        result.error_message = "backend_python: BRF v2 layout computation failed";
+        error_message = "backend_python: BRF v2 layout computation failed";
         if (!layout_diagnostics.diagnostics().empty()) {
-            result.error_message += ": " + layout_diagnostics.diagnostics().front().message();
+            error_message += ": " + layout_diagnostics.diagnostics().front().message();
         }
-        return result;
+        return std::nullopt;
     }
+    return layout_model;
+}
+
+} // namespace
+
+PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir, const CodegenOptions& options,
+                         const output_planning::OutputPlan* output_plan) const {
+    std::string error_message;
+    const auto layout_model = compute_layout(schema_ir, error_message);
+    if (!layout_model.has_value()) {
+        return PlanResult{.success = false, .error_message = std::move(error_message), .plan = {}};
+    }
+    return plan(schema_ir, *layout_model, options, output_plan);
+}
+
+CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
+                                const CodegenOptions& options,
+                                const output_planning::OutputPlan* output_plan) const {
+    std::string error_message;
+    const auto layout_model = compute_layout(schema_ir, error_message);
+    if (!layout_model.has_value()) {
+        return CodegenResult{
+            .success = false, .error_message = std::move(error_message), .files = {}};
+    }
+    return generate(schema_ir, *layout_model, options, output_plan);
+}
+
+PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir, const LayoutModel& layout_model,
+                         const CodegenOptions& options,
+                         const output_planning::OutputPlan* output_plan) const {
+    PlanResult result;
 
     std::vector<std::string> init_file_paths;
     std::vector<PlannedNamespaceFile> module_files;
@@ -1571,21 +1603,9 @@ PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir,
 }
 
 CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
-                               const CodegenOptions& options,
-                               const output_planning::OutputPlan* output_plan) const {
+                                const LayoutModel& layout_model, const CodegenOptions& options,
+                                const output_planning::OutputPlan* output_plan) const {
     CodegenResult result;
-
-    ::quarry::compiler::diagnostics::DiagnosticEngine layout_diagnostics;
-    ::quarry::compiler::layout::LayoutComputer layout_computer;
-    const LayoutModel layout_model = layout_computer.compute(schema_ir, layout_diagnostics);
-    if (layout_diagnostics.has_errors()) {
-        result.success = false;
-        result.error_message = "backend_python: BRF v2 layout computation failed";
-        if (!layout_diagnostics.diagnostics().empty()) {
-            result.error_message += ": " + layout_diagnostics.diagnostics().front().message();
-        }
-        return result;
-    }
 
     std::vector<std::string> init_file_paths;
     std::vector<PlannedNamespaceFile> module_files;

@@ -124,6 +124,10 @@ struct QbsImageModel {
 
 struct QbsBuildOptions {
     BuildMode mode = BuildMode::Minimal;
+    // When false, the model is built and validated as usual but its
+    // configuration_identity stays empty, for callers that never serialize it
+    // (for example, planning QBS output with --list-outputs).
+    bool compute_configuration_identity = true;
 };
 
 class QbsModelBuilder {

@@ -1331,7 +1331,10 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 // Single source of truth for file planning, shared by plan() and generate()
 // so the two modes cannot diverge -- the same discipline
 // compiler/backend/backend.cpp already documents for the C++ backend.
+// `precomputed_layout` is the caller's authoritative layout of `schema_ir`, or
+// nullptr to compute it here, at the point where planning has always computed it.
 [[nodiscard]] bool build_generation_plan(const schema_ir::SchemaIrModel& schema_ir,
+                                         const LayoutModel* precomputed_layout,
                                          const CodegenOptions& options,
                                          const output_planning::OutputPlan* output_plan,
                                          std::vector<PlannedNamespaceFile>& files,
@@ -1352,9 +1355,12 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     }
     RecordCatalog record_catalog;
     collect_record_catalog(schema_ir.root_namespace(), record_catalog);
+    std::optional<LayoutModel> computed_layout;
     ::quarry::compiler::diagnostics::DiagnosticEngine layout_diagnostics;
-    ::quarry::compiler::layout::LayoutComputer layout_computer;
-    const LayoutModel layout_model = layout_computer.compute(schema_ir, layout_diagnostics);
+    if (precomputed_layout == nullptr) {
+        computed_layout =
+            ::quarry::compiler::layout::LayoutComputer{}.compute(schema_ir, layout_diagnostics);
+    }
     if (layout_diagnostics.has_errors()) {
         error_message = "backend_c: BRF v2 layout computation failed";
         if (!layout_diagnostics.diagnostics().empty()) {
@@ -1399,6 +1405,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         }
         return false;
     }
+    const LayoutModel& layout_model =
+        precomputed_layout != nullptr ? *precomputed_layout : *computed_layout;
     if (!collect_namespace_files(schema_ir.root_namespace(), options, catalog, record_catalog,
                                  layout_model,
                                  output_selection_ptr, files, error_message)) {
@@ -1988,13 +1996,18 @@ std::string output_path_for_planned_file(const CodegenOptions& options,
     return options.output_directory + "/" + std::string(relative_path);
 }
 
-PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir, const CodegenOptions& options,
-                         const output_planning::OutputPlan* output_plan) const {
+namespace {
+
+[[nodiscard]] PlanResult plan_files(const schema_ir::SchemaIrModel& schema_ir,
+                                    const LayoutModel* precomputed_layout,
+                                    const CodegenOptions& options,
+                                    const output_planning::OutputPlan* output_plan) {
     PlanResult result;
 
     std::vector<PlannedNamespaceFile> files;
     std::string error_message;
-    if (!build_generation_plan(schema_ir, options, output_plan, files, error_message)) {
+    if (!build_generation_plan(schema_ir, precomputed_layout, options, output_plan, files,
+                               error_message)) {
         result.success = false;
         result.error_message = std::move(error_message);
         return result;
@@ -2014,14 +2027,16 @@ PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir, const Codege
     return result;
 }
 
-CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
-                                const CodegenOptions& options,
-                                const output_planning::OutputPlan* output_plan) const {
+[[nodiscard]] CodegenResult generate_files(const schema_ir::SchemaIrModel& schema_ir,
+                                           const LayoutModel* precomputed_layout,
+                                           const CodegenOptions& options,
+                                           const output_planning::OutputPlan* output_plan) {
     CodegenResult result;
 
     std::vector<PlannedNamespaceFile> files;
     std::string error_message;
-    if (!build_generation_plan(schema_ir, options, output_plan, files, error_message)) {
+    if (!build_generation_plan(schema_ir, precomputed_layout, options, output_plan, files,
+                               error_message)) {
         result.success = false;
         result.error_message = std::move(error_message);
         return result;
@@ -2044,6 +2059,31 @@ CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
         });
     }
     return result;
+}
+
+} // namespace
+
+PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir, const CodegenOptions& options,
+                         const output_planning::OutputPlan* output_plan) const {
+    return plan_files(schema_ir, nullptr, options, output_plan);
+}
+
+PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir, const LayoutModel& layout_model,
+                         const CodegenOptions& options,
+                         const output_planning::OutputPlan* output_plan) const {
+    return plan_files(schema_ir, &layout_model, options, output_plan);
+}
+
+CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
+                                const CodegenOptions& options,
+                                const output_planning::OutputPlan* output_plan) const {
+    return generate_files(schema_ir, nullptr, options, output_plan);
+}
+
+CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
+                                const LayoutModel& layout_model, const CodegenOptions& options,
+                                const output_planning::OutputPlan* output_plan) const {
+    return generate_files(schema_ir, &layout_model, options, output_plan);
 }
 
 } // namespace quarry::compiler::backend_c

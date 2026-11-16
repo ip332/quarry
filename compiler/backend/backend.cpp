@@ -148,7 +148,6 @@ struct PlannedRenderFile {
 };
 
 struct RenderGenerationPlan {
-    ::quarry::compiler::layout::LayoutModel brf_layout_model;
     std::vector<PlannedRenderFile> files;
 };
 
@@ -1083,25 +1082,13 @@ void collect_planned_files(const NamespacePlan& plan, RenderGenerationPlan& gene
     return generation_plan;
 }
 
-[[nodiscard]] bool build_render_generation_plan(const schema_ir::SchemaIrModel& schema_ir,
-                                                const CodegenOptions& options,
-                                                const output_planning::OutputPlan* output_plan,
-                                                NamespacePlan& root_plan,
-                                                RenderGenerationPlan& generation_plan,
-                                                std::string& error_message) {
+[[nodiscard]] bool build_render_generation_plan(
+    const schema_ir::SchemaIrModel& schema_ir,
+    const ::quarry::compiler::layout::LayoutModel& layout_model, const CodegenOptions& options,
+    const output_planning::OutputPlan* output_plan, NamespacePlan& root_plan,
+    RenderGenerationPlan& generation_plan, std::string& error_message) {
     TypeCatalog catalog;
     collect_named_types(schema_ir.root_namespace(), options, catalog);
-
-    ::quarry::compiler::diagnostics::DiagnosticCollection layout_diagnostics;
-    ::quarry::compiler::layout::LayoutComputer layout_computer;
-    generation_plan.brf_layout_model = layout_computer.compute(schema_ir, layout_diagnostics);
-    if (layout_diagnostics.has_errors()) {
-        error_message = "backend codegen BRF v2 layout computation failed";
-        if (!layout_diagnostics.diagnostics().empty()) {
-            error_message += ": " + layout_diagnostics.diagnostics().front().message();
-        }
-        return false;
-    }
 
     OutputSelection selection;
     if (output_plan != nullptr) {
@@ -1114,9 +1101,8 @@ void collect_planned_files(const NamespacePlan& plan, RenderGenerationPlan& gene
     }
     const OutputSelection* selection_ptr = output_plan == nullptr ? nullptr : &selection;
 
-    if (!analyze_namespace(schema_ir.root_namespace(), options, catalog,
-                           generation_plan.brf_layout_model, selection_ptr,
-                           root_plan, error_message)) {
+    if (!analyze_namespace(schema_ir.root_namespace(), options, catalog, layout_model,
+                           selection_ptr, root_plan, error_message)) {
         return false;
     }
 
@@ -2348,7 +2334,41 @@ std::string output_path_for_planned_file(const CodegenOptions& options,
     return options.output_directory + "/" + std::string(relative_path);
 }
 
+namespace {
+
+// The self-contained entry points compute the complete layout themselves; the
+// compiler driver instead passes its authoritative layout to the overloads
+// below, so a successful compilation computes its layout once.
+[[nodiscard]] std::optional<::quarry::compiler::layout::LayoutModel>
+compute_layout(const schema_ir::SchemaIrModel& schema_ir, std::string& error_message) {
+    ::quarry::compiler::diagnostics::DiagnosticCollection layout_diagnostics;
+    ::quarry::compiler::layout::LayoutComputer layout_computer;
+    auto layout_model = layout_computer.compute(schema_ir, layout_diagnostics);
+    if (layout_diagnostics.has_errors()) {
+        error_message = "backend codegen BRF v2 layout computation failed";
+        if (!layout_diagnostics.diagnostics().empty()) {
+            error_message += ": " + layout_diagnostics.diagnostics().front().message();
+        }
+        return std::nullopt;
+    }
+    return layout_model;
+}
+
+} // namespace
+
 PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir,
+                         const CodegenOptions& options,
+                         const output_planning::OutputPlan* output_plan) const {
+    std::string error_message;
+    const auto layout_model = compute_layout(schema_ir, error_message);
+    if (!layout_model.has_value()) {
+        return PlanResult{.success = false, .error_message = std::move(error_message), .plan = {}};
+    }
+    return plan(schema_ir, *layout_model, options, output_plan);
+}
+
+PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir,
+                         const ::quarry::compiler::layout::LayoutModel& layout_model,
                          const CodegenOptions& options,
                          const output_planning::OutputPlan* output_plan) const {
     PlanResult result;
@@ -2356,7 +2376,7 @@ PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir,
     NamespacePlan root_plan;
     RenderGenerationPlan generation_plan;
     std::string error_message;
-    if (!build_render_generation_plan(schema_ir, options, output_plan, root_plan,
+    if (!build_render_generation_plan(schema_ir, layout_model, options, output_plan, root_plan,
                                       generation_plan, error_message)) {
         result.success = false;
         result.error_message = std::move(error_message);
@@ -2370,12 +2390,25 @@ PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir,
 CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
                                 const CodegenOptions& options,
                                 const output_planning::OutputPlan* output_plan) const {
+    std::string error_message;
+    const auto layout_model = compute_layout(schema_ir, error_message);
+    if (!layout_model.has_value()) {
+        return CodegenResult{
+            .success = false, .error_message = std::move(error_message), .files = {}};
+    }
+    return generate(schema_ir, *layout_model, options, output_plan);
+}
+
+CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
+                                const ::quarry::compiler::layout::LayoutModel& layout_model,
+                                const CodegenOptions& options,
+                                const output_planning::OutputPlan* output_plan) const {
     CodegenResult result;
 
     NamespacePlan root_plan;
     RenderGenerationPlan generation_plan;
     std::string error_message;
-    if (!build_render_generation_plan(schema_ir, options, output_plan, root_plan,
+    if (!build_render_generation_plan(schema_ir, layout_model, options, output_plan, root_plan,
                                       generation_plan, error_message)) {
         result.success = false;
         result.error_message = std::move(error_message);

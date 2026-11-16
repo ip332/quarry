@@ -636,18 +636,58 @@ TEST(QbsModelTest, RejectsInvalidSchemaLayoutInputs) {
 
 } // namespace
 
+// Each invariance test changes exactly one input and holds everything else,
+// including the other variable, fixed.
 TEST(QbsModelTest, ConfigurationIdentityIgnoresCompilerVersion) {
-    auto schema = enum_schema({0, 1});
     const auto layout = enum_layout({0U, 1U});
-    schema.set_compiler_version("0.1.31-rc.1");
-    DiagnosticCollection first_diagnostics;
-    const auto first = build(schema, layout, BuildMode::Minimal, first_diagnostics);
-    schema.set_compiler_version("99.0.0-future");
-    DiagnosticCollection second_diagnostics;
-    const auto second = build(schema, layout, BuildMode::Reflective, second_diagnostics);
-    ASSERT_TRUE(first.has_value());
-    ASSERT_TRUE(second.has_value());
-    ASSERT_TRUE(first->configuration_identity.has_value());
-    EXPECT_EQ(first->schema_identity_input, second->schema_identity_input);
-    EXPECT_EQ(first->configuration_identity, second->configuration_identity);
+    for (const BuildMode mode : {BuildMode::Minimal, BuildMode::Reflective}) {
+        auto schema = enum_schema({0, 1});
+        schema.set_compiler_version("0.1.31-rc.1");
+        DiagnosticCollection first_diagnostics;
+        const auto first = build(schema, layout, mode, first_diagnostics);
+        schema.set_compiler_version("99.0.0-future");
+        DiagnosticCollection second_diagnostics;
+        const auto second = build(schema, layout, mode, second_diagnostics);
+        ASSERT_TRUE(first.has_value());
+        ASSERT_TRUE(second.has_value());
+        ASSERT_TRUE(first->configuration_identity.has_value());
+        EXPECT_EQ(first->schema_identity_input, second->schema_identity_input);
+        EXPECT_EQ(first->configuration_identity, second->configuration_identity);
+    }
+}
+
+TEST(QbsModelTest, ConfigurationIdentityIgnoresQbsMode) {
+    for (const char* compiler_version : {"", "0.1.31-rc.1"}) {
+        auto schema = enum_schema({0, 1});
+        schema.set_compiler_version(compiler_version);
+        const auto layout = enum_layout({0U, 1U});
+        DiagnosticCollection minimal_diagnostics;
+        const auto minimal = build(schema, layout, BuildMode::Minimal, minimal_diagnostics);
+        DiagnosticCollection reflective_diagnostics;
+        const auto reflective =
+            build(schema, layout, BuildMode::Reflective, reflective_diagnostics);
+        ASSERT_TRUE(minimal.has_value());
+        ASSERT_TRUE(reflective.has_value());
+        ASSERT_TRUE(minimal->configuration_identity.has_value());
+        EXPECT_NE(minimal->strings, reflective->strings);
+        EXPECT_EQ(minimal->schema_identity_input, reflective->schema_identity_input);
+        EXPECT_EQ(minimal->configuration_identity, reflective->configuration_identity);
+    }
+}
+
+TEST(QbsModelTest, IdentityHashingCanBeSkippedWithoutChangingTheModel) {
+    const auto schema = enum_schema({0, 1});
+    const auto layout = enum_layout({0U, 1U});
+    DiagnosticCollection hashed_diagnostics;
+    const auto hashed = build(schema, layout, BuildMode::Reflective, hashed_diagnostics);
+    DiagnosticCollection unhashed_diagnostics;
+    auto unhashed = QbsModelBuilder{}.build(
+        schema, layout,
+        QbsBuildOptions{.mode = BuildMode::Reflective, .compute_configuration_identity = false},
+        unhashed_diagnostics);
+    ASSERT_TRUE(hashed.has_value());
+    ASSERT_TRUE(unhashed.has_value());
+    EXPECT_FALSE(unhashed->configuration_identity.has_value());
+    unhashed->configuration_identity = hashed->configuration_identity;
+    EXPECT_EQ(*unhashed, *hashed);
 }
