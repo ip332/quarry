@@ -238,7 +238,7 @@ target_compile_definitions(schema_compiler_package_test PRIVATE
 add_quarry_gtest(schema_compiler_tool_test tools/schema_compiler_tool_test.cpp
                       quarry_compiler_support)
 target_include_directories(schema_compiler_tool_test PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(schema_compiler_tool_test PRIVATE quarry_runtime_c)
+target_link_libraries(schema_compiler_tool_test PRIVATE quarry_runtime_c quarry_compiler_qbs)
 add_dependencies(schema_compiler_tool_test quarry_schema_compiler)
 target_compile_definitions(schema_compiler_tool_test PRIVATE
     QUARRY_TEST_RUNTIME_C_LIBRARY="$<TARGET_FILE:quarry_runtime_c>"

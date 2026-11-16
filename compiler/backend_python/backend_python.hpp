@@ -1,7 +1,8 @@
 #pragma once
 
-#include "compiler/schema_ir/schema_ir.hpp"
 #include "compiler/output_planning/output_planning.hpp"
+#include "compiler/schema_ir/schema_ir.hpp"
+#include "compiler/support/configuration_identity.hpp"
 
 #include <string>
 #include <string_view>
@@ -12,6 +13,7 @@ namespace quarry::compiler::backend_python {
 struct CodegenOptions {
     std::string output_directory = "generated";
     std::string root_module_stem = "schema";
+    support::ConfigurationIdentity configuration_identity;
 };
 
 struct GeneratedFile {

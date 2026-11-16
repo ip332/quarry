@@ -36,7 +36,6 @@ constexpr std::uint32_t kRecordDescriptorSize = 28U;
 constexpr std::uint32_t kFieldDescriptorSize = 28U;
 constexpr std::uint32_t kTypeDescriptorSize = 16U;
 constexpr std::uint32_t kEnumDescriptorSize = 16U;
-constexpr std::uint8_t kSchemaIdAlgorithmSha256 = 1U;
 
 struct IdentityTable {
     std::vector<std::string> values;
@@ -610,6 +609,18 @@ string_section(const QbsImageModel& model, diagnostics::DiagnosticCollection& di
 
 } // namespace
 
+support::ConfigurationIdentity
+compute_configuration_identity(std::span<const std::uint8_t> identity_input) {
+    const auto digest = sha256(identity_input);
+    support::ConfigurationIdentity identity;
+    std::copy_n(digest.begin(), identity.schema_id.size(), identity.schema_id.begin());
+    return identity;
+}
+
+support::ConfigurationIdentity compute_configuration_identity(const QbsImageModel& model) {
+    return compute_configuration_identity(model.schema_identity_input);
+}
+
 std::optional<QbsSerializeResult> serialize_qbs(const QbsImageModel& model,
                                                 diagnostics::DiagnosticCollection& diagnostics) {
     if (!validate_serializer_model(model, diagnostics)) {
@@ -662,17 +673,23 @@ std::optional<QbsSerializeResult> serialize_qbs(const QbsImageModel& model,
         }
     }
 
-    const auto digest = sha256(model.schema_identity_input);
+    if (!model.configuration_identity.has_value() ||
+        model.configuration_identity->algorithm != support::kConfigurationIdentitySha256_128) {
+        error(diagnostics,
+              "QBS serializer received a model without a supported configuration identity");
+        return std::nullopt;
+    }
     std::vector<std::uint8_t> out;
     out.reserve(cursor);
     out.insert(out.end(), {'Q', 'B', 'S', '\0'});
     put8(out, model.format_version);
     put8(out, model.flags);
     put16(out, kHeaderSize);
-    put8(out, kSchemaIdAlgorithmSha256);
+    put8(out, model.configuration_identity->algorithm);
     put8(out, identities.offset_width);
-    put16(out, 16U);
-    out.insert(out.end(), digest.begin(), digest.begin() + 16);
+    put16(out, static_cast<std::uint16_t>(model.configuration_identity->schema_id.size()));
+    out.insert(out.end(), model.configuration_identity->schema_id.begin(),
+               model.configuration_identity->schema_id.end());
     put16(out, static_cast<std::uint16_t>(sections.size()));
     put16(out, 0U);
     put32(out, kHeaderSize);

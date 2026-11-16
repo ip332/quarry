@@ -186,6 +186,7 @@ QbsImageModel example(BuildMode mode) {
     if (mode == BuildMode::Reflective) {
         model.strings = {"Example", "name", "samples", "state", "timestamp"};
     }
+    model.configuration_identity = quarry::compiler::qbs::compute_configuration_identity(model);
     return model;
 }
 
@@ -222,6 +223,7 @@ QbsImageModel enum_image() {
                                                        .values = {0U, 1U},
                                                        .name_string_index = 0xFFFFU}};
     model.enum_values = {0U, 1U};
+    model.configuration_identity = quarry::compiler::qbs::compute_configuration_identity(model);
     return model;
 }
 
@@ -283,6 +285,15 @@ TEST(QbsSerializerTest, SerializesExampleMinimalImage) {
                      0x0e, 0xa1, 0x83}));
     EXPECT_EQ(std::vector<std::uint8_t>(result->bytes.begin() + 28, result->bytes.begin() + 40),
               bytes({0, 4, 0, 0, 0, 0, 0, 40, 0, 0, 1, 45}));
+}
+
+TEST(QbsSerializerTest, RejectsModelWithoutComputedConfigurationIdentity) {
+    auto model = example(BuildMode::Minimal);
+    model.configuration_identity.reset();
+
+    DiagnosticCollection diagnostics;
+    EXPECT_FALSE(quarry::compiler::qbs::serialize_qbs(model, diagnostics).has_value());
+    ASSERT_FALSE(diagnostics.diagnostics().empty());
 }
 
 TEST(QbsSerializerTest, ReflectiveImageHasCanonicalStringSectionButSameSchemaId) {

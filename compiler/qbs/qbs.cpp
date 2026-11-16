@@ -1,4 +1,5 @@
 #include "compiler/qbs/qbs.hpp"
+#include "compiler/qbs/serializer.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -129,6 +130,60 @@ void append_type_identity(std::vector<std::uint8_t>& output, const layout::TypeL
     }
 }
 
+[[nodiscard]] std::vector<const layout::RecordLayout*>
+sorted_layout_records(const layout::LayoutModel& layout_model) {
+    std::vector<const layout::RecordLayout*> records;
+    records.reserve(layout_model.records.size());
+    for (const auto& record : layout_model.records) {
+        records.push_back(&record);
+    }
+    std::sort(records.begin(), records.end(),
+              [](const auto* lhs, const auto* rhs) { return lhs->fqn < rhs->fqn; });
+    return records;
+}
+
+[[nodiscard]] const layout::TypeLayout* find_enum_layout_in_type(const layout::TypeLayout& type,
+                                                                 std::string_view fqn) {
+    if (type.kind == layout::LayoutTypeKind::Enum && type.referenced_fqn == fqn) {
+        return &type;
+    }
+    return type.element_type == nullptr ? nullptr
+                                        : find_enum_layout_in_type(*type.element_type, fqn);
+}
+
+[[nodiscard]] const layout::TypeLayout*
+find_enum_layout_in_model(const layout::LayoutModel& layout_model, std::string_view fqn) {
+    for (const auto* record : sorted_layout_records(layout_model)) {
+        for (const auto& field : record->fields) {
+            const layout::TypeLayout* found = find_enum_layout_in_type(field.type, fqn);
+            if (found != nullptr) {
+                return found;
+            }
+        }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] std::vector<const ::quarry::schema_ir::EnumIR*>
+ordered_schema_enums(const ::quarry::schema_ir::SchemaIR& schema_ir) {
+    std::vector<const ::quarry::schema_ir::EnumIR*> enums;
+    std::vector<const ::quarry::schema_ir::NamespaceIR*> pending{&schema_ir.root_namespace()};
+    while (!pending.empty()) {
+        const auto* namespace_ir = pending.back();
+        pending.pop_back();
+        for (const auto& enumeration : namespace_ir->enums()) {
+            enums.push_back(&enumeration);
+        }
+        for (auto child = namespace_ir->namespaces().rbegin();
+             child != namespace_ir->namespaces().rend(); ++child) {
+            pending.push_back(&*child);
+        }
+    }
+    std::sort(enums.begin(), enums.end(),
+              [](const auto* lhs, const auto* rhs) { return lhs->fqn() < rhs->fqn(); });
+    return enums;
+}
+
 struct PendingType {
     std::string key;
     QbsTypeModel model;
@@ -171,14 +226,7 @@ public:
 
 private:
     [[nodiscard]] std::vector<const layout::RecordLayout*> ordered_layout_records() const {
-        std::vector<const layout::RecordLayout*> records;
-        records.reserve(layout_model_.records.size());
-        for (const auto& record : layout_model_.records) {
-            records.push_back(&record);
-        }
-        std::sort(records.begin(), records.end(),
-                  [](const auto* lhs, const auto* rhs) { return lhs->fqn < rhs->fqn; });
-        return records;
+        return sorted_layout_records(layout_model_);
     }
 
     void fail(std::string message) {
@@ -305,23 +353,7 @@ private:
     }
 
     [[nodiscard]] const layout::TypeLayout* find_enum_layout(std::string_view fqn) const {
-        for (const auto* record : ordered_layout_records()) {
-            for (const auto& field : record->fields) {
-                const layout::TypeLayout* found = find_enum_layout(field.type, fqn);
-                if (found != nullptr) {
-                    return found;
-                }
-            }
-        }
-        return nullptr;
-    }
-
-    [[nodiscard]] static const layout::TypeLayout* find_enum_layout(const layout::TypeLayout& type,
-                                                                    std::string_view fqn) {
-        if (type.kind == layout::LayoutTypeKind::Enum && type.referenced_fqn == fqn) {
-            return &type;
-        }
-        return type.element_type == nullptr ? nullptr : find_enum_layout(*type.element_type, fqn);
+        return find_enum_layout_in_model(layout_model_, fqn);
     }
 
     [[nodiscard]] std::string type_key(const layout::TypeLayout& type) const {
@@ -531,64 +563,8 @@ private:
     }
 
     void build_identity_input() {
-        auto& output = model_.schema_identity_input;
-        append_string(output, "quarry.qbs.schema");
-        append_u8(output, kBrfFormatVersion);
-        for (const auto* record : ordered_layout_records()) {
-            append_string(output, record->fqn);
-            append_u32(output, record->record_id);
-            append_u8(output,
-                      record->classification == layout::RecordClassification::FixedSize ? 0U : 1U);
-            append_u32(output, record->header_size);
-            append_u32(output, record->presence_bitmap_size);
-            append_u32(output, record->fixed_region_size);
-            append_u32(output, record->complete_fixed_record_size.value_or(0U));
-            append_u32(output, static_cast<std::uint32_t>(record->fields.size()));
-            for (const auto& field : record->fields) {
-                append_u32(output, field.field_index);
-                append_u32(output, field.presence_bit_index);
-                append_u32(output, field.location.byte_offset);
-                append_u8(output, field.location.bit_offset);
-                append_u32(output, field.location.bit_width);
-                append_u32(output, field.slot_size);
-                append_u8(output, static_cast<std::uint8_t>(field.storage));
-                append_u8(output, static_cast<std::uint8_t>(field.descriptor_kind));
-                append_type_identity(output, field.type);
-            }
-        }
-        std::vector<const ::quarry::schema_ir::EnumIR*> enums;
-        for (const auto& [unused_id, enumeration] : enums_by_ir_id_) {
-            (void)unused_id;
-            enums.push_back(enumeration);
-        }
-        std::sort(enums.begin(), enums.end(),
-                  [](const auto* lhs, const auto* rhs) { return lhs->fqn() < rhs->fqn(); });
-        // Enum table indexes are a serialization detail and are deliberately
-        // excluded from the structural identity input.
-        std::uint32_t used_enum_count = 0U;
-        for (const auto* enumeration : enums) {
-            if (find_enum_layout(enumeration->fqn()) != nullptr) {
-                ++used_enum_count;
-            }
-        }
-        append_u32(output, used_enum_count);
-        for (const auto* enumeration : enums) {
-            const auto* enum_layout = find_enum_layout(enumeration->fqn());
-            if (enum_layout == nullptr) {
-                continue;
-            }
-            append_string(output, enumeration->fqn());
-            append_u32(output, enum_layout->encoded_width);
-            std::vector<std::uint64_t> values;
-            for (const auto& value : enumeration->values()) {
-                values.push_back(static_cast<std::uint64_t>(value.value()));
-            }
-            std::sort(values.begin(), values.end());
-            append_u32(output, static_cast<std::uint32_t>(values.size()));
-            for (const std::uint64_t value : values) {
-                append_u64(output, value);
-            }
-        }
+        model_.schema_identity_input =
+            build_configuration_identity_input(schema_ir_, layout_model_);
     }
 
     const ::quarry::schema_ir::SchemaIR& schema_ir_;
@@ -607,11 +583,73 @@ private:
 
 } // namespace
 
+std::vector<std::uint8_t>
+build_configuration_identity_input(const ::quarry::schema_ir::SchemaIR& schema_ir,
+                                   const layout::LayoutModel& layout_model) {
+    std::vector<std::uint8_t> output;
+    append_string(output, "quarry.qbs.schema");
+    append_u8(output, kBrfFormatVersion);
+    for (const auto* record : sorted_layout_records(layout_model)) {
+        append_string(output, record->fqn);
+        append_u32(output, record->record_id);
+        append_u8(output,
+                  record->classification == layout::RecordClassification::FixedSize ? 0U : 1U);
+        append_u32(output, record->header_size);
+        append_u32(output, record->presence_bitmap_size);
+        append_u32(output, record->fixed_region_size);
+        append_u32(output, record->complete_fixed_record_size.value_or(0U));
+        append_u32(output, static_cast<std::uint32_t>(record->fields.size()));
+        for (const auto& field : record->fields) {
+            append_u32(output, field.field_index);
+            append_u32(output, field.presence_bit_index);
+            append_u32(output, field.location.byte_offset);
+            append_u8(output, field.location.bit_offset);
+            append_u32(output, field.location.bit_width);
+            append_u32(output, field.slot_size);
+            append_u8(output, static_cast<std::uint8_t>(field.storage));
+            append_u8(output, static_cast<std::uint8_t>(field.descriptor_kind));
+            append_type_identity(output, field.type);
+        }
+    }
+
+    const auto enums = ordered_schema_enums(schema_ir);
+    std::uint32_t used_enum_count = 0U;
+    for (const auto* enumeration : enums) {
+        if (find_enum_layout_in_model(layout_model, enumeration->fqn()) != nullptr) {
+            ++used_enum_count;
+        }
+    }
+    append_u32(output, used_enum_count);
+    for (const auto* enumeration : enums) {
+        const auto* enum_layout = find_enum_layout_in_model(layout_model, enumeration->fqn());
+        if (enum_layout == nullptr) {
+            continue;
+        }
+        append_string(output, enumeration->fqn());
+        append_u32(output, enum_layout->encoded_width);
+        std::vector<std::uint64_t> values;
+        for (const auto& value : enumeration->values()) {
+            values.push_back(static_cast<std::uint64_t>(value.value()));
+        }
+        std::sort(values.begin(), values.end());
+        append_u32(output, static_cast<std::uint32_t>(values.size()));
+        for (const std::uint64_t value : values) {
+            append_u64(output, value);
+        }
+    }
+    return output;
+}
+
 std::optional<QbsImageModel>
 QbsModelBuilder::build(const ::quarry::schema_ir::SchemaIR& schema_ir,
                        const layout::LayoutModel& layout_model, QbsBuildOptions options,
                        diagnostics::DiagnosticCollection& diagnostics) const {
-    return Builder(schema_ir, layout_model, options, diagnostics).run();
+    std::optional<QbsImageModel> model =
+        Builder(schema_ir, layout_model, options, diagnostics).run();
+    if (model.has_value()) {
+        model->configuration_identity = compute_configuration_identity(*model);
+    }
+    return model;
 }
 
 bool QbsModelBuilder::validate(const QbsImageModel& model,

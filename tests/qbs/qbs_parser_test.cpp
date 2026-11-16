@@ -37,6 +37,7 @@ std::vector<std::uint8_t> deep_chain_image(std::size_t depth) {
     model.mode = BuildMode::Minimal;
     model.schema_identity_input = {0U,  0U,  0U,  17U, 'q', 'u', 'a', 'r', 'r', 'y', '.', 'q', 'b',
                                    's', '.', 's', 'c', 'h', 'e', 'm', 'a', 2U,  0U,  0U,  0U,  0U};
+    model.configuration_identity = compute_configuration_identity(model);
     model.types.reserve(depth + 1U);
     model.types.push_back(
         QbsTypeModel{.code = TypeCode::U16, .fixed_size = true, .encoded_width = 2U});

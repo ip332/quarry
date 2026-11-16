@@ -50,6 +50,7 @@ struct CommandLine {
     bool show_help = false;
     bool show_version = false;
     bool show_generated_code_api_version = false;
+    bool print_schema_id = false;
     bool list_outputs = false;
     bool c_optimize_size = false;
     bool cpp_c_storage = false;
@@ -81,11 +82,13 @@ struct CommandLine {
            "                                root's namespace, or every namespace of a\n"
            "                                configuration root. IDs and QBS never change.\n"
            "      --emit-qbs PATH           Emit the resolved schema as a deterministic QBS image\n"
-           "      --qbs-reflective          Include reflective record, field, and enum names in QBS\n"
+           "      --qbs-reflective          Include reflective record, field, and enum names in "
+           "QBS\n"
            "      --list-outputs            Print generated output paths without writing files\n"
            "      --print-generated-code-api-version\n"
            "                                Print the generated-code API compatibility version and "
            "exit\n"
+           "      --print-schema-id         Print the resolved configuration's 128-bit schema_id\n"
            "      --version                 Show version information\n"
            "  -h, --help                    Show this help text\n";
 }
@@ -99,6 +102,15 @@ void print_version(std::ostream& output) {
 
 void print_generated_code_api_version(std::ostream& output) {
     output << quarry::compiler::backend::kGeneratedCodeApiVersion << '\n';
+}
+
+void print_schema_id(std::ostream& output,
+                     const quarry::compiler::support::ConfigurationIdentity& identity) {
+    constexpr char kHexDigits[] = "0123456789abcdef";
+    for (const std::uint8_t byte : identity.schema_id) {
+        output << kHexDigits[byte >> 4U] << kHexDigits[byte & 0x0FU];
+    }
+    output << '\n';
 }
 
 [[nodiscard]] bool option_requires_value(std::string_view option) {
@@ -135,6 +147,14 @@ void print_generated_code_api_version(std::ostream& output) {
                 return std::nullopt;
             }
             command_line.show_generated_code_api_version = true;
+            continue;
+        }
+        if (argument == "--print-schema-id") {
+            if (command_line.print_schema_id) {
+                errors << "error: duplicate --print-schema-id option\n";
+                return std::nullopt;
+            }
+            command_line.print_schema_id = true;
             continue;
         }
         if (argument == "--c-optimize-size") {
@@ -280,12 +300,20 @@ void print_generated_code_api_version(std::ostream& output) {
             command_line.codegen_options.file_extension != ".generated.hpp" ||
             command_line.language != Language::Cpp || !command_line.qbs_output.empty() ||
             command_line.qbs_reflective || saw_cpp_storage || saw_go_import_prefix ||
-            !command_line.generate_namespaces.empty();
+            !command_line.generate_namespaces.empty() || command_line.print_schema_id;
         if (has_generation_arguments) {
             errors << "error: --print-generated-code-api-version does not accept generation "
                       "options or an input file\n";
             return std::nullopt;
         }
+    }
+
+    if (command_line.print_schema_id &&
+        (command_line.list_outputs || saw_output_directory || saw_root_file_stem ||
+         saw_file_extension || saw_language || saw_cpp_storage || command_line.c_optimize_size ||
+         !command_line.qbs_output.empty() || command_line.qbs_reflective || saw_go_import_prefix)) {
+        errors << "error: --print-schema-id does not accept output or QBS options\n";
+        return std::nullopt;
     }
 
     if (saw_cpp_storage && command_line.language != Language::Cpp) {
@@ -521,34 +549,65 @@ template <typename CodegenResultT>
         return exit_failure;
     }
 
-    if (!command_line.qbs_output.empty()) {
+    std::optional<quarry::compiler::support::ConfigurationIdentity> configuration_identity;
+    std::optional<quarry::compiler::layout::LayoutModel> layout_model;
+    diagnostics::DiagnosticEngine configuration_layout_diagnostics;
+    if (command_line.print_schema_id || !command_line.list_outputs ||
+        !command_line.qbs_output.empty()) {
         quarry::compiler::layout::LayoutComputer layout_computer;
-        diagnostics::DiagnosticEngine layout_diagnostics;
-        const auto layout =
-            layout_computer.compute(*compilation_result.schema_ir, layout_diagnostics);
-        if (!layout_diagnostics.empty()) {
+        layout_model = layout_computer.compute(*compilation_result.schema_ir,
+                                               configuration_layout_diagnostics);
+        if (configuration_layout_diagnostics.has_errors() &&
+            (command_line.print_schema_id || !command_line.qbs_output.empty())) {
             errors << diagnostics::DiagnosticFormatter::format_all(
-                layout_diagnostics, compiler_context.source_manager());
-            errors << '\n';
+                configuration_layout_diagnostics, compiler_context.source_manager());
+            return exit_failure;
         }
-        if (!layout_diagnostics.empty()) return exit_failure;
+        if (!configuration_layout_diagnostics.has_errors() &&
+            (command_line.print_schema_id ||
+             (!command_line.list_outputs && command_line.qbs_output.empty()))) {
+            const auto identity_input = quarry::compiler::qbs::build_configuration_identity_input(
+                *compilation_result.schema_ir, *layout_model);
+            configuration_identity =
+                quarry::compiler::qbs::compute_configuration_identity(identity_input);
+        }
+    }
+
+    if (command_line.print_schema_id) {
+        if (!configuration_identity.has_value()) {
+            errors << "error: configuration identity was not computed\n";
+            return exit_failure;
+        }
+        print_schema_id(output, *configuration_identity);
+        return exit_success;
+    }
+
+    if (!command_line.qbs_output.empty()) {
+        diagnostics::DiagnosticEngine layout_diagnostics;
         quarry::compiler::qbs::QbsModelBuilder builder;
         const quarry::compiler::qbs::QbsBuildOptions qbs_options{
-            .mode = command_line.qbs_reflective
-                        ? quarry::compiler::qbs::BuildMode::Reflective
-                        : quarry::compiler::qbs::BuildMode::Minimal};
-        auto model = builder.build(*compilation_result.schema_ir, layout, qbs_options,
-                                   layout_diagnostics);
-        if (!model) {
+            .mode = command_line.qbs_reflective ? quarry::compiler::qbs::BuildMode::Reflective
+                                                : quarry::compiler::qbs::BuildMode::Minimal};
+        if (!layout_model.has_value()) {
+            errors << "error: compilation did not provide its resolved layout\n";
+            return exit_failure;
+        }
+        auto qbs_model = builder.build(*compilation_result.schema_ir, *layout_model, qbs_options,
+                                       layout_diagnostics);
+        if (!qbs_model.has_value()) {
             errors << diagnostics::DiagnosticFormatter::format_all(
                 layout_diagnostics, compiler_context.source_manager());
+            return exit_failure;
+        }
+        if (!qbs_model->configuration_identity.has_value()) {
+            errors << "error: failed to compute configuration identity\n";
             return exit_failure;
         }
         if (command_line.list_outputs) {
             output << command_line.qbs_output << '\n';
             return exit_success;
         }
-        auto serialized = quarry::compiler::qbs::serialize_qbs(*model, layout_diagnostics);
+        auto serialized = quarry::compiler::qbs::serialize_qbs(*qbs_model, layout_diagnostics);
         if (!serialized || !write_qbs_file(command_line.qbs_output, serialized->bytes, errors)) {
             if (!layout_diagnostics.empty())
                 errors << diagnostics::DiagnosticFormatter::format_all(
@@ -568,6 +627,9 @@ template <typename CodegenResultT>
         c_options.optimize_size = command_line.c_optimize_size;
         c_options.output_directory = command_line.codegen_options.output_directory;
         c_options.root_file_stem = command_line.codegen_options.root_file_stem;
+        if (configuration_identity.has_value()) {
+            c_options.configuration_identity = *configuration_identity;
+        }
 
         backend_c::Backend backend;
         if (command_line.list_outputs) {
@@ -598,6 +660,15 @@ template <typename CodegenResultT>
             return exit_failure;
         }
 
+        if (!configuration_identity.has_value()) {
+            if (configuration_layout_diagnostics.has_errors()) {
+                errors << diagnostics::DiagnosticFormatter::format_all(
+                    configuration_layout_diagnostics, compiler_context.source_manager());
+            } else {
+                errors << "error: configuration identity was not computed\n";
+            }
+            return exit_failure;
+        }
         if (!write_generated_files(codegen_result, c_options.output_directory, errors)) {
             return exit_failure;
         }
@@ -610,6 +681,9 @@ template <typename CodegenResultT>
         go_options.output_directory = command_line.codegen_options.output_directory;
         go_options.root_file_stem = command_line.codegen_options.root_file_stem;
         go_options.go_import_prefix = command_line.go_import_prefix;
+        if (configuration_identity.has_value()) {
+            go_options.configuration_identity = *configuration_identity;
+        }
 
         backend_go::Backend backend;
         if (command_line.list_outputs) {
@@ -634,6 +708,15 @@ template <typename CodegenResultT>
             errors << "backend error: " << codegen_result.error_message << '\n';
             return exit_failure;
         }
+        if (!configuration_identity.has_value()) {
+            if (configuration_layout_diagnostics.has_errors()) {
+                errors << diagnostics::DiagnosticFormatter::format_all(
+                    configuration_layout_diagnostics, compiler_context.source_manager());
+            } else {
+                errors << "error: configuration identity was not computed\n";
+            }
+            return exit_failure;
+        }
         if (!write_generated_files(codegen_result, go_options.output_directory, errors)) {
             return exit_failure;
         }
@@ -644,6 +727,9 @@ template <typename CodegenResultT>
         backend_python::CodegenOptions python_options;
         python_options.output_directory = command_line.codegen_options.output_directory;
         python_options.root_module_stem = command_line.codegen_options.root_file_stem;
+        if (configuration_identity.has_value()) {
+            python_options.configuration_identity = *configuration_identity;
+        }
 
         backend_python::Backend backend;
         if (command_line.list_outputs) {
@@ -670,7 +756,15 @@ template <typename CodegenResultT>
             errors << "backend error: " << codegen_result.error_message << '\n';
             return exit_failure;
         }
-
+        if (!configuration_identity.has_value()) {
+            if (configuration_layout_diagnostics.has_errors()) {
+                errors << diagnostics::DiagnosticFormatter::format_all(
+                    configuration_layout_diagnostics, compiler_context.source_manager());
+            } else {
+                errors << "error: configuration identity was not computed\n";
+            }
+            return exit_failure;
+        }
         if (!write_generated_files(codegen_result, python_options.output_directory, errors)) {
             return exit_failure;
         }
@@ -678,34 +772,42 @@ template <typename CodegenResultT>
         return exit_success;
     }
 
+    backend::CodegenOptions cpp_options = command_line.codegen_options;
+    if (configuration_identity.has_value()) {
+        cpp_options.configuration_identity = *configuration_identity;
+    }
     backend::Backend backend;
     if (command_line.list_outputs) {
-            const backend::PlanResult plan_result =
-                backend.plan(*compilation_result.schema_ir, command_line.codegen_options,
-                             &*compilation_result.output_plan);
+        const backend::PlanResult plan_result = backend.plan(
+            *compilation_result.schema_ir, cpp_options, &*compilation_result.output_plan);
         if (!plan_result.success) {
             errors << "backend error: " << plan_result.error_message << '\n';
             return exit_failure;
         }
 
         for (const backend::PlannedGeneratedFile& file : plan_result.plan.files) {
-            output << backend::output_path_for_planned_file(
-                          command_line.codegen_options, file.relative_output_path)
+            output << backend::output_path_for_planned_file(cpp_options, file.relative_output_path)
                    << '\n';
         }
         return exit_success;
     }
 
-    const backend::CodegenResult codegen_result =
-        backend.generate(*compilation_result.schema_ir, command_line.codegen_options,
-                         &*compilation_result.output_plan);
+    const backend::CodegenResult codegen_result = backend.generate(
+        *compilation_result.schema_ir, cpp_options, &*compilation_result.output_plan);
     if (!codegen_result.success) {
         errors << "backend error: " << codegen_result.error_message << '\n';
         return exit_failure;
     }
-
-    if (!write_generated_files(codegen_result, command_line.codegen_options.output_directory,
-                               errors)) {
+    if (!configuration_identity.has_value()) {
+        if (configuration_layout_diagnostics.has_errors()) {
+            errors << diagnostics::DiagnosticFormatter::format_all(
+                configuration_layout_diagnostics, compiler_context.source_manager());
+        } else {
+            errors << "error: configuration identity was not computed\n";
+        }
+        return exit_failure;
+    }
+    if (!write_generated_files(codegen_result, cpp_options.output_directory, errors)) {
         return exit_failure;
     }
 

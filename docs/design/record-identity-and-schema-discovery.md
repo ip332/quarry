@@ -175,8 +175,9 @@ ruled out.
 - It includes all wire-relevant definitions and the BRF contract. It excludes names, comments, import
   paths and the compiler version. So a new compiler that produces identical bytes keeps the same
   configuration identity, as required.
-- It changes whenever any ID changes, including after an import reorder, which is what OTA
-  discrimination needs.
+- It changes whenever any identity input changes, including when a configuration membership change
+  changes record IDs. A2's sorted namespace and local-name assignment makes import order irrelevant:
+  reordering imports does not change IDs or `schema_id`.
 
 Challenges and limits:
 
@@ -431,7 +432,7 @@ version gates the release.
 |---|---|
 | Domain assignment | sorted-namespace numbering; import reorder, transitive and diamond imports leave IDs unchanged; duplicate imports give no new domain; multi-file namespace; enum-only namespace gets no domain; cycle rejected; limits and reserved values; golden IDs for the truck configuration |
 | Local IDs | name order independent of declaration and file order; insertion before an existing name shifts IDs only within that domain |
-| Determinism | repeated builds byte-identical; import reorder changes IDs and `schema_id` together; selection (`--generate`) never changes IDs or `schema_id` |
+| Determinism | repeated builds byte-identical; import reorder leaves IDs and `schema_id` unchanged; selection (`--generate`) never changes IDs or `schema_id` |
 | Cross-language | C, C++, C++/C-storage, Python, Go × encode/decode × top-level, depth 1, depth 2 × inspector with the configuration image; nested records cut from a parent decode with their own type's decoder |
 | Configuration mixing | code generated from two configurations fails to build (C, C++, Go) or import (Python) |
 | Legacy | RC3-era IDs (all below `0x10000`) rejected by every decoder and the inspector |
