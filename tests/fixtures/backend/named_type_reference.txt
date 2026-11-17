@@ -40,14 +40,14 @@ namespace geo {
       }
     };
 
-    ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Location& value) {
+    inline ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Location& value) {
       std::vector<::quarry::runtime::FieldBytes> fields;
       (void)value;
       return ::quarry::runtime::encode_brf_v2_record_result(brf_v2_layout_Location(), fields);
     }
 
 
-    std::optional<std::vector<std::byte>> encode(const Location& value) {
+    inline std::optional<std::vector<std::byte>> encode(const Location& value) {
       auto encoded = encode_result(value);
       if (!encoded.value.has_value()) {
         return std::nullopt;
@@ -56,7 +56,7 @@ namespace geo {
     }
 
 
-    ::quarry::runtime::DecodeResult<Location> decode_Location_result(std::span<const std::byte> input) {
+    inline ::quarry::runtime::DecodeResult<Location> decode_Location_result(std::span<const std::byte> input) {
       const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_Location());
       if (!parsed.record.has_value()) {
         return ::quarry::runtime::decode_failure<Location>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
@@ -69,7 +69,7 @@ namespace geo {
     }
 
 
-    std::optional<Location> decode_Location(std::span<const std::byte> input) {
+    inline std::optional<Location> decode_Location(std::span<const std::byte> input) {
       auto decoded = decode_Location_result(input);
       if (!decoded.value.has_value()) {
         return std::nullopt;
@@ -156,7 +156,7 @@ namespace geo {
       std::optional<::quarry::geo::Location> fallback_;
     };
 
-    ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Route& value) {
+    inline ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Route& value) {
       std::vector<::quarry::runtime::FieldBytes> fields;
       fields.reserve(2U);
       if (value.has_origin()) {
@@ -193,7 +193,7 @@ namespace geo {
     }
 
 
-    std::optional<std::vector<std::byte>> encode(const Route& value) {
+    inline std::optional<std::vector<std::byte>> encode(const Route& value) {
       auto encoded = encode_result(value);
       if (!encoded.value.has_value()) {
         return std::nullopt;
@@ -202,7 +202,7 @@ namespace geo {
     }
 
 
-    ::quarry::runtime::DecodeResult<Route> decode_Route_result(std::span<const std::byte> input) {
+    inline ::quarry::runtime::DecodeResult<Route> decode_Route_result(std::span<const std::byte> input) {
       const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_Route());
       if (!parsed.record.has_value()) {
         return ::quarry::runtime::decode_failure<Route>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
@@ -249,7 +249,7 @@ namespace geo {
     }
 
 
-    std::optional<Route> decode_Route(std::span<const std::byte> input) {
+    inline std::optional<Route> decode_Route(std::span<const std::byte> input) {
       auto decoded = decode_Route_result(input);
       if (!decoded.value.has_value()) {
         return std::nullopt;

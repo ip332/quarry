@@ -81,7 +81,7 @@ namespace one {
       std::optional<std::uint32_t> id_;
     };
 
-    ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Element& value) {
+    inline ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Element& value) {
       std::vector<::quarry::runtime::FieldBytes> fields;
       fields.reserve(1U);
       if (value.has_id()) {
@@ -98,7 +98,7 @@ namespace one {
     }
 
 
-    std::optional<std::vector<std::byte>> encode(const Element& value) {
+    inline std::optional<std::vector<std::byte>> encode(const Element& value) {
       auto encoded = encode_result(value);
       if (!encoded.value.has_value()) {
         return std::nullopt;
@@ -107,7 +107,7 @@ namespace one {
     }
 
 
-    ::quarry::runtime::DecodeResult<Element> decode_Element_result(std::span<const std::byte> input) {
+    inline ::quarry::runtime::DecodeResult<Element> decode_Element_result(std::span<const std::byte> input) {
       const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_Element());
       if (!parsed.record.has_value()) {
         return ::quarry::runtime::decode_failure<Element>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
@@ -129,7 +129,7 @@ namespace one {
     }
 
 
-    std::optional<Element> decode_Element(std::span<const std::byte> input) {
+    inline std::optional<Element> decode_Element(std::span<const std::byte> input) {
       auto decoded = decode_Element_result(input);
       if (!decoded.value.has_value()) {
         return std::nullopt;
@@ -252,7 +252,7 @@ namespace two {
       std::optional<std::vector<::alpha::one::Mode>> modes_;
     };
 
-    ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Basket& value) {
+    inline ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Basket& value) {
       std::vector<::quarry::runtime::FieldBytes> fields;
       fields.reserve(2U);
       if (value.has_elements() && !value.elements()->empty()) {
@@ -302,7 +302,7 @@ namespace two {
     }
 
 
-    std::optional<std::vector<std::byte>> encode(const Basket& value) {
+    inline std::optional<std::vector<std::byte>> encode(const Basket& value) {
       auto encoded = encode_result(value);
       if (!encoded.value.has_value()) {
         return std::nullopt;
@@ -311,7 +311,7 @@ namespace two {
     }
 
 
-    ::quarry::runtime::DecodeResult<Basket> decode_Basket_result(std::span<const std::byte> input) {
+    inline ::quarry::runtime::DecodeResult<Basket> decode_Basket_result(std::span<const std::byte> input) {
       const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_Basket());
       if (!parsed.record.has_value()) {
         return ::quarry::runtime::decode_failure<Basket>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
@@ -397,7 +397,7 @@ namespace two {
     }
 
 
-    std::optional<Basket> decode_Basket(std::span<const std::byte> input) {
+    inline std::optional<Basket> decode_Basket(std::span<const std::byte> input) {
       auto decoded = decode_Basket_result(input);
       if (!decoded.value.has_value()) {
         return std::nullopt;

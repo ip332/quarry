@@ -73,7 +73,7 @@ private:
   std::optional<std::uint32_t> count_;
 };
 
-::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const B& value) {
+inline ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const B& value) {
   std::vector<::quarry::runtime::FieldBytes> fields;
   fields.reserve(1U);
   if (value.has_count()) {
@@ -90,7 +90,7 @@ private:
 }
 
 
-std::optional<std::vector<std::byte>> encode(const B& value) {
+inline std::optional<std::vector<std::byte>> encode(const B& value) {
   auto encoded = encode_result(value);
   if (!encoded.value.has_value()) {
     return std::nullopt;
@@ -99,7 +99,7 @@ std::optional<std::vector<std::byte>> encode(const B& value) {
 }
 
 
-::quarry::runtime::DecodeResult<B> decode_B_result(std::span<const std::byte> input) {
+inline ::quarry::runtime::DecodeResult<B> decode_B_result(std::span<const std::byte> input) {
   const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_B());
   if (!parsed.record.has_value()) {
     return ::quarry::runtime::decode_failure<B>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
@@ -121,7 +121,7 @@ std::optional<std::vector<std::byte>> encode(const B& value) {
 }
 
 
-std::optional<B> decode_B(std::span<const std::byte> input) {
+inline std::optional<B> decode_B(std::span<const std::byte> input) {
   auto decoded = decode_B_result(input);
   if (!decoded.value.has_value()) {
     return std::nullopt;
@@ -185,7 +185,7 @@ private:
   std::optional<::B> value_;
 };
 
-::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const A& value) {
+inline ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const A& value) {
   std::vector<::quarry::runtime::FieldBytes> fields;
   fields.reserve(1U);
   if (value.has_value()) {
@@ -207,7 +207,7 @@ private:
 }
 
 
-std::optional<std::vector<std::byte>> encode(const A& value) {
+inline std::optional<std::vector<std::byte>> encode(const A& value) {
   auto encoded = encode_result(value);
   if (!encoded.value.has_value()) {
     return std::nullopt;
@@ -216,7 +216,7 @@ std::optional<std::vector<std::byte>> encode(const A& value) {
 }
 
 
-::quarry::runtime::DecodeResult<A> decode_A_result(std::span<const std::byte> input) {
+inline ::quarry::runtime::DecodeResult<A> decode_A_result(std::span<const std::byte> input) {
   const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_A());
   if (!parsed.record.has_value()) {
     return ::quarry::runtime::decode_failure<A>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
@@ -246,7 +246,7 @@ std::optional<std::vector<std::byte>> encode(const A& value) {
 }
 
 
-std::optional<A> decode_A(std::span<const std::byte> input) {
+inline std::optional<A> decode_A(std::span<const std::byte> input) {
   auto decoded = decode_A_result(input);
   if (!decoded.value.has_value()) {
     return std::nullopt;

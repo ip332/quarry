@@ -1637,7 +1637,7 @@ void render_record_encoder_definition(const RecordPlan& record_plan, std::size_t
                                       std::ostringstream& stream) {
     const std::string& record_name = record_plan.record->name();
     stream << indent(indent_level)
-           << "::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const "
+           << "inline ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const "
            << record_name << "& value) {\n";
     stream << indent(indent_level + 1) << "std::vector<::quarry::runtime::FieldBytes> fields;\n";
     if (!record_plan.fields.empty()) {
@@ -1654,7 +1654,7 @@ void render_record_encoder_definition(const RecordPlan& record_plan, std::size_t
            << "brf_v2_layout_" << record_name << "(), fields);\n";
     stream << indent(indent_level) << "}\n";
     stream << "\n\n";
-    stream << indent(indent_level) << "std::optional<std::vector<std::byte>> encode(const "
+    stream << indent(indent_level) << "inline std::optional<std::vector<std::byte>> encode(const "
            << record_name << "& value) {\n";
     stream << indent(indent_level + 1) << "auto encoded = encode_result(value);\n";
     stream << indent(indent_level + 1) << "if (!encoded.value.has_value()) {\n";
@@ -2153,7 +2153,7 @@ void render_brf_v2_layout_definition(const RecordPlan& record_plan, std::size_t 
 void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t indent_level,
                                       std::ostringstream& stream) {
     const std::string& record_name = record_plan.record->name();
-    stream << indent(indent_level) << "::quarry::runtime::DecodeResult<" << record_name
+    stream << indent(indent_level) << "inline ::quarry::runtime::DecodeResult<" << record_name
            << "> decode_" << record_name << "_result(std::span<const std::byte> input) {\n";
     stream << indent(indent_level + 1)
            << "const auto parsed = ::quarry::runtime::parse_brf_v2_record("
@@ -2176,8 +2176,8 @@ void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t
            << record_name << ">(builder.build());\n";
     stream << indent(indent_level) << "}\n";
     stream << "\n\n";
-    stream << indent(indent_level) << "std::optional<" << record_name
-           << "> decode_" << record_name << "(std::span<const std::byte> input) {\n";
+    stream << indent(indent_level) << "inline std::optional<" << record_name << "> decode_"
+           << record_name << "(std::span<const std::byte> input) {\n";
     stream << indent(indent_level + 1) << "auto decoded = decode_" << record_name
            << "_result(input);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
