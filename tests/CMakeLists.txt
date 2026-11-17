@@ -95,6 +95,11 @@ if(QUARRY_PYTHON3_EXECUTABLE)
             "${CMAKE_CURRENT_SOURCE_DIR}/version/version_resolution_test.py"
             --cmake "${CMAKE_COMMAND}"
             --resolver "${CMAKE_SOURCE_DIR}/cmake/QuarryVersion.cmake")
+    add_test(NAME version_environment_isolation_test
+        COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/version/environment_isolation_test.py"
+            --cmake "${CMAKE_COMMAND}"
+            --resolver "${CMAKE_SOURCE_DIR}/cmake/QuarryVersion.cmake")
 endif()
 add_quarry_gtest(python_execution_test backend_python/python_execution_test.cpp
                       quarry_compiler_support)
