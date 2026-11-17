@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -60,6 +61,12 @@ void write_text_file(const std::filesystem::path& path, std::string_view text) {
         throw std::runtime_error("failed to open test file for writing: " + path.string());
     }
     output << text;
+}
+
+// macOS's bundled Make compares timestamps at whole-second resolution.
+// Keep edited inputs in a later tick than their generated outputs.
+void wait_for_make_timestamp_tick() {
+    std::this_thread::sleep_for(std::chrono::milliseconds{1100});
 }
 
 void write_executable_file(const std::filesystem::path& path, std::string_view text) {
@@ -1495,4 +1502,162 @@ TEST(SchemaCompilerPackageTest, CConsumerBuildsAndRunsAgainstInstalledPackage) {
                    "build C consumer");
     expect_success(run_executable(consumer_build / "c_consumer", {}, root, "run-c-consumer"),
                    "run C consumer");
+}
+
+TEST(SchemaCompilerPackageTest, HelperTracksTransitiveImportsAndReconfiguresAddedNamespaces) {
+#ifdef _WIN32
+    GTEST_SKIP() << "schema compiler package subprocess test is not implemented on Windows";
+#endif
+    const auto root = make_temp_directory("helper imported dependencies with spaces");
+    const auto prefix = root / "install";
+    const auto source = root / "source";
+    const auto build = root / "build";
+    write_text_file(source / "root.brd", "configuration: dependencies\nimports:\n  - mid.brd\n");
+    write_text_file(source / "mid.brd",
+                    "namespace: m\nrecord: Mid\nversion: 1\ntype: data\n"
+                    "imports:\n  - leaf.brd\nfields:\n  value:\n    type: u32\n");
+    const auto leaf = source / "leaf.brd";
+    write_text_file(leaf, "namespace: z\nrecord: Leaf\nversion: 1\ntype: data\nfields:\n"
+                          "  first:\n    type: u32\n");
+    write_text_file(
+        source / "CMakeLists.txt",
+        "cmake_minimum_required(VERSION 3.20)\nproject(import_dependencies LANGUAGES NONE)\n"
+        "find_package(Quarry CONFIG REQUIRED)\n"
+        "quarry_generate_cpp(SCHEMA root.brd OUTPUT_DIR generated OUT_FILES files)\n"
+        "file(WRITE \"${CMAKE_CURRENT_BINARY_DIR}/outputs.txt\" \"${files}\")\n"
+        "add_custom_target(bindings ALL DEPENDS ${files})\n");
+    const auto run = [&](const std::vector<std::string>& args, std::string_view label) {
+        return run_executable(QUARRY_TEST_CMAKE_COMMAND, args, root, label);
+    };
+    auto result = run({"--install", QUARRY_TEST_BUILD_DIR, "--prefix", prefix.string()}, "install");
+    ASSERT_EQ(result.status, 0) << result.stderr_text;
+    result =
+        run({"-S", source.string(), "-B", build.string(), "-DCMAKE_PREFIX_PATH=" + prefix.string()},
+            "configure");
+    ASSERT_EQ(result.status, 0) << result.stderr_text;
+    result = run({"--build", build.string()}, "initial-build");
+    ASSERT_EQ(result.status, 0) << result.stderr_text;
+    const auto generated_leaf = build / "generated" / "z.generated.hpp";
+    const auto original = read_text_file(generated_leaf);
+    const auto generated_mid = build / "generated" / "m.generated.hpp";
+    EXPECT_NE(read_text_file(generated_mid).find(".record_id = 65537U"), std::string::npos);
+    ASSERT_NE(original.find("first"), std::string::npos);
+
+    // The leaf is unreferenced and imported only transitively. Its field edit
+    // must still regenerate bindings without touching the configuration root.
+    wait_for_make_timestamp_tick();
+    write_text_file(leaf, read_text_file(leaf) + "  second:\n    type: u64\n");
+    result = run({"--build", build.string()}, "field-rebuild");
+    ASSERT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_NE(read_text_file(generated_leaf).find("second"), std::string::npos);
+
+    const auto unchanged_time = std::filesystem::last_write_time(generated_leaf);
+    result = run({"--build", build.string()}, "unchanged-build");
+    ASSERT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_EQ(std::filesystem::last_write_time(generated_leaf), unchanged_time);
+
+    // A new import changes both the output inventory and domain assignment.
+    write_text_file(source / "extra.brd", "namespace: a\nrecord: Extra\nversion: 1\ntype: data\n"
+                                          "fields:\n  value:\n    type: u32\n");
+    write_text_file(leaf, "namespace: z\nrecord: Leaf\nversion: 1\ntype: data\n"
+                          "imports:\n  - extra.brd\nfields:\n  first:\n    type: u32\n");
+    result = run({"--build", build.string()}, "import-rebuild");
+    ASSERT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_TRUE(std::filesystem::exists(build / "generated" / "a.generated.hpp"));
+    EXPECT_NE(read_text_file(generated_mid).find(".record_id = 131073U"), std::string::npos);
+    EXPECT_NE(read_text_file(build / "outputs.txt").find("a.generated.hpp"), std::string::npos);
+    const auto extra_output = build / "generated" / "a.generated.hpp";
+    const auto before = read_text_file(extra_output);
+    wait_for_make_timestamp_tick();
+    write_text_file(source / "extra.brd",
+                    read_text_file(source / "extra.brd") + "  latest:\n    type: u16\n");
+    result = run({"--build", build.string()}, "new-dependency-rebuild");
+    ASSERT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_NE(read_text_file(extra_output), before);
+
+    std::filesystem::remove(source / "extra.brd");
+    result = run({"--build", build.string()}, "missing-dependency-rebuild");
+    EXPECT_NE(result.status, 0);
+    EXPECT_NE((result.stdout_text + result.stderr_text).find("extra.brd"), std::string::npos);
+}
+
+TEST(SchemaCompilerPackageTest, InputInventoryQueryRejectsUnsafeOrIncompleteCompilerOutput) {
+#ifdef _WIN32
+    GTEST_SKIP() << "schema compiler package subprocess test is not implemented on Windows";
+#endif
+    const auto root = make_temp_directory("input inventory validation with spaces");
+    const auto schema = root / "schema.brd";
+    write_text_file(schema, "configuration: inputs\n");
+    const auto module =
+        std::filesystem::path(QUARRY_TEST_SOURCE_DIR) / "cmake" / "QuarryGenerate.cmake";
+    const auto query = root / "query.cmake";
+    write_text_file(query, "cmake_minimum_required(VERSION 3.20)\ninclude(\"" +
+                               module.generic_string() +
+                               "\")\n_quarry_generate_query_inputs(\"${COMPILER}\" \"" +
+                               schema.generic_string() + "\" inputs)\n");
+    const auto compiler = root / "compiler.sh";
+    const auto run = [&](const std::string& output, const std::string& label) {
+        write_executable_file(compiler, "#!/bin/sh\nprintf '%s' " + shell_quote(output) + "\n");
+        return run_executable(QUARRY_TEST_CMAKE_COMMAND,
+                              {"-DCOMPILER=" + compiler.string(), "-P", query.string()}, root,
+                              label);
+    };
+    const auto path = std::filesystem::canonical(schema).string();
+    EXPECT_EQ(run(path + "\n", "valid").status, 0);
+    for (const auto& [label, output] :
+         std::vector<std::pair<std::string, std::string>>{{"empty", ""},
+                                                          {"no-newline", path},
+                                                          {"blank-line", path + "\n\n"},
+                                                          {"duplicate", path + "\n" + path + "\n"},
+                                                          {"relative", "schema.brd\n"},
+                                                          {"missing", path + ".absent\n"},
+                                                          {"directory", root.string() + "\n"},
+                                                          {"unsafe", path + ";injection\n"},
+                                                          {"no-root", query.string() + "\n"}}) {
+        const auto result = run(output, label);
+        EXPECT_NE(result.status, 0) << label;
+        EXPECT_FALSE(result.stderr_text.empty()) << label;
+    }
+}
+
+TEST(SchemaCompilerPackageTest, SuppressedReconfigurationRejectsChangedInputClosure) {
+#ifdef _WIN32
+    GTEST_SKIP() << "schema compiler package subprocess test is not implemented on Windows";
+#endif
+    const auto root = make_temp_directory("suppressed input reconfigure");
+    const auto prefix = root / "install";
+    const auto source = root / "source";
+    const auto build = root / "build";
+    write_text_file(source / "root.brd", "configuration: selected\nimports:\n  - leaf.brd\n");
+    write_text_file(source / "leaf.brd", "namespace: z\nrecord: Leaf\nversion: 1\ntype: data\n"
+                                         "fields:\n  value:\n    type: u32\n");
+    write_text_file(source / "extra.brd", "namespace: a\nrecord: Extra\nversion: 1\ntype: data\n"
+                                          "fields:\n  value:\n    type: u32\n");
+    write_text_file(
+        source / "CMakeLists.txt",
+        "cmake_minimum_required(VERSION 3.20)\nproject(suppressed LANGUAGES NONE)\n"
+        "set(CMAKE_SUPPRESS_REGENERATION TRUE)\nfind_package(Quarry CONFIG REQUIRED)\n"
+        "quarry_generate_cpp(SCHEMA root.brd OUTPUT_DIR generated OUT_FILES files GENERATE z)\n"
+        "add_custom_target(bindings ALL DEPENDS ${files})\n");
+    const auto run = [&](const std::vector<std::string>& args, std::string_view label) {
+        return run_executable(QUARRY_TEST_CMAKE_COMMAND, args, root, label);
+    };
+    auto result = run({"--install", QUARRY_TEST_BUILD_DIR, "--prefix", prefix.string()}, "install");
+    ASSERT_EQ(result.status, 0) << result.stderr_text;
+    result =
+        run({"-S", source.string(), "-B", build.string(), "-DCMAKE_PREFIX_PATH=" + prefix.string()},
+            "configure");
+    ASSERT_EQ(result.status, 0) << result.stderr_text;
+    result = run({"--build", build.string()}, "initial-build");
+    ASSERT_EQ(result.status, 0) << result.stderr_text;
+    const auto output = build / "generated" / "z.generated.hpp";
+    const auto original = read_text_file(output);
+    wait_for_make_timestamp_tick();
+    write_text_file(source / "root.brd",
+                    "configuration: selected\nimports:\n  - leaf.brd\n  - extra.brd\n");
+    result = run({"--build", build.string()}, "changed-import-build");
+    EXPECT_NE(result.status, 0);
+    EXPECT_NE((result.stdout_text + result.stderr_text).find("schema input inventory changed"),
+              std::string::npos);
+    EXPECT_EQ(read_text_file(output), original);
 }

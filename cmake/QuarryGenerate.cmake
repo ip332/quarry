@@ -339,6 +339,43 @@ function(_quarry_generate_query_outputs compiler output_dir schema root_file_ste
     set(${output_variable} "${_quarry_outputs}" PARENT_SCOPE)
 endfunction()
 
+# Query the compiler's authoritative resolved import graph, rather than parsing
+# schema syntax in CMake. This includes configuration roots and unused imports.
+function(_quarry_generate_query_inputs compiler schema output_variable)
+    execute_process(
+        COMMAND "${compiler}" --list-inputs "${schema}"
+        RESULT_VARIABLE _result
+        OUTPUT_VARIABLE _stdout
+        ERROR_VARIABLE _stderr)
+    if(NOT _result EQUAL 0 OR NOT "${_stderr}" STREQUAL "")
+        _quarry_generate_fail(
+            "failed to list schema inputs with '${compiler}' (exit ${_result}).\n"
+            "The compiler must support --list-inputs.\n${_stderr}")
+    endif()
+    if("${_stdout}" STREQUAL "" OR NOT "${_stdout}" MATCHES "\n$" OR
+       "${_stdout}" MATCHES "[;\r]" OR "${_stdout}" MATCHES "(^|\n)\n")
+        _quarry_generate_fail("compiler reported malformed schema input paths")
+    endif()
+    string(REGEX REPLACE "\n$" "" _text "${_stdout}")
+    string(REPLACE "\n" ";" _inputs "${_text}")
+    set(_seen)
+    foreach(_input IN LISTS _inputs)
+        _quarry_generate_normalize_absolute("${_input}" _normalized "schema input path")
+        if(NOT EXISTS "${_normalized}" OR IS_DIRECTORY "${_normalized}")
+            _quarry_generate_fail("compiler reported a missing schema input: ${_normalized}")
+        endif()
+        if("${_normalized}" IN_LIST _seen)
+            _quarry_generate_fail("compiler reported a duplicate schema input: ${_normalized}")
+        endif()
+        list(APPEND _seen "${_normalized}")
+    endforeach()
+    file(REAL_PATH "${schema}" _root)
+    if(NOT "${_root}" IN_LIST _seen)
+        _quarry_generate_fail("compiler input inventory does not include the root schema")
+    endif()
+    set(${output_variable} "${_seen}" PARENT_SCOPE)
+endfunction()
+
 function(_quarry_generate_format_inventory outputs output_variable)
     set(_formatted)
     foreach(_output IN LISTS ${outputs})
@@ -432,6 +469,18 @@ function(_quarry_generate_verify_output_inventory)
     _quarry_generate_check_output_inventory("${QUARRY_VERIFY_SCHEMA}"
                                                  "${QUARRY_VERIFY_COMPILER}"
                                                  _expected_outputs _current_outputs)
+
+    # If automatic reconfiguration is disabled, an unchanged output inventory
+    # must not hide a changed dependency graph (for example under --generate).
+    if(DEFINED QUARRY_VERIFY_EXPECTED_INPUTS)
+        _quarry_generate_query_inputs("${QUARRY_VERIFY_COMPILER}" "${QUARRY_VERIFY_SCHEMA}"
+                                      _current_inputs)
+        if(NOT "${_current_inputs}" STREQUAL "${QUARRY_VERIFY_EXPECTED_INPUTS}")
+            _quarry_generate_fail(
+                "schema input inventory changed after configuration for '${QUARRY_VERIFY_SCHEMA}'.\n"
+                "Reconfigure the CMake build before continuing.")
+        endif()
+    endif()
 endfunction()
 
 function(_quarry_generate_register_outputs schema outputs)
@@ -527,8 +576,9 @@ function(quarry_generate_cpp)
                                         "${_quarry_generate_selection}" _quarry_outputs)
     _quarry_generate_register_outputs("${_quarry_schema}" "${_quarry_outputs}")
 
+    _quarry_generate_query_inputs("${_quarry_compiler}" "${_quarry_schema}" _quarry_inputs)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-                 "${_quarry_schema}" "${_quarry_compiler}")
+                 "${_quarry_schema}" ${_quarry_inputs} "${_quarry_compiler}")
 
     set(_quarry_module "${CMAKE_CURRENT_FUNCTION_LIST_FILE}")
 
@@ -541,6 +591,7 @@ function(quarry_generate_cpp)
             "-DQUARRY_VERIFY_SCHEMA=${_quarry_schema}"
             "-DQUARRY_VERIFY_OUTPUT_DIR=${_quarry_output_dir}"
             "-DQUARRY_VERIFY_EXPECTED_OUTPUTS=${_quarry_outputs}"
+            "-DQUARRY_VERIFY_EXPECTED_INPUTS=${_quarry_inputs}"
             "-DQUARRY_VERIFY_ROOT_FILE_STEM=${_quarry_root_file_stem}"
             "-DQUARRY_VERIFY_FILE_EXTENSION=${_quarry_file_extension}"
             "-DQUARRY_VERIFY_GENERATE=${_quarry_generate_selection}"
@@ -550,6 +601,7 @@ function(quarry_generate_cpp)
                 "${_quarry_schema}"
         DEPENDS
             "${_quarry_schema}"
+            ${_quarry_inputs}
             ${_quarry_compiler_dependency}
             "${_quarry_compiler}"
             "${_quarry_module}"

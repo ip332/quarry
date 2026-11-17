@@ -2474,3 +2474,67 @@ TEST(SchemaCompilerToolTest, QbsListOutputsPrintsPathWithoutWritingTheImage) {
         EXPECT_FALSE(std::filesystem::exists(image));
     }
 }
+
+TEST(SchemaCompilerToolTest, ListInputsReportsCompleteCanonicalImportClosure) {
+    const auto root = make_temp_directory("list-inputs closure with spaces");
+    const auto schemas = root / "schemas";
+    std::filesystem::copy(truck_schemas(), schemas, std::filesystem::copy_options::recursive);
+    const auto schema = schemas / "configuration.brd";
+    std::vector<std::string> expected;
+    for (const auto& path : regular_files_under(schemas)) {
+        if (path.extension() == ".brd") {
+            expected.push_back(std::filesystem::canonical(path).string());
+        }
+    }
+    std::sort(expected.begin(), expected.end());
+    ASSERT_GT(expected.size(), 5U);
+    const auto result = run_tool({"--list-inputs", schema.string()}, root);
+    ASSERT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_TRUE(result.stderr_text.empty());
+    EXPECT_EQ(non_empty_lines(result.stdout_text), expected);
+    EXPECT_EQ(result.stdout_text.back(), '\n');
+    const auto selected =
+        run_tool({"--list-inputs", "--generate", "truck.engine", schema.string()}, root);
+    ASSERT_EQ(selected.status, 0) << selected.stderr_text;
+    EXPECT_EQ(selected.stdout_text, result.stdout_text);
+    EXPECT_FALSE(std::filesystem::exists(root / "generated"));
+
+    write_text_file(root / "renamed.brd", "configuration: renamed\nimports:\n  - " +
+                                              schema.parent_path().generic_string() +
+                                              "/vehicle.brd\n");
+    const auto transitive = run_tool({"--list-inputs", (root / "renamed.brd").string()}, root);
+    ASSERT_EQ(transitive.status, 0) << transitive.stderr_text;
+    auto transitive_paths = non_empty_lines(transitive.stdout_text);
+    EXPECT_EQ(std::count(transitive_paths.begin(), transitive_paths.end(),
+                         std::filesystem::canonical(schemas / "engine_faults.brd").string()),
+              1);
+}
+
+TEST(SchemaCompilerToolTest, ListInputsErrorsDoNotPrintPartialInventories) {
+    const auto root = make_temp_directory("list-inputs errors");
+    const auto schema = root / "root.brd";
+    write_text_file(schema, "configuration: broken\nimports:\n  - missing.brd\n");
+    const auto result = run_tool({"--list-inputs", schema.string()}, root);
+    EXPECT_NE(result.status, 0);
+    EXPECT_TRUE(result.stdout_text.empty());
+    EXPECT_FALSE(result.stderr_text.empty());
+#ifndef _WIN32
+    const auto unsafe = root / "line\nbreak.brd";
+    write_text_file(unsafe, "namespace: inputs\nrecord: Record\nversion: 1\ntype: data\n"
+                            "fields:\n  value:\n    type: u32\n");
+    const auto invalid_path = run_tool({"--list-inputs", unsafe.string()}, root);
+    EXPECT_EQ(invalid_path.status, 1);
+    EXPECT_TRUE(invalid_path.stdout_text.empty());
+    EXPECT_NE(invalid_path.stderr_text.find("input path contains"), std::string::npos);
+#endif
+    for (const auto& options : std::vector<std::vector<std::string>>{{"--list-inputs"},
+                                                                     {"--list-outputs"},
+                                                                     {"--print-schema-id"},
+                                                                     {"--output-directory", "out"},
+                                                                     {"--emit-qbs", "out.qbs"}}) {
+        const auto rejected =
+            run_tool(with({"--list-inputs"}, with(options, {schema.string()})), root);
+        EXPECT_EQ(rejected.status, 2);
+        EXPECT_TRUE(rejected.stdout_text.empty());
+    }
+}

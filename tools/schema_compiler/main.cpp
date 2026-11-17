@@ -57,6 +57,7 @@ struct CommandLine {
     bool show_generated_code_api_version = false;
     bool print_schema_id = false;
     bool list_outputs = false;
+    bool list_inputs = false;
     bool c_optimize_size = false;
     bool cpp_c_storage = false;
     bool qbs_reflective = false;
@@ -89,6 +90,8 @@ struct CommandLine {
            "      --emit-qbs PATH           Emit the resolved schema as a deterministic QBS image\n"
            "      --qbs-reflective          Include reflective record, field, and enum names in "
            "QBS\n"
+           "      --list-inputs             Print all resolved schema input paths without writing "
+           "files\n"
            "      --list-outputs            Print generated output paths without writing files\n"
            "      --print-generated-code-api-version\n"
            "                                Print the generated-code API compatibility version and "
@@ -168,6 +171,14 @@ void print_schema_id(std::ostream& output,
                 return std::nullopt;
             }
             command_line.c_optimize_size = true;
+            continue;
+        }
+        if (argument == "--list-inputs") {
+            if (command_line.list_inputs) {
+                errors << "error: duplicate --list-inputs option\n";
+                return std::nullopt;
+            }
+            command_line.list_inputs = true;
             continue;
         }
         if (argument == "--list-outputs") {
@@ -299,7 +310,8 @@ void print_schema_id(std::ostream& output,
 
     if (command_line.show_generated_code_api_version) {
         const bool has_generation_arguments =
-            command_line.list_outputs || !command_line.input_path.empty() ||
+            command_line.list_inputs || command_line.list_outputs ||
+            !command_line.input_path.empty() ||
             command_line.codegen_options.output_directory != "generated" ||
             command_line.codegen_options.root_file_stem != "schema" ||
             command_line.codegen_options.file_extension != ".generated.hpp" ||
@@ -314,10 +326,20 @@ void print_schema_id(std::ostream& output,
     }
 
     if (command_line.print_schema_id &&
-        (command_line.list_outputs || saw_output_directory || saw_root_file_stem ||
-         saw_file_extension || saw_language || saw_cpp_storage || command_line.c_optimize_size ||
-         !command_line.qbs_output.empty() || command_line.qbs_reflective || saw_go_import_prefix)) {
+        (command_line.list_inputs || command_line.list_outputs || saw_output_directory ||
+         saw_root_file_stem || saw_file_extension || saw_language || saw_cpp_storage ||
+         command_line.c_optimize_size || !command_line.qbs_output.empty() ||
+         command_line.qbs_reflective || saw_go_import_prefix)) {
         errors << "error: --print-schema-id does not accept output or QBS options\n";
+        return std::nullopt;
+    }
+
+    if (command_line.list_inputs &&
+        (command_line.print_schema_id || command_line.list_outputs || saw_output_directory ||
+         saw_root_file_stem || saw_file_extension || saw_language || saw_cpp_storage ||
+         command_line.c_optimize_size || saw_qbs_output || saw_qbs_reflective ||
+         saw_go_import_prefix)) {
+        errors << "error: --list-inputs does not accept output or QBS options\n";
         return std::nullopt;
     }
 
@@ -552,6 +574,21 @@ template <typename CodegenResultT>
 
     if (!compilation_result.succeeded()) {
         return exit_failure;
+    }
+
+    if (command_line.list_inputs) {
+        std::set<std::string> inputs;
+        for (const auto& unit : compiler_context.source_units()) {
+            if (unit.canonical_path.find_first_of("\r\n") != std::string::npos) {
+                errors << "error: schema input path contains a newline or carriage return\n";
+                return exit_failure;
+            }
+            inputs.insert(unit.canonical_path);
+        }
+        for (const auto& path : inputs) {
+            output << path << '\n';
+        }
+        return exit_success;
     }
 
     // Prepare the resolved configuration once: its authoritative BRF layout,

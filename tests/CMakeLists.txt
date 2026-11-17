@@ -229,6 +229,7 @@ target_compile_definitions(schema_compiler_install_test PRIVATE
 add_quarry_gtest(schema_compiler_package_test consumer/schema_compiler_package_test.cpp
                       quarry_compiler_support)
 target_compile_definitions(schema_compiler_package_test PRIVATE
+    QUARRY_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
     QUARRY_TEST_CMAKE_COMMAND="${CMAKE_COMMAND}"
     QUARRY_TEST_BUILD_DIR="${CMAKE_BINARY_DIR}"
     QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"

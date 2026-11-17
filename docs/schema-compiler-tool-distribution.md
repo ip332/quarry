@@ -48,6 +48,7 @@ Current behavior:
 * defaults to `schema` for the root file stem
 * defaults to `.generated.hpp` for generated file extensions
 * supports `--list-outputs` as a read-only output-inventory query
+* supports `--list-inputs` as a read-only, complete resolved schema-input query
 * supports `--emit-qbs PATH` to emit minimal QBS by default
 * supports `--qbs-reflective` with `--emit-qbs` to include optional reflective names;
   without `--qbs-reflective`, QBS remains minimal
@@ -341,7 +342,7 @@ reported.
 
 When the inventory matches, the command creates `OUTPUT_DIR` with
 `cmake -E make_directory` and then invokes the compiler with normal generation
-arguments. Dependencies include the schema file, `Quarry::schema_compiler`,
+arguments. Dependencies include the root and every resolved imported schema, `Quarry::schema_compiler`,
 the resolved compiler executable path, and `QuarryGenerate.cmake`, because
 the installed module owns the build-time verification behavior.
 
@@ -351,11 +352,31 @@ Consumers must use the returned `OUT_FILES` explicitly.
 
 ### Reconfiguration Triggers
 
-The helper appends the absolute schema path and resolved compiler executable to
-`CMAKE_CONFIGURE_DEPENDS`. Schema edits can therefore rerun configuration and
-refresh the `OUTPUT` list when the output inventory changes. Replacing the
-compiler executable in place can also trigger reconfiguration on generators that
-honor directory configure dependencies.
+The installed CMake helper queries `--list-inputs INPUT` with the same selected
+host compiler used for output planning and generation. The compiler returns
+canonical absolute paths for the complete resolved import closure, including
+configuration roots, transitive imports and unused imported schemas. The list
+is sorted, deduplicated and newline-terminated; no bindings, QBS or identity are
+emitted by this query.
+
+Every returned path is registered in both `CMAKE_CONFIGURE_DEPENDS` and the
+binding generation command's `DEPENDS`. Consequently, imported field edits
+regenerate bindings, and changes to the import graph automatically refresh the
+output inventory and dependency set before generation. This is required because
+namespace membership can change configuration-wide record IDs and `schema_id`.
+Missing imports fail configuration rather than leaving stale bindings usable.
+The build-time verification also compares the input inventory captured during
+configuration. If automatic reconfiguration is disabled and imports change,
+the build fails before overwriting generated files, even when namespace
+selection leaves the output filenames unchanged.
+
+The helper rejects malformed, duplicate, non-absolute or missing input paths,
+and inventories omitting the root. Compilers without `--list-inputs` support
+fail with an explicit diagnostic. This tool-capability requirement does not
+change BRF, QBS, generated-code API epochs or public runtime APIs.
+
+Replacing the selected compiler executable also triggers reconfiguration on
+generators that honor directory configure dependencies.
 
 The build-time inventory check is defense in depth. It does not replace
 `CMAKE_CONFIGURE_DEPENDS`, does not update CMake's declared `OUTPUT` list, and
@@ -479,7 +500,7 @@ compiler.
 The selected executable path must be captured during configuration and reused
 unchanged for:
 
-* configure-time `--list-outputs`
+* configure-time `--list-outputs` and `--list-inputs`
 * build-time inventory verification
 * build-time normal generation
 
