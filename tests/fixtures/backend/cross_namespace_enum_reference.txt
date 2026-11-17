@@ -97,7 +97,7 @@ namespace two {
       std::optional<::alpha::one::Mode> mode_;
     };
 
-    ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Config& value) {
+    inline ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Config& value) {
       std::vector<::quarry::runtime::FieldBytes> fields;
       fields.reserve(1U);
       if (value.has_mode()) {
@@ -116,7 +116,7 @@ namespace two {
     }
 
 
-    std::optional<std::vector<std::byte>> encode(const Config& value) {
+    inline std::optional<std::vector<std::byte>> encode(const Config& value) {
       auto encoded = encode_result(value);
       if (!encoded.value.has_value()) {
         return std::nullopt;
@@ -125,7 +125,7 @@ namespace two {
     }
 
 
-    ::quarry::runtime::DecodeResult<Config> decode_Config_result(std::span<const std::byte> input) {
+    inline ::quarry::runtime::DecodeResult<Config> decode_Config_result(std::span<const std::byte> input) {
       const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_Config());
       if (!parsed.record.has_value()) {
         return ::quarry::runtime::decode_failure<Config>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
@@ -151,7 +151,7 @@ namespace two {
     }
 
 
-    std::optional<Config> decode_Config(std::span<const std::byte> input) {
+    inline std::optional<Config> decode_Config(std::span<const std::byte> input) {
       auto decoded = decode_Config_result(input);
       if (!decoded.value.has_value()) {
         return std::nullopt;

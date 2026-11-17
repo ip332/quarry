@@ -16,6 +16,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -1538,6 +1539,73 @@ TEST(SchemaCompilerToolTest, GeneratedCppHeadersSharingADependencyCompileTogethe
     EXPECT_EQ(std::system(compile.str().c_str()), 0) << compile.str();
 }
 
+// Both translation units reach the shared leaf through a diamond and include
+// the same generated functions. This must link at -O0, without relying on the
+// optimizer to erase unused definitions.
+TEST(SchemaCompilerToolTest, GeneratedCppHeadersSharingADependencyLinkAcrossTranslationUnits) {
+    const auto root = make_temp_directory("cpp-multiple-translation-units");
+    write_text_file(root / "leaf.brd", "namespace: z\nrecord: Leaf\nversion: 1\ntype: data\n"
+                                       "fields:\n  v:\n    type: u32\n");
+    for (const auto& [file, ns, record] :
+         {std::tuple{"left.brd", "l", "Left"}, std::tuple{"right.brd", "r", "Right"}}) {
+        write_text_file(root / file, "namespace: " + std::string(ns) + "\nrecord: " + record +
+                                         "\nversion: 1\ntype: data\nimports:\n  - leaf.brd\n"
+                                         "fields:\n  leaf:\n    type: z.Leaf\n");
+    }
+    write_text_file(root / "configuration.brd",
+                    "configuration: diamond\nimports:\n  - left.brd\n  - right.brd\n");
+    const auto output = root / "generated";
+    const auto generated = run_tool(
+        {"--output-directory", output.string(), (root / "configuration.brd").string()}, root);
+    ASSERT_EQ(generated.status, 0) << generated.stderr_text;
+    const std::string includes = "#include \"l.generated.hpp\"\n"
+                                 "#include \"r.generated.hpp\"\n"
+                                 "#include \"z.generated.hpp\"\n";
+    const auto first = root / "first.cpp";
+    write_text_file(first, includes + R"(
+bool first_round_trip() {
+    z::LeafBuilder leaf;
+    leaf.set_v(42);
+    l::LeftBuilder builder;
+    builder.set_leaf(leaf.build());
+    auto bytes = l::encode_result(builder.build());
+    if (!bytes.value) return false;
+    auto decoded = l::decode_Left_result(*bytes.value);
+    return decoded.value && decoded.value->leaf() && decoded.value->leaf()->v() &&
+           *decoded.value->leaf()->v() == 42;
+}
+)");
+    const auto second = root / "second.cpp";
+    write_text_file(second, includes + R"(
+bool first_round_trip();
+int main() {
+    z::LeafBuilder leaf;
+    leaf.set_v(7);
+    r::RightBuilder builder;
+    builder.set_leaf(leaf.build());
+    auto bytes = r::encode(builder.build());
+    if (!bytes) return 1;
+    auto decoded = r::decode_Right(*bytes);
+    return first_round_trip() && decoded && decoded->leaf() && decoded->leaf()->v() &&
+           *decoded->leaf()->v() == 7 ? 0 : 1;
+}
+)");
+    const auto executable = root / "multiple-tu";
+    std::ostringstream compile;
+    compile << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER))
+            // -Wextra's unused-validator diagnostic remains tracked in #83.
+            << " -std=c++20 -O0 -Wall -Wpedantic -Werror"
+            << " -I" << std::quoted(output.string()) << " -I"
+            << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR)) << " -I"
+            << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << ' '
+            << std::quoted(first.string()) << ' ' << std::quoted(second.string()) << " -o "
+            << std::quoted(executable.string());
+    ASSERT_EQ(std::system(compile.str().c_str()), 0) << compile.str();
+    std::ostringstream run;
+    run << std::quoted(executable.string());
+    EXPECT_EQ(std::system(run.str().c_str()), 0);
+}
+
 TEST(SchemaCompilerToolTest, FileExtensionIsRejectedWithLanguageC) {
     const std::filesystem::path root = make_temp_directory("language-c-file-extension");
     const std::filesystem::path input = root / "schema.brd";
@@ -2163,12 +2231,12 @@ TEST(SchemaCompilerToolTest, PrintSchemaIdInvalidSchemaHasDiagnosticsAndNoStdout
     EXPECT_FALSE(result.stderr_text.empty());
 }
 
-TEST(SchemaCompilerToolTest, TruckBindingsAndQbsImagesMatchMainByteForByte) {
+TEST(SchemaCompilerToolTest, TruckBindingsAndQbsImagesMatchGoldenArtifacts) {
     const std::filesystem::path root = make_temp_directory("a4-1-main-output-golden");
     const std::filesystem::path schema = truck_schemas() / "configuration.brd";
     const std::map<std::string, std::string> expected_tree_hashes = {
         {"c", "5efa52e1cd39771464dc0fc651f95530ea2901765bdcaa9ee02136e61e12a2f7"},
-        {"cpp", "f0e2bc1fba4ecd9c2a6c2ca98d16746a6293152ef37a4695ecb7d6cafe875b2a"},
+        {"cpp", "3b94ca83918a31da08224124fdd0b896d690e55f1d15c4f0407d53b0235738c3"},
         {"cpp-c-storage", "e1f3f0117272d548ffff5571a75cf7dbd6215f6c3088ede9bbf2197e19a22449"},
         {"python", "bee113659615b1714c07255e54298f9cbd719991436bc457120b40422090bbca"},
         {"go", "ca49fed7126ea8a5ff21f2cebb37575a1aa282d9c7c874636f399c8116b4ed24"},
@@ -2573,3 +2641,57 @@ TEST(SchemaCompilerToolTest, ListInputsReportsSymbolicLinkPathsAndTheirTargets) 
     EXPECT_EQ(non_empty_lines(result.stdout_text), expected);
 }
 #endif
+
+// Every header the C++ backends generate for a configuration, included by two
+// translation units of one program (#82). A function or variable defined in a
+// generated header without `inline` gives each object file its own strong
+// definition and fails to link. -O0 keeps the compiler from dropping unused
+// definitions, so no call is needed to expose one.
+TEST(SchemaCompilerToolTest, EveryGeneratedCppHeaderLinksIntoMultipleTranslationUnits) {
+    const auto root = make_temp_directory("cpp-odr-every-header");
+    write_text_file(root / "benchmarks.brd", "configuration: benchmarks\nimports:\n  - " +
+                                                 (std::filesystem::path(QUARRY_TEST_SOURCE_DIR) /
+                                                  "benchmarks/schemas" / "workload.brd")
+                                                     .generic_string() +
+                                                 "\n");
+    // The truck covers configuration-wide imports across namespaces; the
+    // benchmark workload covers every field kind (scalars, enums, strings,
+    // bytes, scalar arrays, nested records and record arrays).
+    const std::vector<std::filesystem::path> configurations{truck_schemas() / "configuration.brd",
+                                                            root / "benchmarks.brd"};
+    const std::vector<std::pair<std::string, std::vector<std::string>>> variants{
+        {"owning", {}}, {"c-storage", {"--cpp-storage", "c"}}};
+    for (const auto& configuration : configurations) {
+        for (const auto& [variant, options] : variants) {
+            SCOPED_TRACE(configuration.filename().string() + " / " + variant);
+            const auto work = root / (configuration.stem().string() + "-" + variant);
+            const auto output = work / "generated";
+            const auto generated = run_tool(with({"--output-directory", output.string()},
+                                                 with(options, {configuration.string()})),
+                                            root);
+            ASSERT_EQ(generated.status, 0) << generated.stderr_text;
+            std::string includes;
+            for (const auto& header : regular_files_under(output)) {
+                includes += "#include \"" +
+                            std::filesystem::relative(header, output).generic_string() + "\"\n";
+            }
+            ASSERT_FALSE(includes.empty());
+            write_text_file(work / "first.cpp", includes + "int first() { return 0; }\n");
+            write_text_file(work / "second.cpp",
+                            includes + "int first();\nint main() { return first(); }\n");
+            const auto executable = work / "program";
+            std::ostringstream compile;
+            compile << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER)) << " -std=c++20 -O0 -I"
+                    << std::quoted(output.string()) << " -I"
+                    << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR)) << " -I"
+                    << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << ' '
+                    << std::quoted((work / "first.cpp").string()) << ' '
+                    << std::quoted((work / "second.cpp").string()) << " -o "
+                    << std::quoted(executable.string());
+            ASSERT_EQ(std::system(compile.str().c_str()), 0) << compile.str();
+            std::ostringstream run;
+            run << std::quoted(executable.string());
+            EXPECT_EQ(std::system(run.str().c_str()), 0);
+        }
+    }
+}

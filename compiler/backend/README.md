@@ -163,6 +163,14 @@ Current C++ generation behavior:
 * supports imported record and enum fields, including arrays, when the
   referenced namespaces are generated from the same compilation root
 * emits namespace blocks matching the Schema IR namespace hierarchy
+* defines every namespace-scope function in a generated header `inline`
+  (`encode_result`, `encode`, `decode_<Record>_result`, `decode_<Record>` and
+  `brf_v2_layout_<Record>`); functions defined inside generated classes are
+  implicitly inline. One program can therefore include a generated header from
+  any number of translation units (#82). Signatures, symbol names, BRF bytes
+  and the generated-code API version are unchanged. Linking headers generated
+  from *different* configurations into one program is a separate concern of
+  the configuration-identity design
 * includes standard headers only when required
   * `<cstddef>` for `std::byte`
   * `<cstdint>` for fixed-width integers and enum underlying types

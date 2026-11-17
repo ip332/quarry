@@ -78,7 +78,7 @@ private:
   std::optional<::Color> color_;
 };
 
-::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Paint& value) {
+inline ::quarry::runtime::EncodeResult<std::vector<std::byte>> encode_result(const Paint& value) {
   std::vector<::quarry::runtime::FieldBytes> fields;
   fields.reserve(1U);
   if (value.has_color()) {
@@ -97,7 +97,7 @@ private:
 }
 
 
-std::optional<std::vector<std::byte>> encode(const Paint& value) {
+inline std::optional<std::vector<std::byte>> encode(const Paint& value) {
   auto encoded = encode_result(value);
   if (!encoded.value.has_value()) {
     return std::nullopt;
@@ -106,7 +106,7 @@ std::optional<std::vector<std::byte>> encode(const Paint& value) {
 }
 
 
-::quarry::runtime::DecodeResult<Paint> decode_Paint_result(std::span<const std::byte> input) {
+inline ::quarry::runtime::DecodeResult<Paint> decode_Paint_result(std::span<const std::byte> input) {
   const auto parsed = ::quarry::runtime::parse_brf_v2_record(input, brf_v2_layout_Paint());
   if (!parsed.record.has_value()) {
     return ::quarry::runtime::decode_failure<Paint>(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, parsed.offset);
@@ -132,7 +132,7 @@ std::optional<std::vector<std::byte>> encode(const Paint& value) {
 }
 
 
-std::optional<Paint> decode_Paint(std::span<const std::byte> input) {
+inline std::optional<Paint> decode_Paint(std::span<const std::byte> input) {
   auto decoded = decode_Paint_result(input);
   if (!decoded.value.has_value()) {
     return std::nullopt;
