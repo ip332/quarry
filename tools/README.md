@@ -47,6 +47,7 @@ Options:
                                 root's namespace, or every namespace of a
                                 configuration root. IDs and QBS never change.
       --emit-qbs PATH           Emit a deterministic binary QBS image
+      --list-inputs             Print all resolved schema input paths without writing files
       --list-outputs            Print generated output paths without writing files
       --print-generated-code-api-version
                                 Print the generated-code API compatibility version and exit
@@ -327,6 +328,28 @@ image unless `--emit-qbs` is requested.
 
 The command-line parser treats `--help` first, `--version` second, and
 `--print-generated-code-api-version` third.
+
+`--list-inputs INPUT` compiles and validates the root and prints every schema in
+its complete resolved import closure, including the root, configuration files,
+transitive imports and unreferenced imports. Every schema is printed at its
+canonical absolute path. The root and each import are also printed at the
+absolute path they were named by, lexically normalized with symbolic links kept,
+when it differs from the canonical path, so that a build system can notice a
+link being retargeted. Paths are sorted lexicographically, with duplicates
+removed and one newline-terminated path per line. Spaces are preserved. Paths containing a newline or carriage return
+are rejected before any paths are printed. Invalid schemas or imports produce
+diagnostics on stderr and no input inventory on stdout. The query writes no
+files and does not prepare a BRF layout, compute identity, or serialize QBS.
+A `--generate` selection may be supplied for validation but never narrows the
+input closure. Other generation/output query options cannot be combined with it.
+
+`quarry_generate_cpp()` uses this query at configuration time to track every
+resolved schema in both custom-command `DEPENDS` and `CMAKE_CONFIGURE_DEPENDS`.
+Editing a transitive or unused import therefore regenerates bindings; adding or
+removing imports reconfigures the generated-output inventory. The selected host
+compiler must support `--list-inputs`; older executables fail with a query
+diagnostic instead of silently using incomplete dependencies. Manual generation
+commands should likewise track the full closure, not just the root schema.
 
 `--list-outputs` is a terminal generation mode. It still requires a valid input
 schema and accepts generation options that affect output names:

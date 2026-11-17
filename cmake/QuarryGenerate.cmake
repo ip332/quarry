@@ -1,3 +1,11 @@
+# Pin this module's policies to the package's supported range before any
+# function is defined (functions record the policies in effect at definition).
+# Without this, the build-time `cmake -P` verification step runs with no
+# cmake_minimum_required at all: CMake 3.x then leaves policies such as CMP0054
+# (quoted if() arguments) and CMP0057 (if(IN_LIST)) unset, which means OLD.
+# include() and find_package() scope the setting to this file.
+cmake_policy(VERSION 3.20...3.31)
+
 function(_quarry_generate_fail)
     set(_message)
     foreach(_part IN LISTS ARGV)
@@ -339,6 +347,56 @@ function(_quarry_generate_query_outputs compiler output_dir schema root_file_ste
     set(${output_variable} "${_quarry_outputs}" PARENT_SCOPE)
 endfunction()
 
+# Query the compiler's authoritative resolved import graph, rather than parsing
+# schema syntax in CMake. This includes configuration roots and unused imports.
+function(_quarry_generate_query_inputs compiler schema output_variable)
+    execute_process(
+        COMMAND "${compiler}" --list-inputs "${schema}"
+        RESULT_VARIABLE _result
+        OUTPUT_VARIABLE _stdout
+        ERROR_VARIABLE _stderr)
+    if(NOT _result EQUAL 0)
+        set(_hint)
+        if("${_stderr}" MATCHES "unknown option --list-inputs")
+            set(_hint "\nThis compiler predates --list-inputs. Use a Quarry schema compiler "
+                      "that supports it.")
+        endif()
+        _quarry_generate_fail(
+            "failed to list schema inputs for schema '${schema}' with compiler "
+            "'${compiler}' (exit ${_result}):\n"
+            "${_stderr}${_hint}")
+    endif()
+    if(NOT "${_stderr}" STREQUAL "")
+        _quarry_generate_fail(
+            "compiler wrote stderr while listing schema inputs for schema '${schema}':\n"
+            "${_stderr}")
+    endif()
+    if("${_stdout}" STREQUAL "" OR NOT "${_stdout}" MATCHES "\n$" OR
+       "${_stdout}" MATCHES "[;\r]" OR "${_stdout}" MATCHES "(^|\n)\n")
+        _quarry_generate_fail("compiler reported malformed schema input paths")
+    endif()
+    string(REGEX REPLACE "\n$" "" _text "${_stdout}")
+    string(REPLACE "\n" ";" _inputs "${_text}")
+    set(_seen)
+    foreach(_input IN LISTS _inputs)
+        _quarry_generate_normalize_absolute("${_input}" _normalized "schema input path")
+        if(NOT EXISTS "${_normalized}" OR IS_DIRECTORY "${_normalized}")
+            _quarry_generate_fail("compiler reported a missing schema input: ${_normalized}")
+        endif()
+        list(FIND _seen "${_normalized}" _duplicate_index)
+        if(NOT _duplicate_index EQUAL -1)
+            _quarry_generate_fail("compiler reported a duplicate schema input: ${_normalized}")
+        endif()
+        list(APPEND _seen "${_normalized}")
+    endforeach()
+    file(REAL_PATH "${schema}" _root)
+    list(FIND _seen "${_root}" _root_index)
+    if(_root_index EQUAL -1)
+        _quarry_generate_fail("compiler input inventory does not include the root schema")
+    endif()
+    set(${output_variable} "${_seen}" PARENT_SCOPE)
+endfunction()
+
 function(_quarry_generate_format_inventory outputs output_variable)
     set(_formatted)
     foreach(_output IN LISTS ${outputs})
@@ -432,6 +490,29 @@ function(_quarry_generate_verify_output_inventory)
     _quarry_generate_check_output_inventory("${QUARRY_VERIFY_SCHEMA}"
                                                  "${QUARRY_VERIFY_COMPILER}"
                                                  _expected_outputs _current_outputs)
+
+    # If automatic reconfiguration is disabled, an unchanged output inventory
+    # must not hide a changed dependency graph (for example under --generate).
+    if(DEFINED QUARRY_VERIFY_EXPECTED_INPUTS)
+        _quarry_generate_query_inputs("${QUARRY_VERIFY_COMPILER}" "${QUARRY_VERIFY_SCHEMA}"
+                                      _current_inputs)
+        if(NOT "${_current_inputs}" STREQUAL "${QUARRY_VERIFY_EXPECTED_INPUTS}")
+            set(_expected_inputs ${QUARRY_VERIFY_EXPECTED_INPUTS})
+            _quarry_generate_format_inventory(_expected_inputs _expected_formatted)
+            _quarry_generate_format_inventory(_current_inputs _current_formatted)
+            _quarry_generate_fail(
+                "schema input inventory changed after configuration.\n\n"
+                "Schema:\n"
+                "  ${QUARRY_VERIFY_SCHEMA}\n\n"
+                "Configured compiler:\n"
+                "  ${QUARRY_VERIFY_COMPILER}\n\n"
+                "Configured inputs:\n"
+                "${_expected_formatted}\n"
+                "Current inputs:\n"
+                "${_current_formatted}\n"
+                "Reconfigure the CMake build before continuing.")
+        endif()
+    endif()
 endfunction()
 
 function(_quarry_generate_register_outputs schema outputs)
@@ -527,8 +608,9 @@ function(quarry_generate_cpp)
                                         "${_quarry_generate_selection}" _quarry_outputs)
     _quarry_generate_register_outputs("${_quarry_schema}" "${_quarry_outputs}")
 
+    _quarry_generate_query_inputs("${_quarry_compiler}" "${_quarry_schema}" _quarry_inputs)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-                 "${_quarry_schema}" "${_quarry_compiler}")
+                 "${_quarry_schema}" ${_quarry_inputs} "${_quarry_compiler}")
 
     set(_quarry_module "${CMAKE_CURRENT_FUNCTION_LIST_FILE}")
 
@@ -541,6 +623,7 @@ function(quarry_generate_cpp)
             "-DQUARRY_VERIFY_SCHEMA=${_quarry_schema}"
             "-DQUARRY_VERIFY_OUTPUT_DIR=${_quarry_output_dir}"
             "-DQUARRY_VERIFY_EXPECTED_OUTPUTS=${_quarry_outputs}"
+            "-DQUARRY_VERIFY_EXPECTED_INPUTS=${_quarry_inputs}"
             "-DQUARRY_VERIFY_ROOT_FILE_STEM=${_quarry_root_file_stem}"
             "-DQUARRY_VERIFY_FILE_EXTENSION=${_quarry_file_extension}"
             "-DQUARRY_VERIFY_GENERATE=${_quarry_generate_selection}"
@@ -550,6 +633,7 @@ function(quarry_generate_cpp)
                 "${_quarry_schema}"
         DEPENDS
             "${_quarry_schema}"
+            ${_quarry_inputs}
             ${_quarry_compiler_dependency}
             "${_quarry_compiler}"
             "${_quarry_module}"
