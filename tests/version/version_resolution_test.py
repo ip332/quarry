@@ -3,13 +3,60 @@
 from __future__ import annotations
 
 import argparse
+import functools
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 
 
+# Variables that select or reconfigure a repository instead of describing the
+# user. Git hooks export some of them (an absolute GIT_DIR in a linked
+# worktree), and any of them would redirect fixture commands into the caller's
+# repository. Git reports its own list; this copy covers older Git releases.
+_REPOSITORY_LOCAL_GIT_VARIABLES = frozenset({
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_CONFIG",
+    "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS", "GIT_DIR", "GIT_GRAFT_FILE",
+    "GIT_IMPLICIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_INTERNAL_SUPER_PREFIX",
+    "GIT_NAMESPACE", "GIT_NO_REPLACE_OBJECTS", "GIT_OBJECT_DIRECTORY", "GIT_PREFIX",
+    "GIT_REPLACE_REF_BASE", "GIT_SHALLOW_FILE", "GIT_WORK_TREE",
+})
+
+
+def _is_repository_selection_variable(key: str, reported: frozenset[str]) -> bool:
+    # GIT_CONFIG* also covers GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n>,
+    # GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM and GIT_CONFIG_NOSYSTEM.
+    return (key in _REPOSITORY_LOCAL_GIT_VARIABLES or key in reported or
+            key.startswith("GIT_CONFIG"))
+
+
+def isolated_git_environment(base: dict[str, str] | None = None) -> dict[str, str]:
+    """Return `base` (default: os.environ) without inherited repository state.
+
+    Every fixture repository, and every CMake run that lets the resolver call
+    Git on one, must use this environment. Other variables, such as PATH,
+    GIT_SSH or author identity, are kept. Global and system configuration are
+    replaced with empty ones so fixtures behave the same on every machine.
+    """
+    source = dict(os.environ if base is None else base)
+    without_git = {key: value for key, value in source.items() if not key.startswith("GIT_")}
+    reported = subprocess.run(["git", "rev-parse", "--local-env-vars"], env=without_git,
+                              check=True, text=True, stdout=subprocess.PIPE).stdout.split()
+    environment = {key: value for key, value in source.items()
+                   if not _is_repository_selection_variable(key, frozenset(reported))}
+    environment["GIT_CONFIG_GLOBAL"] = os.devnull
+    environment["GIT_CONFIG_NOSYSTEM"] = "1"
+    return environment
+
+
+@functools.cache
+def fixture_environment() -> dict[str, str]:
+    return isolated_git_environment()
+
+
 def run(command: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, cwd=cwd, check=check, text=True,
+                          env=fixture_environment(),
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
@@ -63,7 +110,7 @@ def archive_fallback_scenario(cmake: str, resolver: Path) -> None:
         archive = Path(name) / "archive.tar"
         with archive.open("wb") as output:
             subprocess.run(["git", "archive", "--format=tar", "HEAD"],
-                           cwd=source, check=True, stdout=output)
+                           cwd=source, check=True, stdout=output, env=fixture_environment())
         extracted = Path(name) / "extracted"
         extracted.mkdir()
         run(["tar", "-xf", str(archive), "-C", str(extracted)])
