@@ -354,8 +354,10 @@ Consumers must use the returned `OUT_FILES` explicitly.
 
 The installed CMake helper queries `--list-inputs INPUT` with the same selected
 host compiler used for output planning and generation. The compiler returns
-canonical absolute paths for the complete resolved import closure, including
-configuration roots, transitive imports and unused imported schemas. The list
+absolute paths for the complete resolved import closure, including
+configuration roots, transitive imports and unused imported schemas. Each schema
+is listed at its canonical path; the root and each import are also listed at the
+path they were named by, with symbolic links kept, when that differs. The list
 is sorted, deduplicated and newline-terminated; no bindings, QBS or identity are
 emitted by this query.
 
@@ -370,9 +372,19 @@ configuration. If automatic reconfiguration is disabled and imports change,
 the build fails before overwriting generated files, even when namespace
 selection leaves the output filenames unchanged.
 
+Tracking the named path as well as the canonical one means that retargeting a
+symbolic link to a different schema reconfigures and regenerates, and the new
+target is tracked from then on. Make and Ninja compare the timestamps of the
+files that links point to, so this detects a retarget only when the new target
+is newer than the previous build; after retargeting to an older file, touch the
+target or reconfigure.
+
 The helper rejects malformed, duplicate, non-absolute or missing input paths,
-and inventories omitting the root. Compilers without `--list-inputs` support
-fail with an explicit diagnostic. This tool-capability requirement does not
+and inventories omitting the root. A failed query reports the compiler's exit
+status and diagnostics; a compiler that rejects `--list-inputs` as an unknown
+option is identified as predating the query. When reconfiguration is disabled
+and the closure changes, the build-time error lists the configured and current
+input inventories. This tool-capability requirement does not
 change BRF, QBS, generated-code API epochs or public runtime APIs.
 
 Replacing the selected compiler executable also triggers reconfiguration on

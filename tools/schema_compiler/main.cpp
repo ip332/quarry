@@ -577,13 +577,41 @@ template <typename CodegenResultT>
     }
 
     if (command_line.list_inputs) {
+        // Every unit is listed at its canonical path, which changes when its
+        // content does. The root and each import are also listed at the path
+        // they were named by (resolved lexically, symbolic links kept), which
+        // changes when a link along it is retargeted to a different schema.
+        // A named path is listed only while it still refers to the resolved
+        // file: lexical `..` after a directory link can name another file.
         std::set<std::string> inputs;
+        const auto add_named_path = [&inputs](const std::filesystem::path& named,
+                                              const std::string& resolved) {
+            std::error_code error;
+            auto absolute = std::filesystem::absolute(named, error);
+            if (error) {
+                return;
+            }
+            absolute = absolute.lexically_normal();
+            if (std::filesystem::equivalent(absolute, resolved, error) && !error) {
+                inputs.insert(absolute.string());
+            }
+        };
         for (const auto& unit : compiler_context.source_units()) {
-            if (unit.canonical_path.find_first_of("\r\n") != std::string::npos) {
+            inputs.insert(unit.canonical_path);
+            if (unit.is_root) {
+                add_named_path(command_line.input_path, unit.canonical_path);
+            }
+            // Imports resolve against the importing unit's canonical directory.
+            const auto base = std::filesystem::path(unit.canonical_path).parent_path();
+            for (const auto& import : unit.imports) {
+                add_named_path(base / import.requested_path, import.resolved_path);
+            }
+        }
+        for (const auto& path : inputs) {
+            if (path.find_first_of("\r\n") != std::string::npos) {
                 errors << "error: schema input path contains a newline or carriage return\n";
                 return exit_failure;
             }
-            inputs.insert(unit.canonical_path);
         }
         for (const auto& path : inputs) {
             output << path << '\n';

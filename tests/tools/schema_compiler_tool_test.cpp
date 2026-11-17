@@ -2476,7 +2476,10 @@ TEST(SchemaCompilerToolTest, QbsListOutputsPrintsPathWithoutWritingTheImage) {
 }
 
 TEST(SchemaCompilerToolTest, ListInputsReportsCompleteCanonicalImportClosure) {
-    const auto root = make_temp_directory("list-inputs closure with spaces");
+    // A canonical root keeps every lexical path equal to its canonical path
+    // (macOS temporary directories live behind the /var symbolic link).
+    const auto root =
+        std::filesystem::canonical(make_temp_directory("list-inputs closure with spaces"));
     const auto schemas = root / "schemas";
     std::filesystem::copy(truck_schemas(), schemas, std::filesystem::copy_options::recursive);
     const auto schema = schemas / "configuration.brd";
@@ -2538,3 +2541,35 @@ TEST(SchemaCompilerToolTest, ListInputsErrorsDoNotPrintPartialInventories) {
         EXPECT_TRUE(rejected.stdout_text.empty());
     }
 }
+
+#ifndef _WIN32
+TEST(SchemaCompilerToolTest, ListInputsReportsSymbolicLinkPathsAndTheirTargets) {
+    const auto root = std::filesystem::canonical(make_temp_directory("list-inputs symlinks"));
+    write_text_file(root / "versions" / "leaf.brd",
+                    "namespace: z\nrecord: Leaf\nversion: 1\ntype: data\n"
+                    "imports:\n  - sibling.brd\nfields:\n  value:\n    type: u32\n");
+    write_text_file(root / "versions" / "sibling.brd",
+                    "namespace: s\nrecord: Sibling\nversion: 1\ntype: data\n"
+                    "fields:\n  value:\n    type: u32\n");
+    write_text_file(root / "real" / "root.brd",
+                    "configuration: linked\nimports:\n  - ../current.brd\n  - shared/leaf.brd\n"
+                    "  - shared/../versions/sibling.brd\n");
+    std::filesystem::create_symlink("versions/leaf.brd", root / "current.brd");
+    std::filesystem::create_directory_symlink("../versions", root / "real" / "shared");
+    std::filesystem::create_directory_symlink("real", root / "alias");
+
+    // Root named through a directory link; one import through a file link and
+    // one through a directory link. Imports inside a linked target resolve
+    // against the target's directory, so sibling.brd is reached canonically.
+    // `shared/..` leaves the link's target, so its lexical form,
+    // real/versions/sibling.brd, names no schema and must not be listed.
+    const auto result = run_tool({"--list-inputs", (root / "alias" / "root.brd").string()}, root);
+    ASSERT_EQ(result.status, 0) << result.stderr_text;
+    const std::vector<std::string> expected{
+        (root / "alias" / "root.brd").string(),    (root / "current.brd").string(),
+        (root / "real" / "root.brd").string(),     (root / "real" / "shared" / "leaf.brd").string(),
+        (root / "versions" / "leaf.brd").string(), (root / "versions" / "sibling.brd").string(),
+    };
+    EXPECT_EQ(non_empty_lines(result.stdout_text), expected);
+}
+#endif

@@ -331,9 +331,12 @@ The command-line parser treats `--help` first, `--version` second, and
 
 `--list-inputs INPUT` compiles and validates the root and prints every schema in
 its complete resolved import closure, including the root, configuration files,
-transitive imports and unreferenced imports. Paths are canonical absolute paths,
-sorted lexicographically, with duplicates removed and one newline-terminated path
-per line. Spaces are preserved. Paths containing a newline or carriage return
+transitive imports and unreferenced imports. Every schema is printed at its
+canonical absolute path. The root and each import are also printed at the
+absolute path they were named by, lexically normalized with symbolic links kept,
+when it differs from the canonical path, so that a build system can notice a
+link being retargeted. Paths are sorted lexicographically, with duplicates
+removed and one newline-terminated path per line. Spaces are preserved. Paths containing a newline or carriage return
 are rejected before any paths are printed. Invalid schemas or imports produce
 diagnostics on stderr and no input inventory on stdout. The query writes no
 files and does not prepare a BRF layout, compute identity, or serialize QBS.

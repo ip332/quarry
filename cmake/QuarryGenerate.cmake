@@ -1,3 +1,11 @@
+# Pin this module's policies to the package's supported range before any
+# function is defined (functions record the policies in effect at definition).
+# Without this, the build-time `cmake -P` verification step runs with no
+# cmake_minimum_required at all: CMake 3.x then leaves policies such as CMP0054
+# (quoted if() arguments) and CMP0057 (if(IN_LIST)) unset, which means OLD.
+# include() and find_package() scope the setting to this file.
+cmake_policy(VERSION 3.20...3.31)
+
 function(_quarry_generate_fail)
     set(_message)
     foreach(_part IN LISTS ARGV)
@@ -347,10 +355,21 @@ function(_quarry_generate_query_inputs compiler schema output_variable)
         RESULT_VARIABLE _result
         OUTPUT_VARIABLE _stdout
         ERROR_VARIABLE _stderr)
-    if(NOT _result EQUAL 0 OR NOT "${_stderr}" STREQUAL "")
+    if(NOT _result EQUAL 0)
+        set(_hint)
+        if("${_stderr}" MATCHES "unknown option --list-inputs")
+            set(_hint "\nThis compiler predates --list-inputs. Use a Quarry schema compiler "
+                      "that supports it.")
+        endif()
         _quarry_generate_fail(
-            "failed to list schema inputs with '${compiler}' (exit ${_result}).\n"
-            "The compiler must support --list-inputs.\n${_stderr}")
+            "failed to list schema inputs for schema '${schema}' with compiler "
+            "'${compiler}' (exit ${_result}):\n"
+            "${_stderr}${_hint}")
+    endif()
+    if(NOT "${_stderr}" STREQUAL "")
+        _quarry_generate_fail(
+            "compiler wrote stderr while listing schema inputs for schema '${schema}':\n"
+            "${_stderr}")
     endif()
     if("${_stdout}" STREQUAL "" OR NOT "${_stdout}" MATCHES "\n$" OR
        "${_stdout}" MATCHES "[;\r]" OR "${_stdout}" MATCHES "(^|\n)\n")
@@ -364,13 +383,15 @@ function(_quarry_generate_query_inputs compiler schema output_variable)
         if(NOT EXISTS "${_normalized}" OR IS_DIRECTORY "${_normalized}")
             _quarry_generate_fail("compiler reported a missing schema input: ${_normalized}")
         endif()
-        if("${_normalized}" IN_LIST _seen)
+        list(FIND _seen "${_normalized}" _duplicate_index)
+        if(NOT _duplicate_index EQUAL -1)
             _quarry_generate_fail("compiler reported a duplicate schema input: ${_normalized}")
         endif()
         list(APPEND _seen "${_normalized}")
     endforeach()
     file(REAL_PATH "${schema}" _root)
-    if(NOT "${_root}" IN_LIST _seen)
+    list(FIND _seen "${_root}" _root_index)
+    if(_root_index EQUAL -1)
         _quarry_generate_fail("compiler input inventory does not include the root schema")
     endif()
     set(${output_variable} "${_seen}" PARENT_SCOPE)
@@ -476,8 +497,19 @@ function(_quarry_generate_verify_output_inventory)
         _quarry_generate_query_inputs("${QUARRY_VERIFY_COMPILER}" "${QUARRY_VERIFY_SCHEMA}"
                                       _current_inputs)
         if(NOT "${_current_inputs}" STREQUAL "${QUARRY_VERIFY_EXPECTED_INPUTS}")
+            set(_expected_inputs ${QUARRY_VERIFY_EXPECTED_INPUTS})
+            _quarry_generate_format_inventory(_expected_inputs _expected_formatted)
+            _quarry_generate_format_inventory(_current_inputs _current_formatted)
             _quarry_generate_fail(
-                "schema input inventory changed after configuration for '${QUARRY_VERIFY_SCHEMA}'.\n"
+                "schema input inventory changed after configuration.\n\n"
+                "Schema:\n"
+                "  ${QUARRY_VERIFY_SCHEMA}\n\n"
+                "Configured compiler:\n"
+                "  ${QUARRY_VERIFY_COMPILER}\n\n"
+                "Configured inputs:\n"
+                "${_expected_formatted}\n"
+                "Current inputs:\n"
+                "${_current_formatted}\n"
                 "Reconfigure the CMake build before continuing.")
         endif()
     endif()
