@@ -694,8 +694,8 @@ render_field_validation_statements(const ::quarry::schema_ir::FieldType& field_t
                << ") {\n";
         stream << indent(indent_level + 1) << "return false;\n";
         stream << indent(indent_level) << "}\n";
-        stream << indent(indent_level) << "for (const auto& " << element_name << " : "
-               << value_expression << ") {\n";
+        stream << indent(indent_level) << "for ([[maybe_unused]] const auto& " << element_name
+               << " : " << value_expression << ") {\n";
         if (!render_field_validation_statements(field_type.array().element_type(), element_name,
                                                 indent_level + 1, element_depth + 1, stream,
                                                 error_message)) {
@@ -721,8 +721,11 @@ render_field_validation_statements(const ::quarry::schema_ir::FieldType& field_t
         error_message = "backend codegen encountered a missing field IR";
         return false;
     }
-    stream << indent(indent_level) << "static bool validate_" << field.name << "(const "
-           << field.cpp_type << "& value) {\n";
+    // Fields without constraints validate nothing, so `value` (and an array's
+    // element variable) may be unused; [[maybe_unused]] keeps generated code
+    // clean under -Wextra without changing what is checked (#83).
+    stream << indent(indent_level) << "static bool validate_" << field.name
+           << "([[maybe_unused]] const " << field.cpp_type << "& value) {\n";
     if (!render_field_validation_statements(field.field->type(), "value", indent_level + 1, 0,
                                             stream, error_message)) {
         return false;

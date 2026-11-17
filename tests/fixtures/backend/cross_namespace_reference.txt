@@ -152,7 +152,7 @@ namespace two {
       }
 
     private:
-      static bool validate_first(const ::alpha::one::First& value) {
+      static bool validate_first([[maybe_unused]] const ::alpha::one::First& value) {
         return true;
       }
 

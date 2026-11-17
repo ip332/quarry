@@ -171,6 +171,10 @@ Current C++ generation behavior:
   and the generated-code API version are unchanged. Linking headers generated
   from *different* configurations into one program is a separate concern of
   the configuration-identity design
+* keeps generated headers warning-clean under `-Wall -Wextra -Wpedantic
+  -Wshadow -Werror` (#83): field validators declare their parameter, and array
+  validators their element variable, `[[maybe_unused]]`, because fields
+  without constraints check nothing. What each validator checks is unchanged
 * includes standard headers only when required
   * `<cstddef>` for `std::byte`
   * `<cstdint>` for fixed-width integers and enum underlying types

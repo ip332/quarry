@@ -74,7 +74,7 @@ namespace one {
       }
 
     private:
-      static bool validate_id(const std::uint32_t& value) {
+      static bool validate_id([[maybe_unused]] const std::uint32_t& value) {
         return true;
       }
 
@@ -231,19 +231,19 @@ namespace two {
       }
 
     private:
-      static bool validate_elements(const std::vector<::alpha::one::Element>& value) {
+      static bool validate_elements([[maybe_unused]] const std::vector<::alpha::one::Element>& value) {
         if (value.size() > 2) {
           return false;
         }
-        for (const auto& element_0 : value) {
+        for ([[maybe_unused]] const auto& element_0 : value) {
         }
         return true;
       }
-      static bool validate_modes(const std::vector<::alpha::one::Mode>& value) {
+      static bool validate_modes([[maybe_unused]] const std::vector<::alpha::one::Mode>& value) {
         if (value.size() > 2) {
           return false;
         }
-        for (const auto& element_0 : value) {
+        for ([[maybe_unused]] const auto& element_0 : value) {
         }
         return true;
       }

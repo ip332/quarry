@@ -71,7 +71,7 @@ public:
   }
 
 private:
-  static bool validate_color(const ::Color& value) {
+  static bool validate_color([[maybe_unused]] const ::Color& value) {
     return true;
   }
 

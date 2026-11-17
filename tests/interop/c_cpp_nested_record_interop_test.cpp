@@ -597,10 +597,12 @@ TEST(CCppNestedRecordInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     ASSERT_EQ(run_and_get_exit_code(link_c_command), 0) << link_c_command;
 
     const std::string compile_cpp_command =
-        shell_quote(QUARRY_TEST_CXX_COMPILER) + " -std=c++20 -Wall -Wpedantic -I" +
+        shell_quote(QUARRY_TEST_CXX_COMPILER) +
+        " -std=c++20 -Wall -Wextra -Wpedantic -Wshadow -Werror -I" +
         shell_quote(generated_cpp.string()) + " -I" + shell_quote(QUARRY_TEST_REPO_INCLUDE_DIR) +
         " -I" + shell_quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
-        shell_quote(cpp_harness_source.string()) + " -o " + shell_quote(cpp_harness_binary.string());
+        shell_quote(cpp_harness_source.string()) + " -o " +
+        shell_quote(cpp_harness_binary.string());
     ASSERT_EQ(run_and_get_exit_code(compile_cpp_command), 0) << compile_cpp_command;
 
     // --- Empty-but-present nested child ---

@@ -29,6 +29,11 @@
 #error "QUARRY_TEST_GENERATED_INCLUDE_DIR must be defined"
 #endif
 
+// Warnings generated C++ must compile cleanly under, as downstream projects
+// commonly build with them (#83). Applies to generated headers and the test
+// translation units that use them.
+#define QUARRY_TEST_STRICT_CXX_WARNINGS " -Wall -Wextra -Wpedantic -Wshadow -Werror"
+
 namespace {
 
 using quarry::compiler::backend::Backend;
@@ -218,12 +223,12 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
         std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
     const std::filesystem::path generated_include_root = QUARRY_TEST_GENERATED_INCLUDE_DIR;
     std::ostringstream command;
-    command << std::quoted(compiler) << " -std=c++20 -I" << std::quoted(generated_root.string())
-            << " -I" << std::quoted(generated_include_root.string())
-            << " -I" << std::quoted(repo_root.string())
-            << " -I" << std::quoted((repo_root / "include").string()) << " "
-            << std::quoted(source_path.string()) << " -o "
-            << std::quoted(executable_path.string());
+    command << std::quoted(compiler) << " -std=c++20" QUARRY_TEST_STRICT_CXX_WARNINGS " -I"
+            << std::quoted(generated_root.string()) << " -I"
+            << std::quoted(generated_include_root.string()) << " -I"
+            << std::quoted(repo_root.string()) << " -I"
+            << std::quoted((repo_root / "include").string()) << " "
+            << std::quoted(source_path.string()) << " -o " << std::quoted(executable_path.string());
 
     const int status = run_command(command.str());
     ASSERT_EQ(status, 0) << "command failed: " << command.str();
@@ -2505,3 +2510,48 @@ TEST(BackendCodegenTest, GeneratedBuilderBoundsHeaderCompilesAndRuns) {
 }
 
 } // namespace
+
+// Every backend Schema IR fixture's generated C++, compiled with the warnings
+// downstream projects commonly enable (#83). Fields without constraints emit
+// validators and array loops whose parameter or element variable is unused.
+TEST(BackendCodegenTest, EveryFixtureCompilesWithStrictWarnings) {
+    std::size_t compiled = 0;
+    for (const auto& entry :
+         std::filesystem::directory_iterator(backend_schema_ir_fixtures_root())) {
+        if (entry.path().extension() != ".pbtxt") {
+            continue;
+        }
+        const std::string name = entry.path().stem().string();
+        SCOPED_TRACE(name);
+        const LoadedSchemaIrFixture fixture = load_validated_schema_ir_fixture(name);
+        if (!fixture.schema_ir.has_value()) {
+            continue; // Invalid by design; covered by the validation tests.
+        }
+        const CodegenResult result = Backend{}.generate(*fixture.schema_ir, CodegenOptions{});
+        if (!result.success || result.files.empty()) {
+            continue; // Rejected or empty schemas generate nothing to compile.
+        }
+        const std::filesystem::path root = make_temp_directory("strict-" + name);
+        write_generated_files(result, root);
+        std::string includes;
+        for (const auto& file : result.files) {
+            includes += "#include \"" +
+                        generated_include_path(CodegenOptions{}.output_directory, file.path) +
+                        "\"\n";
+        }
+        const std::filesystem::path source = root / "compile.cpp";
+        write_text_file(source, includes + "int main() { return 0; }\n");
+        const std::filesystem::path repo_root =
+            std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+        std::ostringstream command;
+        command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER))
+                << " -std=c++20" QUARRY_TEST_STRICT_CXX_WARNINGS " -fsyntax-only -I"
+                << std::quoted((root / CodegenOptions{}.output_directory).string()) << " -I"
+                << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << " -I"
+                << std::quoted((repo_root / "include").string()) << ' '
+                << std::quoted(source.string());
+        EXPECT_EQ(run_command(command.str()), 0) << command.str();
+        ++compiled;
+    }
+    EXPECT_GE(compiled, 10U);
+}

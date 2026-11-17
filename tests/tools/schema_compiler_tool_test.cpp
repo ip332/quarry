@@ -32,6 +32,10 @@
 #error "QUARRY_TEST_CXX_COMPILER must be defined"
 #endif
 
+// Warnings generated C++ must compile cleanly under, as downstream projects
+// commonly build with them (#83).
+#define QUARRY_TEST_STRICT_CXX_WARNINGS " -Wall -Wextra -Wpedantic -Wshadow -Werror"
+
 #ifndef QUARRY_TEST_REPO_INCLUDE_DIR
 #error "QUARRY_TEST_REPO_INCLUDE_DIR must be defined"
 #endif
@@ -593,10 +597,11 @@ TEST(SchemaCompilerToolTest, CppCrossNamespaceGenerationUsesPlannedDependencyHea
     const std::filesystem::path object = root / "compile.o";
     write_text_file(translation, "#include \"quarry/telemetry.generated.hpp\"\nint main() {}\n");
     std::ostringstream command;
-    command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER)) << " -std=c++20 -I"
-            << std::quoted(output.string()) << " -I" << std::quoted(QUARRY_TEST_REPO_INCLUDE_DIR)
-            << " -I" << std::quoted(QUARRY_TEST_GENERATED_INCLUDE_DIR)
-            << " -c " << std::quoted(translation.string()) << " -o " << std::quoted(object.string());
+    command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER))
+            << " -std=c++20" QUARRY_TEST_STRICT_CXX_WARNINGS " -I" << std::quoted(output.string())
+            << " -I" << std::quoted(QUARRY_TEST_REPO_INCLUDE_DIR) << " -I"
+            << std::quoted(QUARRY_TEST_GENERATED_INCLUDE_DIR) << " -c "
+            << std::quoted(translation.string()) << " -o " << std::quoted(object.string());
     EXPECT_EQ(std::system(command.str().c_str()), 0);
 }
 
@@ -1529,10 +1534,8 @@ TEST(SchemaCompilerToolTest, GeneratedCppHeadersSharingADependencyCompileTogethe
                          "                    r::decode_Right({}).has_value() ? 1 : 0; }\n");
     std::ostringstream compile;
     compile << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER))
-            // -Wextra is omitted: generated validators currently trip
-            // -Wunused-parameter, which is unrelated to include safety.
-            << " -std=c++20 -Wall -Wpedantic -Werror -fsyntax-only"
-            << " -I" << std::quoted(output.string()) << " -I"
+            << " -std=c++20" QUARRY_TEST_STRICT_CXX_WARNINGS " -fsyntax-only" << " -I"
+            << std::quoted(output.string()) << " -I"
             << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR)) << " -I"
             << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << ' '
             << std::quoted(use.string());
@@ -1593,9 +1596,8 @@ int main() {
     const auto executable = root / "multiple-tu";
     std::ostringstream compile;
     compile << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER))
-            // -Wextra's unused-validator diagnostic remains tracked in #83.
-            << " -std=c++20 -O0 -Wall -Wpedantic -Werror"
-            << " -I" << std::quoted(output.string()) << " -I"
+            << " -std=c++20 -O0" QUARRY_TEST_STRICT_CXX_WARNINGS << " -I"
+            << std::quoted(output.string()) << " -I"
             << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR)) << " -I"
             << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << ' '
             << std::quoted(first.string()) << ' ' << std::quoted(second.string()) << " -o "
@@ -2236,7 +2238,7 @@ TEST(SchemaCompilerToolTest, TruckBindingsAndQbsImagesMatchGoldenArtifacts) {
     const std::filesystem::path schema = truck_schemas() / "configuration.brd";
     const std::map<std::string, std::string> expected_tree_hashes = {
         {"c", "5efa52e1cd39771464dc0fc651f95530ea2901765bdcaa9ee02136e61e12a2f7"},
-        {"cpp", "3b94ca83918a31da08224124fdd0b896d690e55f1d15c4f0407d53b0235738c3"},
+        {"cpp", "de5be719ae551e3ef7bc5e8721a7f613a5369f185efc8e106df587c41a9b0f31"},
         {"cpp-c-storage", "e1f3f0117272d548ffff5571a75cf7dbd6215f6c3088ede9bbf2197e19a22449"},
         {"python", "bee113659615b1714c07255e54298f9cbd719991436bc457120b40422090bbca"},
         {"go", "ca49fed7126ea8a5ff21f2cebb37575a1aa282d9c7c874636f399c8116b4ed24"},
@@ -2681,7 +2683,8 @@ TEST(SchemaCompilerToolTest, EveryGeneratedCppHeaderLinksIntoMultipleTranslation
                             includes + "int first();\nint main() { return first(); }\n");
             const auto executable = work / "program";
             std::ostringstream compile;
-            compile << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER)) << " -std=c++20 -O0 -I"
+            compile << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER))
+                    << " -std=c++20 -O0" QUARRY_TEST_STRICT_CXX_WARNINGS " -I"
                     << std::quoted(output.string()) << " -I"
                     << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR)) << " -I"
                     << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << ' '
