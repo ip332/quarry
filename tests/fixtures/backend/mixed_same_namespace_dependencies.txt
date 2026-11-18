@@ -71,7 +71,7 @@ public:
   }
 
 private:
-  static bool validate_count(const std::uint32_t& value) {
+  static bool validate_count([[maybe_unused]] const std::uint32_t& value) {
     return true;
   }
 
@@ -202,10 +202,10 @@ public:
   }
 
 private:
-  static bool validate_child(const ::Child& value) {
+  static bool validate_child([[maybe_unused]] const ::Child& value) {
     return true;
   }
-  static bool validate_state(const ::Status& value) {
+  static bool validate_state([[maybe_unused]] const ::Status& value) {
     return true;
   }
 

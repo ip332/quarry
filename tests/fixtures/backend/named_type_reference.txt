@@ -145,10 +145,10 @@ namespace geo {
       }
 
     private:
-      static bool validate_origin(const ::quarry::geo::Location& value) {
+      static bool validate_origin([[maybe_unused]] const ::quarry::geo::Location& value) {
         return true;
       }
-      static bool validate_fallback(const ::quarry::geo::Location& value) {
+      static bool validate_fallback([[maybe_unused]] const ::quarry::geo::Location& value) {
         return true;
       }
 

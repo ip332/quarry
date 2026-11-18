@@ -104,13 +104,13 @@ public:
   }
 
 private:
-  static bool validate_active(const bool& value) {
+  static bool validate_active([[maybe_unused]] const bool& value) {
     return true;
   }
-  static bool validate_count(const std::uint32_t& value) {
+  static bool validate_count([[maybe_unused]] const std::uint32_t& value) {
     return true;
   }
-  static bool validate_ratio(const double& value) {
+  static bool validate_ratio([[maybe_unused]] const double& value) {
     return true;
   }
 

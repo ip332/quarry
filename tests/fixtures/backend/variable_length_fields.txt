@@ -72,7 +72,7 @@ public:
   }
 
 private:
-  static bool validate_count(const std::uint32_t& value) {
+  static bool validate_count([[maybe_unused]] const std::uint32_t& value) {
     return true;
   }
 
@@ -393,93 +393,93 @@ public:
   }
 
 private:
-  static bool validate_name(const std::string& value) {
+  static bool validate_name([[maybe_unused]] const std::string& value) {
     if (value.size() > 16) {
       return false;
     }
     return true;
   }
-  static bool validate_payload(const std::vector<std::byte>& value) {
+  static bool validate_payload([[maybe_unused]] const std::vector<std::byte>& value) {
     if (value.size() > 4) {
       return false;
     }
     return true;
   }
-  static bool validate_counts(const std::vector<std::uint32_t>& value) {
+  static bool validate_counts([[maybe_unused]] const std::vector<std::uint32_t>& value) {
     if (value.size() > 4) {
       return false;
     }
-    for (const auto& element_0 : value) {
+    for ([[maybe_unused]] const auto& element_0 : value) {
     }
     return true;
   }
-  static bool validate_distances(const std::vector<double>& value) {
+  static bool validate_distances([[maybe_unused]] const std::vector<double>& value) {
     if (value.size() > 2) {
       return false;
     }
-    for (const auto& element_0 : value) {
+    for ([[maybe_unused]] const auto& element_0 : value) {
     }
     return true;
   }
-  static bool validate_modes(const std::vector<::Mode>& value) {
+  static bool validate_modes([[maybe_unused]] const std::vector<::Mode>& value) {
     if (value.size() > 2) {
       return false;
     }
-    for (const auto& element_0 : value) {
+    for ([[maybe_unused]] const auto& element_0 : value) {
     }
     return true;
   }
-  static bool validate_children(const std::vector<::Child>& value) {
+  static bool validate_children([[maybe_unused]] const std::vector<::Child>& value) {
     if (value.size() > 3) {
       return false;
     }
-    for (const auto& element_0 : value) {
+    for ([[maybe_unused]] const auto& element_0 : value) {
     }
     return true;
   }
-  static bool validate_flags(const std::vector<bool>& value) {
+  static bool validate_flags([[maybe_unused]] const std::vector<bool>& value) {
     if (value.size() > 3) {
       return false;
     }
-    for (const auto& element_0 : value) {
+    for ([[maybe_unused]] const auto& element_0 : value) {
     }
     return true;
   }
-  static bool validate_deltas(const std::vector<std::int16_t>& value) {
+  static bool validate_deltas([[maybe_unused]] const std::vector<std::int16_t>& value) {
     if (value.size() > 3) {
       return false;
     }
-    for (const auto& element_0 : value) {
+    for ([[maybe_unused]] const auto& element_0 : value) {
     }
     return true;
   }
-  static bool validate_ratios(const std::vector<float>& value) {
+  static bool validate_ratios([[maybe_unused]] const std::vector<float>& value) {
     if (value.size() > 2) {
       return false;
     }
-    for (const auto& element_0 : value) {
+    for ([[maybe_unused]] const auto& element_0 : value) {
     }
     return true;
   }
-  static bool validate_active(const bool& value) {
+  static bool validate_active([[maybe_unused]] const bool& value) {
     return true;
   }
-  static bool validate_tags(const std::vector<std::string>& value) {
+  static bool validate_tags([[maybe_unused]] const std::vector<std::string>& value) {
     if (value.size() > 3) {
       return false;
     }
-    for (const auto& element_0 : value) {
+    for ([[maybe_unused]] const auto& element_0 : value) {
       if (element_0.size() > 8) {
         return false;
       }
     }
     return true;
   }
-  static bool validate_chunks(const std::vector<std::vector<std::byte>>& value) {
+  static bool validate_chunks([[maybe_unused]] const std::vector<std::vector<std::byte>>& value) {
     if (value.size() > 3) {
       return false;
     }
-    for (const auto& element_0 : value) {
+    for ([[maybe_unused]] const auto& element_0 : value) {
       if (element_0.size() > 3) {
         return false;
       }

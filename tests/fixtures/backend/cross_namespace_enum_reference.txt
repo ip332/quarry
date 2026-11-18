@@ -90,7 +90,7 @@ namespace two {
       }
 
     private:
-      static bool validate_mode(const ::alpha::one::Mode& value) {
+      static bool validate_mode([[maybe_unused]] const ::alpha::one::Mode& value) {
         return true;
       }
 
