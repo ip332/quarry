@@ -100,6 +100,15 @@ if(QUARRY_PYTHON3_EXECUTABLE)
             "${CMAKE_CURRENT_SOURCE_DIR}/version/environment_isolation_test.py"
             --cmake "${CMAKE_COMMAND}"
             --resolver "${CMAKE_SOURCE_DIR}/cmake/QuarryVersion.cmake")
+    # Pre-push validation receipts (#89): disposable repositories, bare
+    # remotes and the real hook. The fixture projects call cmake, ctest and
+    # make from PATH, like the validator itself.
+    add_test(NAME quarry_validate_test
+        COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/quarry_validate_test.py"
+            --script "${CMAKE_SOURCE_DIR}/scripts/quarry-validate"
+            --resolver "${CMAKE_SOURCE_DIR}/cmake/QuarryVersion.cmake"
+            --version-template "${CMAKE_SOURCE_DIR}/include/quarry/version.hpp.in")
 endif()
 add_quarry_gtest(python_execution_test backend_python/python_execution_test.cpp
                       quarry_compiler_support)
