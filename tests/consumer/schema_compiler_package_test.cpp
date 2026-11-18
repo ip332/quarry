@@ -346,14 +346,14 @@ TEST(SchemaCompilerPackageTest, InstalledCompilerGeneratesCrossNamespaceCAndCppC
 
     for (const std::string language : {"cpp", "c"}) {
         const std::filesystem::path language_output = output / language;
-        for (const auto& source : {dependency, input}) {
-            const CommandResult result = run_executable(
-                compiler,
-                {"--language", language, "--output-directory", language_output.string(),
-                 source.string()},
-                root, language + "-" + source.stem().string());
-            expect_success(result, "installed compiler cross-namespace " + language);
-        }
+        // Both namespaces come from one compilation root (input), so their
+        // generated configuration identity checks agree.
+        const CommandResult result =
+            run_executable(compiler,
+                           {"--language", language, "--output-directory", language_output.string(),
+                            "--generate", "shared,downstream", input.string()},
+                           root, language + "-" + input.stem().string());
+        expect_success(result, "installed compiler cross-namespace " + language);
     }
 
     const std::filesystem::path cpp_header = output / "cpp" / "downstream.generated.hpp";

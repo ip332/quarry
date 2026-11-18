@@ -96,23 +96,20 @@ set(QUARRY_GENERATED_WORKLOAD_HEADER
 set(QUARRY_GENERATED_WORKLOAD_SOURCE
     "${QUARRY_GENERATED_DIR}/benchmark/workload.generated.c")
 
+# Both namespaces are generated from one compilation root, workload.brd
+# (which imports workload_shared.brd), so they share one configuration
+# identity: generated headers check at compile time that every generated
+# header they include comes from the same configuration.
 add_custom_command(
     OUTPUT "${QUARRY_GENERATED_SHARED_HEADER}" "${QUARRY_GENERATED_SHARED_SOURCE}"
+           "${QUARRY_GENERATED_WORKLOAD_HEADER}" "${QUARRY_GENERATED_WORKLOAD_SOURCE}"
     COMMAND "${QUARRY_HOST_SCHEMA_COMPILER}" --language c
             --output-directory "${QUARRY_GENERATED_DIR}"
-            "${QUARRY_SHARED_SCHEMA}"
-    DEPENDS "${QUARRY_SHARED_SCHEMA}" "${QUARRY_HOST_SCHEMA_COMPILER}"
-    COMMENT "Generating C code for benchmark.workload.shared (host quarry-schema-compiler)"
-    VERBATIM
-)
-add_custom_command(
-    OUTPUT "${QUARRY_GENERATED_WORKLOAD_HEADER}" "${QUARRY_GENERATED_WORKLOAD_SOURCE}"
-    COMMAND "${QUARRY_HOST_SCHEMA_COMPILER}" --language c
-            --output-directory "${QUARRY_GENERATED_DIR}"
+            --generate benchmark.workload,benchmark.workload.shared
             "${QUARRY_WORKLOAD_SCHEMA}"
-    DEPENDS "${QUARRY_WORKLOAD_SCHEMA}" "${QUARRY_HOST_SCHEMA_COMPILER}"
-            "${QUARRY_GENERATED_SHARED_HEADER}" "${QUARRY_GENERATED_SHARED_SOURCE}"
-    COMMENT "Generating C code for benchmark.workload (host quarry-schema-compiler)"
+    DEPENDS "${QUARRY_WORKLOAD_SCHEMA}" "${QUARRY_SHARED_SCHEMA}"
+            "${QUARRY_HOST_SCHEMA_COMPILER}"
+    COMMENT "Generating C code for benchmark.workload and benchmark.workload.shared (host quarry-schema-compiler)"
     VERBATIM
 )
 
@@ -126,7 +123,20 @@ add_executable(quarry_cortex_m_smoke
     "${QUARRY_GENERATED_SHARED_SOURCE}"
     "${QUARRY_GENERATED_WORKLOAD_SOURCE}"
 )
-foreach(target quarry_cortex_m_smoke quarry_cortex_m_codec)
+# Identical to quarry_cortex_m_smoke, except that it reads the configuration
+# identity through the generated benchmark_workload_schema_id() accessor. The
+# footprint difference between the two ELFs is the incremental cost of
+# explicitly accessing identity; quarry_cortex_m_smoke itself must carry no
+# identity-related code or data.
+add_executable(quarry_cortex_m_smoke_identity
+    startup_cortex_m4.c
+    smoke/workload_smoke.c
+    "${QUARRY_GENERATED_SHARED_SOURCE}"
+    "${QUARRY_GENERATED_WORKLOAD_SOURCE}"
+)
+target_compile_definitions(quarry_cortex_m_smoke_identity PRIVATE QUARRY_SMOKE_READ_IDENTITY=1)
+
+foreach(target quarry_cortex_m_smoke quarry_cortex_m_smoke_identity quarry_cortex_m_codec)
     target_include_directories(${target} PRIVATE
         "${QUARRY_GENERATED_DIR}"
         "${QUARRY_RUNTIME_C_INCLUDE_DIR}"
@@ -137,13 +147,15 @@ foreach(target quarry_cortex_m_smoke quarry_cortex_m_codec)
         -ffunction-sections -fdata-sections
     )
 endforeach()
-target_link_libraries(quarry_cortex_m_smoke PRIVATE quarry_cortex_m_codec)
-target_link_options(quarry_cortex_m_smoke PRIVATE
-    -nostartfiles
-    -T "${CMAKE_CURRENT_SOURCE_DIR}/linker/stm32f446_illustrative.ld"
-    -Wl,--gc-sections
-    -Wl,-Map=$<TARGET_FILE:quarry_cortex_m_smoke>.map
-)
-set_target_properties(quarry_cortex_m_smoke PROPERTIES
-    SUFFIX ".elf"
-)
+foreach(target quarry_cortex_m_smoke quarry_cortex_m_smoke_identity)
+    target_link_libraries(${target} PRIVATE quarry_cortex_m_codec)
+    target_link_options(${target} PRIVATE
+        -nostartfiles
+        -T "${CMAKE_CURRENT_SOURCE_DIR}/linker/stm32f446_illustrative.ld"
+        -Wl,--gc-sections
+        -Wl,-Map=$<TARGET_FILE:${target}>.map
+    )
+    set_target_properties(${target} PROPERTIES
+        SUFFIX ".elf"
+    )
+endforeach()

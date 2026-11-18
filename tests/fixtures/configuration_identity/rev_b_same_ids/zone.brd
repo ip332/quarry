@@ -1,0 +1,7 @@
+namespace: fleet.zone
+record: Extra
+version: 1
+type: data
+fields:
+  value:
+    type: u32

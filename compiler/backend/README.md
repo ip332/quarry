@@ -168,9 +168,20 @@ Current C++ generation behavior:
   `brf_v2_layout_<Record>`); functions defined inside generated classes are
   implicitly inline. One program can therefore include a generated header from
   any number of translation units (#82). Signatures, symbol names, BRF bytes
-  and the generated-code API version are unchanged. Linking headers generated
-  from *different* configurations into one program is a separate concern of
-  the configuration-identity design
+  and the generated-code API version are unchanged
+* embeds the configuration identity (#99, `docs/design/configuration-identity.md`
+  §4.2): `kQuarrySchemaIdAlgorithm` and `kQuarrySchemaId` constants, identity
+  metadata macros `QUARRY_GENERATED_CPP_<PATH STEM>_SCHEMA_ID_{ALGORITHM,W0..W3}`,
+  and an include guard containing the full 128-bit `schema_id`. Every
+  declaration is inside `inline namespace quarry_cfg_<schema_id>`, so user code
+  still writes `truck::engine::EngineStatus` but two configurations' symbols
+  never merge at link time. Each included generated header is checked: a
+  missing identity macro fails with a "predates generated configuration
+  identity" `#error`, a different identity with a `static_assert`. Records,
+  enums or namespace segments named `kQuarrySchemaId`, `kQuarrySchemaIdAlgorithm`
+  or `quarry_cfg_*` are rejected. The generated-code API version stays `3`;
+  the mangled names of every generated symbol change, so consumers regenerate
+  and rebuild dependent binaries
 * keeps generated headers warning-clean under `-Wall -Wextra -Wpedantic
   -Wshadow -Werror` (#83): field validators declare their parameter, and array
   validators their element variable, `[[maybe_unused]]`, because fields

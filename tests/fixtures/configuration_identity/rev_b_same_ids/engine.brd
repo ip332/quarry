@@ -1,0 +1,16 @@
+namespace: fleet.engine
+record: EngineStatus
+version: 1
+type: data
+imports:
+  - common.brd
+  - faults.brd
+fields:
+  time:
+    type: fleet.common.Timestamp
+  rpm:
+    type: u16
+
+  faults:
+    type: fleet.engine.FaultCode[]
+    max_elements: 4

@@ -221,10 +221,13 @@ constexpr std::string_view kKeywordSchema = "namespace: class\n"
                     "    type: acme.shared.Child[]\n"
                     "    max_elements: 3\n");
 
-    for (const std::filesystem::path& input : {shared, schema}) {
+    // Both modules come from one compilation root (schema), so they share
+    // one configuration identity.
+    {
         const std::string command = shell_quote(QUARRY_SCHEMA_COMPILER_TOOL) +
                                     " --language python -o " + shell_quote(generated.string()) +
-                                    " " + shell_quote(input.string());
+                                    " --generate acme.shared,acme.telemetry " +
+                                    shell_quote(schema.string());
         if (run_and_get_exit_code(command) != 0) {
             ADD_FAILURE() << "cross-namespace generation failed: " << command;
             return 1;

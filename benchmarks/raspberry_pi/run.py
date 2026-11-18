@@ -56,14 +56,16 @@ def main():
     build.mkdir(parents=True, exist_ok=True)
     generated = build / 'generated'
     generated.mkdir(exist_ok=True)
+    # Both namespaces come from one compilation root, workload.brd, so the
+    # generated configuration identity checks agree.
+    root_schema = SOURCE / 'benchmarks/schemas/workload.brd'
+    selection = ['--generate', 'benchmark.workload,benchmark.workload.shared']
     for language in ('c', 'cpp'):
-        for schema in ('workload_shared.brd', 'workload.brd'):
-            run([args.compiler.resolve(), '--language', language, '--output-directory', generated,
-                 SOURCE / 'benchmarks/schemas' / schema])
+        run([args.compiler.resolve(), '--language', language, '--output-directory', generated,
+             *selection, root_schema])
     wrapper_generated = build / 'wrapper_generated'
-    for schema in ('workload_shared.brd', 'workload.brd'):
-        run([args.compiler.resolve(), '--language', 'cpp', '--cpp-storage', 'c',
-             '--output-directory', wrapper_generated, SOURCE / 'benchmarks/schemas' / schema])
+    run([args.compiler.resolve(), '--language', 'cpp', '--cpp-storage', 'c',
+         '--output-directory', wrapper_generated, *selection, root_schema])
     for relative in ('quarry/runtime_c/version.h', 'quarry/runtime/version.hpp'):
         destination = generated / relative
         destination.parent.mkdir(parents=True, exist_ok=True)

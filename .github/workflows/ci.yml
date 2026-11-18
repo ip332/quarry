@@ -120,11 +120,56 @@ jobs:
           --json cortex_m/build/footprint.json
           >> "$GITHUB_STEP_SUMMARY"
 
+      # Informational: the cost of explicitly reading the configuration
+      # identity through the generated accessor (quarry_cortex_m_smoke_identity)
+      # relative to the plain smoke ELF, which must carry no identity code or data.
+      - name: Report identity access footprint
+        run: >-
+          docker compose run --rm dev
+          python3 cortex_m/scripts/report_footprint.py
+          --elf cortex_m/build/quarry_cortex_m_smoke_identity.elf
+          --label "smoke + identity accessor"
+          --baseline-json cortex_m/build/footprint.json
+          --baseline-label "smoke"
+          --json cortex_m/build/footprint-identity.json
+          >> "$GITHUB_STEP_SUMMARY"
+
+      # Informational, pull requests only: the same smoke target built with the
+      # base commit's schema compiler, runtime and Cortex-M project under the
+      # identical image, toolchain file and flags, compared section by section.
+      - name: Compare footprint with base commit
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: >-
+          docker compose run --rm -e BASE_SHA dev sh -ec '
+          git worktree add --detach .footprint-base "$BASE_SHA";
+          cd .footprint-base;
+          cmake --preset docker-debug;
+          cmake --build --preset docker-debug --target quarry_schema_compiler;
+          cmake -S cortex_m -B cortex_m/build
+          -DCMAKE_TOOLCHAIN_FILE=$(pwd)/cmake/toolchains/arm-cortex-m4.cmake
+          -DQUARRY_HOST_SCHEMA_COMPILER=$(pwd)/build/docker-debug/tools/quarry-schema-compiler
+          -DQUARRY_RUNTIME_C_INCLUDE_DIR=$(pwd)/include
+          -DQUARRY_RUNTIME_C_VERSION_HEADER_DIR=$(pwd)/build/docker-debug/generated;
+          cmake --build cortex_m/build --parallel --target quarry_cortex_m_smoke;
+          cd ..;
+          python3 cortex_m/scripts/report_footprint.py
+          --elf .footprint-base/cortex_m/build/quarry_cortex_m_smoke.elf
+          --json cortex_m/build/footprint-base.json > /dev/null;
+          python3 cortex_m/scripts/report_footprint.py
+          --elf cortex_m/build/quarry_cortex_m_smoke.elf
+          --label "pull request"
+          --baseline-json cortex_m/build/footprint-base.json
+          --baseline-label "base $BASE_SHA"
+          --json cortex_m/build/footprint-vs-base.json'
+          >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload footprint report
         uses: actions/upload-artifact@v4
         with:
           name: quarry-cortex-m-footprint
-          path: cortex_m/build/footprint.json
+          path: cortex_m/build/footprint*.json
 
   coverage:
     name: Coverage baseline

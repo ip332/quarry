@@ -1,8 +1,9 @@
 # Record Identity and Schema Discovery
 
 Status: **accepted; Stage A in progress.** A1 (C++ include guards) is merged (#81), and so is A2
-(hierarchical record IDs, §3, #84). A3 (configuration roots and `--generate`, §4) is implemented. A4
-onward are not implemented.
+(hierarchical record IDs, §3, #84). A3 (configuration roots and `--generate`, §4) is implemented.
+Of A4, A4.1 (configuration identity, #91) and A4.2 (generated identity and dependency checks, #99)
+are implemented; A4.3 onward are not.
 `v0.1.31-rc.1` is blocked on Stage A.
 
 ## 1. Summary

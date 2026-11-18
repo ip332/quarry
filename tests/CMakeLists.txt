@@ -368,4 +368,18 @@ foreach(typed_consumer c_cpp_codec_interop_test c_cpp_nested_record_interop_test
         QUARRY_TEST_RUNTIME_C_LIBRARY="$<TARGET_FILE:quarry_runtime_c>")
 endforeach()
 
+add_quarry_gtest(configuration_identity_test tools/configuration_identity_test.cpp
+                      quarry_compiler_support)
+add_dependencies(configuration_identity_test quarry_schema_compiler quarry_runtime_c)
+target_compile_definitions(configuration_identity_test PRIVATE
+    QUARRY_SCHEMA_COMPILER_TOOL="$<TARGET_FILE:quarry_schema_compiler>"
+    QUARRY_TEST_RUNTIME_C_LIBRARY="$<TARGET_FILE:quarry_runtime_c>"
+    QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
+    QUARRY_TEST_REPO_INCLUDE_DIR="${CMAKE_SOURCE_DIR}/include"
+    QUARRY_TEST_GENERATED_INCLUDE_DIR="${QUARRY_GENERATED_INCLUDE_DIR}"
+    QUARRY_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR="${CMAKE_SOURCE_DIR}/runtime/python/src"
+    QUARRY_TEST_PYTHON3="${QUARRY_PYTHON3_EXECUTABLE}"
+    QUARRY_TEST_GO="$<$<BOOL:${QUARRY_GO_EXECUTABLE}>:${QUARRY_GO_EXECUTABLE}>")
+
 add_quarry_gtest(typed_record_test runtime_c/typed_record_test.cpp quarry_runtime_c)

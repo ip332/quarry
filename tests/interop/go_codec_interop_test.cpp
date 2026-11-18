@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include <gtest/gtest.h>
 
@@ -167,12 +168,17 @@ protected:
         const fs::path kinds = root / "kinds.brd";
         write_text_file(kinds, kKindsSchema);
         const fs::path schemas = fs::path(QUARRY_TEST_SOURCE_DIR) / "benchmarks/schemas";
-        for (const fs::path& schema :
-             {kinds, schemas / "workload_shared.brd", schemas / "workload.brd"}) {
-            ASSERT_EQ(compile(schema, root / "c", "--language c", root / "c.log"), 0)
+        // benchmark.workload and its dependency come from one compilation root,
+        // so their generated configuration identity checks agree.
+        for (const auto& [schema, selection] :
+             {std::pair{kinds, std::string()},
+              std::pair{schemas / "workload.brd",
+                        std::string(" --generate benchmark.workload,benchmark.workload.shared")}}) {
+            ASSERT_EQ(compile(schema, root / "c", "--language c" + selection, root / "c.log"), 0)
                 << read_text_file(root / "c.log");
             ASSERT_EQ(compile(schema, root / "go",
-                              "--language go --go-import-prefix example.com/gen", root / "go.log"),
+                              "--language go --go-import-prefix example.com/gen" + selection,
+                              root / "go.log"),
                       0)
                 << read_text_file(root / "go.log");
         }

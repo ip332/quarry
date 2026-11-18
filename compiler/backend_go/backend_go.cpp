@@ -3,6 +3,7 @@
 #include "compiler/layout/layout.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdint>
 #include <limits>
@@ -139,6 +140,10 @@ using ::quarry::schema_ir::RecordIR;
     return names;
 }
 
+// Package-level configuration identity declarations of every generated file.
+constexpr std::array<std::string_view, 4> kReservedIdentityNames = {
+    "QuarrySchemaID", "QuarrySchemaIDAlgorithm", "QuarrySchemaIDHi", "QuarrySchemaIDLo"};
+
 [[nodiscard]] bool insert_unique(std::set<std::string>& names, const std::string& generated,
                                  std::string_view original, std::string_view context,
                                  std::string& error_message) {
@@ -149,6 +154,21 @@ using ::quarry::schema_ir::RecordIR;
                     "' and another schema identifier both map to Go identifier '" + generated +
                     "'; generation is ambiguous";
     return false;
+}
+
+// insert_unique for package-level identifiers, which must also avoid the
+// configuration identity declarations of every generated file.
+[[nodiscard]] bool insert_package_name(std::set<std::string>& names, const std::string& generated,
+                                       std::string_view original, std::string_view context,
+                                       std::string& error_message) {
+    if (std::find(kReservedIdentityNames.begin(), kReservedIdentityNames.end(), generated) !=
+        kReservedIdentityNames.end()) {
+        error_message = "backend_go: " + std::string(context) + " '" + std::string(original) +
+                        "' maps to Go identifier '" + generated +
+                        "', which generated Go reserves for configuration identity; rename it";
+        return false;
+    }
+    return insert_unique(names, generated, original, context, error_message);
 }
 
 // --- Type lowering ----------------------------------------------------------
@@ -445,7 +465,9 @@ lower_field(const RecordIR& record_ir, const FieldIR& field_ir, const EnumCatalo
         file.relative_path = (file.directories.empty() ? "" : join(file.directories, "/") + "/") +
                              options.root_file_stem + ".quarry.go";
 
-        std::set<std::string> package_names; // package-level identifiers
+        // Package-level identifiers; insert_package_name also rejects the
+        // configuration identity names that render_file declares.
+        std::set<std::string> package_names;
         for (const EnumIR& enum_ir : ns.enums()) {
             const EnumEntry& entry = enums.at(enum_ir.ir_id());
             if (!entry.all_non_negative) {
@@ -453,8 +475,8 @@ lower_field(const RecordIR& record_ir, const FieldIR& field_ir, const EnumCatalo
                                 "' has a negative declared value; BRF enums are unsigned";
                 return false;
             }
-            if (!insert_unique(package_names, entry.go_name, enum_ir.name(), "enum",
-                               error_message)) {
+            if (!insert_package_name(package_names, entry.go_name, enum_ir.name(), "enum",
+                                     error_message)) {
                 return false;
             }
             PlannedEnum planned;
@@ -464,7 +486,8 @@ lower_field(const RecordIR& record_ir, const FieldIR& field_ir, const EnumCatalo
             planned.width = entry.width;
             for (const auto& [name, value] : entry.values) {
                 const std::string constant = entry.go_name + exported_identifier(name);
-                if (!insert_unique(package_names, constant, name, "enum value", error_message)) {
+                if (!insert_package_name(package_names, constant, name, "enum value",
+                                         error_message)) {
                     return false;
                 }
                 planned.values.push_back(PlannedEnumValue{constant, value});
@@ -477,10 +500,10 @@ lower_field(const RecordIR& record_ir, const FieldIR& field_ir, const EnumCatalo
             record.go_name = records.at(record_ir.ir_id()).go_name;
             record.schema_fqn = record_ir.fqn();
             record.record_id = record_ir.record_id();
-            if (!insert_unique(package_names, record.go_name, record_ir.name(), "record",
-                               error_message) ||
-                !insert_unique(package_names, record.go_name + "RecordID", record_ir.name(),
-                               "record ID constant for record", error_message)) {
+            if (!insert_package_name(package_names, record.go_name, record_ir.name(), "record",
+                                     error_message) ||
+                !insert_package_name(package_names, record.go_name + "RecordID", record_ir.name(),
+                                     "record ID constant for record", error_message)) {
                 return false;
             }
             std::set<std::string> field_names = record_method_names();
@@ -1095,7 +1118,57 @@ void render_methods(std::ostringstream& out, const PlannedRecord& record) {
     out << "\treturn r.Finish()\n}\n";
 }
 
-[[nodiscard]] std::string render_file(const PlannedPackageFile& file) {
+[[nodiscard]] std::string go_hex_uint64(std::uint64_t value) {
+    std::ostringstream literal;
+    literal << "0x" << std::hex;
+    literal.width(16);
+    literal.fill('0');
+    literal << value;
+    return literal.str();
+}
+
+void render_identity(std::ostream& out, const PlannedPackageFile& file,
+                     const support::ConfigurationIdentity& identity) {
+    out << "\n// Configuration identity: the QBS schema_id of this package's compilation root\n";
+    out << "// (algorithm 1 = SHA-256 truncated to 128 bits), as compile-time constants.\n";
+    out << "const QuarrySchemaIDAlgorithm uint8 = " << static_cast<unsigned>(identity.algorithm)
+        << "\n";
+    out << "const QuarrySchemaIDHi uint64 = "
+        << go_hex_uint64(support::schema_id_half(identity, 0U)) << "\n";
+    out << "const QuarrySchemaIDLo uint64 = "
+        << go_hex_uint64(support::schema_id_half(identity, 1U)) << "\n\n";
+    out << "// QuarrySchemaID returns the configuration identity bytes.\n";
+    out << "func QuarrySchemaID() [16]byte {\n\treturn [16]byte{";
+    constexpr char kHexDigits[] = "0123456789abcdef";
+    for (std::size_t index = 0; index < identity.schema_id.size(); ++index) {
+        const std::uint8_t byte = identity.schema_id[index];
+        out << (index == 0U ? "" : ", ") << "0x" << kHexDigits[byte >> 4U]
+            << kHexDigits[byte & 0x0FU];
+    }
+    out << "}\n}\n";
+    for (const PlannedImport& import : file.imports) {
+        if (import.alias.empty()) {
+            continue;
+        }
+        const std::string& d = import.alias;
+        out << "\n// " << d << " (" << import.path
+            << ") must be generated from the same\n"
+               "// configuration (compilation root). A mismatch fails to compile with\n"
+               "// \"constant ... overflows\" on one of these lines. \"undefined: "
+            << d
+            << ".QuarrySchemaID...\"\n"
+               "// means the dependency predates generated configuration identity:\n"
+               "// regenerate it with this quarry-schema-compiler from the same root.\n";
+        for (const std::string_view component :
+             {"QuarrySchemaIDAlgorithm", "QuarrySchemaIDHi", "QuarrySchemaIDLo"}) {
+            out << "const _ = " << d << "." << component << " - " << component << "\n";
+            out << "const _ = " << component << " - " << d << "." << component << "\n";
+        }
+    }
+}
+
+[[nodiscard]] std::string render_file(const PlannedPackageFile& file,
+                                      const support::ConfigurationIdentity& identity) {
     std::ostringstream out;
     out << "// Code generated by quarry-schema-compiler. DO NOT EDIT.\n";
     out << "// Schema namespace: " << (file.namespace_fqn.empty() ? "(root)" : file.namespace_fqn)
@@ -1120,6 +1193,7 @@ void render_methods(std::ostringstream& out, const PlannedRecord& record) {
            "matching runtime.\n";
     out << "const _ = uint(brf.GeneratedCodeAPIVersion - " << kGeneratedCodeApiVersionGo << ")\n";
     out << "const _ = uint(" << kGeneratedCodeApiVersionGo << " - brf.GeneratedCodeAPIVersion)\n";
+    render_identity(out, file, identity);
     for (const PlannedEnum& planned : file.enums) {
         out << "\n";
         render_enum(out, planned);
@@ -1178,7 +1252,7 @@ namespace {
     for (const PlannedPackageFile& file : files) {
         GeneratedFile generated;
         generated.path = output_path_for_planned_file(options, file.relative_path);
-        generated.content = render_file(file);
+        generated.content = render_file(file, options.configuration_identity);
         result.files.push_back(std::move(generated));
     }
     return result;

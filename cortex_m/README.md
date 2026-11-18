@@ -71,7 +71,11 @@ python3 cortex_m/scripts/report_footprint.py \
 ```
 
 This is exactly what CI runs (`.github/workflows/ci.yml`, "Cortex-M Cross
-Build" job).
+Build" job). CI also reports `quarry_cortex_m_smoke_identity.elf` against the
+plain smoke ELF (`--baseline-json`), and, for pull requests, the smoke ELF built
+with the base commit's compiler, runtime and Cortex-M project under the same
+image and toolchain file. Both comparisons list the linked `.text`, `.rodata`,
+`.data` and `.bss` sections and are informational; they never fail the build.
 
 ## What gets cross-compiled
 
@@ -83,7 +87,9 @@ The smoke target (`quarry_cortex_m_smoke`) links:
   assembly reset preamble is required).
 - The C code generated from `benchmarks/schemas/workload.brd` and
   `workload_shared.brd` -- reused by reference (not duplicated) from the
-  existing native benchmark harness. Together these schemas exercise
+  existing native benchmark harness. Both namespaces are generated in one
+  invocation from the `workload.brd` compilation root, so they share one
+  configuration identity, which the generated headers check at compile time. Together these schemas exercise
   scalar fields, a local enum, a bounded string, bounded bytes, a bounded
   scalar array, a cross-namespace nested record, and a cross-namespace
   array of records.
@@ -95,6 +101,12 @@ The smoke target (`quarry_cortex_m_smoke`) links:
   `_init`/`_encode`/`_decode` codec backed by `Quarry::runtime_c`. It makes
   no libc I/O calls (no `printf`, no `assert()`) and stores results in
   `volatile` globals so the calls cannot be optimized away.
+
+`quarry_cortex_m_smoke_identity` is the same program, built with
+`QUARRY_SMOKE_READ_IDENTITY=1`, which additionally reads the configuration
+identity through the generated `benchmark_workload_schema_id()` accessor. The
+difference between the two ELFs is the cost of explicitly accessing identity;
+the plain smoke ELF must carry no identity-related code or data.
 
 ## Toolchain
 

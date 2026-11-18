@@ -1,0 +1,7 @@
+# Revision B with unchanged record IDs: adds namespace fleet.zone, which sorts
+# after every revision A namespace, so fleet.common and fleet.engine keep their
+# domains and record IDs while schema_id changes.
+configuration: fleet_rev_b_same_ids
+imports:
+  - engine.brd
+  - zone.brd

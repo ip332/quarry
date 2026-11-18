@@ -20,9 +20,10 @@ processes the same logical records.
 * `stress` — a tiny mostly-scalar message with a high record count to expose
   fixed per-operation overhead.
 
-The schema includes a local enum and an imported `Child` record. The dependency
-root is generated separately into the same output tree, as required by the
-one-explicit-root compiler workflow.
+The schema includes a local enum and an imported `Child` record. Both namespaces
+are generated from the one compilation root, `workload.brd`, with
+`--generate benchmark.workload,benchmark.workload.shared`, so their generated
+configuration identity checks agree.
 
 ## Build
 

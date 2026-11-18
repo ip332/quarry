@@ -72,6 +72,20 @@ defines the behavior it reproduces, and a tool test checks the two agree for
 every field kind in both presence layouts.
 Native C structure layouts and successful wire bytes are unchanged.
 
+## Configuration identity
+
+Every generated header (#99, `docs/design/configuration-identity.md` §4.1)
+defines `<NS>_QUARRY_SCHEMA_ID_ALGORITHM` and `<NS>_QUARRY_SCHEMA_ID_W0`..`W3`
+macros (the root namespace uses `QUARRY_ROOT_QUARRY_SCHEMA_ID_*`) and an
+optional `static inline const uint8_t* <ns>_schema_id(void)` accessor, which
+emits no object code unless called. Its include guard contains the full
+128-bit `schema_id`. For every generated header it includes, it checks with
+`#if`/`#error` that all five macros are defined (otherwise the dependency
+predates configuration identity) and equal its own (otherwise it comes from a
+different configuration). Schema names whose generated C identifiers would
+equal one of these names are rejected. The C generated-code API epoch stays
+`7`: nothing new is required from `Quarry::runtime_c`.
+
 ## Supported data model
 
 Fields support bool, fixed-width signed/unsigned integers, float32/float64,
@@ -177,6 +191,15 @@ The classes live in `quarry::cxx` and use the C record symbol as their name.
 They provide bounded setters, const string/span views, native storage access,
 and caller-buffer encode/in-place decode, without heap allocation or additional
 object storage. The default owning C++ API is unchanged.
+
+Since #99 both the wrappers (`quarry::cxx::quarry_cfg_<schema_id>::...`) and the
+C part of the header (an `inline namespace quarry_cfg_<schema_id>` at global
+scope) are configuration-specific in C++. Code still writes
+`quarry::cxx::truck_engine_EngineStatus` and `::truck_engine_EngineStatus_t`,
+but the C storage types and the templates instantiated over them (for example
+`std::span<const truck_engine_FaultCode_t>`) get configuration-specific mangled
+names, so two configurations with different layouts can be linked into one
+program without the linker merging their definitions.
 
 See [the runnable example](../../examples/cpp/c_storage_encode_decode/README.md)
 for API details, failure behavior, and build instructions.
