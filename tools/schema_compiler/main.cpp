@@ -114,11 +114,7 @@ void print_generated_code_api_version(std::ostream& output) {
 
 void print_schema_id(std::ostream& output,
                      const quarry::compiler::support::ConfigurationIdentity& identity) {
-    constexpr char kHexDigits[] = "0123456789abcdef";
-    for (const std::uint8_t byte : identity.schema_id) {
-        output << kHexDigits[byte >> 4U] << kHexDigits[byte & 0x0FU];
-    }
-    output << '\n';
+    output << quarry::compiler::support::schema_id_hex(identity) << '\n';
 }
 
 [[nodiscard]] bool option_requires_value(std::string_view option) {

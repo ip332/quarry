@@ -573,7 +573,10 @@ TEST(SchemaCompilerToolTest, CppCrossNamespaceGenerationUsesPlannedDependencyHea
                     "    max_elements: 2\n");
 
     const CommandResult shared_result =
-        run_tool({"--language", "cpp", "--output-directory", output.string(), shared.string()},
+        // The dependency comes from the same compilation root: bindings
+        // generated from different roots are rejected by the identity checks.
+        run_tool({"--language", "cpp", "--output-directory", output.string(), "--generate",
+                  "quarry.shared", input.string()},
                  root);
     ASSERT_EQ(shared_result.status, 0) << shared_result.stderr_text;
 
@@ -644,7 +647,10 @@ TEST(SchemaCompilerToolTest, CCrossNamespaceGenerationUsesPlannedDependencyHeade
                     "    max_elements: 2\n");
 
     const CommandResult shared_result =
-        run_tool({"--language", "c", "--output-directory", output.string(), shared.string()},
+        // The dependency comes from the same compilation root: bindings
+        // generated from different roots are rejected by the identity checks.
+        run_tool({"--language", "c", "--output-directory", output.string(), "--generate",
+                  "quarry.shared", input.string()},
                  root);
     ASSERT_EQ(shared_result.status, 0) << shared_result.stderr_text;
     const CommandResult root_result =
@@ -1232,10 +1238,17 @@ TEST(SchemaCompilerToolTest, CppCStorageCompilesRoundTripsWithoutAllocations) {
     const auto schema = std::filesystem::path(QUARRY_TEST_SOURCE_DIR) / "benchmarks/schemas";
     for (const bool compact : {false, true}) {
         const auto output = root / (compact ? "compact" : "default");
-        for (const auto* name : {"workload_shared.brd", "workload.brd"}) {
-            std::vector<std::string> options = {
-                "--language",         "cpp",           "--cpp-storage",         "c",
-                "--output-directory", output.string(), (schema / name).string()};
+        // Both namespaces come from one compilation root, workload.brd.
+        {
+            std::vector<std::string> options = {"--language",
+                                                "cpp",
+                                                "--cpp-storage",
+                                                "c",
+                                                "--output-directory",
+                                                output.string(),
+                                                "--generate",
+                                                "benchmark.workload,benchmark.workload.shared",
+                                                (schema / "workload.brd").string()};
             if (compact)
                 options.insert(options.end(), {"--c-optimize-size"});
             const auto generated = run_tool(options, root);
@@ -1369,10 +1382,14 @@ TEST(SchemaCompilerToolTest, GeneratedDecodeOpsMatchDescriptorDecodeForAllFieldK
     const auto schemas = std::filesystem::path(QUARRY_TEST_SOURCE_DIR) / "benchmarks/schemas";
     for (const bool compact : {false, true}) {
         const auto output = root / (compact ? "compact" : "default");
-        for (const auto& schema :
-             {kinds, schemas / "workload_shared.brd", schemas / "workload.brd"}) {
-            std::vector<std::string> options = {"--language", "c", "--output-directory",
-                                                output.string(), schema.string()};
+        // benchmark.workload and its dependency come from one compilation root.
+        for (const auto& [schema, selection] :
+             {std::pair{kinds, std::string("opskinds")},
+              std::pair{schemas / "workload.brd",
+                        std::string("benchmark.workload,benchmark.workload.shared")}}) {
+            std::vector<std::string> options = {"--language",    "c",          "--output-directory",
+                                                output.string(), "--generate", selection,
+                                                schema.string()};
             if (compact)
                 options.insert(options.begin(), "--c-optimize-size");
             const auto generated = run_tool(options, root);
@@ -1517,16 +1534,17 @@ TEST(SchemaCompilerToolTest, GeneratedCppHeadersSharingADependencyCompileTogethe
     write_text_file(root / "right.brd",
                     "namespace: r\nrecord: Right\nversion: 1\ntype: data\n"
                     "imports:\n  - leaf.brd\nfields:\n  leaf:\n    type: z.Leaf\n");
+    // One configuration root generates every namespace, so all three headers
+    // share one configuration identity.
+    write_text_file(root / "diamond.brd",
+                    "configuration: diamond\nimports:\n  - left.brd\n  - right.brd\n");
     const auto output = root / "generated";
-    for (const auto* name : {"leaf.brd", "left.brd", "right.brd"}) {
-        const auto generated =
-            run_tool({"--output-directory", output.string(), (root / name).string()}, root);
-        ASSERT_EQ(generated.status, 0) << generated.stderr_text;
-    }
-    EXPECT_NE(read_text_file(output / "z.generated.hpp")
-                  .find("\n#ifndef QUARRY_GENERATED_CPP_Z_GENERATED_HPP_\n"
-                        "#define QUARRY_GENERATED_CPP_Z_GENERATED_HPP_\n"),
-              std::string::npos);
+    const auto generated =
+        run_tool({"--output-directory", output.string(), (root / "diamond.brd").string()}, root);
+    ASSERT_EQ(generated.status, 0) << generated.stderr_text;
+    EXPECT_TRUE(std::regex_search(read_text_file(output / "z.generated.hpp"),
+                                  std::regex("\n#ifndef (QUARRY_GENERATED_CPP_Z_[0-9A-F]{32}"
+                                             "_GENERATED_HPP_)\n#define \\1\n")));
     const auto use = root / "diamond.cpp";
     write_text_file(use, "#include \"l.generated.hpp\"\n#include \"r.generated.hpp\"\n"
                          "#include \"z.generated.hpp\"\n"
@@ -2237,11 +2255,11 @@ TEST(SchemaCompilerToolTest, TruckBindingsAndQbsImagesMatchGoldenArtifacts) {
     const std::filesystem::path root = make_temp_directory("a4-1-main-output-golden");
     const std::filesystem::path schema = truck_schemas() / "configuration.brd";
     const std::map<std::string, std::string> expected_tree_hashes = {
-        {"c", "5efa52e1cd39771464dc0fc651f95530ea2901765bdcaa9ee02136e61e12a2f7"},
-        {"cpp", "de5be719ae551e3ef7bc5e8721a7f613a5369f185efc8e106df587c41a9b0f31"},
-        {"cpp-c-storage", "e1f3f0117272d548ffff5571a75cf7dbd6215f6c3088ede9bbf2197e19a22449"},
-        {"python", "bee113659615b1714c07255e54298f9cbd719991436bc457120b40422090bbca"},
-        {"go", "ca49fed7126ea8a5ff21f2cebb37575a1aa282d9c7c874636f399c8116b4ed24"},
+        {"c", "fb76e880f6590bd73bfac9b84b40e577cabc4bc991042c58014bbeee8dfd37c0"},
+        {"cpp", "b570cfc7000520fa3afdc85347d2f9b65a8f699c6e484570e45b5d51d9093e94"},
+        {"cpp-c-storage", "c8e58b04e0295e6b93f4cfa6cc6dc358058e6e0befe12011a4c5ab24e6ffde86"},
+        {"python", "18b06c9077b0efbf106c963289c68947fcf8d04278564b999775385a25b5497e"},
+        {"go", "c8fe744942d020fa93488fd3bc9275ead9e1641c9b204ff50b53a33800f0d4fa"},
     };
 
     for (const auto& [name, options] : kBackends) {

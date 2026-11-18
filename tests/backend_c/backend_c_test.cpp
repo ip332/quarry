@@ -165,7 +165,10 @@ TEST(BackendCTest, NestedNamespaceProducesSymbolPrefixedFileAndSymbols) {
 
     EXPECT_NE(header->content.find("quarry_telemetry_Sample_t"), std::string::npos);
     EXPECT_NE(header->content.find("void quarry_telemetry_Sample_init("), std::string::npos);
-    EXPECT_NE(header->content.find("#ifndef QUARRY_GENERATED_C_QUARRY_TELEMETRY_GENERATED_H_"),
+    // The guard carries the configuration's full schema_id (all zero here:
+    // the test passes no configuration identity).
+    EXPECT_NE(header->content.find("#ifndef QUARRY_GENERATED_C_QUARRY_TELEMETRY_"
+                                   "00000000000000000000000000000000_GENERATED_H_"),
               std::string::npos);
     EXPECT_NE(header->content.find("extern \"C\""), std::string::npos);
     EXPECT_NE(header->content.find("uint8_t reserved;"), std::string::npos);

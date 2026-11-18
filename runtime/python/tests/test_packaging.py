@@ -141,9 +141,11 @@ def generated_consumer(python: Path, compiler: Path, install_prefix: Path, root:
         encoding="utf-8",
     )
     generated = root / "generated"
-    for source in (dependency, schema):
-        run([str(compiler), "--language", "python", "-o", str(generated), str(source)],
-            env=clean_env())
+    # Both modules come from one compilation root, so their generated
+    # configuration identity checks agree.
+    run([str(compiler), "--language", "python", "-o", str(generated),
+         "--generate", "shared,downstream", str(schema)],
+        env=clean_env())
     script = root / "consumer.py"
     script.write_text(
         "from shared.schema import Child, Status\n"

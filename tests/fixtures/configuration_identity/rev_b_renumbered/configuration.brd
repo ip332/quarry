@@ -1,0 +1,7 @@
+# Revision B with renumbered records and changed layouts: adds namespace
+# fleet.alpha, which sorts before fleet.common and shifts every revision A
+# domain, and adds fields to FaultCode and EngineStatus.
+configuration: fleet_rev_b_renumbered
+imports:
+  - alpha.brd
+  - engine.brd

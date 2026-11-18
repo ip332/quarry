@@ -22,6 +22,11 @@ volatile quarry_c_status_t g_decode_status;
 volatile uint32_t g_decoded_sequence;
 volatile uint32_t g_decoded_child_id;
 volatile uint32_t g_decoded_children_count;
+#if defined(QUARRY_SMOKE_READ_IDENTITY)
+/* Only in quarry_cortex_m_smoke_identity: measures the cost of explicitly
+ * reading the configuration identity through the generated accessor. */
+volatile uint8_t g_schema_id_first_byte;
+#endif
 
 static void populate_child(benchmark_workload_shared_Child_t *child, uint32_t id,
                             const char *label) {
@@ -116,6 +121,10 @@ int main(void) {
             g_decoded_children_count = decoded.value.children_count;
         }
     }
+
+#if defined(QUARRY_SMOKE_READ_IDENTITY)
+    g_schema_id_first_byte = benchmark_workload_schema_id()[0];
+#endif
 
     for (;;) {
         /* Bare metal: main() never returns. */

@@ -522,6 +522,16 @@ truncated, malformed, wrong-record, and trailing-byte nested payloads.
 
 ---
 
+## Configuration identity
+
+Since #99 every generated module defines `QUARRY_SCHEMA_ID_ALGORITHM` and
+`QUARRY_SCHEMA_ID` (16 `bytes`), and after importing each generated dependency
+checks, before any record is defined, that the dependency defines both and that
+they equal its own; otherwise it raises `ImportError` naming both modules
+(`docs/design/configuration-identity.md` §4.4). The constants are module-reserved
+names, so a schema name equal to one is renamed with a trailing `_`, like the
+other reserved module names.
+
 ## Runtime boundary and compatibility epoch
 
 `runtime/python/` is a small, independently pip-installable package

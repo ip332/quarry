@@ -123,6 +123,16 @@ languages' epochs. Generated files contain two constant conversions that fail
 to compile unless the runtime's epoch equals the generator's. The two values
 are kept in sync by hand, and `go_codec_interop_test` checks they agree.
 
+Since #99 each generated file also declares its configuration identity
+(`QuarrySchemaIDAlgorithm uint8`, `QuarrySchemaIDHi`/`QuarrySchemaIDLo uint64`
+and `func QuarrySchemaID() [16]byte`) and, for each imported generated package,
+two-sided constant subtractions that fail to compile ("constant ... overflows")
+unless both packages come from the same configuration. A dependency generated
+before #99 fails with `undefined: quarrydepN.QuarrySchemaID...`; Go cannot test
+whether a constant exists, so a comment on those lines explains the message.
+Schema names that map to one of the four identity names are rejected. See
+`docs/design/configuration-identity.md` §4.5.
+
 ## Testing
 
 `tests/interop/go_codec_interop_test.cpp` (skipped when CMake finds no Go

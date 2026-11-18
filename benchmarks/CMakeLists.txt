@@ -21,25 +21,19 @@ set(QUARRY_BENCHMARK_DEPENDENCY_C_SOURCE
 set(QUARRY_BENCHMARK_DEPENDENCY_PYTHON_MODULE
     ${QUARRY_BENCHMARK_GENERATED_DIR}/benchmark/workload/shared/schema.py)
 
+# Both namespaces come from one compilation root (workload.brd imports
+# workload_shared.brd), so the generated configuration identity checks agree.
+set(QUARRY_BENCHMARK_NAMESPACES benchmark.workload,benchmark.workload.shared)
 add_custom_target(quarry_benchmark_generated
     COMMAND $<TARGET_FILE:quarry_schema_compiler>
             --language cpp --output-directory ${QUARRY_BENCHMARK_GENERATED_DIR}
-            ${QUARRY_BENCHMARK_DEPENDENCY_SCHEMA}
+            --generate ${QUARRY_BENCHMARK_NAMESPACES} ${QUARRY_BENCHMARK_SCHEMA}
     COMMAND $<TARGET_FILE:quarry_schema_compiler>
             --language c --output-directory ${QUARRY_BENCHMARK_GENERATED_DIR}
-            ${QUARRY_BENCHMARK_DEPENDENCY_SCHEMA}
+            --generate ${QUARRY_BENCHMARK_NAMESPACES} ${QUARRY_BENCHMARK_SCHEMA}
     COMMAND $<TARGET_FILE:quarry_schema_compiler>
             --language python --output-directory ${QUARRY_BENCHMARK_GENERATED_DIR}
-            ${QUARRY_BENCHMARK_DEPENDENCY_SCHEMA}
-    COMMAND $<TARGET_FILE:quarry_schema_compiler>
-            --language cpp --output-directory ${QUARRY_BENCHMARK_GENERATED_DIR}
-            ${QUARRY_BENCHMARK_SCHEMA}
-    COMMAND $<TARGET_FILE:quarry_schema_compiler>
-            --language c --output-directory ${QUARRY_BENCHMARK_GENERATED_DIR}
-            ${QUARRY_BENCHMARK_SCHEMA}
-    COMMAND $<TARGET_FILE:quarry_schema_compiler>
-            --language python --output-directory ${QUARRY_BENCHMARK_GENERATED_DIR}
-            ${QUARRY_BENCHMARK_SCHEMA}
+            --generate ${QUARRY_BENCHMARK_NAMESPACES} ${QUARRY_BENCHMARK_SCHEMA}
     BYPRODUCTS ${QUARRY_BENCHMARK_CPP_HEADER} ${QUARRY_BENCHMARK_C_HEADER}
                 ${QUARRY_BENCHMARK_C_SOURCE} ${QUARRY_BENCHMARK_PYTHON_MODULE}
                 ${QUARRY_BENCHMARK_DEPENDENCY_CPP_HEADER}
@@ -77,9 +71,8 @@ set_target_properties(quarry_benchmark_c PROPERTIES C_STANDARD 99 C_STANDARD_REQ
 set(QUARRY_BENCHMARK_C_STORAGE_DIR ${CMAKE_CURRENT_BINARY_DIR}/c_storage_generated)
 add_custom_target(quarry_benchmark_c_storage_generated
     COMMAND $<TARGET_FILE:quarry_schema_compiler> --language cpp --cpp-storage c
-            --output-directory ${QUARRY_BENCHMARK_C_STORAGE_DIR} ${QUARRY_BENCHMARK_DEPENDENCY_SCHEMA}
-    COMMAND $<TARGET_FILE:quarry_schema_compiler> --language cpp --cpp-storage c
-            --output-directory ${QUARRY_BENCHMARK_C_STORAGE_DIR} ${QUARRY_BENCHMARK_SCHEMA}
+            --output-directory ${QUARRY_BENCHMARK_C_STORAGE_DIR}
+            --generate ${QUARRY_BENCHMARK_NAMESPACES} ${QUARRY_BENCHMARK_SCHEMA}
     BYPRODUCTS ${QUARRY_BENCHMARK_C_STORAGE_DIR}/benchmark/workload.generated.hpp
                ${QUARRY_BENCHMARK_C_STORAGE_DIR}/benchmark/workload/shared.generated.hpp
     DEPENDS quarry_schema_compiler ${QUARRY_BENCHMARK_SCHEMA} ${QUARRY_BENCHMARK_DEPENDENCY_SCHEMA}

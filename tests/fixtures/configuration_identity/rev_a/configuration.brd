@@ -1,0 +1,4 @@
+# Configuration identity fixture, revision A: the baseline configuration.
+configuration: fleet_rev_a
+imports:
+  - engine.brd

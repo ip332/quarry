@@ -1348,14 +1348,13 @@ TEST(PythonCppCCodecInteropTest, CrossNamespaceSchemasAreByteForByteCompatibleAc
          {std::pair<std::string, std::filesystem::path>{"c", generated_c},
           {"cpp", generated_cpp},
           {"python", generated_python}}) {
-        for (const auto& source : {shared, input}) {
-            ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_SCHEMA_COMPILER_TOOL) +
-                                            " --language " + language + " -o " +
-                                            shell_quote(output.string()) + " " +
-                                            shell_quote(source.string())),
-                      0)
-                << language << " generation failed for " << source;
-        }
+        // Both namespaces come from one compilation root (input).
+        ASSERT_EQ(run_and_get_exit_code(shell_quote(QUARRY_SCHEMA_COMPILER_TOOL) + " --language " +
+                                        language + " -o " + shell_quote(output.string()) +
+                                        " --generate acme.shared,acme.telemetry " +
+                                        shell_quote(input.string())),
+                  0)
+            << language << " generation failed for " << input;
     }
 
     constexpr std::string_view c_harness = R"c(

@@ -37,6 +37,10 @@ struct NamedTypeInfo {
 
 struct TypeCatalog {
     std::map<std::uint64_t, NamedTypeInfo> named_types;
+    // Include path of every namespace that declares a record or enum, to the
+    // namespace FQN, so a header can name the identity of each generated
+    // header it includes.
+    std::map<std::string, std::string> namespace_by_include_path;
 };
 
 struct PrimitiveMapping {
@@ -138,6 +142,9 @@ struct NamespacePlan {
     bool emits_file = false;
     std::set<std::string> standard_includes;
     std::set<std::string> includes;
+    // Generated headers among `includes`: include path -> namespace FQN. Each
+    // gets a configuration identity check in this header.
+    std::map<std::string, std::string> generated_dependencies;
     std::vector<DeclarationPlan> declarations;
     std::vector<NamespacePlan> children;
 };
@@ -252,6 +259,131 @@ struct OutputSelection {
     }
     guard.push_back('_');
     return guard;
+}
+
+// Normalized spelling of a generated header path for macro names:
+// alphanumerics uppercased, every other character an underscore.
+[[nodiscard]] std::string macro_spelling(std::string_view text) {
+    std::string spelling;
+    spelling.reserve(text.size());
+    for (const char ch : text) {
+        spelling.push_back(std::isalnum(static_cast<unsigned char>(ch)) != 0
+                               ? static_cast<char>(std::toupper(static_cast<unsigned char>(ch)))
+                               : '_');
+    }
+    return spelling;
+}
+
+[[nodiscard]] std::string_view include_path_stem(std::string_view include_path,
+                                                 std::string_view file_extension) {
+    if (!file_extension.empty() && include_path.size() > file_extension.size() &&
+        include_path.ends_with(file_extension)) {
+        include_path.remove_suffix(file_extension.size());
+    }
+    return include_path;
+}
+
+// Configuration-specific include guard: the full 128-bit schema_id goes
+// between the path stem and the extension, for example
+// QUARRY_GENERATED_CPP_TRUCK_ENGINE_9200CA49..._GENERATED_HPP_, so headers of
+// one namespace from two configurations never share a guard and the second is
+// never skipped silently. Unique exactly when cpp_header_guard_macro is.
+[[nodiscard]] std::string
+cpp_identity_header_guard_macro(std::string_view include_path, std::string_view file_extension,
+                                const support::ConfigurationIdentity& identity) {
+    const std::string_view stem = include_path_stem(include_path, file_extension);
+    return "QUARRY_GENERATED_CPP_" + macro_spelling(stem) + "_" +
+           support::schema_id_hex_upper(identity) +
+           macro_spelling(include_path.substr(stem.size())) + "_";
+}
+
+// Prefix of the identity metadata macros of one generated header, for example
+// QUARRY_GENERATED_CPP_TRUCK_ENGINE for "truck/engine.generated.hpp". Unique per
+// header because generated header paths are unique and share one extension.
+[[nodiscard]] std::string cpp_identity_macro_stem(std::string_view include_path,
+                                                  std::string_view file_extension) {
+    return "QUARRY_GENERATED_CPP_" +
+           macro_spelling(include_path_stem(include_path, file_extension));
+}
+
+[[nodiscard]] std::string
+cpp_configuration_namespace(const support::ConfigurationIdentity& identity) {
+    return "quarry_cfg_" + support::schema_id_hex(identity);
+}
+
+[[nodiscard]] std::string hex_byte_literal(std::uint8_t byte) {
+    constexpr char kHexDigits[] = "0123456789abcdef";
+    std::string literal = "0x";
+    literal.push_back(kHexDigits[byte >> 4U]);
+    literal.push_back(kHexDigits[byte & 0x0FU]);
+    literal.push_back('U');
+    return literal;
+}
+
+[[nodiscard]] std::string hex_word_literal(std::uint32_t word) {
+    std::ostringstream literal;
+    literal << "0x" << std::hex;
+    literal.width(8);
+    literal.fill('0');
+    literal << word << "UL";
+    return literal.str();
+}
+
+// "{0x92U, 0x00U, ...}": the schema_id bytes as a braced initializer.
+[[nodiscard]] std::string
+cpp_schema_id_initializer(const support::ConfigurationIdentity& identity) {
+    std::string initializer = "{";
+    for (std::size_t index = 0; index < identity.schema_id.size(); ++index) {
+        if (index != 0U) {
+            initializer.append(", ");
+        }
+        initializer.append(hex_byte_literal(identity.schema_id[index]));
+    }
+    initializer.push_back('}');
+    return initializer;
+}
+
+// Names that generated configuration identity adds to every generated
+// namespace scope. Schema names that would collide with them are rejected
+// rather than generated into conflicting declarations.
+constexpr std::string_view kReservedIdentityConstant = "kQuarrySchemaId";
+constexpr std::string_view kReservedIdentityAlgorithmConstant = "kQuarrySchemaIdAlgorithm";
+constexpr std::string_view kReservedConfigurationNamespacePrefix = "quarry_cfg_";
+
+[[nodiscard]] bool is_reserved_identity_name(std::string_view name) {
+    return name == kReservedIdentityConstant || name == kReservedIdentityAlgorithmConstant ||
+           name.starts_with(kReservedConfigurationNamespacePrefix);
+}
+
+[[nodiscard]] bool check_reserved_identity_names(const ::quarry::schema_ir::NamespaceIR& ns,
+                                                 std::string& error_message) {
+    const auto reject = [&](std::string_view kind, std::string_view fqn, std::string_view name) {
+        error_message = "backend codegen: " + std::string(kind) + " '" + std::string(fqn) +
+                        "' is named '" + std::string(name) +
+                        "', which generated C++ reserves for configuration identity "
+                        "(kQuarrySchemaId, kQuarrySchemaIdAlgorithm and quarry_cfg_*); "
+                        "rename it";
+        return false;
+    };
+    if (ns.records_size() == 0 && ns.enums_size() == 0) {
+        return true;
+    }
+    for (const std::string& part : namespace_parts(ns.fqn())) {
+        if (is_reserved_identity_name(part)) {
+            return reject("namespace", ns.fqn(), part);
+        }
+    }
+    for (const ::quarry::schema_ir::RecordIR& record : ns.records()) {
+        if (is_reserved_identity_name(record.name())) {
+            return reject("record", record.fqn(), record.name());
+        }
+    }
+    for (const ::quarry::schema_ir::EnumIR& enum_ir : ns.enums()) {
+        if (is_reserved_identity_name(enum_ir.name())) {
+            return reject("enum", enum_ir.fqn(), enum_ir.name());
+        }
+    }
+    return true;
 }
 
 [[nodiscard]] std::string namespace_comment(std::string_view fqn) {
@@ -845,6 +977,10 @@ void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
                                     });
     }
 
+    if (ns.records_size() > 0 || ns.enums_size() > 0) {
+        catalog.namespace_by_include_path.emplace(include_path, ns.fqn());
+    }
+
     for (int index = 0; index < ns.namespaces_size(); ++index) {
         collect_named_types(ns.namespaces(index), options, catalog);
     }
@@ -860,6 +996,9 @@ void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
     plan.file_path = file_path_for_namespace(options, ns.fqn());
     plan.include_path = file_stem_for_namespace(options, ns.fqn());
     plan.emits_file = ns.records_size() > 0 || ns.enums_size() > 0;
+    if (!check_reserved_identity_names(ns, error_message)) {
+        return false;
+    }
     if (output_selection != nullptr && plan.emits_file) {
         plan.emits_file = output_selection->emitting_namespaces.contains(plan.fqn);
     }
@@ -952,6 +1091,13 @@ void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
                     record_plan.same_namespace_declaration_dependencies.end(),
                     lowered.same_namespace_declaration_dependencies.begin(),
                     lowered.same_namespace_declaration_dependencies.end());
+            }
+        }
+
+        for (const std::string& include_path : plan.includes) {
+            const auto it = catalog.namespace_by_include_path.find(include_path);
+            if (it != catalog.namespace_by_include_path.end() && it->second != plan.fqn) {
+                plan.generated_dependencies.emplace(it->first, it->second);
             }
         }
 
@@ -2238,8 +2384,60 @@ void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t
     return true;
 }
 
-[[nodiscard]] bool render_namespace_file(const NamespacePlan& plan, std::string& output,
-                                         std::string& error_message) {
+// Configuration identity metadata of one generated header: macros that
+// dependent generated headers test for before comparing kQuarrySchemaId, so a
+// dependency generated by a compiler that predates configuration identity
+// fails with an actionable message instead of an undeclared identifier.
+void render_identity_macros(std::ostringstream& stream, const std::string& macro_stem,
+                            const support::ConfigurationIdentity& identity) {
+    stream << "// Configuration identity of this header: the QBS schema_id of its compilation\n";
+    stream << "// root (algorithm 1 = SHA-256 truncated to 128 bits). Compile-time only.\n";
+    stream << "#define " << macro_stem << "_SCHEMA_ID_ALGORITHM "
+           << static_cast<unsigned>(identity.algorithm) << "U\n";
+    for (std::size_t word = 0; word < 4U; ++word) {
+        stream << "#define " << macro_stem << "_SCHEMA_ID_W" << word << ' '
+               << hex_word_literal(support::schema_id_word(identity, word)) << "\n";
+    }
+    stream << '\n';
+}
+
+void render_dependency_identity_checks(std::ostringstream& stream, const NamespacePlan& plan,
+                                       std::string_view file_extension,
+                                       const support::ConfigurationIdentity& identity) {
+    if (plan.generated_dependencies.empty()) {
+        return;
+    }
+    stream << "// Every generated header this header includes must come from the same\n";
+    stream << "// configuration (compilation root).\n";
+    for (const auto& [include_path, namespace_fqn] : plan.generated_dependencies) {
+        const std::string stem = cpp_identity_macro_stem(include_path, file_extension);
+        stream << "#if !defined(" << stem << "_SCHEMA_ID_ALGORITHM)";
+        for (std::size_t word = 0; word < 4U; ++word) {
+            stream << " || \\\n    !defined(" << stem << "_SCHEMA_ID_W" << word << ")";
+        }
+        stream << "\n";
+        stream << "#error \"" << include_path
+               << " predates generated configuration identity: it was generated by an older "
+                  "quarry-schema-compiler. Regenerate it with this compiler from the same "
+                  "compilation root as "
+               << plan.include_path << ".\"\n";
+        stream << "#endif\n";
+        const std::string prefix = cpp_namespace_prefix(namespace_fqn);
+        stream << "static_assert(" << prefix << kReservedIdentityAlgorithmConstant
+               << " == " << static_cast<unsigned>(identity.algorithm) << "U &&\n";
+        stream << "                  " << prefix << kReservedIdentityConstant << " ==\n";
+        stream << "                      std::array<std::uint8_t, 16>"
+               << cpp_schema_id_initializer(identity) << ",\n";
+        stream << "              \"" << include_path
+               << " was generated from a different Quarry configuration than " << plan.include_path
+               << "; regenerate both from the same compilation root.\");\n";
+    }
+    stream << '\n';
+}
+
+[[nodiscard]] bool render_namespace_file(const NamespacePlan& plan, const CodegenOptions& options,
+                                         std::string& output, std::string& error_message) {
+    const support::ConfigurationIdentity& identity = options.configuration_identity;
     std::ostringstream stream;
     stream << "// Generated by Quarry.\n";
     stream << namespace_comment(plan.fqn);
@@ -2249,23 +2447,29 @@ void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t
     // records that both import a third); it must be safe to include twice.
     // A macro guard rather than #pragma once: GCC warns about #pragma once
     // when a generated header is compiled on its own.
-    const std::string guard = cpp_header_guard_macro(plan.include_path);
+    // The guard carries the full configuration identity (see
+    // cpp_identity_header_guard_macro).
+    const std::string guard =
+        cpp_identity_header_guard_macro(plan.include_path, options.file_extension, identity);
     stream << "#ifndef " << guard << "\n";
     stream << "#define " << guard << "\n";
     stream << '\n';
+    render_identity_macros(
+        stream, cpp_identity_macro_stem(plan.include_path, options.file_extension), identity);
 
-    for (const std::string& include : plan.standard_includes) {
+    std::set<std::string> standard_includes = plan.standard_includes;
+    standard_includes.insert("<array>");
+    standard_includes.insert("<cstdint>");
+    for (const std::string& include : standard_includes) {
         stream << "#include " << include << "\n";
     }
-    if (!plan.standard_includes.empty() && !plan.includes.empty()) {
+    if (!plan.includes.empty()) {
         stream << '\n';
     }
     for (const std::string& include_path : plan.includes) {
         stream << "#include \"" << include_path << "\"\n";
     }
-    if (!plan.standard_includes.empty() || !plan.includes.empty()) {
-        stream << '\n';
-    }
+    stream << '\n';
     if (emits_records(plan)) {
         stream << "static_assert(::quarry::runtime::kGeneratedCodeApiVersion == "
                << kGeneratedCodeApiVersion << "U,\n";
@@ -2274,9 +2478,24 @@ void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t
                   "quarry-schema-compiler release.\");\n";
         stream << '\n';
     }
+    render_dependency_identity_checks(stream, plan, options.file_extension, identity);
 
     const std::vector<std::string> parts = namespace_parts(plan.fqn);
     append_namespace_open(stream, parts);
+    // Every declaration of the configuration lives in an inline namespace keyed
+    // by the full schema_id: user code keeps writing truck::engine::EngineStatus,
+    // but the mangled names are configuration-specific, so the linker can never
+    // merge the declarations of two configurations.
+    const std::string configuration_namespace = cpp_configuration_namespace(identity);
+    stream << indent(parts.size()) << "inline namespace " << configuration_namespace << " {\n\n";
+    stream << indent(parts.size()) << "inline constexpr std::uint8_t "
+           << kReservedIdentityAlgorithmConstant << " = "
+           << static_cast<unsigned>(identity.algorithm) << "U;\n";
+    stream << indent(parts.size()) << "inline constexpr std::array<std::uint8_t, 16> "
+           << kReservedIdentityConstant << cpp_schema_id_initializer(identity) << ";\n";
+    if (!plan.declarations.empty()) {
+        stream << '\n';
+    }
 
     bool wrote_declaration = false;
     for (std::size_t index = 0; index < plan.declarations.size(); ++index) {
@@ -2295,7 +2514,11 @@ void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t
         }
     }
 
-    if (wrote_declaration && !parts.empty()) {
+    if (wrote_declaration) {
+        stream << '\n';
+    }
+    stream << indent(parts.size()) << "} // inline namespace " << configuration_namespace << "\n";
+    if (!parts.empty()) {
         stream << '\n';
     }
 
@@ -2316,9 +2539,9 @@ void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t
     files.reserve(generation_plan.files.size());
     for (const PlannedRenderFile& planned_file : generation_plan.files) {
         GeneratedFile file;
-        file.path =
-            output_path_for_planned_file(options, planned_file.file.relative_output_path);
-        if (!render_namespace_file(*planned_file.namespace_plan, file.content, error_message)) {
+        file.path = output_path_for_planned_file(options, planned_file.file.relative_output_path);
+        if (!render_namespace_file(*planned_file.namespace_plan, options, file.content,
+                                   error_message)) {
             return false;
         }
         files.push_back(std::move(file));
