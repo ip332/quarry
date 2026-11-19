@@ -1669,6 +1669,11 @@ CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
         result.error_message = std::move(error_message);
         return result;
     }
+    if (!options.configuration_identity.has_value()) {
+        result.success = false;
+        result.error_message = support::missing_configuration_identity_message("backend_python");
+        return result;
+    }
 
     result.files.reserve(init_file_paths.size() + module_files.size());
     for (const std::string& path : init_file_paths) {
@@ -1680,7 +1685,7 @@ CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
     for (const PlannedNamespaceFile& file : module_files) {
         result.files.push_back(GeneratedFile{
             .path = output_path_for_planned_file(options, file.relative_module_path),
-            .content = render_module(file, options.configuration_identity),
+            .content = render_module(file, *options.configuration_identity),
         });
     }
     return result;

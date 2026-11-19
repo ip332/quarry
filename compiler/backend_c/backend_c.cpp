@@ -2195,6 +2195,11 @@ namespace {
         result.error_message = std::move(error_message);
         return result;
     }
+    if (!options.configuration_identity.has_value()) {
+        result.success = false;
+        result.error_message = support::missing_configuration_identity_message("backend_c");
+        return result;
+    }
 
     std::map<std::string, std::string> namespace_by_include;
     for (const PlannedNamespaceFile& file : files) {
@@ -2209,7 +2214,7 @@ namespace {
             .path = output_path_for_planned_file(options, file.relative_header_path),
             .content = render_header(file, options.optimize_size, options.cpp_wrapper,
                                      namespace_by_include, options.header_extension,
-                                     options.configuration_identity),
+                                     *options.configuration_identity),
         });
         result.files.push_back(GeneratedFile{
             .path = output_path_for_planned_file(options, file.relative_source_path),

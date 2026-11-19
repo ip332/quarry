@@ -37,6 +37,7 @@
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "compiler/schema_ir/validation.hpp"
+#include "tests/support/test_configuration_identity.hpp"
 
 #include <chrono>
 #include <cstdlib>
@@ -551,11 +552,11 @@ TEST(CCppNestedRecordInteropTest, ByteForByteCompatibleAndCrossDecodable) {
     const SchemaIrModel schema_ir = make_nested_record_schema_ir();
     assert_valid(schema_ir);
 
-    const cpp_backend::CodegenResult cpp_result =
-        cpp_backend::Backend{}.generate(schema_ir, cpp_backend::CodegenOptions{});
+    const cpp_backend::CodegenResult cpp_result = cpp_backend::Backend{}.generate(
+        schema_ir, quarry::testing::with_test_identity(cpp_backend::CodegenOptions{}));
     ASSERT_TRUE(cpp_result.success) << cpp_result.error_message;
-    const c_backend::CodegenResult c_result =
-        c_backend::Backend{}.generate(schema_ir, c_backend::CodegenOptions{});
+    const c_backend::CodegenResult c_result = c_backend::Backend{}.generate(
+        schema_ir, quarry::testing::with_test_identity(c_backend::CodegenOptions{}));
     ASSERT_TRUE(c_result.success) << c_result.error_message;
 
     const std::filesystem::path root = make_temp_directory("nested");

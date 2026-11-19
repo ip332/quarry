@@ -27,6 +27,7 @@
 #include "compiler/qbs/parser.hpp"
 #include "compiler/qbs/qbs.hpp"
 #include "compiler/qbs/serializer.hpp"
+#include "tests/support/test_configuration_identity.hpp"
 
 #include <algorithm>
 #include <array>
@@ -234,7 +235,8 @@ template <typename Files> [[nodiscard]] std::string concatenate(const Files& fil
 backend_ids(const quarry::compiler::schema_ir::SchemaIrModel& ir) {
     std::map<std::string, Occurrences> result;
     {
-        quarry::compiler::backend_c::CodegenOptions options;
+        quarry::compiler::backend_c::CodegenOptions options =
+            quarry::testing::with_test_identity(quarry::compiler::backend_c::CodegenOptions{});
         const auto generated = quarry::compiler::backend_c::Backend{}.generate(ir, options);
         EXPECT_TRUE(generated.success) << generated.error_message;
         const std::string text = concatenate(generated.files);
@@ -242,7 +244,8 @@ backend_ids(const quarry::compiler::schema_ir::SchemaIrModel& ir) {
         scan(text, std::regex(R"(&(\w+)_type, (\d+)U)"), true, result["C"]); // nested
     }
     {
-        quarry::compiler::backend_c::CodegenOptions options;
+        quarry::compiler::backend_c::CodegenOptions options =
+            quarry::testing::with_test_identity(quarry::compiler::backend_c::CodegenOptions{});
         options.cpp_wrapper = true;
         const auto generated = quarry::compiler::backend_c::Backend{}.generate(ir, options);
         EXPECT_TRUE(generated.success) << generated.error_message;
@@ -252,7 +255,7 @@ backend_ids(const quarry::compiler::schema_ir::SchemaIrModel& ir) {
     }
     {
         const auto generated = quarry::compiler::backend::Backend{}.generate(
-            ir, quarry::compiler::backend::CodegenOptions{});
+            ir, quarry::testing::with_test_identity(quarry::compiler::backend::CodegenOptions{}));
         EXPECT_TRUE(generated.success) << generated.error_message;
         const std::string text = concatenate(generated.files);
         scan(
@@ -268,7 +271,8 @@ backend_ids(const quarry::compiler::schema_ir::SchemaIrModel& ir) {
     }
     {
         const auto generated = quarry::compiler::backend_python::Backend{}.generate(
-            ir, quarry::compiler::backend_python::CodegenOptions{});
+            ir, quarry::testing::with_test_identity(
+                    quarry::compiler::backend_python::CodegenOptions{}));
         EXPECT_TRUE(generated.success) << generated.error_message;
         const std::string text = concatenate(generated.files);
         scan(text,
@@ -281,7 +285,8 @@ backend_ids(const quarry::compiler::schema_ir::SchemaIrModel& ir) {
             false, result["Python"]);
     }
     {
-        quarry::compiler::backend_go::CodegenOptions options;
+        quarry::compiler::backend_go::CodegenOptions options =
+            quarry::testing::with_test_identity(quarry::compiler::backend_go::CodegenOptions{});
         options.go_import_prefix = "example.com/ids";
         const auto generated = quarry::compiler::backend_go::Backend{}.generate(ir, options);
         EXPECT_TRUE(generated.success) << generated.error_message;
@@ -372,11 +377,12 @@ TEST_F(HierarchicalRecordIdTest, RepeatedCompilationIsDeterministic) {
     ASSERT_TRUE(second.has_value());
     EXPECT_EQ(build_qbs(*first).bytes, build_qbs(*second).bytes);
     const auto generated_first = quarry::compiler::backend::Backend{}.generate(
-        *first, quarry::compiler::backend::CodegenOptions{});
+        *first, quarry::testing::with_test_identity(quarry::compiler::backend::CodegenOptions{}));
     const auto generated_second = quarry::compiler::backend::Backend{}.generate(
-        *second, quarry::compiler::backend::CodegenOptions{});
+        *second, quarry::testing::with_test_identity(quarry::compiler::backend::CodegenOptions{}));
     EXPECT_EQ(concatenate(generated_first.files), concatenate(generated_second.files));
-    quarry::compiler::backend_go::CodegenOptions go;
+    quarry::compiler::backend_go::CodegenOptions go =
+        quarry::testing::with_test_identity(quarry::compiler::backend_go::CodegenOptions{});
     go.go_import_prefix = "example.com/ids";
     EXPECT_EQ(concatenate(quarry::compiler::backend_go::Backend{}.generate(*first, go).files),
               concatenate(quarry::compiler::backend_go::Backend{}.generate(*second, go).files));

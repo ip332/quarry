@@ -358,8 +358,16 @@ Schema IR (complete resolved configuration)
   `--emit-qbs` the QBS builder hashes the same input once instead. With
   `--list-outputs` nothing is hashed, including `--emit-qbs --list-outputs`, which
   still builds and validates the QBS model (`QbsBuildOptions::compute_configuration_identity = false`).
-* Each backend's identity arrives as `CodegenOptions::configuration_identity`;
-  backends never recompute it.
+* Each backend's identity arrives as `CodegenOptions::configuration_identity`, a
+  `std::optional<ConfigurationIdentity>`; backends never recompute it. Absence is
+  explicit, never a sentinel value: every 128-bit `schema_id`, including all
+  zeros, is valid. `generate()` rejects an absent identity in every backend
+  variant (#113), after the backend's own schema validation and before rendering
+  any file, so a rejected call produces no output and validation errors keep
+  their established diagnostics. `plan()` (and so `--list-outputs`) never needs
+  an identity. Tests that call a backend directly pass the explicit
+  `quarry::testing::kTestConfigurationIdentity`
+  (`tests/support/test_configuration_identity.hpp`).
 * Each backend has two entry points. The layout-taking `plan()`/`generate()`
   overloads are what the driver uses. The self-contained overloads compute the
   layout themselves and remain for direct callers and tests. If layout

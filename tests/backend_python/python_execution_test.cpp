@@ -27,6 +27,7 @@
 #include <string_view>
 
 #include "compiler/backend_python/backend_python.hpp"
+#include "tests/support/test_configuration_identity.hpp"
 
 #include <gtest/gtest.h>
 
@@ -277,7 +278,8 @@ constexpr std::string_view kKeywordSchema = "namespace: class\n"
     blobs_array->mutable_element_type()->mutable_bytes()->set_max_bytes(4);
 
     quarry::compiler::backend_python::Backend backend;
-    quarry::compiler::backend_python::CodegenOptions options;
+    quarry::compiler::backend_python::CodegenOptions options =
+        quarry::testing::with_test_identity(quarry::compiler::backend_python::CodegenOptions{});
     options.output_directory = generated.string();
     const auto result = backend.generate(schema_ir, options);
     if (!result.success) {
@@ -339,7 +341,8 @@ constexpr std::string_view kKeywordSchema = "namespace: class\n"
     value->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
 
     quarry::compiler::backend_python::Backend backend;
-    quarry::compiler::backend_python::CodegenOptions options;
+    quarry::compiler::backend_python::CodegenOptions options =
+        quarry::testing::with_test_identity(quarry::compiler::backend_python::CodegenOptions{});
     options.output_directory = generated.string();
     const auto result = backend.generate(schema_ir, options);
     if (!result.success) {

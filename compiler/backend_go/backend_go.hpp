@@ -6,6 +6,7 @@
 #include "compiler/support/configuration_identity.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -30,7 +31,9 @@ struct CodegenOptions {
     // "example.com/telemetry/gen". Required only when a generated package
     // refers to a record or enum declared in another namespace.
     std::string go_import_prefix;
-    support::ConfigurationIdentity configuration_identity;
+    // Required for generate(), ignored by plan(). The schema compiler computes it
+    // once from the resolved configuration; see missing_configuration_identity_message.
+    std::optional<support::ConfigurationIdentity> configuration_identity;
 };
 
 struct GeneratedFile {

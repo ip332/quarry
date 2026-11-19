@@ -277,6 +277,18 @@ target_link_libraries(configuration_preparation_test PRIVATE
     quarry_schema_ir_warning_tweaks)
 target_compile_definitions(configuration_preparation_test PRIVATE
     QUARRY_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+# Every backend variant requires an explicit configuration identity (#113).
+add_quarry_gtest(backend_identity_requirement_test tools/backend_identity_requirement_test.cpp
+                      quarry_schema_compiler_preparation)
+target_link_libraries(backend_identity_requirement_test PRIVATE
+    quarry_compiler_backend
+    quarry_compiler_backend_c
+    quarry_compiler_backend_go
+    quarry_compiler_backend_python
+    quarry_compiler_frontend
+    quarry_schema_ir_warning_tweaks)
+target_compile_definitions(backend_identity_requirement_test PRIVATE
+    QUARRY_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 add_quarry_gtest(brf_inspect_tool_test tools/brf_inspect_tool_test.cpp quarry_compiler_support)
 add_dependencies(brf_inspect_tool_test quarry_brf_inspect)
 target_compile_definitions(brf_inspect_tool_test PRIVATE

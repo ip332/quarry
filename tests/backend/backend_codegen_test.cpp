@@ -3,6 +3,7 @@
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "compiler/schema_ir/validation.hpp"
+#include "tests/support/test_configuration_identity.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -211,7 +212,8 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
     ASSERT_NE(generated_file, result.files.end()) << generated_path;
 
     const std::filesystem::path root = make_temp_directory("compile");
-    const std::filesystem::path generated_root = root / CodegenOptions{}.output_directory;
+    const std::filesystem::path generated_root =
+        root / quarry::testing::with_test_identity(CodegenOptions{}).output_directory;
     write_generated_files(result, root);
 
     const std::filesystem::path source_path = root / "compile.cpp";
@@ -374,13 +376,15 @@ void compile_generated_header(const CodegenResult& result, std::string_view gene
 }
 
 TEST(BackendCodegenTest, EmptySchemaGeneratesNoFiles) {
-    const CodegenResult result = run_backend_fixture("empty", CodegenOptions{});
+    const CodegenResult result =
+        run_backend_fixture("empty", quarry::testing::with_test_identity(CodegenOptions{}));
     EXPECT_TRUE(result.success) << result.error_message;
     EXPECT_TRUE(result.files.empty());
 }
 
 TEST(BackendCodegenTest, SingleRecordMatchesGolden) {
-    const CodegenResult result = run_backend_fixture("single_record", CodegenOptions{});
+    const CodegenResult result =
+        run_backend_fixture("single_record", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
@@ -388,7 +392,7 @@ TEST(BackendCodegenTest, SingleRecordMatchesGolden) {
 }
 
 TEST(BackendCodegenTest, GenerationPlanUsesCustomRootStemAndExtensionForRootNamespace) {
-    CodegenOptions options;
+    CodegenOptions options = quarry::testing::with_test_identity(CodegenOptions{});
     options.output_directory = "out";
     options.root_file_stem = "telemetry";
     options.file_extension = ".hpp";
@@ -401,7 +405,7 @@ TEST(BackendCodegenTest, GenerationPlanUsesCustomRootStemAndExtensionForRootName
 }
 
 TEST(BackendCodegenTest, GenerationPlanUsesNamespacePathForNestedNamespaceOutput) {
-    CodegenOptions options;
+    CodegenOptions options = quarry::testing::with_test_identity(CodegenOptions{});
     options.output_directory = "out";
     options.root_file_stem = "root";
     options.file_extension = ".hpp";
@@ -414,7 +418,7 @@ TEST(BackendCodegenTest, GenerationPlanUsesNamespacePathForNestedNamespaceOutput
 }
 
 TEST(BackendCodegenTest, GenerationPlanPreservesMultiFileOrderingAndIncludePaths) {
-    CodegenOptions options;
+    CodegenOptions options = quarry::testing::with_test_identity(CodegenOptions{});
     options.output_directory = "out";
     options.root_file_stem = "root";
     options.file_extension = ".hpp";
@@ -436,7 +440,8 @@ TEST(BackendCodegenTest, GenerationPlanPreservesMultiFileOrderingAndIncludePaths
 }
 
 TEST(BackendCodegenTest, GeneratedRecordsAssertRuntimeGeneratedCodeApiVersion) {
-    const CodegenResult result = run_backend_fixture("single_record", CodegenOptions{});
+    const CodegenResult result =
+        run_backend_fixture("single_record", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
@@ -466,11 +471,13 @@ TEST(BackendCodegenTest, RuntimeGeneratedCodeApiVersionMismatchFailsCompilation)
 }
 
 TEST(BackendCodegenTest, GeneratedSingleRecordHeaderCompilesAndRuns) {
-    const CodegenResult result = run_backend_fixture("single_record", CodegenOptions{});
+    const CodegenResult result =
+        run_backend_fixture("single_record", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source = "#include \"" + header_include +
                                            "\"\n"
                                            "int main() {\n"
@@ -484,11 +491,13 @@ TEST(BackendCodegenTest, GeneratedSingleRecordHeaderCompilesAndRuns) {
 }
 
 TEST(BackendCodegenTest, GeneratedEmptyRecordEncoderEmitsHeaderOnlyRecord) {
-    const CodegenResult result = run_backend_fixture("single_record", CodegenOptions{});
+    const CodegenResult result =
+        run_backend_fixture("single_record", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -515,7 +524,8 @@ TEST(BackendCodegenTest, GeneratedEmptyRecordEncoderEmitsHeaderOnlyRecord) {
 }
 
 TEST(BackendCodegenTest, BuiltinScalarFieldsMatchGolden) {
-    const CodegenResult result = run_backend_fixture("builtin_scalar_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "builtin_scalar_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
@@ -523,11 +533,13 @@ TEST(BackendCodegenTest, BuiltinScalarFieldsMatchGolden) {
 }
 
 TEST(BackendCodegenTest, GeneratedBuiltinScalarHeaderCompilesAndRuns) {
-    const CodegenResult result = run_backend_fixture("builtin_scalar_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "builtin_scalar_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -567,11 +579,13 @@ TEST(BackendCodegenTest, GeneratedBuiltinScalarHeaderCompilesAndRuns) {
 }
 
 TEST(BackendCodegenTest, GeneratedScalarEncoderEmitsExactBytes) {
-    const CodegenResult result = run_backend_fixture("builtin_scalar_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "builtin_scalar_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -613,11 +627,13 @@ TEST(BackendCodegenTest, GeneratedScalarEncoderEmitsExactBytes) {
 }
 
 TEST(BackendCodegenTest, GeneratedScalarEncoderDistinguishesAbsentAndPresentDefault) {
-    const CodegenResult result = run_backend_fixture("builtin_scalar_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "builtin_scalar_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -656,11 +672,13 @@ TEST(BackendCodegenTest, GeneratedScalarEncoderDistinguishesAbsentAndPresentDefa
 }
 
 TEST(BackendCodegenTest, GeneratedScalarDecoderReadsManualBytes) {
-    const CodegenResult result = run_backend_fixture("builtin_scalar_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "builtin_scalar_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -699,11 +717,13 @@ TEST(BackendCodegenTest, GeneratedScalarDecoderReadsManualBytes) {
 }
 
 TEST(BackendCodegenTest, GeneratedScalarDecoderReportsFieldPayloadByteOffset) {
-    const CodegenResult result = run_backend_fixture("builtin_scalar_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "builtin_scalar_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -737,11 +757,13 @@ TEST(BackendCodegenTest, GeneratedScalarDecoderReportsFieldPayloadByteOffset) {
 }
 
 TEST(BackendCodegenTest, GeneratedScalarDecoderRoundTripsAndPreservesPresence) {
-    const CodegenResult result = run_backend_fixture("builtin_scalar_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "builtin_scalar_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -774,11 +796,13 @@ TEST(BackendCodegenTest, GeneratedScalarDecoderRoundTripsAndPreservesPresence) {
 }
 
 TEST(BackendCodegenTest, GeneratedScalarDecoderRejectsInvalidKnownFieldsAndIgnoresUnknownFields) {
-    const CodegenResult result = run_backend_fixture("builtin_scalar_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "builtin_scalar_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -835,12 +859,14 @@ TEST(BackendCodegenTest, GeneratedScalarDecoderRejectsInvalidKnownFieldsAndIgnor
 }
 
 TEST(BackendCodegenTest, GeneratedDiagnosticDecodeReportsStructuralAndSchemaErrors) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -912,12 +938,14 @@ TEST(BackendCodegenTest, GeneratedDiagnosticDecodeReportsStructuralAndSchemaErro
 }
 
 TEST(BackendCodegenTest, GeneratedDiagnosticEncodeReportsSchemaErrors) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -951,7 +979,8 @@ TEST(BackendCodegenTest, GeneratedDiagnosticEncodeReportsSchemaErrors) {
 }
 
 TEST(BackendCodegenTest, EnumMatchesGolden) {
-    const CodegenResult result = run_backend_fixture("enum", CodegenOptions{});
+    const CodegenResult result =
+        run_backend_fixture("enum", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
@@ -959,7 +988,8 @@ TEST(BackendCodegenTest, EnumMatchesGolden) {
 }
 
 TEST(BackendCodegenTest, NegativeEnumValuesArePreserved) {
-    const CodegenResult result = run_backend_fixture("negative_enum_values", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "negative_enum_values", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
@@ -970,7 +1000,8 @@ TEST(BackendCodegenTest, NegativeEnumValuesArePreserved) {
 }
 
 TEST(BackendCodegenTest, NamedTypeReferenceMatchesGolden) {
-    const CodegenResult result = run_backend_fixture("named_type_reference", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "named_type_reference", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/quarry/geo.generated.hpp");
@@ -978,7 +1009,8 @@ TEST(BackendCodegenTest, NamedTypeReferenceMatchesGolden) {
 }
 
 TEST(BackendCodegenTest, SameFileForwardReferenceOrdersDefinitions) {
-    const CodegenResult result = run_backend_fixture("forward_record_reference", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "forward_record_reference", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
@@ -986,7 +1018,8 @@ TEST(BackendCodegenTest, SameFileForwardReferenceOrdersDefinitions) {
 }
 
 TEST(BackendCodegenTest, NestedRecordFieldUsesCompleteEmbeddedRecord) {
-    const CodegenResult result = run_backend_fixture("forward_record_reference", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "forward_record_reference", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     compile_generated_header(
         result, "generated/schema.generated.hpp",
@@ -1065,8 +1098,8 @@ TEST(BackendCodegenTest, NestedRecordFieldUsesCompleteEmbeddedRecord) {
 }
 
 TEST(BackendCodegenTest, MultipleTopLevelNamespacesMatchGolden) {
-    const CodegenResult result =
-        run_backend_fixture("multiple_top_level_namespaces", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "multiple_top_level_namespaces", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2u);
     EXPECT_EQ(result.files[0].path, "generated/alpha/one.generated.hpp");
@@ -1075,7 +1108,8 @@ TEST(BackendCodegenTest, MultipleTopLevelNamespacesMatchGolden) {
 }
 
 TEST(BackendCodegenTest, CrossNamespaceReferenceMatchesGolden) {
-    const CodegenResult result = run_backend_fixture("cross_namespace_reference", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "cross_namespace_reference", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2u);
     EXPECT_EQ(result.files[0].path, "generated/alpha/one.generated.hpp");
@@ -1084,7 +1118,8 @@ TEST(BackendCodegenTest, CrossNamespaceReferenceMatchesGolden) {
 }
 
 TEST(BackendCodegenTest, CrossNamespaceNestedRecordCodecCompilesAndRoundTrips) {
-    const CodegenResult result = run_backend_fixture("cross_namespace_reference", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "cross_namespace_reference", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     compile_generated_header(
         result, "generated/beta/two.generated.hpp",
@@ -1111,8 +1146,8 @@ TEST(BackendCodegenTest, CrossNamespaceNestedRecordCodecCompilesAndRoundTrips) {
 }
 
 TEST(BackendCodegenTest, CrossNamespaceEnumReferenceMatchesGolden) {
-    const CodegenResult result =
-        run_backend_fixture("cross_namespace_enum_reference", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "cross_namespace_enum_reference", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2u);
     EXPECT_EQ(result.files[0].path, "generated/alpha/one.generated.hpp");
@@ -1122,7 +1157,8 @@ TEST(BackendCodegenTest, CrossNamespaceEnumReferenceMatchesGolden) {
 
 TEST(BackendCodegenTest, CyclicNamespaceDependencyFailsClearly) {
     const CodegenResult result =
-        Backend{}.generate(make_manual_cyclic_namespace_schema_ir(), CodegenOptions{});
+        Backend{}.generate(make_manual_cyclic_namespace_schema_ir(),
+                           quarry::testing::with_test_identity(CodegenOptions{}));
     EXPECT_FALSE(result.success);
     EXPECT_TRUE(result.files.empty());
     EXPECT_FALSE(result.error_message.empty());
@@ -1131,14 +1167,16 @@ TEST(BackendCodegenTest, CyclicNamespaceDependencyFailsClearly) {
 TEST(BackendCodegenTest, MalformedFieldTypeFailsAtomically) {
     Backend backend;
     const CodegenResult result =
-        backend.generate(make_manual_unspecified_primitive_schema_ir(), CodegenOptions{});
+        backend.generate(make_manual_unspecified_primitive_schema_ir(),
+                         quarry::testing::with_test_identity(CodegenOptions{}));
     EXPECT_FALSE(result.success);
     EXPECT_TRUE(result.files.empty());
     EXPECT_FALSE(result.error_message.empty());
 }
 
 TEST(BackendCodegenTest, EnumReferenceMatchesGolden) {
-    const CodegenResult result = run_backend_fixture("enum_reference", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "enum_reference", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
@@ -1146,8 +1184,8 @@ TEST(BackendCodegenTest, EnumReferenceMatchesGolden) {
 }
 
 TEST(BackendCodegenTest, EnumAndRecordSameNamespaceMatchGolden) {
-    const CodegenResult result =
-        run_backend_fixture("mixed_same_namespace_dependencies", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "mixed_same_namespace_dependencies", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
@@ -1155,7 +1193,8 @@ TEST(BackendCodegenTest, EnumAndRecordSameNamespaceMatchGolden) {
 }
 
 TEST(BackendCodegenTest, NestedRecordFieldsMatchGolden) {
-    const CodegenResult result = run_backend_fixture("nested_record_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "nested_record_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
@@ -1163,7 +1202,8 @@ TEST(BackendCodegenTest, NestedRecordFieldsMatchGolden) {
 }
 
 TEST(BackendCodegenTest, MultiLevelNestedRecordsRoundTripSupportedFields) {
-    const CodegenResult result = run_backend_fixture("nested_record_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "nested_record_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     compile_generated_header(
         result, "generated/schema.generated.hpp",
@@ -1211,7 +1251,8 @@ TEST(BackendCodegenTest, MultiLevelNestedRecordsRoundTripSupportedFields) {
 }
 
 TEST(BackendCodegenTest, RecordArrayComposesWithNestedRecordFields) {
-    const CodegenResult result = run_backend_fixture("nested_record_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "nested_record_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     compile_generated_header(
         result, "generated/schema.generated.hpp",
@@ -1256,7 +1297,8 @@ TEST(BackendCodegenTest, RecordArrayComposesWithNestedRecordFields) {
 }
 
 TEST(BackendCodegenTest, GeneratedDiagnosticCodecsPropagateNestedAndRecordArrayErrors) {
-    const CodegenResult result = run_backend_fixture("nested_record_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "nested_record_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     compile_generated_header(
         result, "generated/schema.generated.hpp",
@@ -1328,7 +1370,8 @@ TEST(BackendCodegenTest, GeneratedDiagnosticCodecsPropagateNestedAndRecordArrayE
 TEST(BackendCodegenTest, CollidingIncludeGuardsAreRejected) {
     // "a.b" -> a/b.generated.hpp and "a_b" -> a_b.generated.hpp normalize to the
     // same guard macro; emitting both would make one header hide the other.
-    const CodegenResult result = run_backend_fixture("include_guard_collision", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "include_guard_collision", quarry::testing::with_test_identity(CodegenOptions{}));
     EXPECT_FALSE(result.success);
     EXPECT_NE(result.error_message.find("include guards collide"), std::string::npos)
         << result.error_message;
@@ -1338,36 +1381,41 @@ TEST(BackendCodegenTest, CollidingIncludeGuardsAreRejected) {
 }
 
 TEST(BackendCodegenTest, MultipleEnumsHaveStableOrder) {
-    const CodegenResult result = run_backend_fixture("multiple_enums", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "multiple_enums", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(render_result(result), backend_golden_text("multiple_enums"));
 
-    const CodegenResult second_result = run_backend_fixture("multiple_enums", CodegenOptions{});
+    const CodegenResult second_result = run_backend_fixture(
+        "multiple_enums", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(second_result.success) << second_result.error_message;
     EXPECT_EQ(render_result(result), render_result(second_result));
 }
 
 TEST(BackendCodegenTest, VariableLengthFieldsMatchGolden) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     EXPECT_EQ(result.files.front().path, "generated/schema.generated.hpp");
     EXPECT_EQ(render_result(result), backend_golden_text("variable_length_fields"));
 
-    const CodegenResult second_result =
-        run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult second_result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(second_result.success) << second_result.error_message;
     EXPECT_EQ(render_result(result), render_result(second_result));
 }
 
 TEST(BackendCodegenTest, GeneratedVariableLengthHeaderCompilesAndRuns) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -1412,12 +1460,14 @@ TEST(BackendCodegenTest, GeneratedVariableLengthHeaderCompilesAndRuns) {
 }
 
 TEST(BackendCodegenTest, GeneratedRecordArrayCodecPreservesPresenceAndElements) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -1475,12 +1525,14 @@ TEST(BackendCodegenTest, GeneratedRecordArrayCodecPreservesPresenceAndElements) 
 }
 
 TEST(BackendCodegenTest, GeneratedStringAndBytesEncoderEmitsExactBytes) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -1524,12 +1576,14 @@ TEST(BackendCodegenTest, GeneratedStringAndBytesEncoderEmitsExactBytes) {
 }
 
 TEST(BackendCodegenTest, GeneratedStringAndBytesEncoderOmitsEmptyFields) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source = "#include \"" + header_include + "\"\n" + R"cpp(
 #include <cstddef>
 #include <cstdint>
@@ -1552,12 +1606,14 @@ int main() {
 }
 
 TEST(BackendCodegenTest, GeneratedStringAndBytesDecoderReadsManualBytes) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -1590,12 +1646,14 @@ TEST(BackendCodegenTest, GeneratedStringAndBytesDecoderReadsManualBytes) {
 }
 
 TEST(BackendCodegenTest, GeneratedStringAndBytesDecoderRejectsMalformedWireValues) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -1649,12 +1707,14 @@ TEST(BackendCodegenTest, GeneratedStringAndBytesDecoderRejectsMalformedWireValue
 }
 
 TEST(BackendCodegenTest, GeneratedArrayEncoderOmitsEmptyFields) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source = "#include \"" + header_include + "\"\n" + R"cpp(
 #include <cstddef>
 #include <cstdint>
@@ -1677,12 +1737,14 @@ int main() {
 }
 
 TEST(BackendCodegenTest, GeneratedArrayEncoderEmitsExactBytesForFixedWidthElements) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -1724,12 +1786,14 @@ TEST(BackendCodegenTest, GeneratedArrayEncoderEmitsExactBytesForFixedWidthElemen
 }
 
 TEST(BackendCodegenTest, GeneratedStringArrayCodecPreservesPresenceAndElements) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -1779,12 +1843,14 @@ TEST(BackendCodegenTest, GeneratedStringArrayCodecPreservesPresenceAndElements) 
 }
 
 TEST(BackendCodegenTest, GeneratedBytesArrayCodecPreservesArbitraryElements) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -1820,12 +1886,14 @@ TEST(BackendCodegenTest, GeneratedBytesArrayCodecPreservesArbitraryElements) {
 }
 
 TEST(BackendCodegenTest, GeneratedArrayCodecHandlesMixedFixedWidthArrays) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -1923,12 +1991,14 @@ TEST(BackendCodegenTest, GeneratedArrayCodecHandlesMixedFixedWidthArrays) {
 }
 
 TEST(BackendCodegenTest, GeneratedArrayDecoderReportsByteOffsetForCountVaruintFailure) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -1954,12 +2024,14 @@ TEST(BackendCodegenTest, GeneratedArrayDecoderReportsByteOffsetForCountVaruintFa
 }
 
 TEST(BackendCodegenTest, GeneratedArrayDecoderRejectsMalformedPayloads) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -2019,12 +2091,14 @@ TEST(BackendCodegenTest, GeneratedArrayDecoderRejectsMalformedPayloads) {
 }
 
 TEST(BackendCodegenTest, GeneratedVariableLengthArrayDecoderRejectsMalformedPayloads) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -2129,11 +2203,13 @@ TEST(BackendCodegenTest, GeneratedVariableLengthArrayDecoderRejectsMalformedPayl
 }
 
 TEST(BackendCodegenTest, GeneratedEnumEncoderEmitsExactBytesAndRejectsUnknownValue) {
-    const CodegenResult result = run_backend_fixture("enum_reference", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "enum_reference", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -2167,11 +2243,13 @@ TEST(BackendCodegenTest, GeneratedEnumEncoderEmitsExactBytesAndRejectsUnknownVal
 }
 
 TEST(BackendCodegenTest, GeneratedEnumDecoderReadsKnownValueAndRejectsUnknownValue) {
-    const CodegenResult result = run_backend_fixture("enum_reference", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "enum_reference", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -2202,8 +2280,8 @@ TEST(BackendCodegenTest, GeneratedEnumDecoderReadsKnownValueAndRejectsUnknownVal
 }
 
 TEST(BackendCodegenTest, CrossNamespaceArrayReferenceMatchesGolden) {
-    const CodegenResult result =
-        run_backend_fixture("cross_namespace_array_reference", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "cross_namespace_array_reference", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2u);
     EXPECT_EQ(result.files[0].path, "generated/alpha/one.generated.hpp");
@@ -2212,8 +2290,8 @@ TEST(BackendCodegenTest, CrossNamespaceArrayReferenceMatchesGolden) {
 }
 
 TEST(BackendCodegenTest, CrossNamespaceRecordArrayCodecCompilesAndRoundTrips) {
-    const CodegenResult result =
-        run_backend_fixture("cross_namespace_array_reference", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "cross_namespace_array_reference", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     compile_generated_header(
         result, "generated/beta/two.generated.hpp",
@@ -2243,12 +2321,14 @@ TEST(BackendCodegenTest, CrossNamespaceRecordArrayCodecCompilesAndRoundTrips) {
 }
 
 TEST(BackendCodegenTest, GeneratedRecordArrayDecoderRejectsMalformedPayloads) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -2349,12 +2429,14 @@ TEST(BackendCodegenTest, GeneratedRecordArrayDecoderRejectsMalformedPayloads) {
 }
 
 TEST(BackendCodegenTest, GeneratedRecordArrayDecoderPropagatesNestedFieldAndArrayIndexPath) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
 
-    const std::string header_include =
-        generated_include_path(CodegenOptions{}.output_directory, result.files.front().path);
+    const std::string header_include = generated_include_path(
+        quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+        result.files.front().path);
     const std::string translation_source =
         "#include \"" + header_include +
         "\"\n"
@@ -2411,7 +2493,8 @@ TEST(BackendCodegenTest, GeneratedRecordArrayDecoderPropagatesNestedFieldAndArra
 
 TEST(BackendCodegenTest, GeneratedRecordArrayEncoderPropagatesNestedFieldAndArrayIndexPath) {
     const CodegenResult result =
-        Backend{}.generate(make_manual_record_array_enum_schema_ir(), CodegenOptions{});
+        Backend{}.generate(make_manual_record_array_enum_schema_ir(),
+                           quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     ASSERT_EQ(result.files.front().path, "generated/schema.generated.hpp");
@@ -2450,7 +2533,8 @@ TEST(BackendCodegenTest, GeneratedRecordArrayEncoderPropagatesNestedFieldAndArra
 }
 
 TEST(BackendCodegenTest, GeneratedBuilderBoundsHeaderCompilesAndRuns) {
-    const CodegenResult result = run_backend_fixture("variable_length_fields", CodegenOptions{});
+    const CodegenResult result = run_backend_fixture(
+        "variable_length_fields", quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1u);
     ASSERT_EQ(result.files[0].path, "generated/schema.generated.hpp");
@@ -2527,7 +2611,8 @@ TEST(BackendCodegenTest, EveryFixtureCompilesWithStrictWarnings) {
         if (!fixture.schema_ir.has_value()) {
             continue; // Invalid by design; covered by the validation tests.
         }
-        const CodegenResult result = Backend{}.generate(*fixture.schema_ir, CodegenOptions{});
+        const CodegenResult result = Backend{}.generate(
+            *fixture.schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
         if (!result.success || result.files.empty()) {
             continue; // Rejected or empty schemas generate nothing to compile.
         }
@@ -2536,7 +2621,9 @@ TEST(BackendCodegenTest, EveryFixtureCompilesWithStrictWarnings) {
         std::string includes;
         for (const auto& file : result.files) {
             includes += "#include \"" +
-                        generated_include_path(CodegenOptions{}.output_directory, file.path) +
+                        generated_include_path(
+                            quarry::testing::with_test_identity(CodegenOptions{}).output_directory,
+                            file.path) +
                         "\"\n";
         }
         const std::filesystem::path source = root / "compile.cpp";
@@ -2546,8 +2633,11 @@ TEST(BackendCodegenTest, EveryFixtureCompilesWithStrictWarnings) {
         std::ostringstream command;
         command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER))
                 << " -std=c++20" QUARRY_TEST_STRICT_CXX_WARNINGS " -fsyntax-only -I"
-                << std::quoted((root / CodegenOptions{}.output_directory).string()) << " -I"
-                << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << " -I"
+                << std::quoted(
+                       (root /
+                        quarry::testing::with_test_identity(CodegenOptions{}).output_directory)
+                           .string())
+                << " -I" << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << " -I"
                 << std::quoted((repo_root / "include").string()) << ' '
                 << std::quoted(source.string());
         EXPECT_EQ(run_command(command.str()), 0) << command.str();

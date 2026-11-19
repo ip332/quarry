@@ -3,6 +3,7 @@
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "compiler/schema_ir/validation.hpp"
+#include "tests/support/test_configuration_identity.hpp"
 
 #include <cstdint>
 #include <string>
@@ -91,11 +92,13 @@ TEST(BackendPythonTest, EmptySchemaProducesNoFiles) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
+    const PlanResult plan_result =
+        backend.plan(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(plan_result.success) << plan_result.error_message;
     EXPECT_TRUE(plan_result.plan.files.empty());
 
-    const CodegenResult codegen_result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult codegen_result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(codegen_result.success) << codegen_result.error_message;
     EXPECT_TRUE(codegen_result.files.empty());
 }
@@ -109,7 +112,8 @@ TEST(BackendPythonTest, RootNamespaceZeroFieldRecordUsesRootModuleStemWithNoPack
     assert_valid(schema_ir);
 
     Backend backend;
-    const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
+    const PlanResult plan_result =
+        backend.plan(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(plan_result.success) << plan_result.error_message;
     ASSERT_EQ(plan_result.plan.files.size(), 1U);
     EXPECT_EQ(plan_result.plan.files[0].relative_output_path, "schema.py");
@@ -126,7 +130,8 @@ TEST(BackendPythonTest, NestedNamespaceProducesPackageDirectoriesAndInitFiles) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 3U);
 
@@ -153,7 +158,8 @@ TEST(BackendPythonTest, SiblingNamespacesShareAncestorInitFileExactlyOnce) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
+    const PlanResult plan_result =
+        backend.plan(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(plan_result.success) << plan_result.error_message;
 
     int acme_init_count = 0;
@@ -176,7 +182,8 @@ TEST(BackendPythonTest, ZeroFieldRecordEmitsExactTemplate) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1U);
 
@@ -187,7 +194,7 @@ TEST(BackendPythonTest, ZeroFieldRecordEmitsExactTemplate) {
         "# Configuration identity: the QBS schema_id of this module's compilation root\n"
         "# (algorithm 1 = SHA-256 truncated to 128 bits).\n"
         "QUARRY_SCHEMA_ID_ALGORITHM = 1\n"
-        "QUARRY_SCHEMA_ID = bytes.fromhex(\"00000000000000000000000000000000\")\n"
+        "QUARRY_SCHEMA_ID = bytes.fromhex(\"00112233445566778899aabbccddeeff\")\n"
         "\n"
         "@dataclass\n"
         "class Sample:\n"
@@ -230,7 +237,8 @@ TEST(BackendPythonTest, HelperFunctionNamesUseSnakeCaseConversion) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1U);
 
@@ -252,7 +260,8 @@ TEST(BackendPythonTest, PublicMethodsDelegateToHelpersRatherThanDuplicatingLogic
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1U);
 
@@ -277,7 +286,8 @@ TEST(BackendPythonTest, EpochCheckPreambleImportsRuntimeAndRaisesOnMismatch) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1U);
 
@@ -310,11 +320,13 @@ TEST(BackendPythonTest, UnsupportedFieldTypeFailsGenerationNamingRecordAndField)
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     EXPECT_FALSE(result.success);
     EXPECT_NE(result.error_message.find("BRF v2 layout computation failed"), std::string::npos);
 
-    const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
+    const PlanResult plan_result =
+        backend.plan(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     EXPECT_FALSE(plan_result.success);
 }
 
@@ -333,7 +345,8 @@ TEST(BackendPythonTest, RecordArraysGenerateTypedAnnotationsAndChildHelperFramin
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     const std::string& content = result.files[0].content;
     EXPECT_LT(content.find("class Child:"), content.find("class Parent:"));
@@ -367,7 +380,8 @@ TEST(BackendPythonTest, NestedRecordGeneratesOrderedDataclassesAndDelegatingHelp
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1U);
     const std::string& content = result.files[0].content;
@@ -405,7 +419,8 @@ TEST(BackendPythonTest, ScalarAndEnumArraysGenerateCorrectAnnotationsAndHelpers)
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1U);
     const std::string& content = result.files[0].content;
@@ -448,7 +463,8 @@ TEST(BackendPythonTest, StringAndBytesArraysGenerateCorrectAnnotationsAndHelpers
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1U);
     const std::string& content = result.files[0].content;
@@ -497,7 +513,8 @@ TEST(BackendPythonTest, AllElevenScalarTypesGenerateSuccessfully) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1U);
 
@@ -527,7 +544,8 @@ TEST(BackendPythonTest, ScalarRecordEncodeDecodeHelpersReferenceRuntimeCorrectly
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1U);
 
@@ -562,7 +580,8 @@ TEST(BackendPythonTest, StringAndBytesFieldsGenerateCorrectDataclassAndHelpers) 
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1U);
 
@@ -595,7 +614,8 @@ TEST(BackendPythonTest, EnumFieldGeneratesIntEnumClassBeforeReferencingRecord) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1U);
 
@@ -632,7 +652,8 @@ TEST(BackendPythonTest, EnumWidthMatchesSmallestUnsignedTypeForMaxDeclaredValue)
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1U);
 
@@ -674,7 +695,8 @@ TEST(BackendPythonTest, CrossNamespaceEnumAndRecordFieldsUseDependencyModuleAlia
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     const GeneratedFile* module = find_file(result, "generated/records/schema.py");
     ASSERT_NE(module, nullptr);
@@ -698,7 +720,8 @@ TEST(BackendPythonTest, CrossNamespaceEnumAndRecordFieldsUseDependencyModuleAlia
     root_unit.namespace_fqn = "records";
     root_unit.emits_output = true;
     output_plan.units.push_back(root_unit);
-    const CodegenResult root_only = backend.generate(schema_ir, CodegenOptions{}, &output_plan);
+    const CodegenResult root_only = backend.generate(
+        schema_ir, quarry::testing::with_test_identity(CodegenOptions{}), &output_plan);
     ASSERT_TRUE(root_only.success) << root_only.error_message;
     ASSERT_NE(find_file(root_only, "generated/records/schema.py"), nullptr);
     EXPECT_EQ(find_file(root_only, "generated/enums/schema.py"), nullptr);
@@ -720,11 +743,13 @@ TEST(BackendPythonTest, NegativeEnumValueFieldFailsGenerationNamingRecordAndFiel
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     EXPECT_FALSE(result.success);
     EXPECT_NE(result.error_message.find("BRF v2 layout computation failed"), std::string::npos);
 
-    const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
+    const PlanResult plan_result =
+        backend.plan(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     EXPECT_FALSE(plan_result.success);
 }
 
@@ -743,11 +768,13 @@ TEST(BackendPythonTest, NamespaceWithOnlyEnumsEmitsAFileContainingJustTheEnum) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
+    const PlanResult plan_result =
+        backend.plan(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(plan_result.success) << plan_result.error_message;
     ASSERT_EQ(plan_result.plan.files.size(), 2U); // acme/__init__.py + acme/schema.py
 
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     const GeneratedFile* module = find_file(result, "generated/acme/schema.py");
     ASSERT_NE(module, nullptr);
@@ -770,15 +797,18 @@ TEST(BackendPythonTest, PlanAndGenerateAgreeOnOutputPaths) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
-    const CodegenResult codegen_result = backend.generate(schema_ir, CodegenOptions{});
+    const PlanResult plan_result =
+        backend.plan(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
+    const CodegenResult codegen_result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(plan_result.success) << plan_result.error_message;
     ASSERT_TRUE(codegen_result.success) << codegen_result.error_message;
     ASSERT_EQ(plan_result.plan.files.size(), codegen_result.files.size());
 
     for (std::size_t index = 0; index < plan_result.plan.files.size(); ++index) {
         EXPECT_EQ(quarry::compiler::backend_python::output_path_for_planned_file(
-                      CodegenOptions{}, plan_result.plan.files[index].relative_output_path),
+                      quarry::testing::with_test_identity(CodegenOptions{}),
+                      plan_result.plan.files[index].relative_output_path),
                   codegen_result.files[index].path);
     }
 }
@@ -796,8 +826,10 @@ TEST(BackendPythonTest, GenerationIsDeterministicAcrossRepeatedCalls) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult first = backend.generate(schema_ir, CodegenOptions{});
-    const CodegenResult second = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult first =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
+    const CodegenResult second =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(first.success) << first.error_message;
     ASSERT_TRUE(second.success) << second.error_message;
     ASSERT_EQ(first.files.size(), second.files.size());
@@ -808,7 +840,7 @@ TEST(BackendPythonTest, GenerationIsDeterministicAcrossRepeatedCalls) {
 }
 
 TEST(BackendPythonTest, OutputPathForPlannedFileHonorsOutputDirectory) {
-    CodegenOptions options;
+    CodegenOptions options = quarry::testing::with_test_identity(CodegenOptions{});
     options.output_directory = "out";
     EXPECT_EQ(quarry::compiler::backend_python::output_path_for_planned_file(options, "a/b.py"),
              "out/a/b.py");
@@ -840,7 +872,8 @@ TEST(BackendPythonTest, PythonKeywordsAreEscapedAcrossGeneratedNames) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 1U);
     const std::string& content = result.files[0].content;
@@ -862,7 +895,7 @@ TEST(BackendPythonTest, KeywordNamespaceAndRootModuleStemProduceSafePaths) {
     (void)add_zero_field_record(*keyword_namespace, 3, 1U, "Sample", "class.Sample");
     assert_valid(schema_ir);
 
-    CodegenOptions options;
+    CodegenOptions options = quarry::testing::with_test_identity(CodegenOptions{});
     options.root_module_stem = "import";
     Backend backend;
     const PlanResult result = backend.plan(schema_ir, options);
@@ -887,7 +920,8 @@ TEST(BackendPythonTest, PostSanitizationFieldCollisionsAreRejected) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     EXPECT_FALSE(result.success);
     EXPECT_NE(result.error_message.find("class_"), std::string::npos);
     EXPECT_NE(result.error_message.find("Sample"), std::string::npos);
@@ -906,7 +940,8 @@ TEST(BackendPythonTest, ReservedDunderNamesAreRejectedWithDiagnostic) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     EXPECT_FALSE(result.success);
     EXPECT_NE(result.error_message.find("__init__"), std::string::npos);
     EXPECT_NE(result.error_message.find("reserved Python identifier"), std::string::npos);
