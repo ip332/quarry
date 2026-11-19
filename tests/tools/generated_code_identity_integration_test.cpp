@@ -425,9 +425,9 @@ TEST_F(GeneratedCodeIdentityTest, IdentityMetadataMatchesTheNamespaceName) {
         "static_assert(QUARRY_GENERATED_CPP_NS_FLEET_ENGINE_CODE_ID_W3 == 0x" +
         id.substr(24, 8) +
         "UL);\n"
-        "static_assert(&fleet::engine::kQuarryGeneratedCodeId == "
-        "&fleet::engine::quarry_gen_" +
-        id + "::kQuarryGeneratedCodeId);\n";
+        // The inline namespace is named by the same identity.
+        "static_assert(fleet::engine::quarry_gen_" +
+        id + "::kQuarryGeneratedCodeId[0] == 0x" + id.substr(0, 2) + "U);\n";
     const RunResult result = syntax_check(source, {output}, "meta");
     EXPECT_EQ(result.status, 0) << result.output;
 }

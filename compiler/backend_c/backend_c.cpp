@@ -2359,79 +2359,109 @@ struct IdentifiedFile {
     support::GeneratedCodeIdentity identity;
 };
 
+// The generated namespaces `file` includes, excluding itself.
+[[nodiscard]] std::vector<std::string>
+generated_dependencies_of(const PlannedNamespaceFile& file,
+                          const std::map<std::string, std::string>& namespace_by_include) {
+    std::vector<std::string> dependencies;
+    for (const std::string& include_path : file.generated_includes) {
+        const auto it = namespace_by_include.find(include_path);
+        if (it != namespace_by_include.end() && it->second != file.namespace_fqn) {
+            dependencies.push_back(it->second);
+        }
+    }
+    return dependencies;
+}
+
+[[nodiscard]] bool identify_cstorage_file(
+    const PlannedNamespaceFile& file,
+    const std::map<std::string, std::string>& namespace_by_include, const CodegenOptions& options,
+    const std::map<std::string, support::GeneratedCodeIdentity, std::less<>>& ids,
+    IdentifiedFile& result, std::string& error_message) {
+    std::vector<support::GeneratedCodeIdentityDependency> dependencies;
+    for (const std::string& fqn : generated_dependencies_of(file, namespace_by_include)) {
+        const auto dependency = ids.find(fqn);
+        dependencies.push_back(support::GeneratedCodeIdentityDependency{
+            .namespace_fqn = dependency->first,
+            .variant = support::GeneratedCodeVariant::CppCStorage,
+            .identity = dependency->second});
+    }
+    const CRenderContext context{.optimize_size = options.optimize_size,
+                                 .cpp_wrapper = true,
+                                 .namespace_by_include = namespace_by_include,
+                                 .header_extension = options.header_extension,
+                                 .identity = *options.configuration_identity,
+                                 .dependency_ids = &ids};
+    result.header = render_header(file, context);
+    result.source =
+        render_compatibility_source(support::placeholder::include_path(file.namespace_fqn));
+    const support::GeneratedCodeIdentityInput input{
+        .variant = support::GeneratedCodeVariant::CppCStorage,
+        .configuration = *options.configuration_identity,
+        .namespace_fqn = file.namespace_fqn,
+        .files = {support::GeneratedCodeIdentityFile{.role = support::GeneratedFileRole::Header,
+                                                     .normalized_content = result.header},
+                  support::GeneratedCodeIdentityFile{.role = support::GeneratedFileRole::Source,
+                                                     .normalized_content = result.source}},
+        .dependencies = std::move(dependencies),
+    };
+    const auto identity = support::compute_generated_code_identity(input, error_message);
+    if (!identity.has_value()) {
+        error_message = "backend_c: " + error_message;
+        return false;
+    }
+    result.identity = *identity;
+    return true;
+}
+
+// Iterative: each pass identifies every namespace whose generated dependencies
+// are already identified; a pass without progress means a cycle.
 [[nodiscard]] bool identify_cstorage_files(
     const std::vector<PlannedNamespaceFile>& files,
     const std::map<std::string, std::string>& namespace_by_include, const CodegenOptions& options,
     std::map<std::string, IdentifiedFile, std::less<>>& identified, std::string& error_message) {
-    std::map<std::string, const PlannedNamespaceFile*, std::less<>> by_fqn;
+    std::set<std::string, std::less<>> planned;
     for (const PlannedNamespaceFile& file : files) {
-        by_fqn.emplace(file.namespace_fqn, &file);
+        planned.insert(file.namespace_fqn);
+    }
+    std::vector<const PlannedNamespaceFile*> pending;
+    for (const PlannedNamespaceFile& file : files) {
+        for (const std::string& fqn : generated_dependencies_of(file, namespace_by_include)) {
+            if (!planned.contains(fqn)) {
+                error_message = "backend_c: dependency '" + fqn + "' of '" + file.namespace_fqn +
+                                "' has no generated header";
+                return false;
+            }
+        }
+        pending.push_back(&file);
     }
     std::map<std::string, support::GeneratedCodeIdentity, std::less<>> ids;
-    std::set<std::string, std::less<>> visiting;
-    auto visit = [&](auto&& self, const PlannedNamespaceFile& file) -> bool {
-        if (ids.contains(file.namespace_fqn)) {
-            return true;
-        }
-        if (!visiting.insert(file.namespace_fqn).second) {
-            error_message = "backend_c: detected a namespace cycle at '" + file.namespace_fqn + "'";
-            return false;
-        }
-        std::vector<support::GeneratedCodeIdentityDependency> dependencies;
-        for (const std::string& include_path : file.generated_includes) {
-            const auto it = namespace_by_include.find(include_path);
-            if (it == namespace_by_include.end() || it->second == file.namespace_fqn) {
+    while (!pending.empty()) {
+        std::vector<const PlannedNamespaceFile*> blocked;
+        for (const PlannedNamespaceFile* file : pending) {
+            const std::vector<std::string> dependencies =
+                generated_dependencies_of(*file, namespace_by_include);
+            const bool ready =
+                std::all_of(dependencies.begin(), dependencies.end(),
+                            [&](const std::string& fqn) { return ids.contains(fqn); });
+            if (!ready) {
+                blocked.push_back(file);
                 continue;
             }
-            const auto dependency = by_fqn.find(it->second);
-            if (dependency == by_fqn.end()) {
-                error_message = "backend_c: dependency '" + it->second + "' of '" +
-                                file.namespace_fqn + "' has no generated header";
+            IdentifiedFile result;
+            if (!identify_cstorage_file(*file, namespace_by_include, options, ids, result,
+                                        error_message)) {
                 return false;
             }
-            if (!self(self, *dependency->second)) {
-                return false;
-            }
-            dependencies.push_back(support::GeneratedCodeIdentityDependency{
-                .namespace_fqn = dependency->first,
-                .variant = support::GeneratedCodeVariant::CppCStorage,
-                .identity = ids.at(it->second)});
+            ids.emplace(file->namespace_fqn, result.identity);
+            identified.emplace(file->namespace_fqn, std::move(result));
         }
-        const CRenderContext context{.optimize_size = options.optimize_size,
-                                     .cpp_wrapper = true,
-                                     .namespace_by_include = namespace_by_include,
-                                     .header_extension = options.header_extension,
-                                     .identity = *options.configuration_identity,
-                                     .dependency_ids = &ids};
-        IdentifiedFile result{.header = render_header(file, context),
-                              .source = render_compatibility_source(
-                                  support::placeholder::include_path(file.namespace_fqn)),
-                              .identity = {}};
-        const support::GeneratedCodeIdentityInput input{
-            .variant = support::GeneratedCodeVariant::CppCStorage,
-            .configuration = *options.configuration_identity,
-            .namespace_fqn = file.namespace_fqn,
-            .files = {support::GeneratedCodeIdentityFile{.role = support::GeneratedFileRole::Header,
-                                                         .normalized_content = result.header},
-                      support::GeneratedCodeIdentityFile{.role = support::GeneratedFileRole::Source,
-                                                         .normalized_content = result.source}},
-            .dependencies = std::move(dependencies),
-        };
-        const auto identity = support::compute_generated_code_identity(input, error_message);
-        if (!identity.has_value()) {
-            error_message = "backend_c: " + error_message;
+        if (blocked.size() == pending.size()) {
+            error_message =
+                "backend_c: detected a namespace cycle at '" + blocked.front()->namespace_fqn + "'";
             return false;
         }
-        result.identity = *identity;
-        ids.emplace(file.namespace_fqn, *identity);
-        identified.emplace(file.namespace_fqn, std::move(result));
-        visiting.erase(file.namespace_fqn);
-        return true;
-    };
-    for (const PlannedNamespaceFile& file : files) {
-        if (!visit(visit, file)) {
-            return false;
-        }
+        pending = std::move(blocked);
     }
     return true;
 }

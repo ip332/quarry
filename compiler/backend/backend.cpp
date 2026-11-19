@@ -2655,67 +2655,86 @@ struct IdentifiedNamespace {
 
 // Computes the generated-code identity of every header in `complete_plan` (the
 // selection-independent plan of the whole configuration), dependencies first.
+// Iterative: each pass identifies every namespace whose generated dependencies
+// are already identified; a pass without progress means a cycle.
+[[nodiscard]] bool
+identify_namespace(const NamespacePlan& plan, const CodegenOptions& options,
+                   const std::map<std::string, support::GeneratedCodeIdentity, std::less<>>& ids,
+                   IdentifiedNamespace& identified, std::string& error_message) {
+    std::vector<support::GeneratedCodeIdentityDependency> dependencies;
+    dependencies.reserve(plan.generated_dependencies.size());
+    for (const auto& entry : plan.generated_dependencies) {
+        const auto dependency = ids.find(entry.second);
+        dependencies.push_back(support::GeneratedCodeIdentityDependency{
+            .namespace_fqn = dependency->first,
+            .variant = support::GeneratedCodeVariant::CppOwning,
+            .identity = dependency->second});
+    }
+    if (!render_namespace_file(plan, options, ids, identified.normalized_text, error_message)) {
+        return false;
+    }
+    const support::GeneratedCodeIdentityInput input{
+        .variant = support::GeneratedCodeVariant::CppOwning,
+        .configuration = options.configuration_identity.value(),
+        .namespace_fqn = plan.fqn,
+        .files = {support::GeneratedCodeIdentityFile{.role = support::GeneratedFileRole::Header,
+                                                     .normalized_content =
+                                                         identified.normalized_text}},
+        .dependencies = std::move(dependencies),
+    };
+    const auto identity = support::compute_generated_code_identity(input, error_message);
+    if (!identity.has_value()) {
+        error_message = "backend codegen: " + error_message;
+        return false;
+    }
+    identified.identity = *identity;
+    return true;
+}
+
 [[nodiscard]] bool
 identify_namespaces(const RenderGenerationPlan& complete_plan, const CodegenOptions& options,
                     std::map<std::string, IdentifiedNamespace, std::less<>>& identified,
                     std::string& error_message) {
-    std::map<std::string, const NamespacePlan*, std::less<>> plans;
+    std::set<std::string, std::less<>> planned;
     for (const PlannedRenderFile& file : complete_plan.files) {
-        plans.emplace(file.namespace_plan->fqn, file.namespace_plan);
+        planned.insert(file.namespace_plan->fqn);
     }
-    std::map<std::string, support::GeneratedCodeIdentity, std::less<>> ids;
-    std::set<std::string, std::less<>> visiting;
-    auto visit = [&](auto&& self, const NamespacePlan& plan) -> bool {
-        if (ids.contains(plan.fqn)) {
-            return true;
-        }
-        if (!visiting.insert(plan.fqn).second) {
-            error_message = "backend codegen detected a namespace cycle at '" + plan.fqn + "'";
-            return false;
-        }
-        std::vector<support::GeneratedCodeIdentityDependency> dependencies;
-        for (const auto& [include_path, namespace_fqn] : plan.generated_dependencies) {
-            const auto it = plans.find(namespace_fqn);
-            if (it == plans.end()) {
-                error_message = "backend codegen: dependency '" + namespace_fqn + "' of '" +
+    std::vector<const NamespacePlan*> pending;
+    for (const PlannedRenderFile& file : complete_plan.files) {
+        const NamespacePlan& plan = *file.namespace_plan;
+        for (const auto& entry : plan.generated_dependencies) {
+            if (!planned.contains(entry.second)) {
+                error_message = "backend codegen: dependency '" + entry.second + "' of '" +
                                 namespace_display_name(plan.fqn) + "' has no generated header";
                 return false;
             }
-            if (!self(self, *it->second)) {
+        }
+        pending.push_back(&plan);
+    }
+    std::map<std::string, support::GeneratedCodeIdentity, std::less<>> ids;
+    while (!pending.empty()) {
+        std::vector<const NamespacePlan*> blocked;
+        for (const NamespacePlan* plan : pending) {
+            const bool ready = std::all_of(
+                plan->generated_dependencies.begin(), plan->generated_dependencies.end(),
+                [&](const auto& entry) { return ids.contains(entry.second); });
+            if (!ready) {
+                blocked.push_back(plan);
+                continue;
+            }
+            IdentifiedNamespace result;
+            if (!identify_namespace(*plan, options, ids, result, error_message)) {
                 return false;
             }
-            dependencies.push_back(support::GeneratedCodeIdentityDependency{
-                .namespace_fqn = it->first,
-                .variant = support::GeneratedCodeVariant::CppOwning,
-                .identity = ids.at(namespace_fqn)});
+            ids.emplace(plan->fqn, result.identity);
+            identified.emplace(plan->fqn, std::move(result));
         }
-        std::string text;
-        if (!render_namespace_file(plan, options, ids, text, error_message)) {
+        if (blocked.size() == pending.size()) {
+            error_message = "backend codegen detected a namespace cycle at '" +
+                            namespace_display_name(blocked.front()->fqn) + "'";
             return false;
         }
-        const support::GeneratedCodeIdentityInput input{
-            .variant = support::GeneratedCodeVariant::CppOwning,
-            .configuration = options.configuration_identity.value(),
-            .namespace_fqn = plan.fqn,
-            .files = {support::GeneratedCodeIdentityFile{.role = support::GeneratedFileRole::Header,
-                                                         .normalized_content = text}},
-            .dependencies = std::move(dependencies),
-        };
-        const auto identity = support::compute_generated_code_identity(input, error_message);
-        if (!identity.has_value()) {
-            error_message = "backend codegen: " + error_message;
-            return false;
-        }
-        ids.emplace(plan.fqn, *identity);
-        identified.emplace(plan.fqn, IdentifiedNamespace{.normalized_text = std::move(text),
-                                                         .identity = *identity});
-        visiting.erase(plan.fqn);
-        return true;
-    };
-    for (const auto& [fqn, plan] : plans) {
-        if (!visit(visit, *plan)) {
-            return false;
-        }
+        pending = std::move(blocked);
     }
     return true;
 }
