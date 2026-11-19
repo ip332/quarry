@@ -327,7 +327,10 @@ TEST_P(ConfigurationIdentityVariantTest, EmbedsThePrintedSchemaIdForEverySelecti
             switch (variant.variant) {
             case Variant::C:
             case Variant::CppCStorage:
-                EXPECT_NE(text.find("_" + upper(id) + "_GENERATED_H"), std::string::npos) << file;
+                if (variant.variant == Variant::C) {
+                    EXPECT_NE(text.find("_" + upper(id) + "_GENERATED_H"), std::string::npos)
+                        << file;
+                }
                 EXPECT_NE(text.find("_QUARRY_SCHEMA_ID_W0 0x" + id.substr(0, 8) + "UL"),
                           std::string::npos)
                     << file;
@@ -335,12 +338,20 @@ TEST_P(ConfigurationIdentityVariantTest, EmbedsThePrintedSchemaIdForEverySelecti
                           std::string::npos)
                     << file;
                 if (variant.variant == Variant::CppCStorage) {
-                    EXPECT_NE(text.find("inline namespace quarry_cfg_" + id), std::string::npos);
+                    // Linkage isolation is keyed by the generated-code identity
+                    // (#111), not by schema_id; schema_id stays in the macros.
+                    EXPECT_EQ(text.find("quarry_cfg_"), std::string::npos) << file;
+                    EXPECT_NE(text.find("inline namespace quarry_gen_"), std::string::npos) << file;
                 }
                 break;
             case Variant::Cpp:
-                EXPECT_NE(text.find("_" + upper(id) + "_GENERATED_HPP_"), std::string::npos);
-                EXPECT_NE(text.find("inline namespace quarry_cfg_" + id), std::string::npos);
+                EXPECT_NE(text.find("_SCHEMA_ID_W0 0x" + id.substr(0, 8) + "UL"), std::string::npos)
+                    << file;
+                EXPECT_NE(text.find("_SCHEMA_ID_W3 0x" + id.substr(24, 8) + "UL"),
+                          std::string::npos)
+                    << file;
+                EXPECT_EQ(text.find("quarry_cfg_"), std::string::npos) << file;
+                EXPECT_NE(text.find("inline namespace quarry_gen_"), std::string::npos) << file;
                 break;
             case Variant::Python:
                 EXPECT_NE(text.find("QUARRY_SCHEMA_ID = bytes.fromhex(\"" + id + "\")"),
@@ -757,7 +768,8 @@ fields:
   value:
     type: u32
 )",
-     "is named 'kQuarrySchemaId', which generated C++ reserves for configuration identity"},
+     "is named 'kQuarrySchemaId', which generated C++ reserves for configuration and "
+     "generated-code identity"},
     {"cpp_algorithm_record", "--language cpp", R"(namespace: fleet.engine
 record: kQuarrySchemaIdAlgorithm
 version: 1
@@ -776,6 +788,48 @@ fields:
     type: u32
 )",
      "is named 'quarry_cfg_0', which generated C++ reserves"},
+    // Generated-code identity names (#111 G1).
+    {"cpp_generated_code_id_record", "--language cpp", R"(namespace: fleet.engine
+record: kQuarryGeneratedCodeId
+version: 1
+type: data
+fields:
+  value:
+    type: u32
+)",
+     "is named 'kQuarryGeneratedCodeId', which generated C++ reserves"},
+    {"cpp_generated_code_id_format_record", "--language cpp", R"(namespace: fleet.engine
+record: kQuarryGeneratedCodeIdFormat
+version: 1
+type: data
+fields:
+  value:
+    type: u32
+)",
+     "is named 'kQuarryGeneratedCodeIdFormat', which generated C++ reserves"},
+    {"cpp_generated_namespace", "--language cpp", R"(namespace: fleet.quarry_gen_0
+record: Sample
+version: 1
+type: data
+fields:
+  value:
+    type: u32
+)",
+     "is named 'quarry_gen_0', which generated C++ reserves"},
+    {"c_storage_generated_namespace_prefix", "--language cpp --cpp-storage c",
+     R"(namespace: quarry_gen_x
+record: Sample
+version: 1
+type: data
+enums:
+  Mode:
+    values:
+      off: 0
+fields:
+  value:
+    type: Mode
+)",
+     "uses the prefix quarry_gen_, which generated C++/C-storage code reserves"},
     {"c_storage_enum_value", "--language cpp --cpp-storage c", R"(namespace: fleet.engine
 record: Sample
 version: 1

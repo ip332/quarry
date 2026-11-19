@@ -70,7 +70,7 @@ struct CppOwning {
     static constexpr const char* kName = "backend codegen";
     static Options options() { return {}; }
     static std::string marker(const support::ConfigurationIdentity& identity) {
-        return "inline namespace quarry_cfg_" + support::schema_id_hex(identity) + " {";
+        return "_SCHEMA_ID_W0 0x" + hex32(support::schema_id_word(identity, 0)) + "UL";
     }
 };
 
@@ -96,7 +96,7 @@ struct CppCStorage {
         return options;
     }
     static std::string marker(const support::ConfigurationIdentity& identity) {
-        return "inline namespace quarry_cfg_" + support::schema_id_hex(identity) + " {";
+        return "_QUARRY_SCHEMA_ID_W0 0x" + hex32(support::schema_id_word(identity, 0)) + "UL";
     }
 };
 

@@ -353,6 +353,9 @@ target_compile_definitions(python_cpp_c_codec_interop_test PRIVATE
     QUARRY_TEST_PYTHON3="${QUARRY_PYTHON3_EXECUTABLE}")
 add_quarry_gtest(diagnostics_smoke_test diagnostics/diagnostics_smoke_test.cpp quarry_compiler_context)
 add_quarry_gtest(support_test support/support_test.cpp quarry_compiler_support)
+# Generated-code identity encoding, pinned vectors and placeholders (#111 G1).
+add_quarry_gtest(generated_code_identity_test support/generated_code_identity_test.cpp
+                      quarry_compiler_support)
 
 # Hierarchical record IDs (A2): one mapping per root compilation, consumed by
 # Schema IR, QBS and every backend.
@@ -402,5 +405,20 @@ target_compile_definitions(configuration_identity_test PRIVATE
     QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR="${CMAKE_SOURCE_DIR}/runtime/python/src"
     QUARRY_TEST_PYTHON3="${QUARRY_PYTHON3_EXECUTABLE}"
     QUARRY_TEST_GO="$<$<BOOL:${QUARRY_GO_EXECUTABLE}>:${QUARRY_GO_EXECUTABLE}>")
+
+# Generated-code identity in C++ owning and C++/C-storage bindings (#111 G1):
+# determinism, dependency checks, same-TU conflicts and the ODR reproduction
+# cases, driven through the real compiler and C++ toolchain.
+add_quarry_gtest(generated_code_identity_integration_test
+                      tools/generated_code_identity_integration_test.cpp
+                      quarry_compiler_support)
+add_dependencies(generated_code_identity_integration_test quarry_schema_compiler quarry_runtime_c)
+target_compile_definitions(generated_code_identity_integration_test PRIVATE
+    QUARRY_SCHEMA_COMPILER_TOOL="$<TARGET_FILE:quarry_schema_compiler>"
+    QUARRY_TEST_RUNTIME_C_LIBRARY="$<TARGET_FILE:quarry_runtime_c>"
+    QUARRY_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
+    QUARRY_TEST_REPO_INCLUDE_DIR="${CMAKE_SOURCE_DIR}/include"
+    QUARRY_TEST_GENERATED_INCLUDE_DIR="${QUARRY_GENERATED_INCLUDE_DIR}"
+    QUARRY_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 add_quarry_gtest(typed_record_test runtime_c/typed_record_test.cpp quarry_runtime_c)

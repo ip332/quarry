@@ -1,7 +1,9 @@
 #include "compiler/backend/backend.hpp"
+
 #include "compiler/backend/generated_code_api_version.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/layout/layout.hpp"
+#include "compiler/support/generated_code_identity.hpp"
 
 #include <cstdint>
 
@@ -283,20 +285,6 @@ struct OutputSelection {
     return include_path;
 }
 
-// Configuration-specific include guard: the full 128-bit schema_id goes
-// between the path stem and the extension, for example
-// QUARRY_GENERATED_CPP_TRUCK_ENGINE_9200CA49..._GENERATED_HPP_, so headers of
-// one namespace from two configurations never share a guard and the second is
-// never skipped silently. Unique exactly when cpp_header_guard_macro is.
-[[nodiscard]] std::string
-cpp_identity_header_guard_macro(std::string_view include_path, std::string_view file_extension,
-                                const support::ConfigurationIdentity& identity) {
-    const std::string_view stem = include_path_stem(include_path, file_extension);
-    return "QUARRY_GENERATED_CPP_" + macro_spelling(stem) + "_" +
-           support::schema_id_hex_upper(identity) +
-           macro_spelling(include_path.substr(stem.size())) + "_";
-}
-
 // Prefix of the identity metadata macros of one generated header, for example
 // QUARRY_GENERATED_CPP_TRUCK_ENGINE for "truck/engine.generated.hpp". Unique per
 // header because generated header paths are unique and share one extension.
@@ -306,9 +294,18 @@ cpp_identity_header_guard_macro(std::string_view include_path, std::string_view 
            macro_spelling(include_path_stem(include_path, file_extension));
 }
 
-[[nodiscard]] std::string
-cpp_configuration_namespace(const support::ConfigurationIdentity& identity) {
-    return "quarry_cfg_" + support::schema_id_hex(identity);
+// Prefix of the generated-code identity macros of a namespace's C++ owning
+// header, for example QUARRY_GENERATED_CPP_NS_TRUCK_ENGINE. Derived from the
+// namespace FQN, never from the output path, so --root-file-stem and
+// --file-extension do not change the generated text that is hashed. Unique
+// whenever the header guards of cpp_header_guard_macro are (validated).
+[[nodiscard]] std::string generated_code_identity_macro_prefix(std::string_view namespace_fqn) {
+    return namespace_fqn.empty() ? std::string("QUARRY_GENERATED_CPP_ROOT_NS")
+                                 : "QUARRY_GENERATED_CPP_NS_" + macro_spelling(namespace_fqn);
+}
+
+[[nodiscard]] std::string namespace_display_name(std::string_view namespace_fqn) {
+    return namespace_fqn.empty() ? std::string("<root>") : std::string(namespace_fqn);
 }
 
 [[nodiscard]] std::string hex_byte_literal(std::uint8_t byte) {
@@ -349,10 +346,17 @@ cpp_schema_id_initializer(const support::ConfigurationIdentity& identity) {
 constexpr std::string_view kReservedIdentityConstant = "kQuarrySchemaId";
 constexpr std::string_view kReservedIdentityAlgorithmConstant = "kQuarrySchemaIdAlgorithm";
 constexpr std::string_view kReservedConfigurationNamespacePrefix = "quarry_cfg_";
+// Generated-code identity (#111) adds these.
+constexpr std::string_view kReservedGeneratedCodeIdConstant = "kQuarryGeneratedCodeId";
+constexpr std::string_view kReservedGeneratedCodeIdFormatConstant = "kQuarryGeneratedCodeIdFormat";
+constexpr std::string_view kReservedGeneratedNamespacePrefix = "quarry_gen_";
 
 [[nodiscard]] bool is_reserved_identity_name(std::string_view name) {
     return name == kReservedIdentityConstant || name == kReservedIdentityAlgorithmConstant ||
-           name.starts_with(kReservedConfigurationNamespacePrefix);
+           name.starts_with(kReservedConfigurationNamespacePrefix) ||
+           name == kReservedGeneratedCodeIdConstant ||
+           name == kReservedGeneratedCodeIdFormatConstant ||
+           name.starts_with(kReservedGeneratedNamespacePrefix);
 }
 
 [[nodiscard]] bool check_reserved_identity_names(const ::quarry::schema_ir::NamespaceIR& ns,
@@ -360,9 +364,10 @@ constexpr std::string_view kReservedConfigurationNamespacePrefix = "quarry_cfg_"
     const auto reject = [&](std::string_view kind, std::string_view fqn, std::string_view name) {
         error_message = "backend codegen: " + std::string(kind) + " '" + std::string(fqn) +
                         "' is named '" + std::string(name) +
-                        "', which generated C++ reserves for configuration identity "
-                        "(kQuarrySchemaId, kQuarrySchemaIdAlgorithm and quarry_cfg_*); "
-                        "rename it";
+                        "', which generated C++ reserves for configuration and "
+                        "generated-code identity (kQuarrySchemaId, kQuarrySchemaIdAlgorithm, "
+                        "quarry_cfg_*, kQuarryGeneratedCodeId, kQuarryGeneratedCodeIdFormat "
+                        "and quarry_gen_*); rename it";
         return false;
     };
     if (ns.records_size() == 0 && ns.enums_size() == 0) {
@@ -1141,6 +1146,7 @@ void collect_planned_files(const NamespacePlan& plan, RenderGenerationPlan& gene
 [[nodiscard]] bool validate_generation_plan(const RenderGenerationPlan& generation_plan,
                                             std::string& error_message) {
     std::set<std::string> guards;
+    std::set<std::string> identity_prefixes;
     std::set<std::string> output_paths;
     for (const PlannedRenderFile& file : generation_plan.files) {
         if (file.file.language != GeneratedLanguage::Cpp) {
@@ -1165,6 +1171,14 @@ void collect_planned_files(const NamespacePlan& plan, RenderGenerationPlan& gene
             error_message =
                 "backend codegen planned headers whose include guards collide: " + guard + " (" +
                 file.namespace_plan->include_path + ")";
+            return false;
+        }
+        const std::string identity_prefix =
+            generated_code_identity_macro_prefix(file.namespace_plan->fqn);
+        if (!identity_prefixes.insert(identity_prefix).second) {
+            error_message = "backend codegen planned namespaces whose generated-code identity "
+                            "macros collide: " +
+                            identity_prefix + " (" + file.namespace_plan->fqn + ")";
             return false;
         }
     }
@@ -2387,40 +2401,82 @@ void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t
 // Configuration identity metadata of one generated header: macros that
 // dependent generated headers test for before comparing kQuarrySchemaId, so a
 // dependency generated by a compiler that predates configuration identity
-// fails with an actionable message instead of an undeclared identifier.
-void render_identity_macros(std::ostringstream& stream, const std::string& macro_stem,
+// fails with an actionable message instead of an undeclared identifier. The
+// macro stem derives from the output path, so it is written as a placeholder.
+void render_identity_macros(std::ostringstream& stream, std::string_view namespace_fqn,
                             const support::ConfigurationIdentity& identity) {
+    const std::string stem = support::placeholder::macro_stem(namespace_fqn);
     stream << "// Configuration identity of this header: the QBS schema_id of its compilation\n";
     stream << "// root (algorithm 1 = SHA-256 truncated to 128 bits). Compile-time only.\n";
-    stream << "#define " << macro_stem << "_SCHEMA_ID_ALGORITHM "
+    stream << "#define " << stem << "_SCHEMA_ID_ALGORITHM "
            << static_cast<unsigned>(identity.algorithm) << "U\n";
     for (std::size_t word = 0; word < 4U; ++word) {
-        stream << "#define " << macro_stem << "_SCHEMA_ID_W" << word << ' '
+        stream << "#define " << stem << "_SCHEMA_ID_W" << word << ' '
                << hex_word_literal(support::schema_id_word(identity, word)) << "\n";
     }
     stream << '\n';
 }
 
-void render_dependency_identity_checks(std::ostringstream& stream, const NamespacePlan& plan,
-                                       std::string_view file_extension,
-                                       const support::ConfigurationIdentity& identity) {
+// Generated-code identity metadata (#111): this header's own identity, which
+// is not known until the header is hashed, so every form is a placeholder.
+void render_generated_code_identity_macros(std::ostringstream& stream,
+                                           std::string_view namespace_fqn) {
+    const std::string prefix = generated_code_identity_macro_prefix(namespace_fqn);
+    stream << "// Generated-code identity of this header: SHA-256 (truncated to 128 bits) of its\n";
+    stream << "// normalized generated definitions, its configuration and the identities of the\n";
+    stream << "// generated headers it includes (format "
+           << static_cast<unsigned>(support::kGeneratedCodeIdentityFormat)
+           << "). Compile-time only.\n";
+    stream << "#define " << prefix << "_CODE_ID_FORMAT "
+           << static_cast<unsigned>(support::kGeneratedCodeIdentityFormat) << "U\n";
+    for (std::size_t word = 0; word < 4U; ++word) {
+        stream << "#define " << prefix << "_CODE_ID_W" << word << ' '
+               << support::placeholder::self_identity(static_cast<char>('0' + word)) << "\n";
+    }
+    stream << '\n';
+}
+
+// Explicit same-translation-unit conflict detection (#111): the guard is keyed
+// by the generated-code identity, so a second header for this namespace with
+// different definitions is not skipped. Reaching this point with the
+// namespace's identity macros (or its A4.2 configuration macros) already
+// defined means a different definition of the namespace was included first.
+void render_same_translation_unit_check(std::ostringstream& stream,
+                                        std::string_view namespace_fqn) {
+    const std::string prefix = generated_code_identity_macro_prefix(namespace_fqn);
+    stream << "#if defined(" << prefix << "_CODE_ID_FORMAT) || \\\n    defined("
+           << support::placeholder::macro_stem(namespace_fqn) << "_SCHEMA_ID_ALGORITHM)\n";
+    stream << "#error \"" << support::placeholder::include_path(namespace_fqn)
+           << ": this translation unit already includes a different generated definition of "
+              "namespace "
+           << namespace_display_name(namespace_fqn)
+           << " (C++ bindings); include generated headers from one consistent generated set.\"\n";
+    stream << "#endif\n\n";
+}
+
+void render_dependency_identity_checks(
+    std::ostringstream& stream, const NamespacePlan& plan,
+    const support::ConfigurationIdentity& identity,
+    const std::map<std::string, support::GeneratedCodeIdentity, std::less<>>& dependency_ids) {
     if (plan.generated_dependencies.empty()) {
         return;
     }
+    const std::string self_path = support::placeholder::include_path(plan.fqn);
     stream << "// Every generated header this header includes must come from the same\n";
     stream << "// configuration (compilation root).\n";
     for (const auto& [include_path, namespace_fqn] : plan.generated_dependencies) {
-        const std::string stem = cpp_identity_macro_stem(include_path, file_extension);
+        const std::string stem = support::placeholder::macro_stem(namespace_fqn);
+        const std::string path = support::placeholder::include_path(namespace_fqn);
         stream << "#if !defined(" << stem << "_SCHEMA_ID_ALGORITHM)";
         for (std::size_t word = 0; word < 4U; ++word) {
             stream << " || \\\n    !defined(" << stem << "_SCHEMA_ID_W" << word << ")";
         }
         stream << "\n";
-        stream << "#error \"" << include_path
+        stream << "#error \"" << path
                << " predates generated configuration identity: it was generated by an older "
                   "quarry-schema-compiler. Regenerate it with this compiler from the same "
                   "compilation root as "
-               << plan.include_path << ".\"\n";
+               << self_path << ".\"\n";
         stream << "#endif\n";
         const std::string prefix = cpp_namespace_prefix(namespace_fqn);
         stream << "static_assert(" << prefix << kReservedIdentityAlgorithmConstant
@@ -2428,17 +2484,60 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Namespa
         stream << "                  " << prefix << kReservedIdentityConstant << " ==\n";
         stream << "                      std::array<std::uint8_t, 16>"
                << cpp_schema_id_initializer(identity) << ",\n";
-        stream << "              \"" << include_path
-               << " was generated from a different Quarry configuration than " << plan.include_path
+        stream << "              \"" << path
+               << " was generated from a different Quarry configuration than " << self_path
                << "; regenerate both from the same compilation root.\");\n";
+    }
+    stream << '\n';
+    stream << "// Every generated header this header includes must contain exactly the generated\n";
+    stream << "// definitions this header was generated against (generated-code identity).\n";
+    for (const auto& [include_path, namespace_fqn] : plan.generated_dependencies) {
+        const support::GeneratedCodeIdentity& expected = dependency_ids.find(namespace_fqn)->second;
+        const std::string macro = generated_code_identity_macro_prefix(namespace_fqn);
+        const std::string path = support::placeholder::include_path(namespace_fqn);
+        stream << "#if !defined(" << macro << "_CODE_ID_FORMAT)";
+        for (std::size_t word = 0; word < 4U; ++word) {
+            stream << " || \\\n    !defined(" << macro << "_CODE_ID_W" << word << ")";
+        }
+        stream << "\n#error \"" << path
+               << " predates generated-code identity: it was generated by an older "
+                  "quarry-schema-compiler. Regenerate it with this compiler from the same "
+                  "compilation root as "
+               << self_path << ".\"\n";
+        stream << "#elif " << macro
+               << "_CODE_ID_FORMAT != " << static_cast<unsigned>(expected.format) << "U\n";
+        stream << "#error \"" << path << " uses a different generated-code identity format than "
+               << self_path << "; regenerate both with the same quarry-schema-compiler.\"\n";
+        stream << "#elif ";
+        for (std::size_t word = 0; word < 4U; ++word) {
+            stream << (word == 0U ? "" : " || \\\n    ") << macro << "_CODE_ID_W" << word << " != "
+                   << hex_word_literal(support::generated_code_identity_word(expected, word));
+        }
+        stream << "\n#error \"" << path << " contains different generated definitions than "
+               << self_path
+               << " was generated against; regenerate both from the same compilation root with "
+                  "the same quarry-schema-compiler and options.\"\n";
+        stream << "#endif\n";
     }
     stream << '\n';
 }
 
-[[nodiscard]] bool render_namespace_file(const NamespacePlan& plan, const CodegenOptions& options,
-                                         std::string& output, std::string& error_message) {
+// Renders one namespace header in normalized form: every self-referential or
+// output-naming token is a structured placeholder (support::placeholder), so
+// the text is exactly what the generated-code identity hashes.
+[[nodiscard]] bool render_namespace_file(
+    const NamespacePlan& plan, const CodegenOptions& options,
+    const std::map<std::string, support::GeneratedCodeIdentity, std::less<>>& dependency_ids,
+    std::string& output, std::string& error_message) {
     // generate() rejected an absent identity before rendering started.
     const support::ConfigurationIdentity& identity = options.configuration_identity.value();
+    for (const auto& [include_path, namespace_fqn] : plan.generated_dependencies) {
+        if (!dependency_ids.contains(namespace_fqn)) {
+            error_message = "backend codegen: generated-code identity of '" + namespace_fqn +
+                            "' is not known before '" + namespace_display_name(plan.fqn) + "'";
+            return false;
+        }
+    }
     std::ostringstream stream;
     stream << "// Generated by Quarry.\n";
     stream << namespace_comment(plan.fqn);
@@ -2448,15 +2547,16 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Namespa
     // records that both import a third); it must be safe to include twice.
     // A macro guard rather than #pragma once: GCC warns about #pragma once
     // when a generated header is compiled on its own.
-    // The guard carries the full configuration identity (see
-    // cpp_identity_header_guard_macro).
-    const std::string guard =
-        cpp_identity_header_guard_macro(plan.include_path, options.file_extension, identity);
+    // The guard carries the full generated-code identity, so two different
+    // definitions of a namespace never share a guard, and identical ones do.
+    const std::string guard = generated_code_identity_macro_prefix(plan.fqn) + "_" +
+                              support::placeholder::self_identity('H') + "_";
     stream << "#ifndef " << guard << "\n";
     stream << "#define " << guard << "\n";
     stream << '\n';
-    render_identity_macros(
-        stream, cpp_identity_macro_stem(plan.include_path, options.file_extension), identity);
+    render_same_translation_unit_check(stream, plan.fqn);
+    render_identity_macros(stream, plan.fqn, identity);
+    render_generated_code_identity_macros(stream, plan.fqn);
 
     std::set<std::string> standard_includes = plan.standard_includes;
     standard_includes.insert("<array>");
@@ -2468,7 +2568,12 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Namespa
         stream << '\n';
     }
     for (const std::string& include_path : plan.includes) {
-        stream << "#include \"" << include_path << "\"\n";
+        const auto dependency = plan.generated_dependencies.find(include_path);
+        stream << "#include \""
+               << (dependency == plan.generated_dependencies.end()
+                       ? include_path
+                       : support::placeholder::include_path(dependency->second))
+               << "\"\n";
     }
     stream << '\n';
     if (emits_records(plan)) {
@@ -2479,21 +2584,30 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Namespa
                   "quarry-schema-compiler release.\");\n";
         stream << '\n';
     }
-    render_dependency_identity_checks(stream, plan, options.file_extension, identity);
+    render_dependency_identity_checks(stream, plan, identity, dependency_ids);
 
     const std::vector<std::string> parts = namespace_parts(plan.fqn);
     append_namespace_open(stream, parts);
-    // Every declaration of the configuration lives in an inline namespace keyed
-    // by the full schema_id: user code keeps writing truck::engine::EngineStatus,
-    // but the mangled names are configuration-specific, so the linker can never
-    // merge the declarations of two configurations.
-    const std::string configuration_namespace = cpp_configuration_namespace(identity);
-    stream << indent(parts.size()) << "inline namespace " << configuration_namespace << " {\n\n";
+    // Every declaration of the namespace lives in an inline namespace keyed by
+    // its full generated-code identity: user code keeps writing
+    // truck::engine::EngineStatus, but the mangled names are specific to these
+    // generated definitions, so the linker can never merge different
+    // definitions, whether they come from different configurations, schema
+    // sources, options or compiler releases.
+    const std::string generated_namespace =
+        std::string(kReservedGeneratedNamespacePrefix) + support::placeholder::self_identity('h');
+    stream << indent(parts.size()) << "inline namespace " << generated_namespace << " {\n\n";
     stream << indent(parts.size()) << "inline constexpr std::uint8_t "
            << kReservedIdentityAlgorithmConstant << " = "
            << static_cast<unsigned>(identity.algorithm) << "U;\n";
     stream << indent(parts.size()) << "inline constexpr std::array<std::uint8_t, 16> "
            << kReservedIdentityConstant << cpp_schema_id_initializer(identity) << ";\n";
+    stream << indent(parts.size()) << "inline constexpr std::uint8_t "
+           << kReservedGeneratedCodeIdFormatConstant << " = "
+           << static_cast<unsigned>(support::kGeneratedCodeIdentityFormat) << "U;\n";
+    stream << indent(parts.size()) << "inline constexpr std::array<std::uint8_t, 16> "
+           << kReservedGeneratedCodeIdConstant << '{' << support::placeholder::self_identity('b')
+           << "};\n";
     if (!plan.declarations.empty()) {
         stream << '\n';
     }
@@ -2518,7 +2632,7 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Namespa
     if (wrote_declaration) {
         stream << '\n';
     }
-    stream << indent(parts.size()) << "} // inline namespace " << configuration_namespace << "\n";
+    stream << indent(parts.size()) << "} // inline namespace " << generated_namespace << "\n";
     if (!parts.empty()) {
         stream << '\n';
     }
@@ -2533,21 +2647,149 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Namespa
     return true;
 }
 
+// Placeholder text and generated-code identity of every namespace header.
+struct IdentifiedNamespace {
+    std::string normalized_text;
+    support::GeneratedCodeIdentity identity;
+};
+
+// Computes the generated-code identity of every header in `complete_plan` (the
+// selection-independent plan of the whole configuration), dependencies first.
+// Iterative: each pass identifies every namespace whose generated dependencies
+// are already identified; a pass without progress means a cycle.
+[[nodiscard]] bool
+identify_namespace(const NamespacePlan& plan, const CodegenOptions& options,
+                   const std::map<std::string, support::GeneratedCodeIdentity, std::less<>>& ids,
+                   IdentifiedNamespace& identified, std::string& error_message) {
+    std::vector<support::GeneratedCodeIdentityDependency> dependencies;
+    dependencies.reserve(plan.generated_dependencies.size());
+    for (const auto& entry : plan.generated_dependencies) {
+        const auto dependency = ids.find(entry.second);
+        dependencies.push_back(support::GeneratedCodeIdentityDependency{
+            .namespace_fqn = dependency->first,
+            .variant = support::GeneratedCodeVariant::CppOwning,
+            .identity = dependency->second});
+    }
+    if (!render_namespace_file(plan, options, ids, identified.normalized_text, error_message)) {
+        return false;
+    }
+    const support::GeneratedCodeIdentityInput input{
+        .variant = support::GeneratedCodeVariant::CppOwning,
+        .configuration = options.configuration_identity.value(),
+        .namespace_fqn = plan.fqn,
+        .files = {support::GeneratedCodeIdentityFile{.role = support::GeneratedFileRole::Header,
+                                                     .normalized_content =
+                                                         identified.normalized_text}},
+        .dependencies = std::move(dependencies),
+    };
+    const auto identity = support::compute_generated_code_identity(input, error_message);
+    if (!identity.has_value()) {
+        error_message = "backend codegen: " + error_message;
+        return false;
+    }
+    identified.identity = *identity;
+    return true;
+}
+
+[[nodiscard]] bool
+identify_namespaces(const RenderGenerationPlan& complete_plan, const CodegenOptions& options,
+                    std::map<std::string, IdentifiedNamespace, std::less<>>& identified,
+                    std::string& error_message) {
+    std::set<std::string, std::less<>> planned;
+    for (const PlannedRenderFile& file : complete_plan.files) {
+        planned.insert(file.namespace_plan->fqn);
+    }
+    std::vector<const NamespacePlan*> pending;
+    for (const PlannedRenderFile& file : complete_plan.files) {
+        const NamespacePlan& plan = *file.namespace_plan;
+        for (const auto& entry : plan.generated_dependencies) {
+            if (!planned.contains(entry.second)) {
+                error_message = "backend codegen: dependency '" + entry.second + "' of '" +
+                                namespace_display_name(plan.fqn) + "' has no generated header";
+                return false;
+            }
+        }
+        pending.push_back(&plan);
+    }
+    std::map<std::string, support::GeneratedCodeIdentity, std::less<>> ids;
+    while (!pending.empty()) {
+        std::vector<const NamespacePlan*> blocked;
+        for (const NamespacePlan* plan : pending) {
+            const bool ready = std::all_of(
+                plan->generated_dependencies.begin(), plan->generated_dependencies.end(),
+                [&](const auto& entry) { return ids.contains(entry.second); });
+            if (!ready) {
+                blocked.push_back(plan);
+                continue;
+            }
+            IdentifiedNamespace result;
+            if (!identify_namespace(*plan, options, ids, result, error_message)) {
+                return false;
+            }
+            ids.emplace(plan->fqn, result.identity);
+            identified.emplace(plan->fqn, std::move(result));
+        }
+        if (blocked.size() == pending.size()) {
+            error_message = "backend codegen detected a namespace cycle at '" +
+                            namespace_display_name(blocked.front()->fqn) + "'";
+            return false;
+        }
+        pending = std::move(blocked);
+    }
+    return true;
+}
+
 [[nodiscard]] bool render_generation_plan(const RenderGenerationPlan& generation_plan,
+                                          const RenderGenerationPlan& complete_plan,
                                           const CodegenOptions& options,
                                           std::vector<GeneratedFile>& files,
                                           std::string& error_message) {
-    files.reserve(generation_plan.files.size());
-    for (const PlannedRenderFile& planned_file : generation_plan.files) {
-        GeneratedFile file;
-        file.path = output_path_for_planned_file(options, planned_file.file.relative_output_path);
-        if (!render_namespace_file(*planned_file.namespace_plan, options, file.content,
-                                   error_message)) {
-            return false;
-        }
-        files.push_back(std::move(file));
+    std::map<std::string, IdentifiedNamespace, std::less<>> identified;
+    if (!identify_namespaces(complete_plan, options, identified, error_message)) {
+        return false;
+    }
+    std::map<std::string, support::GeneratedCodeIdentity, std::less<>> ids;
+    support::PlaceholderValues values;
+    for (const PlannedRenderFile& file : complete_plan.files) {
+        const NamespacePlan& plan = *file.namespace_plan;
+        ids.emplace(plan.fqn, identified.at(plan.fqn).identity);
+        values.include_paths.emplace(plan.fqn, plan.include_path);
+        values.macro_stems.emplace(
+            plan.fqn, cpp_identity_macro_stem(plan.include_path, options.file_extension));
     }
 
+    files.reserve(generation_plan.files.size());
+    for (const PlannedRenderFile& planned_file : generation_plan.files) {
+        const NamespacePlan& plan = *planned_file.namespace_plan;
+        const auto it = identified.find(plan.fqn);
+        std::string text;
+        if (it == identified.end() ||
+            !render_namespace_file(plan, options, ids, text, error_message)) {
+            if (error_message.empty()) {
+                error_message = "backend codegen: no generated-code identity for '" +
+                                namespace_display_name(plan.fqn) + "'";
+            }
+            return false;
+        }
+        // A3: generated definitions never depend on --generate. The identity was
+        // computed from the complete configuration, so it must describe exactly
+        // the definitions emitted here.
+        if (text != it->second.normalized_text) {
+            error_message = "backend codegen: generated definitions of '" +
+                            namespace_display_name(plan.fqn) +
+                            "' depend on the --generate selection (internal error)";
+            return false;
+        }
+        values.self = it->second.identity;
+        auto content = support::substitute_placeholders(text, values, error_message);
+        if (!content.has_value()) {
+            error_message = "backend codegen: " + error_message;
+            return false;
+        }
+        files.push_back(GeneratedFile{
+            .path = output_path_for_planned_file(options, planned_file.file.relative_output_path),
+            .content = std::move(*content)});
+    }
     return true;
 }
 
@@ -2647,8 +2889,20 @@ CodegenResult Backend::generate(const schema_ir::SchemaIrModel& schema_ir,
         return result;
     }
 
+    // Generated-code identities are computed over the whole configuration, so
+    // that dependencies outside the --generate selection are identified exactly
+    // as when they are generated themselves.
+    NamespacePlan complete_root_plan;
+    RenderGenerationPlan complete_plan;
+    if (!build_render_generation_plan(schema_ir, layout_model, options, nullptr, complete_root_plan,
+                                      complete_plan, error_message)) {
+        result.success = false;
+        result.error_message = std::move(error_message);
+        return result;
+    }
+
     std::vector<GeneratedFile> files;
-    if (!render_generation_plan(generation_plan, options, files, error_message)) {
+    if (!render_generation_plan(generation_plan, complete_plan, options, files, error_message)) {
         result.success = false;
         result.error_message = std::move(error_message);
         return result;

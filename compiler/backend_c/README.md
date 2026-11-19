@@ -201,5 +201,22 @@ but the C storage types and the templates instantiated over them (for example
 names, so two configurations with different layouts can be linked into one
 program without the linker merging their definitions.
 
+Since #111 G1 both inline namespaces are `quarry_gen_<generated-code identity>`
+instead of `quarry_cfg_<schema_id>`, so default and `--c-optimize-size` storage
+of one configuration (and any other generated-definition difference) are
+isolated too. The C part of a C-storage header has C++ linkage: its descriptors
+and functions are `inline` entities rather than `static` ones inside
+`extern "C"`, so the external-linkage wrappers refer to one entity per
+generated definition. The exception is the enum `enum_load`/`enum_store`
+callbacks. The runtime stores them in C-language-linkage function pointers,
+so they are `extern "C" inline` functions whose external names carry the full
+identity (`quarry_gen_<gid>_<record>_field_<i>_enum_load`). This matches the
+runtime's function types ([dcl.link], SEI CERT C++ EXP56-CPP) without merging
+different definitions. The header guard and the
+`QUARRY_GENERATED_CPP_C_NS_<FQN>_CODE_ID_{FORMAT,W0..W3}` macros carry the
+identity, dependencies are checked against it, and a second, different
+definition of a namespace in one translation unit is an explicit `#error`
+(`docs/design/configuration-identity.md` §16). Plain C output is unchanged.
+
 See [the runnable example](../../examples/cpp/c_storage_encode_decode/README.md)
 for API details, failure behavior, and build instructions.

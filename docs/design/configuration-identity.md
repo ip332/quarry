@@ -119,6 +119,10 @@ static inline const uint8_t* truck_engine_schema_id(void) {
 
 ### 4.2 C++ (owning, `--language cpp`)
 
+> Since #111 G1 the inline namespace and header guard below are keyed by the generated-code
+> identity (`quarry_gen_<gid>`), and generated-code identity checks follow these configuration
+> checks; see §16. The `schema_id` macros, constants and checks are unchanged.
+
 ```cpp
 // Identity metadata of this header, tested by the headers that include it.
 #define QUARRY_GENERATED_CPP_TRUCK_ENGINE_SCHEMA_ID_ALGORITHM 1U
@@ -155,6 +159,10 @@ inline constexpr std::array<std::uint8_t, 16> kQuarrySchemaId{0x92U, 0x00U, ...,
   five before the `static_assert`.
 
 ### 4.3 C++/C storage (`--cpp-storage c`)
+
+> Since #111 G1 both inline namespaces are `quarry_gen_<gid>`, the guard is keyed by the
+> generated-code identity, and the C part has C++ linkage, except the enum callbacks, which are
+> identity-named `extern "C" inline` functions (§16.3).
 
 - The C part has the identity of §4.1.
 - The `quarry::cxx` wrapper classes go in the same kind of inline namespace:
@@ -549,3 +557,186 @@ A4.3 and A4.4 are independent of A4.2. The A5 cross-language matrix follows A4.5
 6. **C++ with C storage.** The wrapper namespace must not conceal ODR problems in the underlying C
    types, so the C part is configuration-specific too (§4.3). Two configurations with different
    record IDs and layouts are linked into one executable from separate translation units and tested.
+
+## 16. Generated-code identity in C++ bindings (#111 G1)
+
+`schema_id` identifies the wire configuration; it does not identify generated definitions. Field
+or enum-member renames, unused enums, `--c-optimize-size` and generator changes all keep
+`schema_id` while changing generated C++, and A4.2 isolated linkage by `schema_id` only (see the
+[#111 investigation](https://github.com/ip332/quarry/issues/111)). G1 adds a third, independent
+identity for the C++ owning and C++/C-storage variants:
+
+| Identity | Identifies | Used for |
+| --- | --- | --- |
+| `schema_id` (§3) | the wire configuration | QBS, configuration-mismatch checks |
+| generated-code identity | one namespace's generated definitions in one variant | C++ inline namespace, header guard, generated-definition checks |
+| generated-code API epoch | the generator/runtime contract | `kGeneratedCodeApiVersion` / `QUARRY_C_GENERATED_CODE_API_VERSION` checks |
+
+BRF, QBS, Schema IR, record IDs, the `schema_id` algorithm and every epoch are unchanged. Plain C
+(G2), per-namespace storage options (G3), Python and Go are unchanged.
+
+### 16.1 Computation
+
+Each backend renders a namespace's generated files in **normalized form**: every
+self-referential or output-naming token is a typed placeholder written by the renderer
+(`compiler/support/generated_code_identity.hpp`), never found by rewriting text afterwards.
+
+| Placeholder | Stands for |
+| --- | --- |
+| `␞S<form>␟` | this namespace's own generated-code identity (`h`/`H` 32 hex digits, `0`..`3` a word literal, `b` a byte list) |
+| `␞P<fqn>␟` | the generated include path of namespace `<fqn>` (include lines and paths quoted in diagnostics) |
+| `␞M<fqn>␟` | the include-path-derived A4.2 macro stem of `<fqn>` |
+
+(␞ and ␟ are the ASCII record and unit separators, which never occur in generated text.)
+
+The identity is SHA-256, truncated to its first 16 bytes, of the canonical encoding
+(format 1; big-endian; `lp(x)` = u32 length + bytes):
+
+```text
+"QUARRY-GENERATED-CODE-ID" 0x00
+u8 format = 1 | u8 variant (1 C, 2 C++ owning, 3 C++/C storage) | u8 schema_id algorithm | 16 schema_id
+lp namespace FQN
+u32 file count, per file in role order (1 header, 2 source):        u8 role, lp normalized content
+u32 dependency count, per direct generated dependency in FQN order: lp FQN, u8 variant, u8 format, 16 identity
+```
+
+Pinned vectors in `tests/support/generated_code_identity_test.cpp` were computed with an
+independent implementation of this specification; changing any of them is a new format.
+
+Identities are computed in dependency-topological order over **every** namespace of the
+configuration, not only the `--generate` selection, so an unselected dependency gets exactly the
+identity it has when it is generated itself. The selected headers are checked to render exactly
+the normalized text their identity was computed from (A3); then every placeholder is substituted.
+
+Consequently the identity does **not** depend on `--output-directory`, `--file-extension`,
+`--root-file-stem`, `--generate`, import order, the configuration name, source paths or the
+compiler build; and it **does** change with any change of generated definitions: names, unused
+enums, storage options, generator implementation, epochs, `schema_id` and, through the dependency
+list and the dependency checks, any change of a generated dependency. Identical output from two
+compiler releases has one identity.
+
+### 16.2 Generated C++ (owning and C storage)
+
+```cpp
+#ifndef QUARRY_GENERATED_CPP_NS_TRUCK_ENGINE_<GID>_      // C storage: QUARRY_GENERATED_CPP_C_NS_...
+#define QUARRY_GENERATED_CPP_NS_TRUCK_ENGINE_<GID>_
+#if defined(QUARRY_GENERATED_CPP_NS_TRUCK_ENGINE_CODE_ID_FORMAT) || \
+    defined(QUARRY_GENERATED_CPP_TRUCK_ENGINE_SCHEMA_ID_ALGORITHM)
+#error "truck/engine.generated.hpp: this translation unit already includes a different generated definition of namespace truck.engine ..."
+#endif
+... A4.2 schema_id macros (§4.2), unchanged ...
+#define QUARRY_GENERATED_CPP_NS_TRUCK_ENGINE_CODE_ID_FORMAT 1U
+#define QUARRY_GENERATED_CPP_NS_TRUCK_ENGINE_CODE_ID_W0 0x....UL   // ... W1, W2, W3
+... includes; A4.2 configuration checks; then for every generated dependency:
+#if !defined(..._CODE_ID_FORMAT) || !defined(..._CODE_ID_W0..W3)   -> "predates generated-code identity"
+#elif ..._CODE_ID_FORMAT != 1U                                       -> "uses a different generated-code identity format"
+#elif ..._CODE_ID_W0..W3 != <expected>                               -> "contains different generated definitions than ..."
+namespace truck::engine { inline namespace quarry_gen_<gid> {
+inline constexpr std::uint8_t kQuarryGeneratedCodeIdFormat = 1U;
+inline constexpr std::array<std::uint8_t, 16> kQuarryGeneratedCodeId{...};
+... } }
+```
+
+- **Linkage isolation:** `quarry_gen_<gid>` replaces `quarry_cfg_<schema_id>` (same length, so
+  mangled names do not grow). It covers `schema_id`, so cross-configuration isolation is kept, and
+  also isolates every same-configuration difference. C storage uses it for the C part (global
+  inline namespace) and the `quarry::cxx` wrappers.
+- **Identity macros** are named from the namespace FQN (`..._NS_<FQN>_CODE_ID_*`, root
+  `..._ROOT_NS_CODE_ID_*`), never from the output path, so naming options cannot affect them.
+- **Coexistence and rejection:** different definitions without an include edge coexist in one
+  program, isolated (distinct entities; not interchangeable). Across an include edge they are
+  rejected at compile time. Two different definitions of one namespace in one translation unit
+  are rejected explicitly by the check after the guard; identical definitions reached through
+  two paths share a guard and are included once. A4.2 configuration checks run first and keep
+  their messages.
+- **Reserved names:** C++ rejects records, enums and namespace segments named
+  `kQuarryGeneratedCodeId`, `kQuarryGeneratedCodeIdFormat` or `quarry_gen_*`; C storage reserves
+  its `..._CODE_ID_*` macros and the `quarry_gen_` prefix in the file-scope identifier registry.
+- **Footprint:** the identity is macros and `constexpr` constants only; nothing is stored,
+  initialized or hashed at runtime. Plain C output (and therefore Cortex-M builds) is byte-identical.
+
+### 16.3 Linkage audit
+
+| Variant | Entities | Linkage after G1 |
+| --- | --- | --- |
+| C++ owning | classes, enums, `inline` functions (layouts are function-local statics of `inline` functions), static member functions | external, one entity per identity |
+| C++/C storage, C part | struct/enum types, descriptor tables, `*_type` descriptors, codec and presence helpers, identity accessor | **was** `static` (internal) inside `extern "C"`, referenced from the external-linkage inline `quarry::cxx` wrappers, an ODR violation even with identical headers; **now** `inline` C++ entities in `quarry_gen_<gid>` without an enclosing `extern "C"` (C-storage headers are C++ only), one entity per identity |
+| C++/C storage, enum callbacks | `<record>_field_<i>_enum_load` / `_enum_store` | `extern "C" inline` with the external name `quarry_gen_<gid>_<record>_field_<i>_enum_{load,store}`: C language linkage, external linkage, one entity per identity (below) |
+| C++/C storage, wrappers | classes and inline members in `quarry::cxx::quarry_gen_<gid>` | external, one entity per identity |
+| Plain C | `static` / `static inline` (internal) | unchanged (G2) |
+
+**Enum callbacks and language linkage.** The C runtime declares the `enum_load`/`enum_store`
+members of `quarry_c_element_descriptor_t` inside `extern "C"`, so in C++ they are pointers to
+functions with C language linkage: a linkage-specification applies to every function declarator
+it contains, and only class member function types and member names are exempt ([dcl.link]).
+Function types with different language linkages are distinct types, so a C++-linkage function
+is not a valid initializer for those members. Calling a function through a pointer whose type has
+a different language linkage is undefined behavior; SEI CERT C++ rule EXP56-CPP ("Do not call a
+function with a mismatched language linkage") forbids it.
+
+GCC, Clang and MSVC give both function types the same calling convention and don't diagnose the
+mismatch, so their acceptance is no evidence of conformance. EDG-based front ends, behind several
+embedded C++ toolchains, can be configured to keep the types distinct, and Oracle C++ treats
+mismatches as an anachronism. Before G1 the callbacks were `static inline` inside `extern "C"`,
+and the types matched. The first G1 revision made them C++-linkage `inline` functions, and the
+types diverged (found in the PR #116 review). The C-storage backend therefore emits:
+
+```cpp
+inline namespace quarry_gen_<gid> {
+extern "C" inline uint64_t quarry_gen_<gid>_inv_core_Status_field_1_enum_load(const void* p) { ... }
+extern "C" inline void quarry_gen_<gid>_inv_core_Status_field_1_enum_store(void* p, uint64_t n) { ... }
+... { ..., quarry_gen_<gid>_inv_core_Status_field_1_enum_load,
+          quarry_gen_<gid>_inv_core_Status_field_1_enum_store } ...
+}
+```
+
+- **Matching types.** The callbacks have C language linkage, so their types are exactly the
+  runtime members' types. The runtime API, the C API epoch and the wire format are unchanged.
+- **Isolation.** A C-linkage name is not mangled, and [dcl.link] makes same-named C-linkage
+  functions declared in different namespaces one function. The enclosing `quarry_gen_<gid>`
+  namespace therefore doesn't isolate them, and the name itself carries the full 128-bit
+  identity. Different generated definitions get different external symbols, and identical
+  definitions share one. The renderer writes the identity as the `S(h)` self-identity
+  placeholder, so the name is hashed as written and substituted like every other self reference.
+- **ODR.** The callbacks are `inline` with external linkage: one entity, defined with the same
+  tokens in every translation unit that includes the same identity. That matches the external-
+  linkage `inline` descriptors and wrappers that reference them. Two alternatives don't work:
+  `static` with `extern "C"` would restore the original internal-linkage reference from
+  external-linkage inline entities, and C-linkage names without the identity would merge
+  different definitions.
+- **Reserved names.** Schema identifiers can't start with `quarry_gen_` in C-storage output
+  (§16.2), so no other generated name can collide with the callback names. The backend also
+  validates each callback name and checks that it is unique per namespace. The `quarry_gen_`
+  prefix is reserved for external C symbols too: user code must not define C-linkage symbols
+  with it.
+- **Cost.** The code is the same, with no runtime storage, initialization, allocation or hashing.
+  The unmangled name is shorter than the mangled C++ name it replaces. Plain C output is
+  byte-identical: plain C keeps `static inline` callbacks inside its `extern "C"` block, where the
+  types already match.
+- **Regression tests** (`generated_code_identity_integration_test`) use only rules that mainstream
+  compilers enforce:
+  - a structural check of every callback definition and descriptor reference;
+  - a compile probe: redeclaring a callback with `extern "C++"` in its own namespace must be
+    rejected, because one entity can't have two language linkages;
+  - a link and run probe: `extern "C"` redeclarations in an unrelated namespace must denote the
+    descriptor's callbacks, which holds only for C linkage;
+  - `nm` checks that each object defines exactly its own unmangled, identity-bearing callbacks;
+  - in-tree mutation tests that apply each violation to real generated output and require the
+    checks to reject it.
+
+### 16.4 Limitations until G2/G3
+
+- **Plain C headers in C++** keep `schema_id`-keyed isolation; C++ code instantiating templates
+  over their struct types from translation units with different definitions is still exposed
+  (#111 case 7). G2.
+- **Separate invocations with different storage options per namespace** (case 3b): a dependent
+  generated without `--c-optimize-size` against a dependency generated with it is now rejected at
+  compile time ("contains different generated definitions"), because the dependent's definitions
+  embed the dependency's layout and its identity cannot be computed without knowing that
+  layout. Single-invocation output and same-option separate invocations are unaffected. G3 adds
+  per-namespace options (`--c-optimize-size=NS,...`) so such mixed sets can be generated
+  consistently.
+- **No ABI promise across releases:** bindings from different generator releases are isolated,
+  not interchangeable.
+- **User code** that hides generated types behind its own inline definitions (no generated type in
+  the signature) is outside what the generated identity can isolate.
