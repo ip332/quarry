@@ -29,11 +29,14 @@
 #include <sys/wait.h>
 #endif
 
+#include "compiler/support/namespace_macro.hpp"
+
 #include <gtest/gtest.h>
 
 namespace {
 
 namespace fs = std::filesystem;
+namespace support = quarry::compiler::support;
 
 #define QUARRY_TEST_STRICT_CXX_WARNINGS " -Wall -Wextra -Wpedantic -Wshadow -Werror"
 
@@ -226,11 +229,15 @@ protected:
 
     [[nodiscard]] RunResult syntax_check(const std::string& source,
                                          const std::vector<fs::path>& includes,
-                                         std::string_view tag) {
-        const fs::path file = work_ / (std::string(tag) + ".cpp");
+                                         std::string_view tag, bool plain_c = false) {
+        const fs::path file = work_ / (std::string(tag) + (plain_c ? ".c" : ".cpp"));
         write_text_file(file, source);
-        std::string command = quote(QUARRY_TEST_CXX_COMPILER) +
-                              " -std=c++20" QUARRY_TEST_STRICT_CXX_WARNINGS " -fsyntax-only";
+        std::string command = quote(QUARRY_TEST_CXX_COMPILER);
+        if (plain_c) {
+            command += " -x c -std=c99 -Wall -Wextra -Wpedantic -Werror -fsyntax-only";
+        } else {
+            command += " -std=c++20" QUARRY_TEST_STRICT_CXX_WARNINGS " -fsyntax-only";
+        }
         for (const fs::path& include : includes) {
             command += " -I" + quote(include.string());
         }
@@ -414,25 +421,28 @@ TEST_F(GeneratedCodeIdentityTest, DependencyIdentityChangesPropagateToDependents
 TEST_F(GeneratedCodeIdentityTest, IdentityMetadataMatchesTheNamespaceName) {
     const fs::path output = generate(kOwning, rev_a(), "meta");
     const std::string id = gid(output / "fleet/engine.generated.hpp");
-    const std::string source =
-        "#include \"fleet/engine.generated.hpp\"\n"
-        "static_assert(fleet::engine::kQuarryGeneratedCodeIdFormat == 1U);\n"
-        "static_assert(QUARRY_GENERATED_CPP_NS_FLEET_ENGINE_CODE_ID_FORMAT == 1U);\n"
-        "static_assert(fleet::engine::kQuarryGeneratedCodeId[0] == 0x" +
-        id.substr(0, 2) +
-        "U);\n"
-        "static_assert(fleet::engine::kQuarryGeneratedCodeId[15] == 0x" +
-        id.substr(30, 2) +
-        "U);\n"
-        "static_assert(QUARRY_GENERATED_CPP_NS_FLEET_ENGINE_CODE_ID_W0 == 0x" +
-        id.substr(0, 8) +
-        "UL);\n"
-        "static_assert(QUARRY_GENERATED_CPP_NS_FLEET_ENGINE_CODE_ID_W3 == 0x" +
-        id.substr(24, 8) +
-        "UL);\n"
-        // The inline namespace is named by the same identity.
-        "static_assert(fleet::engine::quarry_gen_" +
-        id + "::kQuarryGeneratedCodeId[0] == 0x" + id.substr(0, 2) + "U);\n";
+    const std::string code_id = std::string(support::kCppOwningNamespaceMacroPrefix) +
+                                support::encode_namespace_macro("fleet.engine").value();
+    const std::string source = "#include \"fleet/engine.generated.hpp\"\n"
+                               "static_assert(fleet::engine::kQuarryGeneratedCodeIdFormat == 1U);\n"
+                               "static_assert(" +
+                               code_id +
+                               "_CODE_ID_FORMAT == 1U);\n"
+                               "static_assert(fleet::engine::kQuarryGeneratedCodeId[0] == 0x" +
+                               id.substr(0, 2) +
+                               "U);\n"
+                               "static_assert(fleet::engine::kQuarryGeneratedCodeId[15] == 0x" +
+                               id.substr(30, 2) +
+                               "U);\n"
+                               "static_assert(" +
+                               code_id + "_CODE_ID_W0 == 0x" + id.substr(0, 8) +
+                               "UL);\n"
+                               "static_assert(" +
+                               code_id + "_CODE_ID_W3 == 0x" + id.substr(24, 8) +
+                               "UL);\n"
+                               // The inline namespace is named by the same identity.
+                               "static_assert(fleet::engine::quarry_gen_" +
+                               id + "::kQuarryGeneratedCodeId[0] == 0x" + id.substr(0, 2) + "U);\n";
     const RunResult result = syntax_check(source, {output}, "meta");
     EXPECT_EQ(result.status, 0) << result.output;
 }
@@ -471,10 +481,41 @@ TEST_F(GeneratedCodeIdentityTest, RejectsDependenciesWithOtherDefinitions) {
 TEST_F(GeneratedCodeIdentityTest, RejectsDependenciesThatPredateGeneratedCodeIdentity) {
     for (const Variant* variant : {&kOwning, &kCStorage}) {
         const std::string name(variant->name);
-        const fs::path output = generate(*variant, rev_a(), name, "--generate fleet.engine");
+        // An A4.2 header still has configuration identity, but #117 renamed
+        // those macros, so the configuration check reports it first.
+        const fs::path migrated =
+            generate(*variant, rev_a(), name + "-a42", "--generate fleet.engine");
         fs::copy_file(fixtures() / "pre_generated_code_identity" / std::string(name) /
                           "fleet/common.generated.hpp.pre_generated_code_identity",
-                      output / "fleet/common.generated.hpp");
+                      migrated / "fleet/common.generated.hpp");
+        const RunResult old = syntax_check("#include \"fleet/engine.generated.hpp\"\n", {migrated},
+                                           "pre-a42-" + name);
+        EXPECT_NE(old.status, 0) << name;
+        EXPECT_NE(
+            old.output.find("fleet/common.generated.hpp predates generated configuration identity"),
+            std::string::npos)
+            << name << "\n"
+            << old.output;
+
+        // A header from this compiler with its generated-code identity macros
+        // removed still fails the generated-code identity check, after the
+        // configuration check has passed. The whole configuration is generated
+        // so the dependency header exists; --generate fleet.engine emits only
+        // the dependent.
+        const fs::path output = generate(*variant, rev_a(), name);
+        const fs::path common = output / "fleet/common.generated.hpp";
+        const std::string prefix =
+            (variant == &kOwning ? std::string(support::kCppOwningNamespaceMacroPrefix)
+                                 : std::string(support::kCppCStorageNamespaceMacroPrefix)) +
+            support::encode_namespace_macro("fleet.common").value();
+        std::string text = read_text_file(common);
+        const std::string marker = "#define " + prefix + "_CODE_ID_FORMAT";
+        const std::size_t at = text.find(marker);
+        ASSERT_NE(at, std::string::npos) << name;
+        const std::size_t line_end = text.find('\n', at);
+        text.erase(at, (line_end == std::string::npos ? text.size() : line_end + 1) - at);
+        ASSERT_EQ(text.find(marker), std::string::npos);
+        write_text_file(common, text);
         const RunResult result =
             syntax_check("#include \"fleet/engine.generated.hpp\"\n", {output}, "pre-" + name);
         EXPECT_NE(result.status, 0) << name;
@@ -492,9 +533,9 @@ TEST_F(GeneratedCodeIdentityTest, RejectsDependenciesWithAnotherIdentityFormat) 
         const fs::path header = output / "fleet/common.generated.hpp";
         const std::string text = read_text_file(header);
         const std::string macro =
-            (variant == &kOwning ? std::string("QUARRY_GENERATED_CPP_NS_")
-                                 : std::string("QUARRY_GENERATED_CPP_C_NS_")) +
-            "FLEET_COMMON_CODE_ID_FORMAT";
+            (variant == &kOwning ? std::string(support::kCppOwningNamespaceMacroPrefix)
+                                 : std::string(support::kCppCStorageNamespaceMacroPrefix)) +
+            support::encode_namespace_macro("fleet.common").value() + "_CODE_ID_FORMAT";
         const std::string edited =
             replace_all(text, "#define " + macro + " 1U", "#define " + macro + " 2U");
         ASSERT_NE(edited, text) << name;
@@ -970,6 +1011,135 @@ TEST_F(GeneratedCodeIdentityTest, CallbackLinkageChecksRejectMutatedHeaders) {
                     "quarry_gen_" + identity + "_" + base + "_enum_load_other, ");
     ASSERT_NE(swapped, header);
     EXPECT_NE(enum_callback_violations(swapped, identity, ignored), std::vector<std::string>{});
+}
+
+// --- namespace macro injectivity (#117) --------------------------------------
+
+constexpr Variant kPlainC{"c", "--language c", ".generated.h"};
+
+[[nodiscard]] std::string header_relative(std::string_view namespace_fqn,
+                                          std::string_view extension) {
+    std::string path;
+    path.reserve(namespace_fqn.size() + extension.size());
+    for (const char character : namespace_fqn) {
+        path.push_back(character == '.' ? '/' : character);
+    }
+    path.append(extension);
+    return path;
+}
+
+// One configuration whose only generated namespace is `namespace_fqn`. Separate
+// configurations are required: the planner still rejects a.b together with a_b
+// on the path-derived guard, even though the emitted identity guard would not
+// collide.
+[[nodiscard]] fs::path single_namespace_root(const fs::path& work, std::string_view tag,
+                                             std::string_view namespace_fqn,
+                                             std::string_view record) {
+    const fs::path directory = work / "schemas" / std::string(tag);
+    write_text_file(directory / "configuration.brd",
+                    "configuration: pair\nimports:\n  - unit.brd\n");
+    write_text_file(directory / "unit.brd",
+                    "namespace: " + std::string(namespace_fqn) +
+                        "\nrecord: " + std::string(record) +
+                        "\nversion: 1\ntype: data\nfields:\n  value:\n    type: u32\n");
+    return directory / "configuration.brd";
+}
+
+// Copies the generated tree `from` into `destination` and returns the include
+// path of its header relative to `destination`'s parent.
+[[nodiscard]] std::string stage_header(const fs::path& from, const fs::path& destination,
+                                       std::string_view relative) {
+    for (const fs::directory_entry& entry : fs::recursive_directory_iterator(from)) {
+        const fs::path target = destination / fs::relative(entry.path(), from);
+        if (entry.is_directory()) {
+            fs::create_directories(target);
+            continue;
+        }
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        fs::create_directories(target.parent_path());
+        fs::copy_file(entry.path(), target, fs::copy_options::overwrite_existing);
+    }
+    return (fs::path(destination.filename()) / relative).generic_string();
+}
+
+TEST_F(GeneratedCodeIdentityTest, DistinctNamespaceMacroSpellingsCoexistInOneTranslationUnit) {
+    // Pairs whose A4.2 uppercased spellings collided, plus names the frontend
+    // accepts that contain digits or leading, trailing and consecutive
+    // underscores. Both inclusion orders must compile. Plain C and C++/C-storage
+    // use different record names: they share the non-injective C symbol prefix,
+    // so the same record name would collide before the macros could.
+    const std::pair<std::string_view, std::string_view> pairs[] = {
+        {"dep.engine", "dep_engine"}, {"Ab", "ab"},        {"a.b", "a_b"}, {"a.b_c", "a_b.c"},
+        {"n2.a_b3", "n2_a.b3"},       {"_lead", "trail_"}, {"a__b", "q0"},
+    };
+    std::size_t index = 0;
+    for (const auto& [left_ns, right_ns] : pairs) {
+        const std::string tag = std::to_string(index++);
+        const auto left_body = support::encode_namespace_macro(left_ns);
+        const auto right_body = support::encode_namespace_macro(right_ns);
+        ASSERT_TRUE(left_body.has_value()) << left_ns;
+        ASSERT_TRUE(right_body.has_value()) << right_ns;
+        ASSERT_NE(*left_body, *right_body) << left_ns << " vs " << right_ns;
+
+        for (const Variant* variant : {&kOwning, &kCStorage, &kPlainC}) {
+            const bool plain_c = variant == &kPlainC;
+            // C-storage emits the same C symbols as plain C, inside its inline
+            // namespace. Identical record names still collide across dep.engine
+            // and dep_engine; distinct record names keep that finding out of
+            // this macro check.
+            const bool c_symbols = plain_c || variant == &kCStorage;
+            const std::string name = std::string(variant->name) + "-" + tag;
+            const fs::path left_root =
+                single_namespace_root(work_, name + "-l", left_ns, c_symbols ? "Left" : "Sample");
+            const fs::path right_root =
+                single_namespace_root(work_, name + "-r", right_ns, c_symbols ? "Right" : "Sample");
+            const fs::path left = generate(*variant, left_root, name + "-gl");
+            const fs::path right = generate(*variant, right_root, name + "-gr");
+            const std::string left_header = header_relative(left_ns, variant->extension);
+            const std::string right_header = header_relative(right_ns, variant->extension);
+            ASSERT_TRUE(fs::exists(left / left_header)) << left_header;
+            ASSERT_TRUE(fs::exists(right / right_header)) << right_header;
+
+            const std::string prefix =
+                plain_c
+                    ? std::string(support::kCNamespaceMacroPrefix)
+                    : std::string(variant == &kOwning ? support::kCppOwningNamespaceMacroPrefix
+                                                      : support::kCppCStorageNamespaceMacroPrefix);
+            const std::string left_macro =
+                prefix + *left_body + (plain_c ? "_SCHEMA_ID_ALGORITHM" : "_CODE_ID_FORMAT");
+            const std::string right_macro =
+                prefix + *right_body + (plain_c ? "_SCHEMA_ID_ALGORITHM" : "_CODE_ID_FORMAT");
+            EXPECT_TRUE(support::is_unreserved_macro_identifier(left_macro)) << left_macro;
+            EXPECT_TRUE(support::is_unreserved_macro_identifier(right_macro)) << right_macro;
+            EXPECT_NE(read_text_file(left / left_header).find("#define " + left_macro),
+                      std::string::npos)
+                << name;
+            EXPECT_NE(read_text_file(right / right_header).find("#define " + right_macro),
+                      std::string::npos)
+                << name;
+            if (plain_c) {
+                EXPECT_NE(read_text_file(left / left_header)
+                              .find(std::string(support::kCNamespaceAccessorPrefix) + *left_body +
+                                    "_schema_id"),
+                          std::string::npos);
+            }
+
+            const fs::path staged = work_ / "staged" / name;
+            const std::string left_include = stage_header(left, staged / "left", left_header);
+            const std::string right_include = stage_header(right, staged / "right", right_header);
+            for (const bool left_first : {true, false}) {
+                const std::string first = left_first ? left_include : right_include;
+                const std::string second = left_first ? right_include : left_include;
+                const std::string source = "#include \"" + first + "\"\n#include \"" + second +
+                                           "\"\nint main(void) { return 0; }\n";
+                const RunResult result =
+                    syntax_check(source, {staged}, name + (left_first ? "-lr" : "-rl"), plain_c);
+                EXPECT_EQ(result.status, 0) << name << "\n" << result.output;
+            }
+        }
+    }
 }
 
 } // namespace

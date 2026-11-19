@@ -123,7 +123,7 @@ int main(void) {
     }
 
 #if defined(QUARRY_SMOKE_READ_IDENTITY)
-    g_schema_id_first_byte = benchmark_workload_schema_id()[0];
+    g_schema_id_first_byte = quarry_ns_benchmark_workload_schema_id()[0];
 #endif
 
     for (;;) {

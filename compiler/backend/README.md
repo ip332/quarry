@@ -171,7 +171,7 @@ Current C++ generation behavior:
   and the generated-code API version are unchanged
 * embeds the configuration identity (#99, `docs/design/configuration-identity.md`
   §4.2): `kQuarrySchemaIdAlgorithm` and `kQuarrySchemaId` constants, identity
-  metadata macros `QUARRY_GENERATED_CPP_<PATH STEM>_SCHEMA_ID_{ALGORITHM,W0..W3}`,
+  metadata macros `QUARRY_GENERATED_CPP_NS_<encoded namespace>_SCHEMA_ID_{ALGORITHM,W0..W3}`,
   and an include guard containing the full 128-bit `schema_id`. Every
   declaration is inside `inline namespace quarry_cfg_<schema_id>`, so user code
   still writes `truck::engine::EngineStatus` but two configurations' symbols
@@ -191,8 +191,8 @@ Current C++ generation behavior:
   dependencies' identities, computed over the whole configuration so
   `--generate` and output naming never change it. Every declaration is inside
   `inline namespace quarry_gen_<identity>`, the guard is
-  `QUARRY_GENERATED_CPP_NS_<FQN>_<IDENTITY>_`, and
-  `QUARRY_GENERATED_CPP_NS_<FQN>_CODE_ID_{FORMAT,W0..W3}` plus
+  `QUARRY_GENERATED_CPP_NS_<encoded namespace>_<IDENTITY>_`, and
+  `QUARRY_GENERATED_CPP_NS_<encoded namespace>_CODE_ID_{FORMAT,W0..W3}` plus
   `kQuarryGeneratedCodeId{,Format}` expose it. Each included generated header
   is checked for identity presence, format and equality; a second, different
   definition of a namespace in one translation unit is an explicit `#error`.

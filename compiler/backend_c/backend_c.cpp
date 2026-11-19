@@ -4,6 +4,7 @@
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/layout/layout.hpp"
 #include "compiler/support/generated_code_identity.hpp"
+#include "compiler/support/namespace_macro.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -281,32 +282,38 @@ identity_header_guard_macro(std::string_view relative_header_path,
            uppercase_alnum_or_underscore(relative_header_path.substr(stem.size())) + "_";
 }
 
-// Prefix of a namespace's configuration identity names. Named namespaces use
-// their symbol prefix ("truck_engine_" -> TRUCK_ENGINE_QUARRY_SCHEMA_ID_W0 and
-// truck_engine_schema_id()); the root namespace, which has no symbol prefix,
-// uses "quarry_root_".
-[[nodiscard]] std::string identity_symbol_prefix(std::string_view namespace_fqn) {
-    const std::string prefix = symbol_prefix_for_namespace(namespace_fqn);
-    return prefix.empty() ? std::string("quarry_root_") : prefix;
+// Encoded namespace body (#117). Empty when the name is not a namespace FQN;
+// the file plan rejects that before a header is written.
+[[nodiscard]] std::string namespace_macro_body(std::string_view namespace_fqn) {
+    const std::optional<std::string> encoded = support::encode_namespace_macro(namespace_fqn);
+    return encoded.has_value() ? *encoded : std::string();
 }
 
+// Configuration-identity macros, for example QUARRY_NS_truck_engine_SCHEMA_ID_W0.
+// The root namespace uses the same prefix with the root body. The spelling is
+// the shared namespace encoding, not the C symbol prefix, so dep.engine and
+// dep_engine do not share a macro.
 [[nodiscard]] std::string identity_macro_prefix(std::string_view namespace_fqn) {
-    return uppercase_alnum_or_underscore(identity_symbol_prefix(namespace_fqn)) +
-           "QUARRY_SCHEMA_ID";
+    return std::string(support::kCNamespaceMacroPrefix) + namespace_macro_body(namespace_fqn) +
+           "_SCHEMA_ID";
 }
 
+// Optional runtime accessor. It uses the same encoding as the macros: the old
+// symbol-prefix spelling collided for the same namespace pairs, and a second
+// definition of that static function would reject the translation unit before
+// the macros could coexist.
 [[nodiscard]] std::string identity_accessor_name(std::string_view namespace_fqn) {
-    return identity_symbol_prefix(namespace_fqn) + "schema_id";
+    return std::string(support::kCNamespaceAccessorPrefix) + namespace_macro_body(namespace_fqn) +
+           "_schema_id";
 }
 
 // Prefix of the generated-code identity macros of a namespace's C++/C-storage
-// header (#111), for example QUARRY_GENERATED_CPP_C_NS_TRUCK_ENGINE. Derived
-// from the namespace FQN, never from the output path; reserved per namespace
-// in the file-scope identifier registry.
+// header (#111), for example QUARRY_GENERATED_CPP_C_NS_truck_engine. Derived
+// from the namespace encoding, never from the output path; reserved per
+// namespace in the file-scope identifier registry.
 [[nodiscard]] std::string cstorage_identity_macro_prefix(std::string_view namespace_fqn) {
-    return namespace_fqn.empty()
-               ? std::string("QUARRY_GENERATED_CPP_C_ROOT_NS")
-               : "QUARRY_GENERATED_CPP_C_NS_" + uppercase_alnum_or_underscore(namespace_fqn);
+    return std::string(support::kCppCStorageNamespaceMacroPrefix) +
+           namespace_macro_body(namespace_fqn);
 }
 
 [[nodiscard]] std::string hex_word_literal(std::uint32_t word) {
@@ -1560,13 +1567,29 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             return false;
         }
         // Configuration identity names of this namespace (render_header).
-        if (!reserve_file_scope_identifier(identity_accessor_name(file.namespace_fqn),
-                                           "configuration identity accessor")) {
+        const std::string macro_prefix = identity_macro_prefix(file.namespace_fqn);
+        const std::string accessor = identity_accessor_name(file.namespace_fqn);
+        if (namespace_macro_body(file.namespace_fqn).empty() ||
+            !support::is_unreserved_macro_identifier(macro_prefix + "_ALGORITHM") ||
+            !support::is_unreserved_macro_identifier(accessor)) {
+            error_message =
+                "backend_c: namespace '" +
+                (file.namespace_fqn.empty() ? std::string("<root>") : file.namespace_fqn) +
+                "' has no standards-compliant identity macro spelling";
+            return false;
+        }
+        if (options.cpp_wrapper &&
+            !support::is_unreserved_macro_identifier(
+                cstorage_identity_macro_prefix(file.namespace_fqn) + "_CODE_ID_FORMAT")) {
+            error_message = "backend_c: namespace '" + file.namespace_fqn +
+                            "' has no standards-compliant generated-code identity macro spelling";
+            return false;
+        }
+        if (!reserve_file_scope_identifier(accessor, "configuration identity accessor")) {
             return false;
         }
         for (const std::string_view suffix : {"_ALGORITHM", "_W0", "_W1", "_W2", "_W3"}) {
-            if (!reserve_file_scope_identifier(identity_macro_prefix(file.namespace_fqn) +
-                                                   std::string(suffix),
+            if (!reserve_file_scope_identifier(macro_prefix + std::string(suffix),
                                                "configuration identity macro")) {
                 return false;
             }

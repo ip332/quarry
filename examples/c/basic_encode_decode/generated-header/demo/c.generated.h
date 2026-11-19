@@ -4,11 +4,11 @@
 
 /* Configuration identity of this header: the QBS schema_id of its compilation
  * root (algorithm 1 = SHA-256 truncated to 128 bits). Compile-time only. */
-#define DEMO_C_QUARRY_SCHEMA_ID_ALGORITHM 1U
-#define DEMO_C_QUARRY_SCHEMA_ID_W0 0xd0b4087cUL
-#define DEMO_C_QUARRY_SCHEMA_ID_W1 0x60ad6cacUL
-#define DEMO_C_QUARRY_SCHEMA_ID_W2 0x309cbfc0UL
-#define DEMO_C_QUARRY_SCHEMA_ID_W3 0xcd198742UL
+#define QUARRY_NS_demo_c_SCHEMA_ID_ALGORITHM 1U
+#define QUARRY_NS_demo_c_SCHEMA_ID_W0 0xd0b4087cUL
+#define QUARRY_NS_demo_c_SCHEMA_ID_W1 0x60ad6cacUL
+#define QUARRY_NS_demo_c_SCHEMA_ID_W2 0x309cbfc0UL
+#define QUARRY_NS_demo_c_SCHEMA_ID_W3 0xcd198742UL
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -74,7 +74,7 @@ static inline demo_c_Sample_decode_result_t demo_c_Sample_decode(const uint8_t* 
 
 /* Optional runtime access to the configuration identity; emitted into object
  * code only when called. */
-static inline const uint8_t* demo_c_schema_id(void) {
+static inline const uint8_t* quarry_ns_demo_c_schema_id(void) {
     static const uint8_t id[16] = {0xd0U, 0xb4U, 0x08U, 0x7cU, 0x60U, 0xadU, 0x6cU, 0xacU, 0x30U, 0x9cU, 0xbfU, 0xc0U, 0xcdU, 0x19U, 0x87U, 0x42U};
     return id;
 }

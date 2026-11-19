@@ -104,7 +104,7 @@ The smoke target (`quarry_cortex_m_smoke`) links:
 
 `quarry_cortex_m_smoke_identity` is the same program, built with
 `QUARRY_SMOKE_READ_IDENTITY=1`, which additionally reads the configuration
-identity through the generated `benchmark_workload_schema_id()` accessor. The
+identity through the generated `quarry_ns_benchmark_workload_schema_id()` accessor. The
 difference between the two ELFs is the cost of explicitly accessing identity;
 the plain smoke ELF must carry no identity-related code or data.
 

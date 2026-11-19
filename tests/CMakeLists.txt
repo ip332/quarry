@@ -356,6 +356,8 @@ add_quarry_gtest(support_test support/support_test.cpp quarry_compiler_support)
 # Generated-code identity encoding, pinned vectors and placeholders (#111 G1).
 add_quarry_gtest(generated_code_identity_test support/generated_code_identity_test.cpp
                       quarry_compiler_support)
+add_quarry_gtest(namespace_macro_test support/namespace_macro_test.cpp
+                      quarry_compiler_support)
 
 # Hierarchical record IDs (A2): one mapping per root compilation, consumed by
 # Schema IR, QBS and every backend.

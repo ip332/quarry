@@ -3,6 +3,7 @@
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "compiler/schema_ir/validation.hpp"
+#include "compiler/support/namespace_macro.hpp"
 #include "tests/support/test_configuration_identity.hpp"
 
 #include <algorithm>
@@ -1368,8 +1369,10 @@ TEST(BackendCodegenTest, GeneratedDiagnosticCodecsPropagateNestedAndRecordArrayE
 }
 
 TEST(BackendCodegenTest, CollidingIncludeGuardsAreRejected) {
-    // "a.b" -> a/b.generated.hpp and "a_b" -> a_b.generated.hpp normalize to the
-    // same guard macro; emitting both would make one header hide the other.
+    // "a.b" -> a/b.generated.hpp and "a_b" -> a_b.generated.hpp still share the
+    // path-derived guard the planner checks. The emitted guard is the
+    // generated-code identity guard (#117), which does not collide for this
+    // pair; the planner check remains and rejects the pair before emission.
     const CodegenResult result = run_backend_fixture(
         "include_guard_collision", quarry::testing::with_test_identity(CodegenOptions{}));
     EXPECT_FALSE(result.success);
@@ -2591,6 +2594,191 @@ TEST(BackendCodegenTest, GeneratedBuilderBoundsHeaderCompilesAndRuns) {
         "}\n";
 
     compile_generated_header(result, "generated/schema.generated.hpp", translation_source);
+}
+
+// The root namespace's identity macros are the encoding of the empty FQN, so
+// two generations that differ only in --root-file-stem still satisfy each
+// other's dependency checks. YAML cannot name the root namespace, so this
+// drives Backend::generate with Schema IR.
+TEST(BackendCodegenTest, RootNamespaceIdentityIsIndependentOfRootFileStem) {
+    constexpr std::string_view kSchema = R"(schema_ir_version: 1
+root_namespace {
+  ir_id: 1
+  records {
+    ir_id: 2
+    record_id: 1
+    name: "Base"
+    fqn: "Base"
+    fields {
+      name: "value"
+      type {
+        primitive: PRIMITIVE_TYPE_U32
+      }
+    }
+  }
+  namespaces {
+    ir_id: 3
+    name: "dep"
+    fqn: "dep"
+    namespaces {
+      ir_id: 4
+      name: "engine"
+      fqn: "dep.engine"
+      records {
+        ir_id: 5
+        record_id: 2
+        name: "Engine"
+        fqn: "dep.engine.Engine"
+        fields {
+          name: "base"
+          type {
+            record {
+              target_record_ir_id: 2
+            }
+          }
+        }
+      }
+    }
+  }
+}
+)";
+    SchemaIrModel schema_ir;
+    ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(std::string(kSchema), &schema_ir));
+    quarry::compiler::context::CompilerContext context;
+    quarry::compiler::diagnostics::DiagnosticCollection diagnostics;
+    SchemaIrValidator validator;
+    validator.validate(schema_ir, context, diagnostics);
+    ASSERT_TRUE(diagnostics.empty()) << diagnostics_summary(diagnostics);
+
+    const auto generate_stem = [&](std::string_view stem) {
+        CodegenOptions options = quarry::testing::with_test_identity(CodegenOptions{});
+        options.root_file_stem = std::string(stem);
+        return Backend{}.generate(schema_ir, options);
+    };
+    const CodegenResult alpha = generate_stem("alpha");
+    const CodegenResult beta = generate_stem("beta");
+    ASSERT_TRUE(alpha.success) << alpha.error_message;
+    ASSERT_TRUE(beta.success) << beta.error_message;
+
+    const auto find_file = [](const CodegenResult& result, std::string_view suffix) {
+        return std::find_if(result.files.begin(), result.files.end(), [&](const auto& file) {
+            return file.path.size() >= suffix.size() &&
+                   file.path.compare(file.path.size() - suffix.size(), suffix.size(), suffix) == 0;
+        });
+    };
+    const auto alpha_root = find_file(alpha, "/alpha.generated.hpp");
+    const auto beta_root = find_file(beta, "/beta.generated.hpp");
+    const auto alpha_dep = find_file(alpha, "/dep/engine.generated.hpp");
+    const auto beta_dep = find_file(beta, "/dep/engine.generated.hpp");
+    ASSERT_NE(alpha_root, alpha.files.end());
+    ASSERT_NE(beta_root, beta.files.end());
+    ASSERT_NE(alpha_dep, alpha.files.end());
+    ASSERT_NE(beta_dep, beta.files.end());
+
+    const std::string root_prefix =
+        std::string(quarry::compiler::support::kCppOwningNamespaceMacroPrefix) +
+        quarry::compiler::support::encode_namespace_macro("").value();
+    const std::string dep_prefix =
+        std::string(quarry::compiler::support::kCppOwningNamespaceMacroPrefix) +
+        quarry::compiler::support::encode_namespace_macro("dep.engine").value();
+    EXPECT_EQ(root_prefix, "QUARRY_GENERATED_CPP_NS_0");
+    EXPECT_EQ(dep_prefix, "QUARRY_GENERATED_CPP_NS_dep_engine");
+    for (const auto& file : {alpha_root, beta_root}) {
+        EXPECT_NE(file->content.find("#define " + root_prefix + "_SCHEMA_ID_ALGORITHM"),
+                  std::string::npos);
+        EXPECT_NE(file->content.find("#define " + root_prefix + "_CODE_ID_FORMAT"),
+                  std::string::npos);
+        EXPECT_EQ(file->content.find("QUARRY_GENERATED_CPP_ALPHA"), std::string::npos);
+        EXPECT_EQ(file->content.find("QUARRY_GENERATED_CPP_BETA"), std::string::npos);
+        EXPECT_EQ(file->content.find("QUARRY_GENERATED_CPP_ROOT"), std::string::npos);
+        EXPECT_TRUE(quarry::compiler::support::is_unreserved_macro_identifier(
+            root_prefix + "_SCHEMA_ID_ALGORITHM"));
+        EXPECT_TRUE(quarry::compiler::support::is_unreserved_macro_identifier(root_prefix +
+                                                                              "_CODE_ID_FORMAT"));
+    }
+    const auto identity_of = [](std::string_view text) {
+        const std::string marker = "inline namespace quarry_gen_";
+        const std::size_t at = text.find(marker);
+        return at == std::string_view::npos ? std::string()
+                                            : std::string(text.substr(at + marker.size(), 32));
+    };
+    const std::string alpha_root_id = identity_of(alpha_root->content);
+    const std::string beta_root_id = identity_of(beta_root->content);
+    const std::string alpha_dep_id = identity_of(alpha_dep->content);
+    const std::string beta_dep_id = identity_of(beta_dep->content);
+    ASSERT_EQ(alpha_root_id.size(), 32u);
+    EXPECT_EQ(alpha_root_id, beta_root_id);
+    EXPECT_EQ(alpha_dep_id, beta_dep_id);
+    EXPECT_NE(alpha_dep->content.find("#include \"alpha.generated.hpp\""), std::string::npos);
+    EXPECT_NE(beta_dep->content.find("#include \"beta.generated.hpp\""), std::string::npos);
+    // The stem may appear as the root header's include path inside a diagnostic.
+    // It must not appear in a macro, a guard or any other token.
+    const auto stem_only_as_include_path = [](std::string_view text, std::string_view stem) {
+        const std::string path = std::string(stem) + ".generated.hpp";
+        for (std::size_t at = 0; (at = text.find(stem, at)) != std::string_view::npos;) {
+            if (text.compare(at, path.size(), path) != 0) {
+                return false;
+            }
+            at += path.size();
+        }
+        return true;
+    };
+    EXPECT_TRUE(stem_only_as_include_path(alpha_root->content, "alpha")) << alpha_root->content;
+    EXPECT_TRUE(stem_only_as_include_path(beta_root->content, "beta")) << beta_root->content;
+
+    const std::filesystem::path root = make_temp_directory("root-stem");
+    const std::filesystem::path generated = root / "generated";
+    write_text_file(generated / "alpha.generated.hpp", alpha_root->content);
+    write_text_file(generated / "beta.generated.hpp", beta_root->content);
+    write_text_file(generated / "dep" / "engine_alpha.generated.hpp", alpha_dep->content);
+    write_text_file(generated / "dep" / "engine_beta.generated.hpp", beta_dep->content);
+
+    const std::filesystem::path repo_root =
+        std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+    const auto compile_tu = [&](std::string_view source, std::string_view tag) {
+        const std::filesystem::path source_path = root / (std::string(tag) + ".cpp");
+        const std::filesystem::path executable = root / tag;
+        write_text_file(source_path, source);
+        std::ostringstream command;
+        command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER))
+                << " -std=c++20" QUARRY_TEST_STRICT_CXX_WARNINGS " -I"
+                << std::quoted(generated.string()) << " -I"
+                << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << " -I"
+                << std::quoted(repo_root.string()) << " -I"
+                << std::quoted((repo_root / "include").string()) << " "
+                << std::quoted(source_path.string()) << " -o " << std::quoted(executable.string());
+        const int status = run_command(command.str());
+        EXPECT_EQ(status, 0) << tag << "\n" << command.str();
+        if (status == 0) {
+            EXPECT_EQ(run_command(std::string("\"") + executable.string() + "\""), 0) << tag;
+        }
+    };
+    const std::string checks = "static_assert(" + root_prefix +
+                               "_SCHEMA_ID_ALGORITHM == 1U);\n"
+                               "static_assert(" +
+                               root_prefix +
+                               "_SCHEMA_ID_W0 == 0x00112233UL);\n"
+                               "static_assert(" +
+                               dep_prefix +
+                               "_SCHEMA_ID_ALGORITHM == 1U);\n"
+                               "int main() { return 0; }\n";
+    compile_tu("#include \"alpha.generated.hpp\"\n#include \"dep/engine_beta.generated.hpp\"\n" +
+                   checks,
+               "alpha-then-beta-dep");
+    compile_tu("#include \"beta.generated.hpp\"\n#include \"dep/engine_alpha.generated.hpp\"\n" +
+                   checks,
+               "beta-then-alpha-dep");
+    compile_tu("#include \"dep/engine_alpha.generated.hpp\"\n#include \"beta.generated.hpp\"\n" +
+                   checks,
+               "alpha-dep-then-beta-root");
+    compile_tu("#include \"alpha.generated.hpp\"\n#include \"beta.generated.hpp\"\n"
+               "#include \"dep/engine_beta.generated.hpp\"\n" +
+                   checks,
+               "both-roots-then-beta-dep");
+    compile_tu("#include \"beta.generated.hpp\"\n#include \"alpha.generated.hpp\"\n"
+               "#include \"dep/engine_alpha.generated.hpp\"\n" +
+                   checks,
+               "both-roots-reversed-then-alpha-dep");
 }
 
 } // namespace
