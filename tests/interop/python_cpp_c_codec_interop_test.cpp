@@ -36,6 +36,7 @@
 #include "compiler/qbs/serializer.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "quarry/runtime/qbs_brf_encoder.hpp"
+#include "tests/support/test_configuration_identity.hpp"
 
 #include <gtest/gtest.h>
 
@@ -670,7 +671,8 @@ TEST(PythonCppCCodecInteropTest, VariableWidthArraysAreCompatibleAcrossAllBacken
     blobs_array->mutable_element_type()->mutable_bytes()->set_max_bytes(4);
 
     quarry::compiler::backend::Backend cpp_backend;
-    quarry::compiler::backend::CodegenOptions cpp_options;
+    quarry::compiler::backend::CodegenOptions cpp_options =
+        quarry::testing::with_test_identity(quarry::compiler::backend::CodegenOptions{});
     cpp_options.output_directory = generated_cpp.string();
     const auto cpp_result = cpp_backend.generate(schema_ir, cpp_options);
     ASSERT_TRUE(cpp_result.success) << cpp_result.error_message;
@@ -679,7 +681,8 @@ TEST(PythonCppCCodecInteropTest, VariableWidthArraysAreCompatibleAcrossAllBacken
     }
 
     quarry::compiler::backend_c::Backend c_backend;
-    quarry::compiler::backend_c::CodegenOptions c_options;
+    quarry::compiler::backend_c::CodegenOptions c_options =
+        quarry::testing::with_test_identity(quarry::compiler::backend_c::CodegenOptions{});
     c_options.output_directory = generated_c.string();
     const auto c_result = c_backend.generate(schema_ir, c_options);
     ASSERT_TRUE(c_result.success) << c_result.error_message;
@@ -693,7 +696,8 @@ TEST(PythonCppCCodecInteropTest, VariableWidthArraysAreCompatibleAcrossAllBacken
     ASSERT_FALSE(generated_c_source.empty());
 
     quarry::compiler::backend_python::Backend python_backend;
-    quarry::compiler::backend_python::CodegenOptions python_options;
+    quarry::compiler::backend_python::CodegenOptions python_options =
+        quarry::testing::with_test_identity(quarry::compiler::backend_python::CodegenOptions{});
     python_options.output_directory = generated_python.string();
     const auto python_result = python_backend.generate(schema_ir, python_options);
     ASSERT_TRUE(python_result.success) << python_result.error_message;
@@ -994,7 +998,8 @@ TEST(PythonCppCCodecInteropTest, NestedRecordsAreByteForByteCompatibleAcrossAllB
     value_field->mutable_type()->set_primitive(::quarry::schema_ir::PRIMITIVE_TYPE_U32);
 
     quarry::compiler::backend_c::Backend c_backend;
-    quarry::compiler::backend_c::CodegenOptions c_options;
+    quarry::compiler::backend_c::CodegenOptions c_options =
+        quarry::testing::with_test_identity(quarry::compiler::backend_c::CodegenOptions{});
     c_options.output_directory = generated_c.string();
     const auto c_result = c_backend.generate(schema_ir, c_options);
     ASSERT_TRUE(c_result.success) << c_result.error_message;
@@ -1003,7 +1008,8 @@ TEST(PythonCppCCodecInteropTest, NestedRecordsAreByteForByteCompatibleAcrossAllB
     }
 
     quarry::compiler::backend::Backend cpp_backend;
-    quarry::compiler::backend::CodegenOptions cpp_options;
+    quarry::compiler::backend::CodegenOptions cpp_options =
+        quarry::testing::with_test_identity(quarry::compiler::backend::CodegenOptions{});
     cpp_options.output_directory = generated_cpp.string();
     const auto cpp_result = cpp_backend.generate(schema_ir, cpp_options);
     ASSERT_TRUE(cpp_result.success) << cpp_result.error_message;
@@ -1012,7 +1018,8 @@ TEST(PythonCppCCodecInteropTest, NestedRecordsAreByteForByteCompatibleAcrossAllB
     }
 
     quarry::compiler::backend_python::Backend python_backend;
-    quarry::compiler::backend_python::CodegenOptions python_options;
+    quarry::compiler::backend_python::CodegenOptions python_options =
+        quarry::testing::with_test_identity(quarry::compiler::backend_python::CodegenOptions{});
     python_options.output_directory = generated_python.string();
     const auto python_result = python_backend.generate(schema_ir, python_options);
     ASSERT_TRUE(python_result.success) << python_result.error_message;

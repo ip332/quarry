@@ -3,7 +3,9 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
 
 namespace quarry::compiler::support {
 
@@ -18,6 +20,21 @@ struct ConfigurationIdentity {
 
     friend bool operator==(const ConfigurationIdentity&, const ConfigurationIdentity&) = default;
 };
+
+// Generation entry points receive the identity as
+// std::optional<ConfigurationIdentity>: an absent identity is an explicit
+// state, never encoded as a special hash value (every 128-bit value, including
+// all zeros, is a valid schema_id). Backends reject generation without one,
+// after their own schema validation and before rendering any file; planning
+// (--list-outputs) never needs one.
+[[nodiscard]] inline std::string
+missing_configuration_identity_message(std::string_view backend_name) {
+    std::string message(backend_name);
+    message += ": code generation requires a configuration identity "
+               "(CodegenOptions::configuration_identity); compute it from the resolved "
+               "configuration, as quarry-schema-compiler does, and pass it explicitly";
+    return message;
+}
 
 // The 32 lowercase hexadecimal digits of `identity.schema_id`, in QBS header
 // byte order, as printed by --print-schema-id. Backends embed this spelling

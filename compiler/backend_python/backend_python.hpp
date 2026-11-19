@@ -5,6 +5,7 @@
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "compiler/support/configuration_identity.hpp"
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -14,7 +15,9 @@ namespace quarry::compiler::backend_python {
 struct CodegenOptions {
     std::string output_directory = "generated";
     std::string root_module_stem = "schema";
-    support::ConfigurationIdentity configuration_identity;
+    // Required for generate(), ignored by plan(). The schema compiler computes it
+    // once from the resolved configuration; see missing_configuration_identity_message.
+    std::optional<support::ConfigurationIdentity> configuration_identity;
 };
 
 struct GeneratedFile {

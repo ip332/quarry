@@ -1249,10 +1249,15 @@ namespace {
         result.success = false;
         return result;
     }
+    if (!options.configuration_identity.has_value()) {
+        result.success = false;
+        result.error_message = support::missing_configuration_identity_message("backend_go");
+        return result;
+    }
     for (const PlannedPackageFile& file : files) {
         GeneratedFile generated;
         generated.path = output_path_for_planned_file(options, file.relative_path);
-        generated.content = render_file(file, options.configuration_identity);
+        generated.content = render_file(file, *options.configuration_identity);
         result.files.push_back(std::move(generated));
     }
     return result;

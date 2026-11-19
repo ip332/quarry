@@ -3,6 +3,7 @@
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "compiler/schema_ir/validation.hpp"
+#include "tests/support/test_configuration_identity.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -87,7 +88,7 @@ TEST(BackendCTest, SizeOptionPacksFlagsAndReservesBitmapMemberName) {
         field->mutable_type()->set_primitive(quarry::schema_ir::PRIMITIVE_TYPE_U32);
     }
     assert_valid(schema);
-    CodegenOptions options;
+    CodegenOptions options = quarry::testing::with_test_identity(CodegenOptions{});
     options.optimize_size = true;
     const auto packed = Backend{}.generate(schema, options);
     ASSERT_TRUE(packed.success) << packed.error_message;
@@ -98,7 +99,8 @@ TEST(BackendCTest, SizeOptionPacksFlagsAndReservesBitmapMemberName) {
     EXPECT_EQ(header.find("    bool has_value"), std::string::npos);
     EXPECT_NE(header.find("Sample_set_value8_present"), std::string::npos);
     EXPECT_NE(header.find("Sample_has_value8"), std::string::npos);
-    const auto ordinary = Backend{}.generate(schema, CodegenOptions{});
+    const auto ordinary =
+        Backend{}.generate(schema, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(ordinary.success);
     EXPECT_NE(ordinary.files[0].content.find("bool has_value8;"), std::string::npos);
 }
@@ -110,11 +112,13 @@ TEST(BackendCTest, EmptySchemaProducesNoFiles) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
+    const PlanResult plan_result =
+        backend.plan(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(plan_result.success) << plan_result.error_message;
     EXPECT_TRUE(plan_result.plan.files.empty());
 
-    const CodegenResult codegen_result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult codegen_result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(codegen_result.success) << codegen_result.error_message;
     EXPECT_TRUE(codegen_result.files.empty());
 }
@@ -128,7 +132,8 @@ TEST(BackendCTest, RootNamespaceZeroFieldRecordUsesRootFileStem) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
+    const PlanResult plan_result =
+        backend.plan(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(plan_result.success) << plan_result.error_message;
     ASSERT_EQ(plan_result.plan.files.size(), 1U);
     EXPECT_EQ(plan_result.plan.files[0].relative_header_path, "schema.generated.h");
@@ -147,7 +152,8 @@ TEST(BackendCTest, NestedNamespaceProducesSymbolPrefixedFileAndSymbols) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2U);
 
@@ -168,7 +174,7 @@ TEST(BackendCTest, NestedNamespaceProducesSymbolPrefixedFileAndSymbols) {
     // The guard carries the configuration's full schema_id (all zero here:
     // the test passes no configuration identity).
     EXPECT_NE(header->content.find("#ifndef QUARRY_GENERATED_C_QUARRY_TELEMETRY_"
-                                   "00000000000000000000000000000000_GENERATED_H_"),
+                                   "00112233445566778899AABBCCDDEEFF_GENERATED_H_"),
               std::string::npos);
     EXPECT_NE(header->content.find("extern \"C\""), std::string::npos);
     EXPECT_NE(header->content.find("uint8_t reserved;"), std::string::npos);
@@ -187,7 +193,8 @@ TEST(BackendCTest, KeywordNamespaceSegmentRemainsValidWithSymbolPrefix) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2U);
     EXPECT_NE(result.files[0].content.find("switch_Sample_t"), std::string::npos);
@@ -205,7 +212,8 @@ TEST(BackendCTest, EnumRendersUppercasePrefixedConstants) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2U);
 
@@ -277,7 +285,8 @@ TEST(BackendCTest, HardenedNamesMapKeywordsReservedNamesAndDerivedCollisions) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2U);
     const std::string& header = result.files[0].content;
@@ -314,7 +323,8 @@ TEST(BackendCTest, SafeFieldNamesRemainUnchanged) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     EXPECT_NE(result.files[0].content.find("bool has_count;"), std::string::npos);
     EXPECT_NE(result.files[0].content.find("uint32_t count;"), std::string::npos);
@@ -337,7 +347,8 @@ TEST(BackendCTest, ArrayElementTypeCollisionIsDisambiguated) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     EXPECT_NE(result.files[0].content.find("} Sample_array_0_string_element_t;"),
               std::string::npos);
@@ -356,7 +367,8 @@ TEST(BackendCTest, EnumValueOutsideInt32RangeFailsGenerationWithClearDiagnostic)
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_FALSE(result.success);
     EXPECT_NE(result.error_message.find("telemetry.Status.TooBig"), std::string::npos);
     EXPECT_NE(result.error_message.find("9000000000"), std::string::npos);
@@ -379,7 +391,8 @@ TEST(BackendCTest, ArrayOfStringGeneratesNamedElementType) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2U);
     EXPECT_NE(result.files[0].content.find("} telemetry_Sample_array_0_string_element_t;"),
@@ -389,7 +402,8 @@ TEST(BackendCTest, ArrayOfStringGeneratesNamedElementType) {
 
     // plan() must fail the same way generate() does -- the two must never
     // diverge (see compiler/backend_c/README.md).
-    const PlanResult plan_result = backend.plan(schema_ir, CodegenOptions{});
+    const PlanResult plan_result =
+        backend.plan(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(plan_result.success) << plan_result.error_message;
 }
 
@@ -416,7 +430,8 @@ TEST(BackendCTest, MixedSupportedAndUnsupportedFieldsFailsRecordAsAWhole) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     EXPECT_NE(result.files[0].content.find("telemetry_Sample_array_1_string_element_t label[4];"),
               std::string::npos);
@@ -440,7 +455,8 @@ TEST(BackendCTest, GeneratesScalarStructFieldsAndCodecDeclarations) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2U);
 
@@ -479,7 +495,8 @@ TEST(BackendCTest, EnumFieldGeneratesTypedefTypeStructFieldAndCodec) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2U);
 
@@ -519,7 +536,8 @@ TEST(BackendCTest, EnumFieldWidthMatchesMaxDeclaredValue) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     const std::string& binding = result.files[0].content;
     EXPECT_NE(binding.find("QUARRY_C_TYPED_ENUM"), std::string::npos);
@@ -547,7 +565,8 @@ TEST(BackendCTest, CrossNamespaceEnumFieldGeneratesDependencyInclude) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 4U);
     EXPECT_NE(result.files[2].content.find("#include \"alpha.generated.h\""), std::string::npos);
@@ -573,7 +592,8 @@ TEST(BackendCTest, NegativeValueEnumFieldFailsWithClearDiagnostic) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_FALSE(result.success);
     EXPECT_NE(result.error_message.find("telemetry.Sample.signed_field"), std::string::npos);
     EXPECT_NE(result.error_message.find("non-negative"), std::string::npos);
@@ -594,7 +614,8 @@ TEST(BackendCTest, StringFieldGeneratesFixedCapacityStructFieldAndCodec) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2U);
 
@@ -626,7 +647,8 @@ TEST(BackendCTest, StringFieldUsesSharedSizeValidation) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     const std::string& binding = result.files[0].content;
     EXPECT_NE(binding.find("QUARRY_C_TYPED_STRING"), std::string::npos);
@@ -659,7 +681,8 @@ TEST(BackendCTest, MixedScalarEnumStringRecordGeneratesAllFieldKinds) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     const std::string& header = result.files[0].content;
     EXPECT_NE(header.find("uint32_t count;"), std::string::npos);
@@ -682,7 +705,8 @@ TEST(BackendCTest, BytesFieldGeneratesFixedCapacityStructFieldAndCodec) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2U);
 
@@ -714,7 +738,8 @@ TEST(BackendCTest, BytesFieldUsesSharedSizeValidation) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     const std::string& binding = result.files[0].content;
     EXPECT_NE(binding.find("QUARRY_C_TYPED_BYTES"), std::string::npos);
@@ -751,7 +776,8 @@ TEST(BackendCTest, MixedScalarEnumStringBytesRecordGeneratesAllFieldKinds) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     const std::string& header = result.files[0].content;
     EXPECT_NE(header.find("uint32_t count;"), std::string::npos);
@@ -777,7 +803,8 @@ TEST(BackendCTest, ArrayOfScalarFieldGeneratesFixedCapacityStructFieldAndCodec) 
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2U);
 
@@ -809,7 +836,8 @@ TEST(BackendCTest, ArrayFieldDescribesBoundedElementStorage) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     const std::string& binding = result.files[0].content;
     EXPECT_NE(binding.find("QUARRY_C_TYPED_U64"), std::string::npos);
@@ -840,7 +868,8 @@ TEST(BackendCTest, ArrayOfEnumFieldChecksMembershipOnEncodeAndDecode) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
 
     const std::string& header = result.files[0].content;
@@ -872,7 +901,8 @@ TEST(BackendCTest, ArrayFieldUsesSharedSizeValidation) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     const std::string& binding = result.files[0].content;
     EXPECT_NE(binding.find("QUARRY_C_TYPED_U32"), std::string::npos);
@@ -897,7 +927,8 @@ TEST(BackendCTest, ArrayOfBytesGeneratesNamedElementType) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     EXPECT_NE(result.files[0].content.find("} telemetry_Sample_array_0_bytes_element_t;"),
               std::string::npos);
@@ -927,7 +958,8 @@ TEST(BackendCTest, ArrayOfCrossNamespaceEnumGeneratesDependencyInclude) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 4U);
     EXPECT_NE(result.files[2].content.find("#include \"alpha.generated.h\""), std::string::npos);
@@ -956,7 +988,8 @@ TEST(BackendCTest, ArrayOfNegativeValueEnumFailsWithClearDiagnostic) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_FALSE(result.success);
     EXPECT_NE(result.error_message.find("telemetry.Sample.signed_values"), std::string::npos);
     EXPECT_NE(result.error_message.find("array element type"), std::string::npos);
@@ -983,7 +1016,8 @@ TEST(BackendCTest, NestedRecordFieldGeneratesEmbeddedStructFieldAndCodec) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2U);
 
@@ -1022,7 +1056,8 @@ TEST(BackendCTest, NestedRecordFieldReferencesChildDescriptor) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     const std::string& binding = result.files[0].content;
     EXPECT_NE(binding.find("QUARRY_C_TYPED_RECORD"), std::string::npos);
@@ -1048,7 +1083,8 @@ TEST(BackendCTest, CrossNamespaceNestedRecordFieldGeneratesDependencyInclude) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 4U);
     EXPECT_NE(result.files[2].content.find("#include \"alpha.generated.h\""), std::string::npos);
@@ -1070,7 +1106,8 @@ TEST(BackendCTest, CrossNamespaceNestedRecordUsesCanonicalTargetRecordId) {
     field->mutable_type()->mutable_record()->set_target_record_ir_id(3);
     assert_valid(schema_ir);
 
-    const CodegenResult result = Backend{}.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        Backend{}.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     EXPECT_NE(result.files[2].content.find("&alpha_Inner_type, 2U"), std::string::npos);
 }
@@ -1095,7 +1132,8 @@ TEST(BackendCTest, SelfReferentialNestedRecordFailsWithCycleDiagnostic) {
     // precedent for the C++ backend's equivalent cycle check.
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_FALSE(result.success);
     EXPECT_NE(result.error_message.find("cycle"), std::string::npos);
     EXPECT_TRUE(result.files.empty());
@@ -1123,7 +1161,8 @@ TEST(BackendCTest, ForwardDeclaredNestedRecordIsReorderedBeforeDependent) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2U);
     const std::string& header = result.files[0].content;
@@ -1162,7 +1201,8 @@ TEST(BackendCTest, ArrayOfCrossNamespaceRecordElementTypeGeneratesDependencyIncl
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 4U);
     EXPECT_NE(result.files[2].content.find("#include \"alpha.generated.h\""), std::string::npos);
@@ -1193,7 +1233,8 @@ TEST(BackendCTest, ArrayOfRecordFieldGeneratesFixedCapacityStructFieldAndCodec) 
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     ASSERT_EQ(result.files.size(), 2U);
 
@@ -1238,7 +1279,8 @@ TEST(BackendCTest, ArrayOfRecordFieldReferencesChildDescriptor) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     const std::string& binding = result.files[0].content;
     EXPECT_NE(binding.find("QUARRY_C_TYPED_RECORD"), std::string::npos);
@@ -1275,7 +1317,8 @@ TEST(BackendCTest, SelfReferentialArrayOfRecordsFailsWithCycleDiagnostic) {
         ->set_target_record_ir_id(3);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_FALSE(result.success);
     EXPECT_NE(result.error_message.find("cycle"), std::string::npos);
     EXPECT_TRUE(result.files.empty());
@@ -1316,7 +1359,8 @@ TEST(BackendCTest, ArrayOfRecordComposesWithNestedRecordField) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     const std::string& header = result.files[0].content;
     EXPECT_NE(header.find("tree_Middle_t items[2];"), std::string::npos);
@@ -1381,7 +1425,8 @@ TEST(BackendCTest, MixedScalarEnumStringBytesArrayRecordGeneratesAllFieldKinds) 
     assert_valid(schema_ir);
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(result.success) << result.error_message;
     const std::string& header = result.files[0].content;
     EXPECT_NE(header.find("uint32_t count;"), std::string::npos);
@@ -1412,7 +1457,8 @@ TEST(BackendCTest, DuplicateNamespaceFqnFailsWithClearDiagnostic) {
     // structural validity (compiler/backend_c/README.md).
 
     Backend backend;
-    const CodegenResult result = backend.generate(schema_ir, CodegenOptions{});
+    const CodegenResult result =
+        backend.generate(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_FALSE(result.success);
     EXPECT_NE(result.error_message.find("duplicate generated"), std::string::npos);
 }
@@ -1429,8 +1475,10 @@ TEST(BackendCTest, PlanIsDeterministicAcrossRepeatedCalls) {
     assert_valid(schema_ir);
 
     Backend backend;
-    const PlanResult first_result = backend.plan(schema_ir, CodegenOptions{});
-    const PlanResult second_result = backend.plan(schema_ir, CodegenOptions{});
+    const PlanResult first_result =
+        backend.plan(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
+    const PlanResult second_result =
+        backend.plan(schema_ir, quarry::testing::with_test_identity(CodegenOptions{}));
     ASSERT_TRUE(first_result.success);
     ASSERT_TRUE(second_result.success);
     ASSERT_EQ(first_result.plan.files.size(), 2U);

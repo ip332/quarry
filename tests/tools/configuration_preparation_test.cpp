@@ -172,7 +172,7 @@ TEST(ConfigurationPreparationTest, GenerateBindingsHandsBackendThePreparedIdenti
     backend_c::CodegenOptions options;
     options.root_file_stem = "configured";
     options.cpp_wrapper = true;
-    options.configuration_identity.schema_id.fill(0x00U); // stale caller value
+    options.configuration_identity.emplace(); // stale caller value (all-zero schema_id)
 
     const RecordingBackend recorder;
     const auto result = generate_bindings(recorder, *compilation.schema_ir, prepared, options,

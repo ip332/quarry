@@ -57,7 +57,9 @@ ConfigurationIdentity
   uses the same canonical identity input. The result is independent of `--generate` (A3 invariant)
   and of `--name-prefix`.
 - **Passed to every backend** as `CodegenOptions::configuration_identity`, together with the
-  authoritative layout it was computed from. Backends never recompute either.
+  authoritative layout it was computed from. Backends never recompute either. The option is a
+  `std::optional`; every backend rejects generation without it (#113), so no generated file
+  carries a default identity.
 - **Only the algorithm and the 16 bytes enter generated identity checks.** The configuration name,
   root path and compiler version are never hashed. Future generated bindings expose compiler and
   format versions as compile-time constants or equivalent module metadata, without mandatory runtime
