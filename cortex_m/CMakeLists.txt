@@ -132,7 +132,7 @@ add_executable(quarry_cortex_m_smoke
     "${QUARRY_GENERATED_WORKLOAD_SOURCE}"
 )
 # Identical to quarry_cortex_m_smoke, except that it reads the configuration
-# identity through the generated benchmark_workload_schema_id() accessor. The
+# identity through the generated quarry_ns_benchmark_workload_schema_id() accessor. The
 # footprint difference between the two ELFs is the incremental cost of
 # explicitly accessing identity; quarry_cortex_m_smoke itself must carry no
 # identity-related code or data.

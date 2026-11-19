@@ -13,6 +13,9 @@ Responsibilities:
 * generated-code identity (`generated_code_identity.hpp`, #111): the versioned
   canonical encoding, SHA-256/128, and the structured renderer placeholders
   (`docs/design/configuration-identity.md` §16)
+* namespace-to-macro encoding (`namespace_macro.hpp`, #117): the injective,
+  case-preserving spelling of a namespace for identity macros, identity guards
+  and the C identity accessor (`docs/design/configuration-identity.md` §4.6)
 
 ## SourceLocation
 

@@ -118,7 +118,9 @@ compute_generated_code_identity(const GeneratedCodeIdentityInput& input, std::st
 //                            uppercase), '0'..'3' (word i as 0x........UL) or
 //                            'b' (the 16 bytes as 0x..U, separated by ", ")
 //   0x1E 'P' fqn 0x1F        the generated include path of namespace fqn
-//   0x1E 'M' fqn 0x1F        the include-path-derived macro stem of namespace fqn
+//   0x1E 'M' fqn 0x1F        the namespace-encoded macro stem of namespace fqn
+//                            (#117; the grammar is unchanged, and the stem is
+//                            substituted after the identity is hashed)
 //
 // The placeholder text is the normalized content that is hashed; the final
 // output substitutes every placeholder. Nothing else is rewritten.

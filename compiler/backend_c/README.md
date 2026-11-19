@@ -75,9 +75,10 @@ Native C structure layouts and successful wire bytes are unchanged.
 ## Configuration identity
 
 Every generated header (#99, `docs/design/configuration-identity.md` §4.1)
-defines `<NS>_QUARRY_SCHEMA_ID_ALGORITHM` and `<NS>_QUARRY_SCHEMA_ID_W0`..`W3`
-macros (the root namespace uses `QUARRY_ROOT_QUARRY_SCHEMA_ID_*`) and an
-optional `static inline const uint8_t* <ns>_schema_id(void)` accessor, which
+defines `QUARRY_NS_<encoded namespace>_SCHEMA_ID_ALGORITHM` and
+`QUARRY_NS_<encoded namespace>_SCHEMA_ID_W0`..`W3` macros (the root namespace
+uses `QUARRY_NS_0_SCHEMA_ID_*`; #117, `compiler/support/namespace_macro.hpp`) and an
+optional `static inline const uint8_t* quarry_ns_<encoded namespace>_schema_id(void)` accessor, which
 emits no object code unless called. Its include guard contains the full
 128-bit `schema_id`. For every generated header it includes, it checks with
 `#if`/`#error` that all five macros are defined (otherwise the dependency
@@ -213,10 +214,11 @@ so they are `extern "C" inline` functions whose external names carry the full
 identity (`quarry_gen_<gid>_<record>_field_<i>_enum_load`). This matches the
 runtime's function types ([dcl.link], SEI CERT C++ EXP56-CPP) without merging
 different definitions. The header guard and the
-`QUARRY_GENERATED_CPP_C_NS_<FQN>_CODE_ID_{FORMAT,W0..W3}` macros carry the
+`QUARRY_GENERATED_CPP_C_NS_<encoded namespace>_CODE_ID_{FORMAT,W0..W3}` macros carry the
 identity, dependencies are checked against it, and a second, different
 definition of a namespace in one translation unit is an explicit `#error`
-(`docs/design/configuration-identity.md` §16). Plain C output is unchanged.
+(`docs/design/configuration-identity.md` §16). Plain C record symbols are unchanged.
+Its configuration-identity macros and accessor use the same namespace encoding.
 
 See [the runnable example](../../examples/cpp/c_storage_encode_decode/README.md)
 for API details, failure behavior, and build instructions.

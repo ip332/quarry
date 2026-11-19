@@ -22,6 +22,8 @@
 #include <utility>
 #include <vector>
 
+#include "compiler/support/namespace_macro.hpp"
+
 #include <gtest/gtest.h>
 
 #ifndef _WIN32
@@ -331,12 +333,19 @@ TEST_P(ConfigurationIdentityVariantTest, EmbedsThePrintedSchemaIdForEverySelecti
                     EXPECT_NE(text.find("_" + upper(id) + "_GENERATED_H"), std::string::npos)
                         << file;
                 }
-                EXPECT_NE(text.find("_QUARRY_SCHEMA_ID_W0 0x" + id.substr(0, 8) + "UL"),
-                          std::string::npos)
-                    << file;
-                EXPECT_NE(text.find("_QUARRY_SCHEMA_ID_W3 0x" + id.substr(24, 8) + "UL"),
-                          std::string::npos)
-                    << file;
+                {
+                    const std::string ns =
+                        file == variant.common_file ? "fleet.common" : "fleet.engine";
+                    const std::string stem =
+                        std::string(quarry::compiler::support::kCNamespaceMacroPrefix) +
+                        quarry::compiler::support::encode_namespace_macro(ns).value();
+                    EXPECT_NE(text.find(stem + "_SCHEMA_ID_W0 0x" + id.substr(0, 8) + "UL"),
+                              std::string::npos)
+                        << file;
+                    EXPECT_NE(text.find(stem + "_SCHEMA_ID_W3 0x" + id.substr(24, 8) + "UL"),
+                              std::string::npos)
+                        << file;
+                }
                 if (variant.variant == Variant::CppCStorage) {
                     // Linkage isolation is keyed by the generated-code identity
                     // (#111), not by schema_id; schema_id stays in the macros.
@@ -344,15 +353,22 @@ TEST_P(ConfigurationIdentityVariantTest, EmbedsThePrintedSchemaIdForEverySelecti
                     EXPECT_NE(text.find("inline namespace quarry_gen_"), std::string::npos) << file;
                 }
                 break;
-            case Variant::Cpp:
-                EXPECT_NE(text.find("_SCHEMA_ID_W0 0x" + id.substr(0, 8) + "UL"), std::string::npos)
+            case Variant::Cpp: {
+                const std::string ns =
+                    file == variant.common_file ? "fleet.common" : "fleet.engine";
+                const std::string stem =
+                    std::string(quarry::compiler::support::kCppOwningNamespaceMacroPrefix) +
+                    quarry::compiler::support::encode_namespace_macro(ns).value();
+                EXPECT_NE(text.find(stem + "_SCHEMA_ID_W0 0x" + id.substr(0, 8) + "UL"),
+                          std::string::npos)
                     << file;
-                EXPECT_NE(text.find("_SCHEMA_ID_W3 0x" + id.substr(24, 8) + "UL"),
+                EXPECT_NE(text.find(stem + "_SCHEMA_ID_W3 0x" + id.substr(24, 8) + "UL"),
                           std::string::npos)
                     << file;
                 EXPECT_EQ(text.find("quarry_cfg_"), std::string::npos) << file;
                 EXPECT_NE(text.find("inline namespace quarry_gen_"), std::string::npos) << file;
                 break;
+            }
             case Variant::Python:
                 EXPECT_NE(text.find("QUARRY_SCHEMA_ID = bytes.fromhex(\"" + id + "\")"),
                           std::string::npos);
@@ -830,32 +846,9 @@ fields:
     type: Mode
 )",
      "uses the prefix quarry_gen_, which generated C++/C-storage code reserves"},
-    {"c_storage_enum_value", "--language cpp --cpp-storage c", R"(namespace: fleet.engine
-record: Sample
-version: 1
-type: data
-enums:
-  QUARRY:
-    values:
-      SCHEMA_ID_W0: 0
-fields:
-  value:
-    type: QUARRY
-)",
-     "'FLEET_ENGINE_QUARRY_SCHEMA_ID_W0' collides with another generated C identifier"},
-    {"c_enum_value", "--language c", R"(namespace: fleet.engine
-record: Sample
-version: 1
-type: data
-enums:
-  QUARRY:
-    values:
-      SCHEMA_ID_ALGORITHM: 0
-fields:
-  value:
-    type: QUARRY
-)",
-     "'FLEET_ENGINE_QUARRY_SCHEMA_ID_ALGORITHM' collides with another generated C identifier"},
+    // #117 moved configuration-identity macros off the uppercased symbol
+    // prefix, so this enum constant no longer collides with them. The
+    // coexistence is checked in PreviouslyCollidingCEnumSpellingGenerates.
     {"go_record", "--language go", R"(namespace: fleet.engine
 record: QuarrySchemaID
 version: 1
@@ -915,6 +908,68 @@ TEST_P(ConfigurationIdentityCollisionTest, RejectsSchemaNamesThatCollideWithIden
     EXPECT_NE(result.output.find(collision.expected_message), std::string::npos) << result.output;
     EXPECT_FALSE(fs::exists(work / "out")) << "no output may be written";
     fs::remove_all(work);
+}
+
+// #117: the enum constants FLEET_ENGINE_QUARRY_SCHEMA_ID_* used to be the
+// configuration-identity macros. They now coexist with QUARRY_NS_fleet_engine_*.
+TEST(ConfigurationIdentityTest, PreviouslyCollidingCEnumSpellingGenerates) {
+    const std::string_view schema = R"(namespace: fleet.engine
+record: Sample
+version: 1
+type: data
+enums:
+  QUARRY:
+    values:
+      SCHEMA_ID_ALGORITHM: 0
+      SCHEMA_ID_W0: 1
+fields:
+  value:
+    type: QUARRY
+)";
+    const std::string stem =
+        std::string(quarry::compiler::support::kCNamespaceMacroPrefix) +
+        quarry::compiler::support::encode_namespace_macro("fleet.engine").value();
+    for (const std::string_view language : {"--language c", "--language cpp --cpp-storage c"}) {
+        const bool plain_c = language == "--language c";
+        const fs::path work = make_temp_directory(plain_c ? "enum-c" : "enum-cstorage");
+        const fs::path schema_path = work / "schema.brd";
+        write_text_file(schema_path, schema);
+        const fs::path output = work / "out";
+        const RunResult generated =
+            compiler(std::string(language) + " --output-directory " + quote(output.string()) + " " +
+                         quote(schema_path.string()),
+                     work / "compile.log");
+        ASSERT_EQ(generated.status, 0) << language << "\n" << generated.output;
+        const fs::path header =
+            output / (plain_c ? "fleet/engine.generated.h" : "fleet/engine.generated.hpp");
+        const std::string text = read_text_file(header);
+        EXPECT_NE(text.find("FLEET_ENGINE_QUARRY_SCHEMA_ID_ALGORITHM"), std::string::npos) << text;
+        EXPECT_NE(text.find("FLEET_ENGINE_QUARRY_SCHEMA_ID_W0"), std::string::npos);
+        EXPECT_NE(text.find("#define " + stem + "_SCHEMA_ID_ALGORITHM"), std::string::npos);
+        EXPECT_NE(text.find("#define " + stem + "_SCHEMA_ID_W0"), std::string::npos);
+        EXPECT_NE(text.find(std::string(quarry::compiler::support::kCNamespaceAccessorPrefix) +
+                            "fleet_engine_schema_id"),
+                  std::string::npos);
+        const fs::path source = work / (plain_c ? "use.c" : "use.cpp");
+        write_text_file(source, std::string("#include \"") + header.string() +
+                                    "\"\nint main(void) {\n"
+                                    "  return FLEET_ENGINE_QUARRY_SCHEMA_ID_ALGORITHM == 0 &&\n"
+                                    "                 FLEET_ENGINE_QUARRY_SCHEMA_ID_W0 == 1\n"
+                                    "             ? 0\n"
+                                    "             : 1;\n}\n");
+        const RunResult used =
+            run(quote(QUARRY_TEST_CXX_COMPILER) + std::string(plain_c ? kStrictC : kStrictCxx) +
+                    " -I" + quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
+                    quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " + quote(source.string()) +
+                    " -o " + quote((work / "use").string()),
+                work / "use.log");
+        EXPECT_EQ(used.status, 0) << language << "\n" << used.output;
+        if (used.status == 0) {
+            const RunResult ran = run(quote((work / "use").string()), work / "run.log");
+            EXPECT_EQ(ran.status, 0) << ran.output;
+        }
+        fs::remove_all(work);
+    }
 }
 
 // The Python backend's established policy renames a schema name equal to a
