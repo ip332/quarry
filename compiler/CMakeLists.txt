@@ -1,5 +1,7 @@
 add_library(quarry_compiler_support
     support/file_system.cpp
+    support/generated_code_identity.cpp
+    support/sha256.cpp
     support/source_location.cpp
     support/source_manager.cpp
 )

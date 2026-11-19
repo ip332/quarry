@@ -1543,8 +1543,8 @@ TEST(SchemaCompilerToolTest, GeneratedCppHeadersSharingADependencyCompileTogethe
         run_tool({"--output-directory", output.string(), (root / "diamond.brd").string()}, root);
     ASSERT_EQ(generated.status, 0) << generated.stderr_text;
     EXPECT_TRUE(std::regex_search(read_text_file(output / "z.generated.hpp"),
-                                  std::regex("\n#ifndef (QUARRY_GENERATED_CPP_Z_[0-9A-F]{32}"
-                                             "_GENERATED_HPP_)\n#define \\1\n")));
+                                  std::regex("\n#ifndef (QUARRY_GENERATED_CPP_NS_Z_[0-9A-F]{32}"
+                                             "_)\n#define \\1\n")));
     const auto use = root / "diamond.cpp";
     write_text_file(use, "#include \"l.generated.hpp\"\n#include \"r.generated.hpp\"\n"
                          "#include \"z.generated.hpp\"\n"
@@ -2256,8 +2256,8 @@ TEST(SchemaCompilerToolTest, TruckBindingsAndQbsImagesMatchGoldenArtifacts) {
     const std::filesystem::path schema = truck_schemas() / "configuration.brd";
     const std::map<std::string, std::string> expected_tree_hashes = {
         {"c", "fb76e880f6590bd73bfac9b84b40e577cabc4bc991042c58014bbeee8dfd37c0"},
-        {"cpp", "b570cfc7000520fa3afdc85347d2f9b65a8f699c6e484570e45b5d51d9093e94"},
-        {"cpp-c-storage", "c8e58b04e0295e6b93f4cfa6cc6dc358058e6e0befe12011a4c5ab24e6ffde86"},
+        {"cpp", "12e3027957dc620c95a7dd2e4ff04d0eeff518f4288374df21fb371728b888a2"},
+        {"cpp-c-storage", "590d5cf37d12a145e0098686e09aa1dc0f1a14fd422445ce38d9a93ddd47a6e0"},
         {"python", "18b06c9077b0efbf106c963289c68947fcf8d04278564b999775385a25b5497e"},
         {"go", "c8fe744942d020fa93488fd3bc9275ead9e1641c9b204ff50b53a33800f0d4fa"},
     };

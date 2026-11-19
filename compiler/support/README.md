@@ -8,6 +8,11 @@ Responsibilities:
 * source manager
 * file system abstraction
 * shared infrastructure utilities
+* configuration identity value (`configuration_identity.hpp`) and SHA-256
+  (`sha256.hpp`, shared by QBS `schema_id` and generated-code identity)
+* generated-code identity (`generated_code_identity.hpp`, #111): the versioned
+  canonical encoding, SHA-256/128, and the structured renderer placeholders
+  (`docs/design/configuration-identity.md` §16)
 
 ## SourceLocation
 

@@ -175,13 +175,28 @@ Current C++ generation behavior:
   and an include guard containing the full 128-bit `schema_id`. Every
   declaration is inside `inline namespace quarry_cfg_<schema_id>`, so user code
   still writes `truck::engine::EngineStatus` but two configurations' symbols
-  never merge at link time. Each included generated header is checked: a
+  never merge at link time (since #111 G1 the inline namespace is
+  `quarry_gen_<generated-code identity>` and the guard is keyed by it; see the
+  bullet below). Each included generated header is checked: a
   missing identity macro fails with a "predates generated configuration
   identity" `#error`, a different identity with a `static_assert`. Records,
   enums or namespace segments named `kQuarrySchemaId`, `kQuarrySchemaIdAlgorithm`
   or `quarry_cfg_*` are rejected. The generated-code API version stays `3`;
   the mangled names of every generated symbol change, so consumers regenerate
   and rebuild dependent binaries
+* embeds a per-namespace generated-code identity (#111 G1,
+  `docs/design/configuration-identity.md` §16): SHA-256/128 of the header's
+  normalized generated definitions (renderer placeholders for its own identity
+  and every output-path-derived token), its configuration and its generated
+  dependencies' identities, computed over the whole configuration so
+  `--generate` and output naming never change it. Every declaration is inside
+  `inline namespace quarry_gen_<identity>`, the guard is
+  `QUARRY_GENERATED_CPP_NS_<FQN>_<IDENTITY>_`, and
+  `QUARRY_GENERATED_CPP_NS_<FQN>_CODE_ID_{FORMAT,W0..W3}` plus
+  `kQuarryGeneratedCodeId{,Format}` expose it. Each included generated header
+  is checked for identity presence, format and equality; a second, different
+  definition of a namespace in one translation unit is an explicit `#error`.
+  `kQuarryGeneratedCodeId*` and `quarry_gen_*` names are rejected
 * keeps generated headers warning-clean under `-Wall -Wextra -Wpedantic
   -Wshadow -Werror` (#83): field validators declare their parameter, and array
   validators their element variable, `[[maybe_unused]]`, because fields
