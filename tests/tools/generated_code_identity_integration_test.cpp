@@ -18,6 +18,7 @@
 #include <iterator>
 #include <map>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -157,6 +158,10 @@ struct Variant {
 constexpr Variant kOwning{"cpp", "--language cpp", ".generated.hpp"};
 constexpr Variant kCStorage{"cpp_c_storage", "--language cpp --cpp-storage c", ".generated.hpp"};
 
+// AddressSanitizer and UndefinedBehaviorSanitizer, with undefined behavior fatal.
+constexpr std::string_view kSanitizerFlags =
+    "-fsanitize=address,undefined -fno-sanitize-recover=undefined";
+
 class GeneratedCodeIdentityTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -287,7 +292,7 @@ protected:
         static const bool available = [&] {
             const fs::path probe = work_ / "asan-probe.cpp";
             write_text_file(probe, "int main() { return 0; }\n");
-            return run(quote(QUARRY_TEST_CXX_COMPILER) + " -fsanitize=address " +
+            return run(quote(QUARRY_TEST_CXX_COMPILER) + " " + std::string(kSanitizerFlags) + " " +
                            quote(probe.string()) + " -o " + quote((work_ / "asan-probe").string()),
                        work_ / "asan-probe.log")
                        .status == 0;
@@ -298,7 +303,7 @@ protected:
     [[nodiscard]] std::vector<std::string> link_flag_sets() {
         std::vector<std::string> flags{"-O0", "-O2"};
         if (sanitizer_available()) {
-            flags.emplace_back("-O0 -g -fsanitize=address");
+            flags.emplace_back("-O0 -g " + std::string(kSanitizerFlags));
         }
         return flags;
     }
@@ -575,6 +580,7 @@ extern "C" int run_NAME() {
     }
     quarry::cxx::inv_core_Status s;
     s.set_rpm(1234U);
+    s.set_mode(INV_CORE_MODE_ON); // encoded through the enum_load callback
     if (!s.set_items(items)) return 1;
     std::array<std::byte, 256> buffer{};
     const auto encoded = s.encode(buffer);
@@ -583,6 +589,7 @@ extern "C" int run_NAME() {
     if (d.decode(std::span<const std::byte>(buffer.data(), encoded.bytes_written)).status !=
         QUARRY_C_STATUS_OK) return 3;
     if (!d.has_rpm() || d.rpm() != 1234U) return 4;
+    if (!d.has_mode() || d.mode() != INV_CORE_MODE_ON) return 8;
     if (d.native().items_count != 3U) return 7; // this TU's own struct layout
     const auto got = d.items();
     if (got.size() != 3U) return 5;
@@ -651,6 +658,318 @@ TEST_F(GeneratedCodeIdentityTest, WireEquivalentDefinitionsCoexistInOneProgram) 
                   "run_a=0 run_b=0")
             << flags;
     }
+}
+
+// --- C-storage enum callback language linkage (PR #116) --------------------
+//
+// The runtime declares quarry_c_element_descriptor_t::enum_load/enum_store in
+// extern "C", so per [dcl.link] they are pointers to functions with C language
+// linkage. Calling a function through a pointer whose type has a different
+// language linkage is undefined behavior (SEI CERT C++ EXP56-CPP). GCC, Clang
+// and MSVC do not distinguish the two function types, so accepting the code is
+// no evidence; these tests check the linkage structurally and through rules
+// those compilers do enforce: name linkage conflicts ([dcl.link]: different
+// language linkages for one entity are ill-formed) and the identity of
+// same-named C-linkage functions declared in different namespaces.
+
+struct EnumCallbackDefinition {
+    std::string prefix; // everything before the return type, e.g. `extern "C" inline `
+    std::string name;   // the external symbol
+};
+
+[[nodiscard]] std::vector<EnumCallbackDefinition>
+enum_callback_definitions(const std::string& header) {
+    std::vector<EnumCallbackDefinition> definitions;
+    const std::regex definition(
+        R"(^(.*?)\b(?:uint64_t|void) (\w+_enum_(?:load|store))\((?:const void\* p|void\* p, uint64_t n)\) \{)");
+    std::istringstream lines(header);
+    std::string line;
+    while (std::getline(lines, line)) {
+        std::smatch match;
+        if (std::regex_search(line, match, definition)) {
+            definitions.push_back({.prefix = match[1].str(), .name = match[2].str()});
+        }
+    }
+    return definitions;
+}
+
+// Every way a C-storage header can violate the callback contract, as
+// human-readable findings; empty means the header satisfies it. `bases` gets
+// the <record>_field_<index> part of every callback pair.
+[[nodiscard]] std::vector<std::string> enum_callback_violations(const std::string& header,
+                                                                const std::string& gid,
+                                                                std::set<std::string>& bases) {
+    std::vector<std::string> violations;
+    const std::string identity_prefix = "quarry_gen_" + gid + "_";
+    const std::vector<EnumCallbackDefinition> definitions = enum_callback_definitions(header);
+    if (definitions.empty()) {
+        violations.emplace_back("no enum callback definitions");
+    }
+    std::set<std::string> loads;
+    std::set<std::string> stores;
+    for (const EnumCallbackDefinition& definition : definitions) {
+        if (definition.prefix != "extern \"C\" inline ") {
+            violations.push_back(definition.name + " is defined with '" + definition.prefix +
+                                 "', not extern \"C\" inline (C language linkage, external "
+                                 "linkage)");
+        }
+        if (!definition.name.starts_with(identity_prefix)) {
+            violations.push_back(definition.name +
+                                 " does not carry the header's full generated-code identity");
+            continue;
+        }
+        const std::string rest = definition.name.substr(identity_prefix.size());
+        const bool load = rest.ends_with("_enum_load");
+        const std::string base = rest.substr(0, rest.size() - (load ? 10U : 11U));
+        if (!std::regex_match(base, std::regex(R"(inv_core_\w+_field_[0-9]+)"))) {
+            violations.push_back(definition.name + " has an unexpected base name");
+        }
+        (load ? loads : stores).insert(base);
+    }
+    if (loads != stores) {
+        violations.emplace_back("enum_load and enum_store callbacks are not paired");
+    }
+    bases = loads;
+    // Every reference, including the member descriptors, names the
+    // identity-bearing symbols, and each descriptor stores its own pair.
+    const std::regex token(R"(\b\w+_enum_(?:load|store)\b)");
+    for (auto it = std::sregex_iterator(header.begin(), header.end(), token);
+         it != std::sregex_iterator(); ++it) {
+        if (!it->str().starts_with(identity_prefix)) {
+            violations.push_back("reference to " + it->str() +
+                                 " without the generated-code identity");
+        }
+    }
+    for (const std::string& base : bases) {
+        const std::string pair =
+            identity_prefix + base + "_enum_load, " + identity_prefix + base + "_enum_store } },";
+        if (header.find(pair) == std::string::npos) {
+            violations.push_back("no member descriptor references " + identity_prefix + base +
+                                 "_enum_{load,store}");
+        }
+    }
+    return violations;
+}
+
+// Succeeds only if the header's callbacks have C language linkage: per
+// [dcl.link], C-linkage functions with the same name declared in different
+// namespace scopes are the same function, so these extern "C" redeclarations in
+// the unrelated namespace linkage_probe name the callbacks defined in the
+// quarry_gen_ namespace. For C++-linkage callbacks they would be other,
+// undefined functions: the program fails to link, or (when the optimizer folds
+// the address comparison) runs and reports the mismatch. The descriptor must
+// store exactly these functions, and calls through them must work. (A separate
+// namespace, not global scope: GCC treats a ::-qualified name found both
+// globally and through the inline quarry_gen_ namespace as an overload set.)
+[[nodiscard]] std::string callback_linkage_probe(std::string_view name, const std::string& gid,
+                                                 const std::string& base) {
+    const std::string load = "quarry_gen_" + gid + "_" + base + "_enum_load";
+    const std::string store = "quarry_gen_" + gid + "_" + base + "_enum_store";
+    return std::string(R"(#include "inv/core.generated.hpp"
+#include <cstdint>
+namespace linkage_probe {
+extern "C" std::uint64_t )") +
+           load + R"((const void*);
+extern "C" void )" +
+           store + R"((void*, std::uint64_t);
+} // namespace linkage_probe
+extern "C" int run_)" +
+           std::string(name) + R"(() {
+    int found = 0;
+    for (const quarry_c_member_descriptor_t& member : ::inv_core_Status_members) {
+        if (member.element.enum_load == nullptr && member.element.enum_store == nullptr) continue;
+        if (member.element.enum_load != &linkage_probe::)" +
+           load + R"( || member.element.enum_store != &linkage_probe::)" + store + R"() return 1;
+        ++found;
+    }
+    if (found != 1) return 2;
+    ::inv_core_Mode_t value = INV_CORE_MODE_OFF;
+    linkage_probe::)" +
+           store +
+           R"((&value, 1U);
+    if (value != INV_CORE_MODE_ON || linkage_probe::)" +
+           load + R"((&value) != 1U) return 3;
+    return 0;
+}
+)";
+}
+
+// Must not compile: redeclaring a callback with C++ language linkage in its own
+// namespace gives one entity two language linkages, which [dcl.link] makes
+// ill-formed and which compilers diagnose. It compiles only if the callback
+// already has C++ linkage.
+[[nodiscard]] std::string callback_cpp_linkage_redeclaration(const std::string& gid,
+                                                             const std::string& base) {
+    return "#include \"inv/core.generated.hpp\"\n#include <cstdint>\ninline namespace quarry_gen_" +
+           gid + " {\nextern \"C++\" std::uint64_t quarry_gen_" + gid + "_" + base +
+           "_enum_load(const void*);\n}\n";
+}
+
+// Defined symbols of an object file that name an enum callback, as nm prints
+// them (Mach-O keeps its leading underscore). Empty with `available` false if
+// nm cannot be run.
+[[nodiscard]] std::vector<std::string> callback_symbols(const fs::path& object, const fs::path& log,
+                                                        bool& available) {
+    const RunResult listed = run("nm " + quote(object.string()), log);
+    available = listed.status == 0;
+    std::vector<std::string> symbols;
+    std::istringstream lines(listed.output);
+    std::string line;
+    const std::regex defined(R"(^[0-9a-fA-F]+ [TtWw] (\S*_enum_(?:load|store)\S*)$)");
+    while (std::getline(lines, line)) {
+        std::smatch match;
+        if (std::regex_match(line, match, defined)) {
+            symbols.push_back(match[1].str());
+        }
+    }
+    return symbols;
+}
+
+TEST_F(GeneratedCodeIdentityTest, CStorageEnumCallbacksHaveCLanguageLinkageAndIdentityNames) {
+    const fs::path root = inv_root("base", kCoreSchema);
+    const fs::path standard = generate(kCStorage, root, "default");
+    const fs::path compact = generate(kCStorage, root, "compact", "--c-optimize-size");
+    const std::string standard_gid = gid(standard / "inv/core.generated.hpp");
+    const std::string compact_gid = gid(compact / "inv/core.generated.hpp");
+    ASSERT_NE(standard_gid, compact_gid);
+
+    std::set<std::string> standard_bases;
+    std::set<std::string> compact_bases;
+    EXPECT_EQ(enum_callback_violations(read_text_file(standard / "inv/core.generated.hpp"),
+                                       standard_gid, standard_bases),
+              std::vector<std::string>{});
+    EXPECT_EQ(enum_callback_violations(read_text_file(compact / "inv/core.generated.hpp"),
+                                       compact_gid, compact_bases),
+              std::vector<std::string>{});
+    ASSERT_EQ(standard_bases, (std::set<std::string>{"inv_core_Status_field_1"}));
+    ASSERT_EQ(compact_bases, standard_bases);
+    const std::string& base = *standard_bases.begin();
+
+    // The compiler sees C language linkage on the callback names.
+    const RunResult redeclared =
+        syntax_check(callback_cpp_linkage_redeclaration(standard_gid, base), {standard},
+                     "cpp-linkage-redeclaration");
+    EXPECT_NE(redeclared.status, 0) << "a C++-linkage redeclaration compiled";
+    EXPECT_NE(redeclared.output.find("linkage"), std::string::npos) << redeclared.output;
+
+    for (const std::string& flags : link_flag_sets()) {
+        const std::string tag = std::to_string(flags.size());
+        // Identical definitions in two translation units: one inline entity.
+        EXPECT_EQ(link_and_run(callback_linkage_probe("a", standard_gid, base), standard,
+                               callback_linkage_probe("b", standard_gid, base), standard, flags,
+                               "callbacks-same" + tag),
+                  "run_a=0 run_b=0")
+            << flags;
+        // Different definitions: distinct symbols, both link orders.
+        EXPECT_EQ(link_and_run(callback_linkage_probe("a", standard_gid, base), standard,
+                               callback_linkage_probe("b", compact_gid, base), compact, flags,
+                               "callbacks-ab" + tag),
+                  "run_a=0 run_b=0")
+            << flags;
+        EXPECT_EQ(link_and_run(callback_linkage_probe("a", compact_gid, base), compact,
+                               callback_linkage_probe("b", standard_gid, base), standard, flags,
+                               "callbacks-ba" + tag),
+                  "run_a=0 run_b=0")
+            << flags;
+    }
+
+    // External symbol isolation: each object defines exactly its own
+    // unmangled, identity-bearing callbacks, and no C++-mangled callback.
+    ASSERT_EQ(link_and_run(callback_linkage_probe("a", standard_gid, base), standard,
+                           callback_linkage_probe("b", compact_gid, base), compact, "-O0",
+                           "callbacks-nm"),
+              "run_a=0 run_b=0");
+    const fs::path objects = work_ / "link" / "callbacks-nm";
+    bool nm_available = false;
+    const std::vector<std::string> standard_symbols =
+        callback_symbols(objects / "a.o", work_ / "nm-a.log", nm_available);
+    if (!nm_available) {
+        GTEST_SKIP() << "nm is not available; symbol isolation not checked";
+    }
+    const std::vector<std::string> compact_symbols =
+        callback_symbols(objects / "b.o", work_ / "nm-b.log", nm_available);
+    const auto expected = [&](const std::string& identity, const std::vector<std::string>& seen) {
+        const std::string load = "quarry_gen_" + identity + "_" + base + "_enum_load";
+        const std::string store = "quarry_gen_" + identity + "_" + base + "_enum_store";
+        const bool underscored = std::find(seen.begin(), seen.end(), "_" + load) != seen.end();
+        const std::string lead = underscored ? "_" : "";
+        return std::set<std::string>{lead + load, lead + store};
+    };
+    EXPECT_EQ(std::set<std::string>(standard_symbols.begin(), standard_symbols.end()),
+              expected(standard_gid, standard_symbols));
+    EXPECT_EQ(std::set<std::string>(compact_symbols.begin(), compact_symbols.end()),
+              expected(compact_gid, compact_symbols));
+    EXPECT_EQ(standard_symbols.size(), 2U);
+    EXPECT_EQ(compact_symbols.size(), 2U);
+}
+
+// Mutation tests of the checks above: a header without extern "C" on its
+// callbacks, or without the identity in their names, must be rejected by the
+// structural check and by the compiler- and linker-enforced probes. The
+// mutations are applied to real generated output.
+TEST_F(GeneratedCodeIdentityTest, CallbackLinkageChecksRejectMutatedHeaders) {
+    const fs::path generated = generate(kCStorage, inv_root("base", kCoreSchema), "default");
+    const std::string header = read_text_file(generated / "inv/core.generated.hpp");
+    const std::string identity = gid(generated / "inv/core.generated.hpp");
+    std::set<std::string> bases;
+    ASSERT_EQ(enum_callback_violations(header, identity, bases), std::vector<std::string>{});
+    ASSERT_EQ(bases.size(), 1U);
+    const std::string& base = *bases.begin();
+
+    const auto mutant = [&](std::string_view tag, const std::string& text) {
+        const fs::path directory = work_ / "mutants" / std::string(tag);
+        write_text_file(directory / "inv/core.generated.hpp", text);
+        return directory;
+    };
+
+    // Mutation 1: callbacks lose C language linkage (C++-linkage inline functions).
+    const std::string no_extern_c = replace_all(header, "extern \"C\" inline ", "inline ");
+    ASSERT_NE(no_extern_c, header);
+    std::set<std::string> ignored;
+    EXPECT_NE(enum_callback_violations(no_extern_c, identity, ignored), std::vector<std::string>{});
+    const fs::path cpp_linkage = mutant("no-extern-c", no_extern_c);
+    EXPECT_EQ(syntax_check(callback_cpp_linkage_redeclaration(identity, base), {cpp_linkage},
+                           "mutant-redeclaration")
+                  .status,
+              0)
+        << "the C++-linkage redeclaration probe must accept a C++-linkage callback";
+    {
+        const fs::path directory = work_ / "mutant-link";
+        fs::create_directories(directory);
+        write_text_file(directory / "probe.cpp", callback_linkage_probe("a", identity, base) +
+                                                     "int main() { return run_a(); }\n");
+        const RunResult linked = run(
+            quote(QUARRY_TEST_CXX_COMPILER) + " -std=c++20" QUARRY_TEST_STRICT_CXX_WARNINGS " -I" +
+                quote(cpp_linkage.string()) + " -I" + quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
+                quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
+                quote((directory / "probe.cpp").string()) + " " +
+                quote(QUARRY_TEST_RUNTIME_C_LIBRARY) + " -o " +
+                quote((directory / "probe").string()),
+            directory / "link.log");
+        const bool accepted =
+            linked.status == 0 &&
+            run(quote((directory / "probe").string()), directory / "run.log").status == 0;
+        EXPECT_FALSE(accepted) << "the linkage probe must reject C++-linkage callbacks";
+    }
+
+    // Mutation 2: callback names lose the generated-code identity.
+    const std::string no_identity =
+        replace_all(header, "quarry_gen_" + identity + "_" + base, base);
+    ASSERT_NE(no_identity, header);
+    EXPECT_NE(enum_callback_violations(no_identity, identity, ignored), std::vector<std::string>{});
+
+    // Mutation 3: callbacks keep C linkage but drop external linkage (static).
+    const std::string internal =
+        replace_all(header, "extern \"C\" inline ", "extern \"C\" static inline ");
+    ASSERT_NE(internal, header);
+    EXPECT_NE(enum_callback_violations(internal, identity, ignored), std::vector<std::string>{});
+
+    // Mutation 4: a descriptor stores another function than its own pair.
+    const std::string swapped =
+        replace_all(header, "quarry_gen_" + identity + "_" + base + "_enum_load, ",
+                    "quarry_gen_" + identity + "_" + base + "_enum_load_other, ");
+    ASSERT_NE(swapped, header);
+    EXPECT_NE(enum_callback_violations(swapped, identity, ignored), std::vector<std::string>{});
 }
 
 } // namespace

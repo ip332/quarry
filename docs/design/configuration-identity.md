@@ -161,7 +161,8 @@ inline constexpr std::array<std::uint8_t, 16> kQuarrySchemaId{0x92U, 0x00U, ...,
 ### 4.3 C++/C storage (`--cpp-storage c`)
 
 > Since #111 G1 both inline namespaces are `quarry_gen_<gid>`, the guard is keyed by the
-> generated-code identity, and the C part has C++ linkage (§16.3).
+> generated-code identity, and the C part has C++ linkage, except the enum callbacks, which are
+> identity-named `extern "C" inline` functions (§16.3).
 
 - The C part has the identity of §4.1.
 - The `quarry::cxx` wrapper classes go in the same kind of inline namespace:
@@ -659,14 +660,69 @@ inline constexpr std::array<std::uint8_t, 16> kQuarryGeneratedCodeId{...};
 | Variant | Entities | Linkage after G1 |
 | --- | --- | --- |
 | C++ owning | classes, enums, `inline` functions (layouts are function-local statics of `inline` functions), static member functions | external, one entity per identity |
-| C++/C storage, C part | struct/enum types, descriptor tables, `*_type` descriptors, codec and presence helpers, identity accessor | **was** `static` (internal) inside `extern "C"`, referenced from the external-linkage inline `quarry::cxx` wrappers, an ODR violation even with identical headers; **now** `inline` C++ entities in `quarry_gen_<gid>` without `extern "C"` (C-storage headers are C++ only), one entity per identity |
+| C++/C storage, C part | struct/enum types, descriptor tables, `*_type` descriptors, codec and presence helpers, identity accessor | **was** `static` (internal) inside `extern "C"`, referenced from the external-linkage inline `quarry::cxx` wrappers, an ODR violation even with identical headers; **now** `inline` C++ entities in `quarry_gen_<gid>` without an enclosing `extern "C"` (C-storage headers are C++ only), one entity per identity |
+| C++/C storage, enum callbacks | `<record>_field_<i>_enum_load` / `_enum_store` | `extern "C" inline` with the external name `quarry_gen_<gid>_<record>_field_<i>_enum_{load,store}`: C language linkage, external linkage, one entity per identity (below) |
 | C++/C storage, wrappers | classes and inline members in `quarry::cxx::quarry_gen_<gid>` | external, one entity per identity |
 | Plain C | `static` / `static inline` (internal) | unchanged (G2) |
 
-The C runtime's `enum_load`/`enum_store` member descriptor fields are declared with C language
-linkage and now receive C++-linkage inline functions. Formally the function types differ
-([dcl.link]); GCC, Clang and MSVC do not distinguish them, and the project builds with
-`-Wall -Wextra -Wpedantic -Werror`.
+**Enum callbacks and language linkage.** The C runtime declares the `enum_load`/`enum_store`
+members of `quarry_c_element_descriptor_t` inside `extern "C"`, so in C++ they are pointers to
+functions with C language linkage: a linkage-specification applies to every function declarator
+it contains, and only class member function types and member names are exempt ([dcl.link]).
+Function types with different language linkages are distinct types, so a C++-linkage function
+is not a valid initializer for those members. Calling a function through a pointer whose type has
+a different language linkage is undefined behavior; SEI CERT C++ rule EXP56-CPP ("Do not call a
+function with a mismatched language linkage") forbids it.
+
+GCC, Clang and MSVC give both function types the same calling convention and don't diagnose the
+mismatch, so their acceptance is no evidence of conformance. EDG-based front ends, behind several
+embedded C++ toolchains, can be configured to keep the types distinct, and Oracle C++ treats
+mismatches as an anachronism. Before G1 the callbacks were `static inline` inside `extern "C"`,
+and the types matched. The first G1 revision made them C++-linkage `inline` functions, and the
+types diverged (found in the PR #116 review). The C-storage backend therefore emits:
+
+```cpp
+inline namespace quarry_gen_<gid> {
+extern "C" inline uint64_t quarry_gen_<gid>_inv_core_Status_field_1_enum_load(const void* p) { ... }
+extern "C" inline void quarry_gen_<gid>_inv_core_Status_field_1_enum_store(void* p, uint64_t n) { ... }
+... { ..., quarry_gen_<gid>_inv_core_Status_field_1_enum_load,
+          quarry_gen_<gid>_inv_core_Status_field_1_enum_store } ...
+}
+```
+
+- **Matching types.** The callbacks have C language linkage, so their types are exactly the
+  runtime members' types. The runtime API, the C API epoch and the wire format are unchanged.
+- **Isolation.** A C-linkage name is not mangled, and [dcl.link] makes same-named C-linkage
+  functions declared in different namespaces one function. The enclosing `quarry_gen_<gid>`
+  namespace therefore doesn't isolate them, and the name itself carries the full 128-bit
+  identity. Different generated definitions get different external symbols, and identical
+  definitions share one. The renderer writes the identity as the `S(h)` self-identity
+  placeholder, so the name is hashed as written and substituted like every other self reference.
+- **ODR.** The callbacks are `inline` with external linkage: one entity, defined with the same
+  tokens in every translation unit that includes the same identity. That matches the external-
+  linkage `inline` descriptors and wrappers that reference them. Two alternatives don't work:
+  `static` with `extern "C"` would restore the original internal-linkage reference from
+  external-linkage inline entities, and C-linkage names without the identity would merge
+  different definitions.
+- **Reserved names.** Schema identifiers can't start with `quarry_gen_` in C-storage output
+  (§16.2), so no other generated name can collide with the callback names. The backend also
+  validates each callback name and checks that it is unique per namespace. The `quarry_gen_`
+  prefix is reserved for external C symbols too: user code must not define C-linkage symbols
+  with it.
+- **Cost.** The code is the same, with no runtime storage, initialization, allocation or hashing.
+  The unmangled name is shorter than the mangled C++ name it replaces. Plain C output is
+  byte-identical: plain C keeps `static inline` callbacks inside its `extern "C"` block, where the
+  types already match.
+- **Regression tests** (`generated_code_identity_integration_test`) use only rules that mainstream
+  compilers enforce:
+  - a structural check of every callback definition and descriptor reference;
+  - a compile probe: redeclaring a callback with `extern "C++"` in its own namespace must be
+    rejected, because one entity can't have two language linkages;
+  - a link and run probe: `extern "C"` redeclarations in an unrelated namespace must denote the
+    descriptor's callbacks, which holds only for C linkage;
+  - `nm` checks that each object defines exactly its own unmangled, identity-bearing callbacks;
+  - in-tree mutation tests that apply each violation to real generated output and require the
+    checks to reject it.
 
 ### 16.4 Limitations until G2/G3
 

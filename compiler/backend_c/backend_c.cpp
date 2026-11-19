@@ -1516,6 +1516,32 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         }
         return true;
     };
+    // External C-language-linkage symbols of C-storage enum callbacks:
+    // quarry_gen_<gid>_<base><suffix> (see CLinkage). Each namespace has its own
+    // generated-code identity, so the symbol is keyed by namespace and base
+    // name. The quarry_gen_ prefix cannot be produced by a schema identifier
+    // (rejected above), so these never collide with other generated names;
+    // the checks below keep that true by construction.
+    std::set<std::pair<std::string, std::string>> seen_external_callback_symbols;
+    const auto reserve_external_callback_symbol =
+        [&](const std::string& namespace_fqn, const std::string& base, std::string_view suffix) {
+            const std::string name = base + std::string(suffix);
+            const bool valid_identifier =
+                !name.empty() && std::all_of(name.begin(), name.end(), [](char ch) {
+                    return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_';
+                });
+            if (!valid_identifier) {
+                error_message = "backend_c: generated enum callback symbol 'quarry_gen_<id>_" +
+                                name + "' is not a valid C identifier";
+                return false;
+            }
+            if (!seen_external_callback_symbols.emplace(namespace_fqn, name).second) {
+                error_message = "backend_c: generated enum callback symbol 'quarry_gen_<id>_" +
+                                name + "' collides with another generated callback";
+                return false;
+            }
+            return true;
+        };
     for (const PlannedNamespaceFile& file : files) {
         if (!seen_paths.insert(file.relative_header_path).second) {
             error_message = "backend_c: duplicate generated header path: " +
@@ -1597,6 +1623,14 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                                                            "enum binding symbol"))
                             return false;
                     }
+                    if (options.cpp_wrapper) {
+                        for (const std::string_view suffix : {"_enum_load", "_enum_store"}) {
+                            if (!reserve_external_callback_symbol(file.namespace_fqn, base,
+                                                                  suffix)) {
+                                return false;
+                            }
+                        }
+                    }
                 }
                 if (field.encoding.is_array &&
                     (field.encoding.is_string || field.encoding.is_bytes) &&
@@ -1623,12 +1657,45 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 // wrappers): there they are inline entities with C++ linkage inside the
 // generated-code identity namespace, so every translation unit refers to one
 // entity per generated definition, as the one-definition rule requires.
+//
+// Enum load/store callbacks are the exception (#111 G1, PR #116). Their
+// addresses initialize the runtime's enum_load/enum_store members, which
+// typed_record.h declares inside extern "C": per [dcl.link] those members are
+// pointers to functions with C language linkage, a different function type
+// from any C++-linkage function, and calling through a mismatched type is
+// undefined behavior (SEI CERT C++ EXP56-CPP). C-storage callbacks are
+// therefore extern "C" inline functions. A C-linkage name is unmangled and
+// [dcl.link] makes same-named C-linkage functions in different namespaces one
+// function, so the name itself carries the full generated-code identity
+// (quarry_gen_<gid>_...): identical definitions share one inline entity,
+// different definitions never share a symbol.
 struct CLinkage {
     std::string_view object;   // prefix of a constant object definition
     std::string_view function; // prefix of a function definition
+    std::string_view callback; // prefix of an enum load/store callback definition
+    bool identity_named_callbacks = false;
 };
-constexpr CLinkage kPlainCLinkage{.object = "static const ", .function = "static inline "};
-constexpr CLinkage kCStorageLinkage{.object = "inline const ", .function = "inline "};
+constexpr CLinkage kPlainCLinkage{
+    .object = "static const ", .function = "static inline ", .callback = "static inline "};
+constexpr CLinkage kCStorageLinkage{.object = "inline const ",
+                                    .function = "inline ",
+                                    .callback = "extern \"C\" inline ",
+                                    .identity_named_callbacks = true};
+
+// External symbol of an enum callback: `base` is <record symbol>_field_<index>
+// and `suffix` is "_enum_load" or "_enum_store". C-storage names embed this
+// header's identity through the self-identity placeholder, so the name is
+// hashed as written and substituted like every other self reference.
+[[nodiscard]] std::string enum_callback_symbol(const CLinkage& linkage, std::string_view base,
+                                               std::string_view suffix) {
+    std::string symbol;
+    if (linkage.identity_named_callbacks) {
+        symbol = "quarry_gen_" + support::placeholder::self_identity('h') + "_";
+    }
+    symbol.append(base);
+    symbol.append(suffix);
+    return symbol;
+}
 
 void render_decode_ops(std::ostringstream& stream, const PlannedRecord& record, bool optimize_size,
                        const CLinkage& linkage) {
@@ -1733,11 +1800,12 @@ void render_binding(std::ostringstream& stream, const PlannedRecord& record, boo
         for (const auto value : field.encoding.enum_valid_values)
             stream << value << "ULL, ";
         stream << "};\n";
-        stream << linkage.function << "uint64_t " << name << "_enum_load(const void* p) { "
+        stream << linkage.callback << "uint64_t "
+               << enum_callback_symbol(linkage, name, "_enum_load") << "(const void* p) { "
                << field.encoding.c_type << " v; memcpy(&v, p, sizeof(v)); return (uint64_t)v; }\n";
-        stream << linkage.function << "void " << name << "_enum_store(void* p, uint64_t n) { "
-               << field.encoding.c_type << " v = (" << field.encoding.c_type
-               << ")n; memcpy(p, &v, sizeof(v)); }\n";
+        stream << linkage.callback << "void " << enum_callback_symbol(linkage, name, "_enum_store")
+               << "(void* p, uint64_t n) { " << field.encoding.c_type << " v = ("
+               << field.encoding.c_type << ")n; memcpy(p, &v, sizeof(v)); }\n";
     }
     if (!record.fields.empty()) {
         stream << linkage.object << "quarry_c_member_descriptor_t " << record.symbol_name
@@ -1792,8 +1860,9 @@ void render_binding(std::ostringstream& stream, const PlannedRecord& record, boo
             stream << ", " << e.record_target_id << "U, "
                    << (e.array_element_is_fixed_record ? "true" : "false") << ", ";
             if (e.is_enum)
-                stream << name << "_enum_values, " << e.enum_valid_values.size() << "U, " << name
-                       << "_enum_load, " << name << "_enum_store";
+                stream << name << "_enum_values, " << e.enum_valid_values.size() << "U, "
+                       << enum_callback_symbol(linkage, name, "_enum_load") << ", "
+                       << enum_callback_symbol(linkage, name, "_enum_store");
             else
                 stream << "NULL, 0U, NULL, NULL";
             stream << " } },\n";
