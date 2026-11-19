@@ -48,13 +48,34 @@ python3 fuzz/run_seed_corpus.py <fuzzer-binary>   # replay reviewable hex seed c
 
 Formatting/linting is enforced via pre-commit (`.pre-commit-config.yaml`):
 `clang-format` (LLVM-based style, 100 columns, 4-space indent — see `.clang-format`) runs on
-`compiler/**/*.{cpp,hpp}` and `tests/**/*.{cpp,hpp}` at commit time; a full
-configure/build/`ctest --preset debug` cycle runs at push time. `.clang-tidy` enables
+`compiler/**/*.{cpp,hpp}` and `tests/**/*.{cpp,hpp}` at commit time. `.clang-tidy` enables
 `clang-analyzer-*`, `bugprone-*`, `performance-*`, `portability-*`, `readability-*` (with a
 few readability checks disabled) over `compiler/` and `tests/`.
 
 There is no separate lint-only invocation beyond `debug-clang-tidy` / pre-commit hooks — run
 those rather than inventing new tooling.
+
+### Pushing: validate first, never `--no-verify`
+
+The full configure/build/`ctest --preset debug` cycle runs *before* a push, not inside the
+hook (issue #89): `git push` connects before hooks run and GitHub drops the idle connection.
+`scripts/quarry-validate` validates the exact commit in an isolated worktree and records a
+receipt; the pre-push hook (`scripts/quarry-validate install-hook`) only checks receipts for
+every outgoing ref, in under a second.
+
+```sh
+scripts/quarry-validate push -u origin <branch>   # validate what the push needs, then git push
+scripts/quarry-validate validate [<rev>...]       # or validate first (default HEAD) ...
+git push -u origin <branch>                       # ... and push normally, hooks enabled
+scripts/quarry-validate status [<rev>...]         # why a commit is or is not pushable
+```
+
+**Never run `git push --no-verify`, override `core.hooksPath`, or otherwise skip hooks
+unless the maintainer has explicitly authorized that specific push.** If the hook rejects a
+push, report the hook's message and fix the cause (validate, fix the failing step, or rebase
+a branch that predates #89) instead of bypassing it. Receipts, the validation worktree and
+logs live in `.git/quarry-validation/` and must never be committed. Details and recovery:
+`docs/development-environment.md` ("Pre-push validation").
 
 ## Architecture
 

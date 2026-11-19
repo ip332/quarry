@@ -1,6 +1,8 @@
+# The pre-push hook is not managed by pre-commit: pre-commit passes hooks only
+# the first outgoing ref. Install it with `scripts/quarry-validate install-hook`
+# (see CONTRIBUTING.md and issue #89).
 default_install_hook_types:
   - pre-commit
-  - pre-push
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -24,26 +26,15 @@ repos:
           - pre-commit
   - repo: local
     hooks:
-      - id: cmake-configure-debug
-        name: cmake configure debug
-        entry: cmake --preset debug
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages:
-          - pre-push
-      - id: cmake-build-debug
-        name: cmake build debug
-        entry: cmake --build --preset debug
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages:
-          - pre-push
-      - id: ctest-debug
-        name: ctest debug
-        entry: ctest --preset debug
-        language: system
+      # A pre-commit-generated pre-push hook from before #89 lands here. Fail
+      # closed instead of pushing unvalidated commits.
+      - id: quarry-pre-push-hook-not-installed
+        name: quarry pre-push receipt check
+        entry: >-
+          The Quarry pre-push hook is not installed. Run
+          `scripts/quarry-validate install-hook`, then validate and push with
+          `scripts/quarry-validate push <git push arguments>` (CONTRIBUTING.md).
+        language: fail
         pass_filenames: false
         always_run: true
         stages:

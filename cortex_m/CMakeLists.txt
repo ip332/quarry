@@ -112,6 +112,14 @@ add_custom_command(
     COMMENT "Generating C code for benchmark.workload and benchmark.workload.shared (host quarry-schema-compiler)"
     VERBATIM
 )
+# Several independent executables compile these outputs. Drive the command
+# from one custom target that they all depend on: otherwise each executable
+# runs its own copy of the rule, and a parallel build runs the generator
+# concurrently into the same directory.
+add_custom_target(quarry_cortex_m_generated_code
+    DEPENDS "${QUARRY_GENERATED_SHARED_HEADER}" "${QUARRY_GENERATED_SHARED_SOURCE}"
+            "${QUARRY_GENERATED_WORKLOAD_HEADER}" "${QUARRY_GENERATED_WORKLOAD_SOURCE}"
+)
 
 # The generated headers delegate to this shared codec; compatibility .c files
 # no longer provide the implementation. Keep its archive separate for footprint reporting.
@@ -148,6 +156,7 @@ foreach(target quarry_cortex_m_smoke quarry_cortex_m_smoke_identity quarry_corte
     )
 endforeach()
 foreach(target quarry_cortex_m_smoke quarry_cortex_m_smoke_identity)
+    add_dependencies(${target} quarry_cortex_m_generated_code)
     target_link_libraries(${target} PRIVATE quarry_cortex_m_codec)
     target_link_options(${target} PRIVATE
         -nostartfiles
