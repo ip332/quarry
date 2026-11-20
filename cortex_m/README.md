@@ -129,3 +129,18 @@ coupling. Soft-float is deliberate: Quarry's generated code and runtime
 never use floating-point hardware capability, and this keeps the toolchain
 file valid for both FPU and non-FPU Cortex-M4 parts. See the toolchain
 file's own comments for the full rationale.
+
+## Equivalent storage policy comparison
+
+CI also builds `QUARRY_C_OPTIMIZE_SIZE=ALL` and
+`QUARRY_C_OPTIMIZE_SIZE=benchmark.workload.shared,benchmark.workload` with identical
+flags, workload and linker script in Default, MinSizeRel and Debug configurations.
+`compare_machine_code.py --strict` requires equal allocatable bytes, relocations
+and defined symbols. The report is saved as `storage-policy-report.md` in the
+footprint artifact. The cache setting defaults to empty (default storage); a list
+can also exercise mixed storage. Smoke presence operations follow the effective
+policy of each namespace.
+
+Compare equivalent policies to detect implementation overhead. Comparing default
+and compact policies instead measures expected native layout and codec changes;
+those differences are not overhead introduced by namespace selection.

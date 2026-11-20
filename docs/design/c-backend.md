@@ -142,6 +142,16 @@ when their dependency headers are generated from the same compilation root. See
 full representation rationale, the write-side investigation, and
 scratch-buffer sizing.
 
+C presence storage can be selected per namespace with
+`--c-optimize-size=NS[,NS...]` (#111 G3), for plain C and C++/C storage.
+The bare flag still selects compact storage everywhere. Each invocation must
+declare the effective policies of its dependencies, including those excluded by
+`--generate`; normalized definitions and dependency-topological generated-code
+identities enforce that agreement at compile time. See
+[configuration identity §16.4](configuration-identity.md#164-per-namespace-storage-policies-g3)
+for exact list syntax, migration guidance and separate-invocation examples.
+This is a generator storage choice: no wire-format, runtime API or epoch change.
+
 See `compiler/backend_c/README.md` and `runtime_c/README.md` for exactly
 what is and is not implemented today, and `jira/backlog.md`'s
 PR-107/PR-108/PR-109/PR-110/PR-111/PR-112/PR-113/PR-114 entries for the

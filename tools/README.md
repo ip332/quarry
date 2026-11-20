@@ -41,6 +41,8 @@ Options:
                                 (default: .generated.hpp)
       --language {cpp,c,python,go}
                                 Target backend language (default: cpp)
+      --cpp-storage {owning,c}  C++ owning containers or fixed C storage
+      --c-optimize-size[=NS,...] Pack C presence flags for all or exact namespaces
       --go-import-prefix PATH   Go import path of the output directory, for
                                 cross-namespace imports with --language go
       --generate NS[,NS...]     Emit only these namespaces (repeatable). Default: the
@@ -574,8 +576,54 @@ Pass `false` to the setter to clear a bit. Encode, decode, and sizing APIs stay 
 The bitmap uses one bit per scalar/enum/record field, rounded up to whole bytes; structure
 alignment can affect the final size. This is a portable byte bitmap rather than native C
 bitfield members, whose layout is implementation-defined. Wire bytes are unchanged.
-Generate all bindings exchanged as C structs with the same option; these native layouts
-are not interchangeable. Separately generated translation units must also agree.
+Bindings exchanged as C structs must agree on each namespace's effective storage policy;
+these native layouts are not interchangeable. See the separate-invocation example below.
+
+### Per-namespace C storage optimization
+
+`--c-optimize-size[=NS[,NS...]]` selects the native storage policy for C and
+C++ with `--cpp-storage c`:
+
+- Omitted: default storage in every namespace.
+- Bare `--c-optimize-size`: compact storage in every namespace (existing behavior).
+- `--c-optimize-size=fleet.common,fleet.shared`: compact storage only in those exact,
+  case-sensitive canonical namespace FQNs; all other namespaces use default storage.
+
+The list is nonempty: `--c-optimize-size=` is an error, as are empty entries,
+whitespace anywhere (including around commas), malformed identifiers, duplicates,
+unknown namespaces, and repeated occurrences of the option. Names use dot-separated
+`[A-Za-z_][A-Za-z0-9_]*` segments. Selection is exact, never recursive: selecting
+`fleet` does not select `fleet.common`. Existing container namespaces are accepted;
+when they own no declarations there is no storage to optimize. The unnamed root
+namespace has no nonempty FQN and can only be optimized with the bare flag.
+Validation uses the complete resolved configuration, including namespaces excluded
+by `--generate`, and also runs for `--list-outputs` and QBS-only output.
+
+For separate invocations, declare the complete effective storage policy in **every
+invocation** for namespaces whose generated definitions affect the selected output:
+
+```sh
+quarry-schema-compiler --language c --c-optimize-size=fleet.common \
+  --generate fleet.common -o generated configuration.brd
+quarry-schema-compiler --language c --c-optimize-size=fleet.common \
+  --generate fleet.engine -o generated configuration.brd
+```
+
+Here `fleet.engine` uses default storage and embeds the compact `fleet.common`
+records. Reverse invocation order gives the same files. Use `--language cpp
+--cpp-storage c` for the same workflow with C++ wrappers. A dependency need not be
+emitted for its policy to matter: the generator renders its definitions in memory
+and chains its generated-code identity into its dependents. `--generate` changes
+emission only. A dependency generated with an inconsistent policy is rejected at
+compilation with the existing “contains different generated definitions” diagnostic.
+
+Migration: replace differing bare flags across invocations with the same explicit
+namespace list in each invocation, then regenerate and rebuild all affected consumers.
+Identical effective policies retain identical generated definitions and identities;
+the flag spelling and list order do not enter the identity. BRF, QBS, Schema IR,
+record IDs, `schema_id`, runtime APIs and API epochs are unchanged. This option
+adds no runtime storage, allocation, initialization or hashing. A different effective
+policy can change native layouts and generated API, as the bare flag already does.
 
 ### C++ wrappers with fixed C storage
 

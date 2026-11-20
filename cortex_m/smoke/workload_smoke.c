@@ -12,6 +12,17 @@
 
 #include "benchmark/workload.generated.h"
 
+#ifdef QUARRY_SMOKE_COMPACT_WORKLOAD
+#define WORKLOAD_PRESENT(record, field) benchmark_workload_Workload_set_##field##_present(record, true)
+#else
+#define WORKLOAD_PRESENT(record, field) ((record)->has_##field = true)
+#endif
+#ifdef QUARRY_SMOKE_COMPACT_SHARED
+#define CHILD_PRESENT(child, field) benchmark_workload_shared_Child_set_##field##_present(child, true)
+#else
+#define CHILD_PRESENT(child, field) ((child)->has_##field = true)
+#endif
+
 #define QUARRY_SMOKE_BUFFER_CAPACITY 4096U
 
 static uint8_t g_encode_buffer[QUARRY_SMOKE_BUFFER_CAPACITY];
@@ -32,7 +43,7 @@ static void populate_child(benchmark_workload_shared_Child_t *child, uint32_t id
                             const char *label) {
     benchmark_workload_shared_Child_init(child);
 
-    child->has_id = true;
+    CHILD_PRESENT(child, id);
     child->id = id;
 
 
@@ -52,22 +63,22 @@ static void populate_child(benchmark_workload_shared_Child_t *child, uint32_t id
 static void populate_workload(benchmark_workload_Workload_t *record) {
     benchmark_workload_Workload_init(record);
 
-    record->has_sequence = true;
+    WORKLOAD_PRESENT(record, sequence);
     record->sequence = 42U;
 
-    record->has_timestamp = true;
+    WORKLOAD_PRESENT(record, timestamp);
     record->timestamp = 1700000000ULL;
 
-    record->has_counter = true;
+    WORKLOAD_PRESENT(record, counter);
     record->counter = 7ULL;
 
-    record->has_ratio = true;
+    WORKLOAD_PRESENT(record, ratio);
     record->ratio = 0.5f;
 
-    record->has_enabled = true;
+    WORKLOAD_PRESENT(record, enabled);
     record->enabled = true;
 
-    record->has_status = true;
+    WORKLOAD_PRESENT(record, status);
     record->status = BENCHMARK_WORKLOAD_STATUS_ACTIVE;
 
 
@@ -93,7 +104,7 @@ static void populate_workload(benchmark_workload_Workload_t *record) {
     record->values[1] = 20U;
     record->values[2] = 30U;
 
-    record->has_child = true;
+    WORKLOAD_PRESENT(record, child);
     populate_child(&record->child, 1U, "primary");
 
 

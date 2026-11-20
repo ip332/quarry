@@ -59,6 +59,7 @@ struct CommandLine {
     bool list_outputs = false;
     bool list_inputs = false;
     bool c_optimize_size = false;
+    std::vector<std::string> c_optimize_size_namespaces;
     bool cpp_c_storage = false;
     bool qbs_reflective = false;
     std::string qbs_output;
@@ -81,7 +82,7 @@ struct CommandLine {
            "      --language {cpp,c,python,go}\n"
            "                                Target backend language (default: cpp)\n"
            "      --cpp-storage {owning,c}  C++ owning containers or fixed C storage\n"
-           "      --c-optimize-size          Pack C presence flags into a bitmap\n"
+           "      --c-optimize-size[=NS,...] Pack C presence flags for all or exact namespaces\n"
            "      --go-import-prefix PATH   Go import path of the output directory, for\n"
            "                                cross-namespace imports with --language go\n"
            "      --generate NS[,NS...]     Emit only these namespaces (repeatable). Default: the\n"
@@ -161,12 +162,28 @@ void print_schema_id(std::ostream& output,
             command_line.print_schema_id = true;
             continue;
         }
-        if (argument == "--c-optimize-size") {
+        if (argument == "--c-optimize-size" || argument.starts_with("--c-optimize-size=")) {
             if (command_line.c_optimize_size) {
                 errors << "error: duplicate --c-optimize-size option\n";
                 return std::nullopt;
             }
             command_line.c_optimize_size = true;
+            if (argument != "--c-optimize-size") {
+                std::string_view names =
+                    argument.substr(std::string_view("--c-optimize-size=").size());
+                if (names.empty()) {
+                    errors << "error: --c-optimize-size= requires a nonempty namespace list; "
+                              "omit the option for default storage or use the bare flag for all\n";
+                    return std::nullopt;
+                }
+                for (;;) {
+                    const auto comma = names.find(',');
+                    command_line.c_optimize_size_namespaces.emplace_back(names.substr(0, comma));
+                    if (comma == std::string_view::npos)
+                        break;
+                    names.remove_prefix(comma + 1);
+                }
+            }
             continue;
         }
         if (argument == "--list-inputs") {
@@ -615,6 +632,16 @@ template <typename CodegenResultT>
         return exit_success;
     }
 
+    if (command_line.c_optimize_size) {
+        backend_c::CodegenOptions storage_options;
+        storage_options.optimize_size_namespaces = command_line.c_optimize_size_namespaces;
+        if (const auto error = backend_c::validate_storage_options(*compilation_result.schema_ir,
+                                                                   storage_options)) {
+            errors << "backend error: " << *error << '\n';
+            return exit_failure;
+        }
+    }
+
     // Prepare the resolved configuration once: its authoritative BRF layout,
     // and its identity only where an output depends on it. --emit-qbs hashes
     // inside the QBS builder; --list-outputs needs no identity at all.
@@ -705,7 +732,9 @@ template <typename CodegenResultT>
             c_options.header_extension = ".generated.hpp";
             c_options.source_extension = ".generated.cpp";
         }
-        c_options.optimize_size = command_line.c_optimize_size;
+        c_options.optimize_size =
+            command_line.c_optimize_size && command_line.c_optimize_size_namespaces.empty();
+        c_options.optimize_size_namespaces = command_line.c_optimize_size_namespaces;
         c_options.output_directory = command_line.codegen_options.output_directory;
         c_options.root_file_stem = command_line.codegen_options.root_file_stem;
 

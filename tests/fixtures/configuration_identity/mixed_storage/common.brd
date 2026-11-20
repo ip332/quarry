@@ -1,0 +1,12 @@
+namespace: fleet.common
+record: Timestamp
+version: 1
+type: data
+enums:
+  Mode:
+    values:
+      idle: 0
+      active: 1
+fields:
+  unix_ms:
+    type: u64

@@ -1,0 +1,12 @@
+namespace: fleet.engine
+record: FaultCode
+version: 1
+type: event
+imports:
+  - common.brd
+fields:
+  time:
+    type: fleet.common.Timestamp
+  spn:
+    type: u32
+
