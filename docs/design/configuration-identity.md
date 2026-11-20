@@ -621,7 +621,7 @@ A4.3 and A4.4 are independent of A4.2. The A5 cross-language matrix follows A4.5
    types, so the C part is configuration-specific too (§4.3). Two configurations with different
    record IDs and layouts are linked into one executable from separate translation units and tested.
 
-## 16. Generated-code identity in C and C++ bindings (#111 G1, G2)
+## 16. Generated-code identity in C and C++ bindings (#111 G1–G3)
 
 `schema_id` identifies the wire configuration; it does not identify generated definitions. Field
 or enum-member renames, unused enums, `--c-optimize-size` and generator changes all keep
@@ -636,7 +636,7 @@ identity for the C++ owning and C++/C-storage variants, and G2 extends it to pla
 | generated-code API epoch | the generator/runtime contract | `kGeneratedCodeApiVersion` / `QUARRY_C_GENERATED_CODE_API_VERSION` checks |
 
 BRF, QBS, Schema IR, record IDs, the `schema_id` algorithm and every epoch are unchanged.
-Per-namespace storage options (G3), Python and Go are unchanged.
+G3 adds per-namespace storage selection (§16.4). Python and Go are unchanged.
 
 ### 16.1 Computation
 
@@ -792,15 +792,62 @@ extern "C" inline void quarry_gen_<gid>_inv_core_Status_field_1_enum_store(void*
   - in-tree mutation tests that apply each violation to real generated output and require the
     checks to reject it.
 
-### 16.4 Limitations until G3
+### 16.4 Per-namespace storage policies (G3)
 
-- **Separate invocations with different storage options per namespace** (case 3b): a dependent
-  generated without `--c-optimize-size` against a dependency generated with it is now rejected at
-  compile time ("contains different generated definitions"), because the dependent's definitions
-  embed the dependency's layout and its identity cannot be computed without knowing that
-  layout. Single-invocation output and same-option separate invocations are unaffected. G3 adds
-  per-namespace options (`--c-optimize-size=NS,...`) so such mixed sets can be generated
-  consistently. This applies to plain C (G2) as it does to C++/C storage.
+`--c-optimize-size[=NS[,NS...]]` selects the native storage policy for C and
+C++ with `--cpp-storage c`:
+
+- Omitted: default storage in every namespace.
+- Bare `--c-optimize-size`: compact storage in every namespace (existing behavior).
+- `--c-optimize-size=fleet.common,fleet.shared`: compact storage only in those exact,
+  case-sensitive canonical namespace FQNs; all other namespaces use default storage.
+
+The list is nonempty: `--c-optimize-size=` is an error, as are empty entries,
+whitespace anywhere (including around commas), malformed identifiers, duplicates,
+unknown namespaces, and repeated occurrences of the option. Names use dot-separated
+`[A-Za-z_][A-Za-z0-9_]*` segments. Selection is exact, never recursive: selecting
+`fleet` does not select `fleet.common`. Existing container namespaces are accepted;
+when they own no declarations there is no storage to optimize. The unnamed root
+namespace has no nonempty FQN and can only be optimized with the bare flag.
+Validation uses the complete resolved configuration, including namespaces excluded
+by `--generate`, and also runs for `--list-outputs` and QBS-only output.
+
+For separate invocations, declare the complete effective storage policy in **every
+invocation** for namespaces whose generated definitions affect the selected output:
+
+```sh
+quarry-schema-compiler --language c --c-optimize-size=fleet.common \
+  --generate fleet.common -o generated configuration.brd
+quarry-schema-compiler --language c --c-optimize-size=fleet.common \
+  --generate fleet.engine -o generated configuration.brd
+```
+
+Here `fleet.engine` uses default storage and embeds the compact `fleet.common`
+records. Reverse invocation order gives the same files. Use `--language cpp
+--cpp-storage c` for the same workflow with C++ wrappers. A dependency need not be
+emitted for its policy to matter: the generator renders its definitions in memory
+and chains its generated-code identity into its dependents. `--generate` changes
+emission only. A dependency generated with an inconsistent policy is rejected at
+compilation with the existing “contains different generated definitions” diagnostic.
+
+Migration: replace differing bare flags across invocations with the same explicit
+namespace list in each invocation, then regenerate and rebuild all affected consumers.
+Identical effective policies retain identical generated definitions and identities;
+the flag spelling and list order do not enter the identity. BRF, QBS, Schema IR,
+record IDs, `schema_id`, runtime APIs and API epochs are unchanged. This option
+adds no runtime storage, allocation, initialization or hashing. A different effective
+policy can change native layouts and generated API, as the bare flag already does.
+
+The C backend resolves the policy once on each planned namespace, before allocating
+field identifiers. That same policy drives normalized rendering for every namespace,
+including unselected dependencies, followed by the existing dependency-topological
+identity computation and substitution. No option text or new field is added to the
+canonical identity encoding (format 1): the effective policy enters through the
+normalized generated definitions. A dependency-only policy change propagates through
+the existing identity checks and dependency identity chain.
+
+Remaining limitations:
+
 - **No ABI promise across releases:** bindings from different generator releases are isolated,
   not interchangeable.
 - **User code** that hides generated types behind its own inline definitions (no generated type in

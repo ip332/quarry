@@ -328,6 +328,139 @@ protected:
     fs::path work_;
 };
 
+// G3: selection changes output emission only, including for mixed storage.
+TEST_F(GeneratedCodeIdentityTest, PerNamespaceStorageSupportsSeparateInvocations) {
+    const fs::path root = fixtures() / "mixed_storage/configuration.brd";
+    for (const Variant* variant : {&kPlainC, &kCStorage}) {
+        const std::string tag(variant->name);
+        const std::string policy = "--c-optimize-size=fleet.common";
+        const std::string common = "fleet/common" + std::string(variant->extension);
+        const std::string engine = "fleet/engine" + std::string(variant->extension);
+        const fs::path all = generate(*variant, root, tag + "-all", policy);
+        const fs::path defaults = generate(*variant, root, tag + "-default");
+        const fs::path compact = generate(*variant, root, tag + "-compact", "--c-optimize-size");
+        const fs::path explicit_all = generate(*variant, root, tag + "-explicit-all",
+                                               "--c-optimize-size=fleet.engine,fleet.common");
+        const fs::path reordered = generate(*variant, root, tag + "-reordered",
+                                            "--c-optimize-size=fleet.common,fleet.engine");
+        const fs::path container =
+            generate(*variant, root, tag + "-container", "--c-optimize-size=fleet");
+        EXPECT_EQ(read_text_file(defaults / common), read_text_file(container / common));
+        EXPECT_EQ(read_text_file(defaults / engine), read_text_file(container / engine));
+        EXPECT_EQ(read_text_file(reordered / common), read_text_file(explicit_all / common));
+        EXPECT_EQ(read_text_file(reordered / engine), read_text_file(explicit_all / engine));
+        EXPECT_EQ(read_text_file(compact / common), read_text_file(explicit_all / common));
+        EXPECT_EQ(read_text_file(compact / engine), read_text_file(explicit_all / engine));
+        EXPECT_EQ(gid(all / common), gid(compact / common));
+        EXPECT_NE(gid(all / common), gid(defaults / common));
+        // Only the dependency's policy changed; its dependent must be re-identified too.
+        EXPECT_NE(gid(all / engine), gid(defaults / engine));
+        EXPECT_EQ(read_text_file(all / engine).find("uint8_t quarry_presence_bits"),
+                  std::string::npos);
+        EXPECT_NE(read_text_file(all / common).find("uint8_t quarry_presence_bits"),
+                  std::string::npos);
+        const fs::path renamed =
+            generate(*variant, root, tag + "-renamed", policy + " --root-file-stem other");
+        EXPECT_EQ(gid(all / engine), gid(renamed / engine));
+        for (const bool dependency_first : {false, true}) {
+            const fs::path separate = work_ / "gen" / (tag + (dependency_first ? "-ab" : "-ba"));
+            for (const std::string& ns :
+                 dependency_first ? std::vector<std::string>{"fleet.common", "fleet.engine"}
+                                  : std::vector<std::string>{"fleet.engine", "fleet.common"}) {
+                const auto result =
+                    run(quote(QUARRY_SCHEMA_COMPILER_TOOL) + " " + std::string(variant->arguments) +
+                            " " + policy + " --generate " + ns + " -o " + quote(separate.string()) +
+                            " " + quote(root.string()),
+                        work_ / "separate.log");
+                ASSERT_EQ(result.status, 0) << result.output;
+            }
+            EXPECT_EQ(read_text_file(all / common), read_text_file(separate / common));
+            EXPECT_EQ(read_text_file(all / engine), read_text_file(separate / engine));
+            for (const bool common_first : {false, true}) {
+                const std::string source =
+                    common_first ? "#include \"" + common + "\"\n#include \"" + engine + "\"\n"
+                                 : "#include \"" + engine + "\"\n#include \"" + common + "\"\n";
+                const auto checked = syntax_check(source, {separate}, tag + "-mixed");
+                EXPECT_EQ(checked.status, 0) << checked.output;
+                if (variant == &kPlainC) {
+                    const auto checked_c = syntax_check(source, {separate}, tag + "-mixed-c", true);
+                    EXPECT_EQ(checked_c.status, 0) << checked_c.output;
+                }
+            }
+        }
+        // Undeclared policy fails in either direction, before codec compilation.
+        for (const bool wrong_dependency : {false, true}) {
+            const fs::path mixed = work_ / "gen" / (tag + "-wrong");
+            write_text_file(mixed / engine,
+                            read_text_file((wrong_dependency ? all : defaults) / engine));
+            write_text_file(mixed / common,
+                            read_text_file((wrong_dependency ? defaults : all) / common));
+            for (const bool plain_c : {false, true}) {
+                if (plain_c && variant != &kPlainC)
+                    continue;
+                const auto rejected = syntax_check("#include \"" + engine + "\"\n", {mixed},
+                                                   tag + "-reject", plain_c);
+                EXPECT_NE(rejected.status, 0);
+                EXPECT_NE(rejected.output.find("contains different generated definitions"),
+                          std::string::npos)
+                    << rejected.output;
+            }
+        }
+        const fs::path separate =
+            generate(*variant, root, tag + "-runtime-engine", policy + " --generate fleet.engine");
+        const fs::path dependency =
+            generate(*variant, root, tag + "-runtime-common", policy + " --generate fleet.common");
+        write_text_file(separate / common, read_text_file(dependency / common));
+        const std::string workload = "#include \"" + engine + "\"\n" + R"(
+#ifdef __cplusplus
+extern "C"
+#endif
+int run_NAME(void) {
+    fleet_engine_EngineStatus_t s;
+    fleet_engine_EngineStatus_init(&s);
+    s.rpm = 1234U;
+    s.has_rpm = true;
+    s.time.unix_ms = 987654U;
+    fleet_common_Timestamp_set_unix_ms_present(&s.time, true);
+    s.has_time = true;
+    s.faults_count = 1U;
+    fleet_engine_FaultCode_init(&s.faults[0]);
+    s.faults[0].spn = 17U;
+    s.faults[0].has_spn = true;
+    s.mode = FLEET_COMMON_MODE_ACTIVE;
+    s.has_mode = true;
+    uint8_t bytes[256];
+    const fleet_engine_EngineStatus_encode_result_t e =
+        fleet_engine_EngineStatus_encode(&s, bytes, sizeof bytes);
+    if (e.status != QUARRY_C_STATUS_OK) return 1;
+    const fleet_engine_EngineStatus_decode_result_t d =
+        fleet_engine_EngineStatus_decode(bytes, e.bytes_written);
+    if (d.status != QUARRY_C_STATUS_OK) return 2;
+    if (!d.value.has_rpm || d.value.rpm != 1234U || !d.value.has_time ||
+        !fleet_common_Timestamp_has_unix_ms(&d.value.time) ||
+        d.value.time.unix_ms != 987654U || d.value.faults_count != 1U ||
+        d.value.faults[0].spn != 17U || !d.value.has_mode ||
+        d.value.mode != FLEET_COMMON_MODE_ACTIVE) return 3;
+    return 0;
+}
+)";
+        for (const std::string& flags : link_flag_sets()) {
+            for (const bool reverse : {false, true}) {
+                const auto& a = reverse ? separate : all;
+                const auto& b = reverse ? all : separate;
+                for (const bool c_sources : {false, true}) {
+                    if (c_sources && variant != &kPlainC)
+                        continue;
+                    EXPECT_EQ(link_and_run(replace_all(workload, "NAME", "a"), a,
+                                           replace_all(workload, "NAME", "b"), b, flags,
+                                           tag + "-mixed-link", c_sources),
+                              "run_a=0 run_b=0");
+                }
+            }
+        }
+    }
+}
+
 // --- identity determinism --------------------------------------------------
 
 TEST_F(GeneratedCodeIdentityTest, OutputNamingAndSelectionDoNotChangeIdentities) {

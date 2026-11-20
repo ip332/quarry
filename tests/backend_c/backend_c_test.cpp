@@ -106,6 +106,41 @@ TEST(BackendCTest, SizeOptionPacksFlagsAndReservesBitmapMemberName) {
     EXPECT_NE(ordinary.files[0].content.find("bool has_value8;"), std::string::npos);
 }
 
+TEST(BackendCTest, NamespaceStorageIdentityIsIndependentOfOutputNaming) {
+    SchemaIrModel schema;
+    schema.set_schema_ir_version(1);
+    auto* root = schema.mutable_root_namespace();
+    root->set_ir_id(1);
+    auto* ns = add_child_namespace(*root, 2, "demo", "demo");
+    auto* record = add_zero_field_record(*ns, 3, 1U, "Sample", "demo.Sample");
+    auto* field = record->add_fields();
+    field->set_name("quarry_presence_bits");
+    field->set_field_index(0);
+    field->mutable_type()->set_primitive(quarry::schema_ir::PRIMITIVE_TYPE_U32);
+    assert_valid(schema);
+    for (const bool wrapper : {false, true}) {
+        auto options = quarry::testing::with_test_identity(CodegenOptions{});
+        options.cpp_wrapper = wrapper;
+        options.optimize_size_namespaces = {"demo"};
+        const auto original = Backend{}.generate(schema, options);
+        ASSERT_TRUE(original.success) << original.error_message;
+        ASSERT_FALSE(original.files.empty());
+        EXPECT_NE(original.files[0].content.find("uint32_t quarry_presence_bits_2;"),
+                  std::string::npos);
+        options.output_directory = "other/directory";
+        options.root_file_stem = "other_root";
+        options.header_extension = ".custom.h";
+        options.source_extension = ".custom.c";
+        const auto renamed = Backend{}.generate(schema, options);
+        ASSERT_TRUE(renamed.success) << renamed.error_message;
+        std::smatch a, b;
+        const std::regex identity("inline namespace quarry_gen_([0-9a-f]{32})");
+        ASSERT_TRUE(std::regex_search(original.files[0].content, a, identity));
+        ASSERT_TRUE(std::regex_search(renamed.files[0].content, b, identity));
+        EXPECT_EQ(a[1].str(), b[1].str());
+    }
+}
+
 TEST(BackendCTest, EmptySchemaProducesNoFiles) {
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);

@@ -13,7 +13,8 @@
 namespace quarry::compiler::backend_c {
 
 struct CodegenOptions {
-    bool optimize_size = false;
+    bool optimize_size = false; // All namespaces; mutually exclusive with the list below.
+    std::vector<std::string> optimize_size_namespaces; // Exact FQNs, never recursive.
     bool cpp_wrapper = false;
     std::string output_directory = "generated";
     std::string root_file_stem = "schema";
@@ -23,6 +24,11 @@ struct CodegenOptions {
     // once from the resolved configuration; see missing_configuration_identity_message.
     std::optional<support::ConfigurationIdentity> configuration_identity;
 };
+
+// Checks policy selections against the complete configuration, without layout or identity work.
+// Also used by the driver before QBS-only output, where no backend plan is needed.
+[[nodiscard]] std::optional<std::string>
+validate_storage_options(const schema_ir::SchemaIrModel& schema_ir, const CodegenOptions& options);
 
 struct GeneratedFile {
     std::string path;

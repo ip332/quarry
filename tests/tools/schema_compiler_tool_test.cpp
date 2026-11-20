@@ -1233,6 +1233,59 @@ TEST(SchemaCompilerToolTest, CompactPresenceOptionRequiresCAndChangesGeneratedLa
     EXPECT_EQ(planned.status, 0) << planned.stderr_text;
 }
 
+TEST(SchemaCompilerToolTest, CompactPresenceNamespaceSelectionsAreValidated) {
+    const auto root = make_temp_directory("c-optimize-namespaces");
+    const auto input = std::filesystem::path(QUARRY_TEST_SOURCE_DIR) /
+                       "tests/fixtures/configuration_identity/rev_a/configuration.brd";
+    const std::vector<std::pair<std::string, std::string>> invalid = {
+        {"--c-optimize-size=", "nonempty namespace list"},
+        {"--c-optimize-size= fleet.common", "malformed"},
+        {"--c-optimize-size=fleet.common, fleet.engine", "malformed"},
+        {"--c-optimize-size=fleet..common", "malformed"},
+        {"--c-optimize-size=.fleet", "malformed"},
+        {"--c-optimize-size=fleet.common,", "malformed"},
+        {"--c-optimize-size=1fleet", "malformed"},
+        {"--c-optimize-size=fleet.common,fleet.common", "duplicate"},
+        {"--c-optimize-size=fleet.unknown", "unknown"}};
+    for (const auto& [option, diagnostic] : invalid) {
+        for (const std::string_view mode : {"generate", "list", "qbs"}) {
+            std::vector<std::string> args{"--language", "c", option, "--generate", "fleet.engine"};
+            if (mode == "list")
+                args.push_back("--list-outputs");
+            if (mode == "qbs") {
+                args.push_back("--emit-qbs");
+                args.push_back((root / "invalid.qbs").string());
+            }
+            args.push_back(input.string());
+            const auto result = run_tool(args, root);
+            EXPECT_NE(result.status, 0) << option;
+            EXPECT_NE(result.stderr_text.find("--c-optimize-size"), std::string::npos)
+                << result.stderr_text;
+            EXPECT_NE(result.stderr_text.find(diagnostic), std::string::npos) << result.stderr_text;
+        }
+    }
+    for (const std::string other : {"--c-optimize-size", "--c-optimize-size=fleet.engine"}) {
+        const auto result = run_tool(
+            {"--language", "c", "--c-optimize-size=fleet.common", other, input.string()}, root);
+        EXPECT_EQ(result.status, 2);
+        EXPECT_NE(result.stderr_text.find("duplicate --c-optimize-size"), std::string::npos);
+    }
+    const auto result = run_tool({"--language", "c", "--c-optimize-size=fleet.common", "--generate",
+                                  "fleet.engine", "--list-outputs", input.string()},
+                                 root);
+    EXPECT_EQ(result.status, 0) << result.stderr_text;
+    EXPECT_EQ(result.stdout_text.find("fleet/common"), std::string::npos);
+    const auto baseline = root / "default.qbs";
+    const auto selected = root / "selected.qbs";
+    const auto qbs_default = run_tool({"--emit-qbs", baseline.string(), input.string()}, root);
+    const auto qbs_selected = run_tool({"--language", "c", "--c-optimize-size=fleet.common",
+                                        "--emit-qbs", selected.string(), input.string()},
+                                       root);
+    ASSERT_EQ(qbs_default.status, 0) << qbs_default.stderr_text;
+    ASSERT_EQ(qbs_selected.status, 0) << qbs_selected.stderr_text;
+    EXPECT_EQ(read_text_file(baseline), read_text_file(selected));
+}
+
 TEST(SchemaCompilerToolTest, CppCStorageCompilesRoundTripsWithoutAllocations) {
     const auto root = make_temp_directory("cpp-c-storage");
     const auto schema = std::filesystem::path(QUARRY_TEST_SOURCE_DIR) / "benchmarks/schemas";

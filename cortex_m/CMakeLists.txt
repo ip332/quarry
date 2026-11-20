@@ -100,10 +100,28 @@ set(QUARRY_GENERATED_WORKLOAD_SOURCE
 # (which imports workload_shared.brd), so they share one configuration
 # identity: generated headers check at compile time that every generated
 # header they include comes from the same configuration.
+# Exercise equivalent global and per-namespace policies with the same workload.
+set(QUARRY_C_OPTIMIZE_SIZE "" CACHE STRING
+    "C presence optimization: empty for default, ALL, or comma-separated namespace FQNs")
+set(QUARRY_C_STORAGE_ARGUMENTS)
+set(QUARRY_C_STORAGE_DEFINITIONS)
+if(QUARRY_C_OPTIMIZE_SIZE STREQUAL "ALL")
+    list(APPEND QUARRY_C_STORAGE_ARGUMENTS --c-optimize-size)
+    list(APPEND QUARRY_C_STORAGE_DEFINITIONS QUARRY_SMOKE_COMPACT_WORKLOAD QUARRY_SMOKE_COMPACT_SHARED)
+elseif(NOT QUARRY_C_OPTIMIZE_SIZE STREQUAL "")
+    list(APPEND QUARRY_C_STORAGE_ARGUMENTS "--c-optimize-size=${QUARRY_C_OPTIMIZE_SIZE}")
+    string(REPLACE "," ";" compact_namespaces "${QUARRY_C_OPTIMIZE_SIZE}")
+    if("benchmark.workload" IN_LIST compact_namespaces)
+        list(APPEND QUARRY_C_STORAGE_DEFINITIONS QUARRY_SMOKE_COMPACT_WORKLOAD)
+    endif()
+    if("benchmark.workload.shared" IN_LIST compact_namespaces)
+        list(APPEND QUARRY_C_STORAGE_DEFINITIONS QUARRY_SMOKE_COMPACT_SHARED)
+    endif()
+endif()
 add_custom_command(
     OUTPUT "${QUARRY_GENERATED_SHARED_HEADER}" "${QUARRY_GENERATED_SHARED_SOURCE}"
            "${QUARRY_GENERATED_WORKLOAD_HEADER}" "${QUARRY_GENERATED_WORKLOAD_SOURCE}"
-    COMMAND "${QUARRY_HOST_SCHEMA_COMPILER}" --language c
+    COMMAND "${QUARRY_HOST_SCHEMA_COMPILER}" --language c ${QUARRY_C_STORAGE_ARGUMENTS}
             --output-directory "${QUARRY_GENERATED_DIR}"
             --generate benchmark.workload,benchmark.workload.shared
             "${QUARRY_WORKLOAD_SCHEMA}"
@@ -150,6 +168,7 @@ foreach(target quarry_cortex_m_smoke quarry_cortex_m_smoke_identity quarry_corte
         "${QUARRY_RUNTIME_C_INCLUDE_DIR}"
         "${QUARRY_RUNTIME_C_VERSION_HEADER_DIR}"
     )
+    target_compile_definitions(${target} PRIVATE ${QUARRY_C_STORAGE_DEFINITIONS})
     target_compile_options(${target} PRIVATE
         -Wall -Wextra -Wpedantic -Werror
         -ffunction-sections -fdata-sections

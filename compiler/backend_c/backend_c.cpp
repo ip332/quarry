@@ -636,6 +636,7 @@ struct PlannedRecord {
 struct PlannedNamespaceFile {
     std::string namespace_fqn;
     bool emits_output = true;
+    bool optimize_size = false;
     std::string relative_header_path;
     std::string relative_source_path;
     std::string generated_include_path;
@@ -1074,6 +1075,10 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     if (namespace_emits_file(ns)) {
         PlannedNamespaceFile file;
         file.namespace_fqn = ns.fqn();
+        file.optimize_size =
+            options.optimize_size || std::find(options.optimize_size_namespaces.begin(),
+                                               options.optimize_size_namespaces.end(),
+                                               ns.fqn()) != options.optimize_size_namespaces.end();
         if (output_selection != nullptr) {
             file.emits_output = output_selection->emitting_namespaces.contains(ns.fqn());
         }
@@ -1150,7 +1155,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                 cpp_names.allocate(safe_c_identifier(symbol_prefix + record_ir.name()));
             std::vector<PlannedField> planned_fields;
             CIdentifierAllocator field_names;
-            if (options.optimize_size)
+            if (file.optimize_size)
                 (void)field_names.reserve("quarry_presence_bits");
             if (options.cpp_wrapper) {
                 for (const auto keyword : cpp_keywords)
@@ -1404,6 +1409,10 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                                          const output_planning::OutputPlan* output_plan,
                                          std::vector<PlannedNamespaceFile>& files,
                                          std::string& error_message) {
+    if (const auto error = validate_storage_options(schema_ir, options)) {
+        error_message = *error;
+        return false;
+    }
     OutputSelection output_selection;
     if (output_plan != nullptr) {
         for (const output_planning::PlannedSourceUnit& unit : output_plan->units) {
@@ -2400,6 +2409,42 @@ std::string output_path_for_planned_file(const CodegenOptions& options,
     return options.output_directory + "/" + std::string(relative_path);
 }
 
+std::optional<std::string> validate_storage_options(const schema_ir::SchemaIrModel& schema_ir,
+                                                    const CodegenOptions& options) {
+    // Validate against the complete namespace tree, independently of --generate.
+    if (options.optimize_size && !options.optimize_size_namespaces.empty()) {
+        return "backend_c: choose all namespaces or an explicit --c-optimize-size list";
+    }
+    if (options.optimize_size_namespaces.empty()) {
+        return std::nullopt;
+    }
+    std::set<std::string> known_namespaces;
+    std::vector<const NamespaceIR*> pending_namespaces{&schema_ir.root_namespace()};
+    while (!pending_namespaces.empty()) {
+        const NamespaceIR& current = *pending_namespaces.back();
+        pending_namespaces.pop_back();
+        known_namespaces.insert(current.fqn());
+        for (const NamespaceIR& child : current.namespaces()) {
+            pending_namespaces.push_back(&child);
+        }
+    }
+    std::set<std::string> selected_namespaces;
+    for (const std::string& fqn : options.optimize_size_namespaces) {
+        if (fqn.empty() || !support::encode_namespace_macro(fqn).has_value()) {
+            return "backend_c: malformed --c-optimize-size namespace '" + fqn +
+                   "'; use canonical dot-separated identifier FQNs without whitespace";
+        }
+        if (!selected_namespaces.insert(fqn).second) {
+            return "backend_c: duplicate --c-optimize-size namespace '" + fqn + "'";
+        }
+        if (!known_namespaces.contains(fqn)) {
+            return "backend_c: unknown --c-optimize-size namespace '" + fqn +
+                   "'; select an exact namespace FQN from the resolved configuration";
+        }
+    }
+    return std::nullopt;
+}
+
 namespace {
 
 [[nodiscard]] PlanResult plan_files(const schema_ir::SchemaIrModel& schema_ir,
@@ -2476,7 +2521,7 @@ identify_file(const PlannedNamespaceFile& file,
             .variant = code_identity_variant(options.cpp_wrapper),
             .identity = dependency->second});
     }
-    const CRenderContext context{.optimize_size = options.optimize_size,
+    const CRenderContext context{.optimize_size = file.optimize_size,
                                  .cpp_wrapper = options.cpp_wrapper,
                                  .namespace_by_include = namespace_by_include,
                                  .header_extension = options.header_extension,

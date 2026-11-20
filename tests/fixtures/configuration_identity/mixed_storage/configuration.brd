@@ -1,0 +1,4 @@
+configuration: mixed_storage
+imports:
+  - common.brd
+  - engine.brd

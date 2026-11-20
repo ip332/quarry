@@ -198,6 +198,32 @@ jobs:
           | tee machine-code-report.md >> "$GITHUB_STEP_SUMMARY";
           cat machine-code-report.md
 
+      - name: Compare equivalent C storage policies
+        shell: bash
+        run: >-
+          set -o pipefail;
+          docker compose run --rm dev sh -ec '
+          for config in Default MinSizeRel Debug; do
+          for policy in global explicit; do
+          if [ "$policy" = global ]; then selection=ALL;
+          else selection=benchmark.workload.shared,benchmark.workload; fi;
+          build_type=""; if [ "$config" != Default ]; then build_type="-DCMAKE_BUILD_TYPE=$config"; fi;
+          cmake -S cortex_m -B "build/storage-policy/$policy-$config" $build_type
+          -DCMAKE_TOOLCHAIN_FILE="$(pwd)/cmake/toolchains/arm-cortex-m4.cmake"
+          -DQUARRY_HOST_SCHEMA_COMPILER="$(pwd)/build/docker-debug/tools/quarry-schema-compiler"
+          -DQUARRY_RUNTIME_C_INCLUDE_DIR="$(pwd)/include"
+          -DQUARRY_RUNTIME_C_VERSION_HEADER_DIR="$(pwd)/build/docker-debug/generated"
+          -DQUARRY_C_OPTIMIZE_SIZE="$selection" > /dev/null;
+          cmake --build "build/storage-policy/$policy-$config" --parallel > /dev/null;
+          done;
+          python3 cortex_m/scripts/compare_machine_code.py
+          --base "build/storage-policy/global-$config"
+          --candidate "build/storage-policy/explicit-$config"
+          --label "Equivalent storage policies ($config)" --strict;
+          done'
+          | tee storage-policy-report.md >> "$GITHUB_STEP_SUMMARY";
+          cat storage-policy-report.md
+
       - name: Upload footprint report
         uses: actions/upload-artifact@v4
         with:
@@ -205,6 +231,7 @@ jobs:
           path: |
             cortex_m/build/footprint*.json
             machine-code-report.md
+            storage-policy-report.md
 
   coverage:
     name: Coverage baseline
