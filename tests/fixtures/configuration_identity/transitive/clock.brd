@@ -1,0 +1,7 @@
+namespace: fleet.clock
+record: Tick
+version: 1
+type: data
+fields:
+  value:
+    type: u32

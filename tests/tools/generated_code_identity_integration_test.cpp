@@ -1,3 +1,4 @@
+// Fast/extended G4 commands and coverage limits: docs/generated-code-identity-validation.md.
 // Generated-code identity in C++ owning and C++/C-storage bindings (#111 G1).
 //
 // Black-box: the tests drive quarry-schema-compiler and the C++ compiler the
@@ -29,6 +30,9 @@
 
 #ifndef _WIN32
 #include <sys/wait.h>
+#include <unistd.h>
+#else
+#include <process.h>
 #endif
 
 #include "compiler/support/namespace_macro.hpp"
@@ -41,6 +45,24 @@ namespace fs = std::filesystem;
 namespace support = quarry::compiler::support;
 
 #define QUARRY_TEST_STRICT_CXX_WARNINGS " -Wall -Wextra -Wpedantic -Wshadow -Werror"
+
+// The extended driver overrides child compilers/flags; default CTest behavior is unchanged.
+[[nodiscard]] std::string identity_generator() {
+    const char* value = std::getenv("QUARRY_IDENTITY_GENERATOR_A");
+    return value == nullptr ? QUARRY_SCHEMA_COMPILER_TOOL : value;
+}
+[[nodiscard]] std::string identity_cxx() {
+    const char* value = std::getenv("QUARRY_IDENTITY_CXX");
+    return value == nullptr ? QUARRY_TEST_CXX_COMPILER : value;
+}
+[[nodiscard]] std::string identity_cc() {
+    const char* value = std::getenv("QUARRY_IDENTITY_CC");
+    return value == nullptr ? identity_cxx() : value;
+}
+[[nodiscard]] std::string matrix_flags() {
+    const char* value = std::getenv("QUARRY_IDENTITY_FLAGS");
+    return value == nullptr ? "-O0" : value;
+}
 
 [[nodiscard]] fs::path source_dir() { return fs::path(QUARRY_TEST_SOURCE_DIR); }
 [[nodiscard]] fs::path fixtures() { return source_dir() / "tests/fixtures/configuration_identity"; }
@@ -171,9 +193,14 @@ constexpr std::string_view kSanitizerFlags =
 class GeneratedCodeIdentityTest : public ::testing::Test {
 protected:
     void SetUp() override {
+#ifdef _WIN32
+        const auto process_id = ::_getpid();
+#else
+        const auto process_id = ::getpid();
+#endif
         work_ = fs::temp_directory_path() /
-                ("quarry-gid-" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()) +
-                 "-" +
+                ("quarry-gid-" + std::to_string(process_id) + "-" +
+                 std::to_string(::testing::UnitTest::GetInstance()->random_seed()) + "-" +
                  std::to_string(std::hash<std::string>{}(
                      ::testing::UnitTest::GetInstance()->current_test_info()->name())));
         fs::remove_all(work_);
@@ -210,9 +237,8 @@ protected:
                                     std::string_view tag, const std::string& extra = {}) {
         const fs::path output = work_ / "gen" / std::string(tag);
         const RunResult result =
-            run(quote(QUARRY_SCHEMA_COMPILER_TOOL) + " " + std::string(variant.arguments) + " " +
-                    extra + " --output-directory " + quote(output.string()) + " " +
-                    quote(root.string()),
+            run(quote(identity_generator()) + " " + std::string(variant.arguments) + " " + extra +
+                    " --output-directory " + quote(output.string()) + " " + quote(root.string()),
                 work_ / (std::string(tag) + ".log"));
         EXPECT_EQ(result.status, 0) << result.output;
         return output;
@@ -235,7 +261,7 @@ protected:
                                          std::string_view tag, bool plain_c = false) {
         const fs::path file = work_ / (std::string(tag) + (plain_c ? ".c" : ".cpp"));
         write_text_file(file, source);
-        std::string command = quote(QUARRY_TEST_CXX_COMPILER);
+        std::string command = quote(identity_cxx());
         if (plain_c) {
             command += " -x c -std=c99 -Wall -Wextra -Wpedantic -Werror -fsyntax-only";
         } else {
@@ -255,29 +281,35 @@ protected:
     [[nodiscard]] std::string link_and_run(const std::string& tu_a, const fs::path& includes_a,
                                            const std::string& tu_b, const fs::path& includes_b,
                                            const std::string& flags, std::string_view tag,
-                                           bool c_sources = false) {
+                                           bool c_sources = false, bool mixed_sources = false,
+                                           bool reverse_link_order = false,
+                                           bool expect_success = true) {
         const fs::path directory = work_ / "link" / std::string(tag);
         fs::create_directories(directory);
-        write_text_file(directory / "main.cpp",
-                        "#include <cstdio>\nextern \"C\" int run_a();\nextern \"C\" int run_b();\n"
-                        "int main() { const int a = run_a(); const int b = run_b();\n"
-                        "  std::printf(\"run_a=%d run_b=%d\\n\", a, b); return 0; }\n");
-        const std::string extension = c_sources ? ".c" : ".cpp";
+        write_text_file(
+            directory / "main.cpp",
+            "#include <cstdio>\nextern \"C\" int run_a();\nextern \"C\" int run_b();\n"
+            "int main() { const int a = run_a(); const int b = run_b();\n"
+            "  std::printf(\"run_a=%d run_b=%d\\n\", a, b); return a == 0 && b == 0 ? 0 : 1; }\n");
+        const std::string extension = (c_sources || mixed_sources) ? ".c" : ".cpp";
+        const std::string b_extension = mixed_sources ? ".cpp" : extension;
         write_text_file(directory / ("a" + extension), tu_a);
-        write_text_file(directory / ("b" + extension), tu_b);
-        const std::string compiler = quote(QUARRY_TEST_CXX_COMPILER) + " -std=c++20 " + flags +
-                                     QUARRY_TEST_STRICT_CXX_WARNINGS;
-        const std::string tu_compiler = c_sources ? quote(QUARRY_TEST_CXX_COMPILER) +
-                                                        " -x c -std=c99 " + flags +
-                                                        " -Wall -Wextra -Wpedantic -Wshadow -Werror"
-                                                  : compiler;
+        write_text_file(directory / ("b" + b_extension), tu_b);
+        const std::string compiler =
+            quote(identity_cxx()) + " -std=c++20 " + flags + QUARRY_TEST_STRICT_CXX_WARNINGS;
+        const std::string c_compiler = quote(identity_cc()) + " -x c -std=c99 " +
+                                       replace_all(flags, "-Wodr", "") +
+                                       " -Wall -Wextra -Wpedantic -Wshadow -Werror";
         const std::string common = " -I" + quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
                                    quote(QUARRY_TEST_GENERATED_INCLUDE_DIR);
         for (const auto& [name, includes] :
              std::vector<std::pair<std::string, fs::path>>{{"a", includes_a}, {"b", includes_b}}) {
+            const bool compile_c = c_sources || (mixed_sources && name == "a");
+            const std::string& tu_compiler = compile_c ? c_compiler : compiler;
+            const std::string& suffix = name == "a" ? extension : b_extension;
             const RunResult compiled =
                 run(tu_compiler + " -I" + quote(includes.string()) + common + " -c " +
-                        quote((directory / (name + extension)).string()) + " -o " +
+                        quote((directory / (name + suffix)).string()) + " -o " +
                         quote((directory / (name + ".o")).string()),
                     directory / (name + ".log"));
             if (compiled.status != 0) {
@@ -286,17 +318,20 @@ protected:
             }
         }
         const fs::path program = directory / "program";
-        const RunResult linked = run(
-            compiler + " " + quote((directory / "main.cpp").string()) + " " +
-                quote((directory / "a.o").string()) + " " + quote((directory / "b.o").string()) +
-                " " + quote(QUARRY_TEST_RUNTIME_C_LIBRARY) + " -o " + quote(program.string()),
-            directory / "link.log");
+        const RunResult linked =
+            run(compiler + " " + quote((directory / "main.cpp").string()) + " " +
+                    quote((directory / (reverse_link_order ? "b.o" : "a.o")).string()) + " " +
+                    quote((directory / (reverse_link_order ? "a.o" : "b.o")).string()) + " " +
+                    quote(QUARRY_TEST_RUNTIME_C_LIBRARY) + " -o " + quote(program.string()),
+                directory / "link.log");
         if (linked.status != 0) {
             ADD_FAILURE() << linked.output;
             return {};
         }
         const RunResult ran = run(quote(program.string()), directory / "run.log");
-        EXPECT_EQ(ran.status, 0) << ran.output;
+        if (expect_success) {
+            EXPECT_EQ(ran.status, 0) << ran.output;
+        }
         std::smatch match;
         if (!std::regex_search(ran.output, match, std::regex("run_a=-?[0-9]+ run_b=-?[0-9]+"))) {
             ADD_FAILURE() << ran.output;
@@ -309,7 +344,7 @@ protected:
         static const bool available = [&] {
             const fs::path probe = work_ / "asan-probe.cpp";
             write_text_file(probe, "int main() { return 0; }\n");
-            return run(quote(QUARRY_TEST_CXX_COMPILER) + " " + std::string(kSanitizerFlags) + " " +
+            return run(quote(identity_cxx()) + " " + std::string(kSanitizerFlags) + " " +
                            quote(probe.string()) + " -o " + quote((work_ / "asan-probe").string()),
                        work_ / "asan-probe.log")
                        .status == 0;
@@ -318,6 +353,8 @@ protected:
     }
 
     [[nodiscard]] std::vector<std::string> link_flag_sets() {
+        if (std::getenv("QUARRY_IDENTITY_FLAGS") != nullptr)
+            return {matrix_flags()};
         std::vector<std::string> flags{"-O0", "-O2"};
         if (sanitizer_available()) {
             flags.emplace_back("-O0 -g " + std::string(kSanitizerFlags));
@@ -368,9 +405,9 @@ TEST_F(GeneratedCodeIdentityTest, PerNamespaceStorageSupportsSeparateInvocations
                  dependency_first ? std::vector<std::string>{"fleet.common", "fleet.engine"}
                                   : std::vector<std::string>{"fleet.engine", "fleet.common"}) {
                 const auto result =
-                    run(quote(QUARRY_SCHEMA_COMPILER_TOOL) + " " + std::string(variant->arguments) +
-                            " " + policy + " --generate " + ns + " -o " + quote(separate.string()) +
-                            " " + quote(root.string()),
+                    run(quote(identity_generator()) + " " + std::string(variant->arguments) + " " +
+                            policy + " --generate " + ns + " -o " + quote(separate.string()) + " " +
+                            quote(root.string()),
                         work_ / "separate.log");
                 ASSERT_EQ(result.status, 0) << result.output;
             }
@@ -511,7 +548,7 @@ TEST_F(GeneratedCodeIdentityTest, DefinitionChangesChangeIdentitiesButNotSchemaI
                               "      high: 1", "      high: 0"))},
     };
     const std::string base_schema_id =
-        run(quote(QUARRY_SCHEMA_COMPILER_TOOL) + " --print-schema-id " + quote(base.string()),
+        run(quote(identity_generator()) + " --print-schema-id " + quote(base.string()),
             work_ / "sid-base.log")
             .output;
     for (const Variant* variant : {&kOwning, &kCStorage}) {
@@ -519,11 +556,11 @@ TEST_F(GeneratedCodeIdentityTest, DefinitionChangesChangeIdentitiesButNotSchemaI
         const std::string base_gid =
             gid(generate(*variant, base, name + "-base") / "inv/core.generated.hpp");
         for (const auto& [label, root] : variants) {
-            EXPECT_EQ(run(quote(QUARRY_SCHEMA_COMPILER_TOOL) + " --print-schema-id " +
-                              quote(root.string()),
-                          work_ / "sid.log")
-                          .output,
-                      base_schema_id)
+            EXPECT_EQ(
+                run(quote(identity_generator()) + " --print-schema-id " + quote(root.string()),
+                    work_ / "sid.log")
+                    .output,
+                base_schema_id)
                 << label << " must not change the wire identity";
             EXPECT_NE(gid(generate(*variant, root, name + "-" + label) / "inv/core.generated.hpp"),
                       base_gid)
@@ -1122,14 +1159,14 @@ TEST_F(GeneratedCodeIdentityTest, CallbackLinkageChecksRejectMutatedHeaders) {
         fs::create_directories(directory);
         write_text_file(directory / "probe.cpp", callback_linkage_probe("a", identity, base) +
                                                      "int main() { return run_a(); }\n");
-        const RunResult linked = run(
-            quote(QUARRY_TEST_CXX_COMPILER) + " -std=c++20" QUARRY_TEST_STRICT_CXX_WARNINGS " -I" +
-                quote(cpp_linkage.string()) + " -I" + quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
-                quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
-                quote((directory / "probe.cpp").string()) + " " +
-                quote(QUARRY_TEST_RUNTIME_C_LIBRARY) + " -o " +
-                quote((directory / "probe").string()),
-            directory / "link.log");
+        const RunResult linked =
+            run(quote(identity_cxx()) + " -std=c++20" QUARRY_TEST_STRICT_CXX_WARNINGS " -I" +
+                    quote(cpp_linkage.string()) + " -I" + quote(QUARRY_TEST_REPO_INCLUDE_DIR) +
+                    " -I" + quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " " +
+                    quote((directory / "probe.cpp").string()) + " " +
+                    quote(QUARRY_TEST_RUNTIME_C_LIBRARY) + " -o " +
+                    quote((directory / "probe").string()),
+                directory / "link.log");
         const bool accepted =
             linked.status == 0 &&
             run(quote((directory / "probe").string()), directory / "run.log").status == 0;
@@ -1514,8 +1551,7 @@ TEST_F(GeneratedCodeIdentityTest, PlainCDefinitionChangesChangeIdentitiesButNotS
                               "      high: 1", "      high: 0"))},
     };
     const auto schema_id = [&](const fs::path& root) {
-        return run(quote(QUARRY_SCHEMA_COMPILER_TOOL) + " --print-schema-id " +
-                       quote(root.string()),
+        return run(quote(identity_generator()) + " --print-schema-id " + quote(root.string()),
                    work_ / "sid.log")
             .output;
     };
@@ -1859,8 +1895,7 @@ TEST_F(GeneratedCodeIdentityTest, PlainCIsolationChecksRejectMutatedHeaders) {
         const fs::path object = work_ / (std::string(tag) + ".o");
         write_text_file(source, plain_c_tu("a", false));
         const RunResult compiled =
-            run(quote(QUARRY_TEST_CXX_COMPILER) +
-                    " -std=c++20 -O0" QUARRY_TEST_STRICT_CXX_WARNINGS " -I" +
+            run(quote(identity_cxx()) + " -std=c++20 -O0" QUARRY_TEST_STRICT_CXX_WARNINGS " -I" +
                     quote(includes.string()) + " -I" + quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
                     quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " -c " + quote(source.string()) +
                     " -o " + quote(object.string()),
@@ -1918,6 +1953,251 @@ TEST_F(GeneratedCodeIdentityTest, PlainCIsolationChecksRejectMutatedHeaders) {
                     "inline uint64_t inv_core_Status_field_1_enum_load");
     ASSERT_NE(not_static, header);
     EXPECT_NE(plain_c_callback_violations(not_static, bases), std::vector<std::string>{});
+}
+
+// G4's fast mandatory subset. Extended runs reuse these exact checks with
+// explicit child compilers/flags; the original G1–G3 matrix remains intact.
+TEST_F(GeneratedCodeIdentityTest, G4ConfigurationMetadataGuard) {
+    const auto root = dep_root("metadata", kCommonSchema, kEngineSchema);
+    for (const Variant* variant : {&kOwning, &kCStorage, &kPlainC}) {
+        const std::string tag(variant->name);
+        const auto generated = generate(*variant, root, tag);
+        const fs::path dependency = generated / ("dep/common" + std::string(variant->extension));
+        const std::string original = read_text_file(dependency);
+        const std::regex metadata(
+            "#define "
+            "(QUARRY_NS_dep_common|QUARRY_GENERATED_CPP_NS_dep_common)_SCHEMA_ID_[^\\n]+\\n");
+        const std::string removed = std::regex_replace(original, metadata, "");
+        ASSERT_NE(removed, original);
+        write_text_file(dependency, removed);
+        const auto result =
+            syntax_check("#include \"dep/engine" + std::string(variant->extension) + "\"\n",
+                         {generated}, tag + "-metadata", variant == &kPlainC);
+        EXPECT_NE(result.status, 0);
+        EXPECT_NE(result.output.find("predates generated configuration identity"),
+                  std::string::npos)
+            << result.output;
+    }
+}
+
+TEST_F(GeneratedCodeIdentityTest, G4TransitiveIdentityAndConfigurationNames) {
+    const fs::path original = fixtures() / "transitive/configuration.brd";
+    const fs::path changed = work_ / "changed";
+    const fs::path renamed = work_ / "renamed";
+    fs::copy(original.parent_path(), changed, fs::copy_options::recursive);
+    fs::copy(original.parent_path(), renamed, fs::copy_options::recursive);
+    write_text_file(changed / "clock.brd",
+                    replace_all(read_text_file(changed / "clock.brd"), "  value:", "  renamed:"));
+    write_text_file(renamed / "configuration.brd",
+                    "configuration: another_name\nimports:\n  - engine.brd\n  - common.brd\n");
+    const auto schema_id = [&](const fs::path& root) {
+        const auto result =
+            run(quote(identity_generator()) + " --print-schema-id " + quote(root.string()),
+                work_ / "schema-id.log");
+        EXPECT_EQ(result.status, 0) << result.output;
+        return result.output;
+    };
+    EXPECT_EQ(schema_id(original), schema_id(changed / "configuration.brd"));
+    EXPECT_EQ(schema_id(original), schema_id(renamed / "configuration.brd"));
+    for (const Variant* variant : {&kOwning, &kCStorage, &kPlainC}) {
+        const std::string name(variant->name);
+        const std::string policy = variant == &kOwning ? "" : "--c-optimize-size=fleet.clock";
+        const auto base = generate(*variant, original, name + "-base", policy);
+        const auto leaf = generate(*variant, changed / "configuration.brd", name + "-leaf", policy);
+        const auto other =
+            generate(*variant, renamed / "configuration.brd", name + "-renamed", policy);
+        const auto selected =
+            generate(*variant, original, name + "-selected", policy + " --generate fleet.engine");
+        for (const std::string_view ns : {"clock", "common", "engine"}) {
+            const std::string header = "fleet/" + std::string(ns) + std::string(variant->extension);
+            EXPECT_NE(gid(base / header), gid(leaf / header)) << "transitive " << ns;
+            EXPECT_EQ(read_text_file(base / header), read_text_file(other / header));
+        }
+        const std::string engine = "fleet/engine" + std::string(variant->extension);
+        EXPECT_EQ(read_text_file(base / engine), read_text_file(selected / engine));
+        EXPECT_FALSE(fs::exists(selected / ("fleet/clock" + std::string(variant->extension))));
+    }
+}
+
+TEST_F(GeneratedCodeIdentityTest, G4RuntimeEnumNamesWireChangesAndControls) {
+    const auto base_root = inv_root("base", kCoreSchema);
+    const auto enum_root =
+        inv_root("enum", replace_all(std::string(kCoreSchema), "      on: 1", "      run: 1"));
+    const auto wire_root =
+        inv_root("wire", replace_all(std::string(kCoreSchema), "    type: u16", "    type: u32"));
+    for (const Variant* variant : {&kOwning, &kCStorage, &kPlainC}) {
+        const std::string name(variant->name);
+        const auto base = generate(*variant, base_root, name + "-base");
+        const auto en = generate(*variant, enum_root, name + "-enum");
+        const auto wire = generate(*variant, wire_root, name + "-wire");
+        const std::string header = "inv/core" + std::string(variant->extension);
+        EXPECT_NE(gid(base / header), gid(en / header));
+        EXPECT_NE(gid(base / header), gid(wire / header));
+        const auto source = [&](std::string_view which) {
+            if (variant == &kPlainC)
+                return plain_c_tu(which, false);
+            std::string text = tu(variant == &kOwning ? kOwningTu : kCStorageTu, which, "rpm");
+            if (variant == &kOwning) {
+                text = replace_all(text, "    inv::core::StatusBuilder b;",
+                                   "    inv::core::StatusBuilder b;\n    if "
+                                   "(!b.set_mode(inv::core::Mode::on)) return 9;");
+                text = replace_all(text, "    if (!d ||",
+                                   "    if (d && (!d->mode() || *d->mode() != "
+                                   "inv::core::Mode::on)) return 10;\n    if (!d ||");
+            }
+            return text;
+        };
+        for (const auto& [label, other] : std::vector<std::pair<std::string, fs::path>>{
+                 {"identical", base}, {"enum", en}, {"wire", wire}}) {
+            std::string b = source("b");
+            if (label == "enum")
+                b = replace_all(replace_all(b, "Mode::on", "Mode::run"), "INV_CORE_MODE_ON",
+                                "INV_CORE_MODE_RUN");
+            for (const bool reversed : {false, true}) {
+                EXPECT_EQ(link_and_run(source("a"), base, b, other, matrix_flags(), name + label,
+                                       variant == &kPlainC, false, reversed),
+                          "run_a=0 run_b=0");
+                if (variant == &kPlainC) {
+                    EXPECT_EQ(link_and_run(source("a"), base, b, other, matrix_flags(),
+                                           name + label + "-cpp", false, false, reversed),
+                              "run_a=0 run_b=0");
+                }
+            }
+        }
+    }
+}
+
+TEST_F(GeneratedCodeIdentityTest, G4MixedLanguageInterchangeFromSeparateInvocations) {
+    const auto root = inv_root("base", kCoreSchema);
+    for (const bool compact : {false, true}) {
+        const std::string policy = compact ? "--c-optimize-size=inv.core" : "";
+        const auto a = generate(kPlainC, root, compact ? "a-compact" : "a", policy);
+        const auto b =
+            generate(kPlainC, root, compact ? "b-compact" : "b", policy + " --generate inv.core");
+        EXPECT_EQ(read_text_file(a / "inv/core.generated.h"),
+                  read_text_file(b / "inv/core.generated.h"));
+        const std::string c = std::string(compact ? kCompactPresence : kDefaultPresence) + R"(
+#include "inv/core.generated.h"
+void fill(inv_core_Status_t* value) {
+    inv_core_Status_init(value);
+    value->rpm = 1234U;
+    SET_PRESENT(inv_core_Status, *value, rpm);
+}
+int run_a(void) {
+    inv_core_Status_t value;
+    fill(&value);
+    return value.rpm == 1234U ? 0 : 1;
+}
+)";
+        const std::string cpp = R"(#include "inv/core.generated.h"
+extern "C" void fill(inv_core_Status_t*);
+extern "C" int run_b() {
+    inv_core_Status_t value;
+    fill(&value); // C producer passes a generated object into C++ code.
+    uint8_t bytes[256];
+    const auto encoded = inv_core_Status_encode(&value, bytes, sizeof bytes);
+    if (encoded.status != QUARRY_C_STATUS_OK) return 1;
+    const auto decoded = inv_core_Status_decode(bytes, encoded.bytes_written);
+    return decoded.status == QUARRY_C_STATUS_OK && decoded.value.rpm == 1234U ? 0 : 2;
+}
+)";
+        for (const bool reverse : {false, true}) {
+            EXPECT_EQ(link_and_run(c, a, cpp, b, matrix_flags(), "mixed", false, true, reverse),
+                      "run_a=0 run_b=0");
+        }
+    }
+}
+
+TEST_F(GeneratedCodeIdentityTest, G4AlternateGeneratorDefinitionsAndValidationBodies) {
+    const char* alternate = std::getenv("QUARRY_IDENTITY_GENERATOR_B");
+    if (alternate == nullptr) {
+        GTEST_SKIP() << "extended check requires a second generator build";
+    }
+    if (std::getenv("QUARRY_IDENTITY_OLDER") != nullptr) {
+        GTEST_SKIP() << "older headers use the dependency diagnostic test";
+    }
+    const bool drift = std::getenv("QUARRY_IDENTITY_DRIFT") != nullptr;
+    const auto root = inv_root("base", kCoreSchema);
+    const auto a = generate(kOwning, root, "generator-a");
+    const auto b = work_ / "generator-b";
+    const auto generated =
+        run(quote(alternate) + " -o " + quote(b.string()) + " " + quote(root.string()),
+            work_ / "alternate.log");
+    ASSERT_EQ(generated.status, 0) << generated.output;
+    const std::string header = "inv/core.generated.hpp";
+    if (drift) {
+        EXPECT_NE(gid(a / header), gid(b / header));
+    } else {
+        EXPECT_EQ(read_text_file(a / header), read_text_file(b / header))
+            << "equivalent compiler builds";
+    }
+    const auto id_a =
+        run(quote(identity_generator()) + " --print-schema-id " + quote(root.string()),
+            work_ / "id-a.log");
+    const auto id_b =
+        run(quote(alternate) + " --print-schema-id " + quote(root.string()), work_ / "id-b.log");
+    ASSERT_EQ(id_a.status, 0);
+    ASSERT_EQ(id_b.status, 0);
+    EXPECT_EQ(id_a.output, id_b.output);
+    const std::string ordinary = tu(kOwningTu, "a", "rpm");
+    const std::string other = drift ? R"(#include "inv/core.generated.hpp"
+extern "C" int run_b() {
+    inv::core::StatusBuilder b;
+    return b.set_rpm(1234U) ? 1 : 0;
+}
+)"
+                                    : tu(kOwningTu, "b", "rpm");
+    for (const bool reverse : {false, true}) {
+        EXPECT_EQ(link_and_run(ordinary, a, other, b, matrix_flags(), "generator-drift", false,
+                               false, reverse),
+                  "run_a=0 run_b=0");
+    }
+    if (drift) {
+        const auto mutant = work_ / "false-namespace";
+        fs::copy(b, mutant, fs::copy_options::recursive);
+        const auto path = mutant / header;
+        const std::string before = read_text_file(path);
+        const std::string falsified =
+            replace_all(before, "quarry_gen_" + gid(b / header), "quarry_gen_" + gid(a / header));
+        ASSERT_NE(before, falsified);
+        write_text_file(path, falsified);
+        for (const bool reverse : {false, true}) {
+            EXPECT_NE(link_and_run(ordinary, a, other, mutant, "-O0", "drift-negative-control",
+                                   false, false, reverse, false),
+                      "run_a=0 run_b=0")
+                << "without identity isolation, one inline validator wins at link time";
+        }
+    }
+}
+
+TEST_F(GeneratedCodeIdentityTest, G4OlderGeneratorDependencyDiagnostics) {
+    const char* older = std::getenv("QUARRY_IDENTITY_GENERATOR_B");
+    if (older == nullptr || std::getenv("QUARRY_IDENTITY_OLDER") == nullptr) {
+        GTEST_SKIP() << "requires an explicitly supplied older generator build";
+    }
+    const auto root = dep_root("older", kCommonSchema, kEngineSchema);
+    for (const Variant* variant : {&kOwning, &kCStorage, &kPlainC}) {
+        const std::string name(variant->name);
+        const auto current = generate(*variant, root, name + "-current");
+        const auto previous = work_ / (name + "-older");
+        const auto old = run(quote(older) + " " + std::string(variant->arguments) + " -o " +
+                                 quote(previous.string()) + " " +
+                                 quote((root.parent_path() / "common.brd").string()),
+                             work_ / "older.log");
+        if (old.status == 2 && variant == &kCStorage &&
+            old.output.find("unknown option --cpp-storage") != std::string::npos) {
+            std::cout << "older generator does not support C-storage wrappers; not tested\n";
+            continue;
+        }
+        ASSERT_EQ(old.status, 0) << old.output;
+        const std::string common = "dep/common" + std::string(variant->extension);
+        write_text_file(current / common, read_text_file(previous / common));
+        const auto checked =
+            syntax_check("#include \"dep/engine" + std::string(variant->extension) + "\"\n",
+                         {current}, name + "-older-check", variant == &kPlainC);
+        EXPECT_NE(checked.status, 0);
+        EXPECT_NE(checked.output.find("predates generated"), std::string::npos) << checked.output;
+    }
 }
 
 } // namespace

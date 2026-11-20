@@ -141,6 +141,17 @@ TEST(BackendCTest, NamespaceStorageIdentityIsIndependentOfOutputNaming) {
     }
 }
 
+TEST(BackendCTest, UnnamedRootCannotBeSelectedWithAnEmptyNamespaceListEntry) {
+    SchemaIrModel schema;
+    schema.set_schema_ir_version(1);
+    schema.mutable_root_namespace()->set_ir_id(1);
+    CodegenOptions options;
+    options.optimize_size_namespaces = {""};
+    const auto result = Backend{}.plan(schema, options);
+    EXPECT_FALSE(result.success);
+    EXPECT_NE(result.error_message.find("malformed --c-optimize-size"), std::string::npos);
+}
+
 TEST(BackendCTest, EmptySchemaProducesNoFiles) {
     SchemaIrModel schema_ir;
     schema_ir.set_schema_ir_version(1);

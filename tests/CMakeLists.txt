@@ -423,4 +423,11 @@ target_compile_definitions(generated_code_identity_integration_test PRIVATE
     QUARRY_TEST_GENERATED_INCLUDE_DIR="${QUARRY_GENERATED_INCLUDE_DIR}"
     QUARRY_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
+# Preserve every G1–G3 test; G4's focused checks have their own fast CTest entry.
+set_tests_properties(generated_code_identity_integration_test PROPERTIES
+    ENVIRONMENT "GTEST_FILTER=-*G4*")
+add_test(NAME generated_code_identity_fast_test
+    COMMAND generated_code_identity_integration_test --gtest_filter=*G4*)
+set_tests_properties(generated_code_identity_fast_test PROPERTIES LABELS "identity-fast")
+
 add_quarry_gtest(typed_record_test runtime_c/typed_record_test.cpp quarry_runtime_c)
