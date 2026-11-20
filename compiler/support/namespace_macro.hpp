@@ -64,6 +64,9 @@ namespace quarry::compiler::support {
 // the family's suffix (_SCHEMA_ID_*, _CODE_ID_*, _<guard hex>_, _schema_id).
 inline constexpr std::string_view kCppOwningNamespaceMacroPrefix = "QUARRY_GENERATED_CPP_NS_";
 inline constexpr std::string_view kCppCStorageNamespaceMacroPrefix = "QUARRY_GENERATED_CPP_C_NS_";
+// Plain C generated-code identity macros and guard (#111 G2). Distinct from the
+// C++/C-storage prefix at "QUARRY_GENERATED_C" + '_' vs 'P'.
+inline constexpr std::string_view kCNamespaceCodeIdMacroPrefix = "QUARRY_GENERATED_C_NS_";
 inline constexpr std::string_view kCNamespaceMacroPrefix = "QUARRY_NS_";
 inline constexpr std::string_view kCNamespaceAccessorPrefix = "quarry_ns_";
 

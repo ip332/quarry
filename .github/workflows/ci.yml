@@ -165,6 +165,36 @@ jobs:
           --json cortex_m/build/footprint-vs-base.json'
           >> "$GITHUB_STEP_SUMMARY"
 
+      # Informational, pull requests only: section sizes do not show whether
+      # generated machine code changed. Builds the Cortex-M project from the
+      # base commit (prepared above) and from the pull request with the same
+      # image, toolchain file and flags, in the default configuration, at -Os
+      # (MinSizeRel) and with debug information (Debug), and compares every
+      # allocatable byte, relocation and defined symbol of each ELF and object.
+      - name: Compare generated machine code with base commit
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: >-
+          docker compose run --rm -e BASE_SHA dev sh -ec '
+          for config in Default MinSizeRel Debug; do
+          for side in base candidate; do
+          if [ "$side" = base ]; then root=$(pwd)/.footprint-base; else root=$(pwd); fi;
+          build_type=""; if [ "$config" != Default ]; then build_type="-DCMAKE_BUILD_TYPE=$config"; fi;
+          cmake -S "$root/cortex_m" -B "build/machine-code/$side-$config" $build_type
+          -DCMAKE_TOOLCHAIN_FILE="$root/cmake/toolchains/arm-cortex-m4.cmake"
+          -DQUARRY_HOST_SCHEMA_COMPILER="$root/build/docker-debug/tools/quarry-schema-compiler"
+          -DQUARRY_RUNTIME_C_INCLUDE_DIR="$root/include"
+          -DQUARRY_RUNTIME_C_VERSION_HEADER_DIR="$root/build/docker-debug/generated" > /dev/null;
+          cmake --build "build/machine-code/$side-$config" --parallel > /dev/null;
+          done;
+          python3 cortex_m/scripts/compare_machine_code.py
+          --base "build/machine-code/base-$config"
+          --candidate "build/machine-code/candidate-$config"
+          --label "$config" --base-label "base $BASE_SHA" --candidate-label "pull request";
+          done'
+          >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload footprint report
         uses: actions/upload-artifact@v4
         with:

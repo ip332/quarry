@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <regex>
 #include <string>
 #include <string_view>
 
@@ -171,12 +172,18 @@ TEST(BackendCTest, NestedNamespaceProducesSymbolPrefixedFileAndSymbols) {
 
     EXPECT_NE(header->content.find("quarry_telemetry_Sample_t"), std::string::npos);
     EXPECT_NE(header->content.find("void quarry_telemetry_Sample_init("), std::string::npos);
-    // The guard carries the configuration's full schema_id (all zero here:
-    // the test passes no configuration identity).
-    EXPECT_NE(header->content.find("#ifndef QUARRY_GENERATED_C_QUARRY_TELEMETRY_"
-                                   "00112233445566778899AABBCCDDEEFF_GENERATED_H_"),
-              std::string::npos);
+    // The guard carries the namespace encoding (#117) and the header's full
+    // generated-code identity (#111 G2), never the output path.
+    EXPECT_TRUE(std::regex_search(
+        header->content,
+        std::regex("#ifndef QUARRY_GENERATED_C_NS_qquarry_telemetry_[0-9A-F]{32}_\n")))
+        << header->content;
     EXPECT_NE(header->content.find("extern \"C\""), std::string::npos);
+    // Compiled as C++, the declarations go in the identity's inline namespace.
+    EXPECT_TRUE(std::regex_search(header->content,
+                                  std::regex("#ifdef __cplusplus\ninline namespace "
+                                             "quarry_gen_[0-9a-f]{32} \\{\nextern \"C\" \\{\n")))
+        << header->content;
     EXPECT_NE(header->content.find("uint8_t reserved;"), std::string::npos);
 
     EXPECT_NE(source->content.find("#include \"quarry/telemetry.generated.h\""), std::string::npos);

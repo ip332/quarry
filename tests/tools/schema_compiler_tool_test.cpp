@@ -2255,7 +2255,7 @@ TEST(SchemaCompilerToolTest, TruckBindingsAndQbsImagesMatchGoldenArtifacts) {
     const std::filesystem::path root = make_temp_directory("a4-1-main-output-golden");
     const std::filesystem::path schema = truck_schemas() / "configuration.brd";
     const std::map<std::string, std::string> expected_tree_hashes = {
-        {"c", "312a2f43a8f9250f3dd0a3642d9f4161fd9a5abde5bf9f22bd95a816b5602a44"},
+        {"c", "7eb10c5b7a58b7dcda22ca46ca929dfc33887c6c3718bb01a92912cc1858b0bc"},
         {"cpp", "172a0080d871bfe77a6e932c7ea811d767b7f015544eece393843b9d439f2559"},
         {"cpp-c-storage", "f65075d8520dc0b635a3a3d0852a917d5e733bae2e570f8382a8e1220ff0e1de"},
         {"python", "18b06c9077b0efbf106c963289c68947fcf8d04278564b999775385a25b5497e"},
