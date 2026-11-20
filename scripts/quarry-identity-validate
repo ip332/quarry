@@ -1,0 +1,265 @@
+#!/usr/bin/env python3
+"""Reproduce #111 G4's focused cross-toolchain and source-mutation checks.
+
+No generic mutation engine: each mutation has one exact source anchor and a
+specific existing regression test. Use a disposable Git worktree for mutations.
+Logs and JSON/XML evidence are retained. Normal CTest never invokes this driver.
+"""
+import argparse
+import json
+import os
+from pathlib import Path
+import subprocess
+import time
+import xml.etree.ElementTree as ET
+
+PROFILES = {
+    "core": ("-O0", "*G4*:*EnumCallbacks*"),
+    "opt": ("-O2", "*G4Runtime*:*DefaultAndSize*:*PlainCHeaders*"),
+    "size": ("-Os", "*G4Runtime*:*G4Mixed*"),
+    "sanitize": ("-O0 -g -fsanitize=address,undefined -fno-sanitize-recover=undefined",
+                 "*G4Mixed*:*DefaultAndSize*:*PlainCHeaders*:*PerNamespaceStorage*"),
+    "lto": ("-O2 -flto -Wodr", "*G4Runtime*:*G4Mixed*"),
+}
+
+
+def invoke(argv, log, env=None):
+    start = time.monotonic()
+    with log.open("w") as stream:
+        stream.write("$ " + repr(argv) + "\n")
+        stream.flush()
+        result = subprocess.run(argv, stdout=stream, stderr=subprocess.STDOUT, env=env,
+                                timeout=1800, check=False)
+    return result.returncode, round(time.monotonic() - start, 2)
+
+
+def report(path, rows):
+    path.write_text(json.dumps(rows, indent=2) + "\n")
+
+
+def matrix(args, out):
+    binary = args.test_binary.resolve()
+    rows = []
+    failed = False
+    for name, cxx, cc in args.toolchain:
+        if not name.replace("-", "").replace("_", "").isalnum():
+            raise ValueError("toolchain names must be alphanumeric, '-' or '_'")
+        version = subprocess.check_output([cxx, "--version"], text=True).splitlines()[0]
+        c_version = subprocess.check_output([cc, "--version"], text=True).splitlines()[0]
+        for profile in args.profiles.split(","):
+            flags, selection = PROFILES[profile]
+            row = dict(toolchain=name, cxx=cxx, cc=cc, version=version, c_version=c_version,
+                       profile=profile, flags=flags, tests=selection)
+            tag = name + "-" + profile
+            if profile == "lto" and "clang" in version.lower():
+                row.update(status="unsupported", reason="GCC-only secondary -Wodr diagnostic")
+            else:
+                supported = True
+                for compiler, language, standard in [(cxx, "c++", "c++20"), (cc, "c", "c99")]:
+                    source = out / (tag + (".cpp" if language == "c++" else ".c"))
+                    source.write_text("int main(void) { return 0; }\n")
+                    executable = source.with_suffix(".probe")
+                    code, _ = invoke([compiler, "-x", language, "-std=" + standard,
+                                      "-Wall", "-Wextra", "-Wpedantic", "-Werror",
+                                      *(flag for flag in flags.split() if language == "c++" or flag != "-Wodr"),
+                                      str(source), "-o", str(executable)], source.with_suffix(".build.log"))
+                    if code == 0:
+                        code, _ = invoke([str(executable)], source.with_suffix(".run.log"))
+                    if code:
+                        supported = False
+                        row.update(status="unsupported", reason="compile/run probe failed: " + source.name)
+                        break
+                if supported:
+                    env = os.environ.copy()
+                    env.pop("GTEST_FILTER", None)
+                    env.update(QUARRY_IDENTITY_CXX=cxx, QUARRY_IDENTITY_CC=cc,
+                               QUARRY_IDENTITY_FLAGS=flags)
+                    if args.generator_b:
+                        env["QUARRY_IDENTITY_GENERATOR_B"] = str(args.generator_b.resolve())
+                    if args.drift:
+                        env["QUARRY_IDENTITY_DRIFT"] = "1"
+                    if args.older:
+                        env["QUARRY_IDENTITY_OLDER"] = "1"
+                    xml = out / (tag + ".xml")
+                    code, seconds = invoke([str(binary), "--gtest_filter=" + selection,
+                                            "--gtest_output=xml:" + str(xml)], out / (tag + ".log"), env)
+                    skipped = []
+                    if xml.exists():
+                        skipped = [case.attrib["name"] for case in ET.parse(xml).iter("testcase")
+                                   if case.find("skipped") is not None]
+                    row.update(status="passed" if code == 0 else "failed", seconds=seconds,
+                               skipped=skipped, exit_code=code)
+                    failed |= code != 0
+            if args.require_supported and row["status"] == "unsupported":
+                failed = True
+            rows.append(row)
+            report(out / "matrix.json", rows)
+            print(tag, row["status"], row.get("seconds", ""), flush=True)
+            if failed:
+                return 1  # Inspect a failure before broadening the matrix.
+    return 0
+
+
+# All anchors are in production source, but are changed only inside the supplied
+# disposable worktree and restored in finally. Failed builds are NOT detections.
+C_BACKEND = "compiler/backend_c/backend_c.cpp"
+SUPPORT = "compiler/support/generated_code_identity.cpp"
+MUTATIONS = {
+    "configuration-check": (C_BACKEND,
+        'for (const std::string& include_path : file.generated_includes) {',
+        'for (const std::string& include_path : std::set<std::string>{}) {',
+        "*G4ConfigurationMetadataGuard", "configuration-loop"),
+    "code-id-check": (C_BACKEND,
+        'for (const std::string& include_path : file.generated_includes) {',
+        'for (const std::string& include_path : std::set<std::string>{}) {',
+        "*PlainCRejectsDependenciesWithOtherDefinitions", "code-loop"),
+    "namespace-isolation": (C_BACKEND,
+        '"quarry_gen_" + support::placeholder::self_identity(\'h\');',
+        '"quarry_gen_00000000000000000000000000000000";',
+        "*PlainCIdentityMetadataMatchesTheHeader:*PlainCHeadersConsumedFromCppAreIsolated", "unique"),
+    "conflict-diagnostic": (C_BACKEND,
+        ': this translation unit already includes a different generated definition of ',
+        ': mutated conflicting definition of ',
+        "*PlainCRejectsTwoDefinitionsOfANamespaceInOneTranslationUnit", "unique"),
+    "callback-linkage": (C_BACKEND,
+        '.callback = "extern \\"C\\" inline ",', '.callback = "inline ",',
+        "*CStorageEnumCallbacksHaveCLanguageLinkageAndIdentityNames", "unique"),
+    "unselected-policy": (C_BACKEND,
+        'context{.optimize_size = file.optimize_size,',
+        'context{.optimize_size = file.emits_output && file.optimize_size,',
+        "*PerNamespaceStorage*", "unique"),
+    "dependency-encoding": (SUPPORT,
+        'put_u8(out, dependency->identity.format);', '/* mutated: omitted dependency format */',
+        "*Vector3*", "unit"),
+    "dependency-list": (SUPPORT,
+        'dependencies.push_back(&dependency);', '/* mutated: omitted dependency input */',
+        "*Vector2*", "unit"),
+}
+
+
+def mutations(args, out):
+    source = args.worktree.resolve()
+    # Refuse the user's active checkout or a dirty experiment directory.
+    if not (source / ".git").is_file():
+        raise ValueError("--worktree must be a disposable linked Git worktree")
+    if subprocess.check_output(["git", "-C", str(source), "status", "--porcelain"], text=True):
+        raise ValueError("mutation worktree must start clean")
+    build = source / "build/identity-mutations"
+    code, _ = invoke(["cmake", "-S", str(source), "-B", str(build),
+                      "-DCMAKE_BUILD_TYPE=Debug", "-DQUARRY_ENABLE_CLANG_TIDY=OFF"], out / "configure.log")
+    if code:
+        return code
+    rows = []
+    for name in args.only.split(",") if args.only else MUTATIONS:
+        relative, before, after, selection, kind = MUTATIONS[name]
+        path = source / relative
+        original = path.read_text()
+        if kind in ("configuration-loop", "code-loop"):
+            start = original.index("void render_dependency_identity_checks(")
+            end = original.index("[[nodiscard]] std::string render_header", start)
+            region = original[start:end]
+            split = region.index("    bool wrote_identity_comment")
+            offset = start if kind == "configuration-loop" else start + split
+            at = original.index(before, offset)
+            mutant = original[:at] + original[at:].replace(before, after, 1)
+        else:
+            if original.count(before) != 1:
+                raise ValueError("mutation anchor changed: " + name)
+            mutant = original.replace(before, after)
+        try:
+            path.write_text(mutant)
+            target = "generated_code_identity_test" if kind == "unit" else "quarry_schema_compiler"
+            code, seconds = invoke(["cmake", "--build", str(build), "--target", target,
+                                    "--parallel", str(args.jobs)], out / (name + "-build.log"))
+            if code:
+                raise RuntimeError("mutation did not build: " + name)
+            env = os.environ.copy()
+            env["QUARRY_IDENTITY_GENERATOR_A"] = str(build / "tools/quarry-schema-compiler")
+            binary = build / "tests/generated_code_identity_test" if kind == "unit" else args.test_binary.resolve()
+            code, test_seconds = invoke([str(binary), "--gtest_filter=" + selection,
+                                         "--gtest_break_on_failure"], out / (name + ".log"), env)
+            log = (out / (name + ".log")).read_text()
+            detected = code != 0 and "Failure" in log
+            rows.append(dict(mutation=name, status="detected" if detected else "survived",
+                             test=selection, build_seconds=seconds, test_seconds=test_seconds))
+            if name == "dependency-list" and detected:
+                built, _ = invoke(["cmake", "--build", str(build), "--target", "quarry_schema_compiler",
+                                    "--parallel", str(args.jobs)], out / "dependency-list-integration-build.log")
+                if built: raise RuntimeError("redundancy control did not build")
+                redundant, _ = invoke([str(args.test_binary.resolve()),
+                                        "--gtest_filter=*G4Transitive*"],
+                                       out / "dependency-list-integration.log", env)
+                rows[-1]["normalized_header_propagation"] = "passed" if redundant == 0 else "failed"
+                if redundant: raise RuntimeError("independent normalized-header propagation failed")
+            report(out / "mutations.json", rows)
+            print(name, rows[-1]["status"], flush=True)
+            if not detected:
+                return 1
+        finally:
+            path.write_text(original)
+    return 0
+
+
+def drift_build(args, out):
+    source = args.worktree.resolve()
+    if not (source / ".git").is_file():
+        raise ValueError("use a disposable linked worktree")
+    if subprocess.check_output(["git", "-C", str(source), "status", "--porcelain"], text=True):
+        raise ValueError("drift worktree must start clean")
+    path = source / "compiler/backend/backend.cpp"
+    original = path.read_text()
+    before = 'stream << indent(indent_level + 1) << "return true;\\n";'
+    after = 'stream << indent(indent_level + 1) << (field.name == "rpm" ? "return value <= 1000U;\\n" : "return true;\\n");'
+    if original.count(before) != 1:
+        raise ValueError("validation-body anchor changed")
+    build = source / "build/identity-drift"
+    try:
+        path.write_text(original.replace(before, after))
+        code, _ = invoke(["cmake", "-S", str(source), "-B", str(build),
+                          "-DCMAKE_BUILD_TYPE=Debug", "-DQUARRY_ENABLE_CLANG_TIDY=OFF"], out / "configure.log")
+        if code: return code
+        code, seconds = invoke(["cmake", "--build", str(build), "--target", "quarry_schema_compiler",
+                                 "--parallel", str(args.jobs)], out / "build.log")
+        if code: return code
+        env = os.environ.copy()
+        env.update(QUARRY_IDENTITY_GENERATOR_B=str(build / "tools/quarry-schema-compiler"),
+                   QUARRY_IDENTITY_DRIFT="1")
+        code, test_seconds = invoke([str(args.test_binary.resolve()),
+                                     "--gtest_filter=*G4Alternate*"], out / "drift.log", env)
+        report(out / "drift.json", dict(status="passed" if code == 0 else "failed",
+                                         build_seconds=seconds, test_seconds=test_seconds,
+                                         generator=str(build / "tools/quarry-schema-compiler")))
+        return code
+    finally:
+        path.write_text(original)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    mat = sub.add_parser("matrix")
+    mat.add_argument("--toolchain", nargs=3, action="append", required=True, metavar=("NAME", "CXX", "CC"))
+    mat.add_argument("--profiles", default="core,opt,size,sanitize,lto")
+    mat.add_argument("--generator-b", type=Path)
+    mode = mat.add_mutually_exclusive_group()
+    mode.add_argument("--drift", action="store_true")
+    mode.add_argument("--older", action="store_true")
+    mat.add_argument("--require-supported", action="store_true")
+    mut = sub.add_parser("mutations")
+    mut.add_argument("--worktree", type=Path, required=True)
+    mut.add_argument("--only")
+    mut.add_argument("--jobs", type=int, default=4)
+    drift = sub.add_parser("drift-build")
+    drift.add_argument("--worktree", type=Path, required=True)
+    drift.add_argument("--jobs", type=int, default=4)
+    for child in (mat, mut, drift):
+        child.add_argument("--test-binary", type=Path, required=True)
+        child.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    args.output = args.output.resolve()
+    args.output.mkdir(parents=True, exist_ok=False)
+    return {"matrix": matrix, "mutations": mutations, "drift-build": drift_build}[args.command](args, args.output)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

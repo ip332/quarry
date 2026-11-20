@@ -1246,7 +1246,8 @@ TEST(SchemaCompilerToolTest, CompactPresenceNamespaceSelectionsAreValidated) {
         {"--c-optimize-size=fleet.common,", "malformed"},
         {"--c-optimize-size=1fleet", "malformed"},
         {"--c-optimize-size=fleet.common,fleet.common", "duplicate"},
-        {"--c-optimize-size=fleet.unknown", "unknown"}};
+        {"--c-optimize-size=fleet.unknown", "unknown"},
+        {"--c-optimize-size=fleet.Common", "unknown"}};
     for (const auto& [option, diagnostic] : invalid) {
         for (const std::string_view mode : {"generate", "list", "qbs"}) {
             std::vector<std::string> args{"--language", "c", option, "--generate", "fleet.engine"};

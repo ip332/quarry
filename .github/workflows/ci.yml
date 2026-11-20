@@ -52,6 +52,21 @@ jobs:
       - name: Test
         run: docker compose run --rm dev ctest --preset docker-debug --output-on-failure
 
+      # Small secondary diagnostic; runtime assertions are still required.
+      - name: GCC LTO generated identity validation
+        run: >-
+          docker compose run --rm dev python3 scripts/quarry-identity-validate matrix
+          --toolchain gcc g++ gcc --profiles lto --require-supported
+          --test-binary build/docker-debug/tests/generated_code_identity_integration_test
+          --output build/identity-lto
+
+      - name: Upload identity LTO evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarry-identity-lto
+          path: build/identity-lto
+
   clang-tidy:
     name: clang-tidy
     runs-on: ubuntu-latest
