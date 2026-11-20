@@ -20,6 +20,8 @@ and helpers. It checks configuration metadata, a three-namespace dependency
 chain, configuration-name/import-order equivalence, unselected dependencies,
 runtime enum-member renames, different wire layouts, identical definitions,
 and actual C99/C++20 object interchange across separate generator invocations.
+Per-process temporary directories prevent simultaneous matrix/CTest runs from
+clobbering each other, even with identical GoogleTest seeds.
 Both **object-file link orders** are exercised with the same input translation
 units. Every program checks runtime values and encode/decode status; the helper
 also requires a successful exit and the expected results from both TUs.

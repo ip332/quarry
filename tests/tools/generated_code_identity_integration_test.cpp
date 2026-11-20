@@ -30,6 +30,9 @@
 
 #ifndef _WIN32
 #include <sys/wait.h>
+#include <unistd.h>
+#else
+#include <process.h>
 #endif
 
 #include "compiler/support/namespace_macro.hpp"
@@ -190,9 +193,14 @@ constexpr std::string_view kSanitizerFlags =
 class GeneratedCodeIdentityTest : public ::testing::Test {
 protected:
     void SetUp() override {
+#ifdef _WIN32
+        const auto process_id = ::_getpid();
+#else
+        const auto process_id = ::getpid();
+#endif
         work_ = fs::temp_directory_path() /
-                ("quarry-gid-" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()) +
-                 "-" +
+                ("quarry-gid-" + std::to_string(process_id) + "-" +
+                 std::to_string(::testing::UnitTest::GetInstance()->random_seed()) + "-" +
                  std::to_string(std::hash<std::string>{}(
                      ::testing::UnitTest::GetInstance()->current_test_info()->name())));
         fs::remove_all(work_);
