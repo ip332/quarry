@@ -175,7 +175,9 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash
         run: >-
+          set -o pipefail;
           docker compose run --rm -e BASE_SHA dev sh -ec '
           for config in Default MinSizeRel Debug; do
           for side in base candidate; do
@@ -193,13 +195,16 @@ jobs:
           --candidate "build/machine-code/candidate-$config"
           --label "$config" --base-label "base $BASE_SHA" --candidate-label "pull request";
           done'
-          >> "$GITHUB_STEP_SUMMARY"
+          | tee machine-code-report.md >> "$GITHUB_STEP_SUMMARY";
+          cat machine-code-report.md
 
       - name: Upload footprint report
         uses: actions/upload-artifact@v4
         with:
           name: quarry-cortex-m-footprint
-          path: cortex_m/build/footprint*.json
+          path: |
+            cortex_m/build/footprint*.json
+            machine-code-report.md
 
   coverage:
     name: Coverage baseline
