@@ -1,5 +1,8 @@
 # Quarry Documentation
 
+See the [generated binding compatibility and migration guide](generated-binding-compatibility.md)
+for wire identity, generated definitions, API epochs and native rebuild requirements.
+
 This directory contains the architecture, design, specification, and
 distribution documentation for Quarry v0.1.
 

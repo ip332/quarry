@@ -380,6 +380,16 @@ The frontend's semantic-model `LayoutComputer::compute` overload is a different
 pass: it assigns only `recordId` and `fieldIndex` for Schema IR lowering, and it
 does not compute the BRF v2 layout.
 
+C/C++ backends additionally compute generated-code identity for each namespace
+and variant over the complete configuration in dependency order. Format 1 hashes
+normalized generated definitions, the supplied wire configuration identity and
+direct dependency identities, including unselected namespaces and their effective
+storage policies. `--generate` and output naming do not affect the result. This
+is generation-time metadata, with no runtime Schema IR interpretation or hashing.
+It is distinct from both wire `schema_id` and the generated/runtime API epoch;
+see [the identity specification](design/configuration-identity.md#161-computation)
+and [consumer contract](generated-binding-compatibility.md).
+
 ---
 
 ## Open Questions
