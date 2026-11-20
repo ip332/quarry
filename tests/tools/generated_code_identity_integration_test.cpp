@@ -329,8 +329,9 @@ protected:
             return {};
         }
         const RunResult ran = run(quote(program.string()), directory / "run.log");
-        if (expect_success)
+        if (expect_success) {
             EXPECT_EQ(ran.status, 0) << ran.output;
+        }
         std::smatch match;
         if (!std::regex_search(ran.output, match, std::regex("run_a=-?[0-9]+ run_b=-?[0-9]+"))) {
             ADD_FAILURE() << ran.output;
@@ -2109,10 +2110,12 @@ extern "C" int run_b() {
 
 TEST_F(GeneratedCodeIdentityTest, G4AlternateGeneratorDefinitionsAndValidationBodies) {
     const char* alternate = std::getenv("QUARRY_IDENTITY_GENERATOR_B");
-    if (alternate == nullptr)
+    if (alternate == nullptr) {
         GTEST_SKIP() << "extended check requires a second generator build";
-    if (std::getenv("QUARRY_IDENTITY_OLDER") != nullptr)
+    }
+    if (std::getenv("QUARRY_IDENTITY_OLDER") != nullptr) {
         GTEST_SKIP() << "older headers use the dependency diagnostic test";
+    }
     const bool drift = std::getenv("QUARRY_IDENTITY_DRIFT") != nullptr;
     const auto root = inv_root("base", kCoreSchema);
     const auto a = generate(kOwning, root, "generator-a");
@@ -2122,11 +2125,12 @@ TEST_F(GeneratedCodeIdentityTest, G4AlternateGeneratorDefinitionsAndValidationBo
             work_ / "alternate.log");
     ASSERT_EQ(generated.status, 0) << generated.output;
     const std::string header = "inv/core.generated.hpp";
-    if (drift)
+    if (drift) {
         EXPECT_NE(gid(a / header), gid(b / header));
-    else
+    } else {
         EXPECT_EQ(read_text_file(a / header), read_text_file(b / header))
             << "equivalent compiler builds";
+    }
     const auto id_a =
         run(quote(identity_generator()) + " --print-schema-id " + quote(root.string()),
             work_ / "id-a.log");
