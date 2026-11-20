@@ -262,17 +262,8 @@ They provide bounded setters, const string/span views, native storage access,
 and caller-buffer encode/in-place decode, without heap allocation or additional
 object storage. The default owning C++ API is unchanged.
 
-Since #99 both the wrappers (`quarry::cxx::quarry_cfg_<schema_id>::...`) and the
-C part of the header (an `inline namespace quarry_cfg_<schema_id>` at global
-scope) are configuration-specific in C++. Code still writes
-`quarry::cxx::truck_engine_EngineStatus` and `::truck_engine_EngineStatus_t`,
-but the C storage types and the templates instantiated over them (for example
-`std::span<const truck_engine_FaultCode_t>`) get configuration-specific mangled
-names, so two configurations with different layouts can be linked into one
-program without the linker merging their definitions.
-
 Since #111 G1 both inline namespaces are `quarry_gen_<generated-code identity>`
-instead of `quarry_cfg_<schema_id>`, so default and `--c-optimize-size` storage
+(replacing the historical `quarry_cfg_<schema_id>`), so default and `--c-optimize-size` storage
 of one configuration (and any other generated-definition difference) are
 isolated too. The C part of a C-storage header has C++ linkage: its descriptors
 and functions are `inline` entities rather than `static` ones inside
@@ -291,3 +282,8 @@ mechanism since G2 (above).
 
 See [the runnable example](../../examples/cpp/c_storage_encode_decode/README.md)
 for API details, failure behavior, and build instructions.
+
+The [consumer compatibility and migration guide](../../docs/generated-binding-compatibility.md)
+defines the shared plain-C/C++ contract, mixed-TU native boundaries, older-binding
+migration and working per-namespace storage commands. Equal wire identity or API
+epoch is not a prebuilt-library ABI guarantee.

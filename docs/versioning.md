@@ -46,10 +46,15 @@ release tag. Ordinary Git builds do not use archive fallback metadata and
 cannot silently fall back to an unknown version. An untagged or malformed
 archive fails with a clear diagnostic.
 
-Release versioning is independent from compatibility contracts: C++ generated
-code epoch `3`, C generated code epoch `2`, Python generated code epoch `1`,
-Schema IR version `1`, and BRF header version `1` do not derive from this
-version.
+Release versioning is independent from compatibility contracts. Current generated
+code API epochs are C++ owning `3`, C and C++/C-storage `7`, Python `1` and Go
+`1`. Generated bindings target BRF v2; QBS and Schema IR are version `1`.
+The wire `schema_id` algorithm and generated-code identity format are both `1`,
+with separate meanings. None derives from the package version, and equal epochs
+do not establish native ABI compatibility. See the
+[consumer compatibility and migration guide](generated-binding-compatibility.md)
+for the three mechanisms and regeneration requirements. #111 G1–G4 changes none
+of these versions or epochs.
 
 To build the native compiler with fresh version metadata and display its
 version, run:

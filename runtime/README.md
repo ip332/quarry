@@ -1,5 +1,8 @@
 # Runtime
 
+See the [generated binding compatibility and migration guide](../docs/generated-binding-compatibility.md)
+for wire identity, generated definitions, API epochs and native rebuild requirements.
+
 ## Empty variable fields
 
 Schema-aware C, C++, Python, and generic encoders normalize zero-length string

@@ -94,5 +94,7 @@ DecodeError: unexpected record id: 327681 (expected 131073)
 ```
 
 Generate every component's bindings from the same configuration root.
-Checking at build time that bindings come from the same configuration
-(`schema_id`) is future work.
+Generated dependencies check configuration identity and generated-code identity
+at compile time. Preserve consistent effective per-namespace storage policies
+across separate invocations, including unselected dependencies. See the
+[consumer compatibility and migration guide](../../docs/generated-binding-compatibility.md).

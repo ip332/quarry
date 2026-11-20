@@ -1,5 +1,8 @@
 # Runtime (C)
 
+See the [generated binding compatibility and migration guide](../docs/generated-binding-compatibility.md)
+for wire identity, generated definitions, API epochs and native rebuild requirements.
+
 ## Shared typed BRF v2 codec
 
 `typed_record.c` implements the descriptor-driven codec declared in

@@ -1,32 +1,31 @@
 # Configuration Identity in Generated Code (A4)
 
-Status: **approved; A4.1 and A4.2 implemented**. This document refines §4, §5 and stage A4 of
-`docs/design/record-identity-and-schema-discovery.md`, on top of A2 (hierarchical record IDs, #84)
-and A3 (configuration roots and `--generate`, #86). A4.2 (#99) follows the review decisions in
-§15. A4.3 and later remain unimplemented.
+Status: **approved; A4.1–A4.2 and #111 G1–G4 implemented**. A4.3 (runtime
+accessors), A4.4 (`--describe`) and A4.5 (`--name-prefix`) remain proposals,
+not supported CLI/runtime features. A4 builds on hierarchical record IDs (#84)
+and configuration roots / `--generate` (#86); §15 records its historical review
+and §16 specifies the implemented generated-code identity.
 
 ## 1. Summary
 
-Every binding generated from one compilation root embeds the configuration's existing 128-bit QBS
-`schema_id`. Generated files that reference each other check at build time that they come from the
-same configuration: in C, C++ and Go when compiling, and in Python when importing. So bindings mixed by
-accident fail to build instead of silently disagreeing on record IDs.
+Every generated binding embeds the complete configuration's existing QBS
+`schema_id`. Dependencies check it at compilation (C, C++, Go) or import time
+(Python). C and C++ additionally use a per-namespace, per-variant generated-code
+identity (`gid`), because equal wire identities can conceal different source
+names, storage policies and validation bodies. C++ linkage and C/C++ guards use
+`gid`, not `schema_id`. Neither identity is a native ABI guarantee.
 
-Deliberate multi-configuration use stays possible. In C++, an inline namespace keyed by the full
-128-bit `schema_id` makes every generated symbol configuration-specific, so two configurations can't
-be merged by the linker. C++ and C header guards also include the full 128-bit value. Go already
-separates configurations by import path. An optional `--name-prefix` gives the other languages
-source-level isolation.
+The [consumer compatibility and migration guide](../generated-binding-compatibility.md)
+is the current consumer contract and three-mechanism compatibility matrix.
+[Validation coverage](../generated-code-identity-validation.md) records measured
+G4 evidence and unverified combinations. These documents supersede interim
+blanket prohibitions on mixing generated bindings.
 
-The C runtime gets a read-only `schema_id` accessor for QBS images. It needs no SHA-256 and does no
-allocation. `--describe` prints the configuration's identity and its version metadata.
+No BRF, QBS, Schema IR, record ID, identity algorithm or runtime API epoch changes
+are introduced by #111. The proposals below are retained as design history and
+future work, rather than instructions to use unavailable features.
 
-The design uses no new wire format and preserves generated-code runtime independence. Future generated
-bindings expose compiler and format versions as compile-time constants or equivalent module metadata,
-without mandatory runtime storage. Review the generated-code API epoch policy before A4.2's generated
-ABI changes; do not assume that an epoch bump is unnecessary.
-
-## 2. Findings from the current implementation
+## 2. Historical findings at the A4 investigation
 
 | Area | Current state | Consequence for A4 |
 |---|---|---|
@@ -69,122 +68,59 @@ ConfigurationIdentity
 
 ## 4. Generated code
 
-The examples below are for `truck.engine` in the truck configuration
-(`9200ca494f010801b830d0857cf66dde`), which depends on `truck.common`. None of this generated code
-references a new runtime symbol.
-
-As implemented in A4.2 (#99), every generated file of a namespace that declares a record or an
-enum carries the identity, including enum-only files. Every dependency check first tests that all
-identity components of the dependency exist (§15, decision 2); the examples below show the C form.
+These are current C/C++ contracts after #111 G1–G4. The original A4.2 linkage
+used `quarry_cfg_<schema_id>`; that spelling is historical. See §16 for the
+precise generated-code identity encoding and checks, and the
+[consumer guide](../generated-binding-compatibility.md) for migration.
 
 ### 4.1 C (`--language c`)
 
-```c
-#ifndef QUARRY_GENERATED_C_TRUCK_ENGINE_9200CA494F010801B830D0857CF66DDE_GENERATED_H_
-#define QUARRY_GENERATED_C_TRUCK_ENGINE_9200CA494F010801B830D0857CF66DDE_GENERATED_H_
-#include "truck/common.generated.h"
-...
-/* Configuration identity: QBS schema_id of the compilation root (algorithm 1 =
- * SHA-256 truncated to 128 bits). Compile-time constants only. */
-#define QUARRY_NS_truck_engine_SCHEMA_ID_ALGORITHM 1U
-#define QUARRY_NS_truck_engine_SCHEMA_ID_W0 0x9200ca49UL
-#define QUARRY_NS_truck_engine_SCHEMA_ID_W1 0x4f010801UL
-#define QUARRY_NS_truck_engine_SCHEMA_ID_W2 0xb830d085UL
-#define QUARRY_NS_truck_engine_SCHEMA_ID_W3 0x7cf66ddeUL
+Each namespace with generated declarations carries
+`QUARRY_NS_<body>_SCHEMA_ID_{ALGORITHM,W0..W3}` and the optional generated
+accessor `quarry_ns_<body>_schema_id()`. `<body>` is the injective encoding in
+§4.6, not the C symbol prefix. #117 replaced `<NS>_QUARRY_SCHEMA_ID_*` and
+`<ns>_schema_id`; regenerate dependencies using the old names.
 
-/* One check per generated dependency. */
-#if !defined(QUARRY_NS_truck_common_SCHEMA_ID_ALGORITHM) || \
-    !defined(QUARRY_NS_truck_common_SCHEMA_ID_W0) || ... || !defined(QUARRY_NS_truck_common_SCHEMA_ID_W3)
-#error "truck/common.generated.h predates generated configuration identity: it was generated by an older quarry-schema-compiler. Regenerate it with this compiler from the same compilation root as truck/engine.generated.h."
-#elif QUARRY_NS_truck_common_SCHEMA_ID_ALGORITHM != 1U || QUARRY_NS_truck_common_SCHEMA_ID_W0 != 0x9200ca49UL || \
-    QUARRY_NS_truck_common_SCHEMA_ID_W1 != 0x4f010801UL || QUARRY_NS_truck_common_SCHEMA_ID_W2 != 0xb830d085UL || \
-    QUARRY_NS_truck_common_SCHEMA_ID_W3 != 0x7cf66ddeUL
-#error "truck/common.generated.h was generated from a different Quarry configuration than truck/engine.generated.h; regenerate both from the same compilation root."
-#endif
+The guard and `QUARRY_GENERATED_C_NS_<body>_CODE_ID_{FORMAT,W0..W3}` use the
+full generated-code identity. Configuration checks precede generated-code
+presence, format and equality checks for every generated dependency. Conflicting
+definitions of the same namespace/variant in one TU produce an explicit error;
+identical copies deduplicate even through different output paths. C99 functions
+and descriptors retain internal linkage. When consumed as C++20, declarations
+are in a global `inline namespace quarry_gen_<gid>`, so generated native types
+and templates over them have identity-specific C++ names. Enum callbacks retain
+C language linkage. See §16.5.
 
-/* Optional runtime access; emitted into object code only when called. */
-static inline const uint8_t* quarry_ns_truck_engine_schema_id(void) {
-    static const uint8_t id[16] = {0x92, 0x00, 0xca, 0x49, 0x4f, 0x01, 0x08, 0x01,
-                                   0xb8, 0x30, 0xd0, 0x85, 0x7c, 0xf6, 0x6d, 0xde};
-    return id;
-}
-```
+### 4.2 C++ owning (`--language cpp`)
 
-- **Guard:** all 128 bits of `schema_id` are in the guard, so distinct configurations' headers for
-  one namespace in one translation unit both get included and then fail with redefinitions, instead
-  of the second being skipped silently.
-- **Macros and accessor:** `QUARRY_NS_<body>_SCHEMA_ID_{ALGORITHM,W0..W3}` and
-  `quarry_ns_<body>_schema_id`, where `<body>` is the namespace encoding of §4.6. The root
-  namespace is `QUARRY_NS_0_SCHEMA_ID_*` and `quarry_ns_0_schema_id()`. The spelling does not use
-  the C symbol prefix, so `dep.engine` and `dep_engine` do not share a macro. #117 renamed these
-  from `<NS>_QUARRY_SCHEMA_ID_*` and `<ns>_schema_id`. Regenerate C bindings and rebuild consumers
-  of the old names.
+Public source names such as `truck::engine::EngineStatus` remain convenient,
+but the actual declarations are inside
+`truck::engine::quarry_gen_<gid>`. Identity metadata uses
+`QUARRY_GENERATED_CPP_NS_<body>_SCHEMA_ID_{ALGORITHM,W0..W3}` and
+`QUARRY_GENERATED_CPP_NS_<body>_CODE_ID_{FORMAT,W0..W3}`. Constants expose
+`kQuarrySchemaId{,Algorithm}` and `kQuarryGeneratedCodeId{,Format}`.
 
-### 4.2 C++ (owning, `--language cpp`)
-
-> Since #111 G1 the inline namespace and header guard below are keyed by the generated-code
-> identity (`quarry_gen_<gid>`), and generated-code identity checks follow these configuration
-> checks; see §16. Since #117 the `schema_id` macros use the namespace encoding of §4.6, the same
-> stem as the generated-code identity macros, and not the include path.
-
-```cpp
-// Identity metadata of this header, tested by the headers that include it.
-#define QUARRY_GENERATED_CPP_NS_truck_engine_SCHEMA_ID_ALGORITHM 1U
-#define QUARRY_GENERATED_CPP_NS_truck_engine_SCHEMA_ID_W0 0x9200ca49UL  // ... W1, W2, W3
-
-#if !defined(QUARRY_GENERATED_CPP_NS_truck_common_SCHEMA_ID_ALGORITHM) || ... // every component
-#error "truck/common.generated.hpp predates generated configuration identity: ..."
-#endif
-static_assert(::truck::common::kQuarrySchemaIdAlgorithm == 1U &&
-                  ::truck::common::kQuarrySchemaId == std::array<std::uint8_t, 16>{0x92U, ..., 0xdeU},
-              "truck/common.generated.hpp was generated from a different Quarry configuration than "
-              "truck/engine.generated.hpp; regenerate both from the same compilation root.");
-
-namespace truck {
-namespace engine {
-// The inline namespace makes every generated symbol configuration-specific, so two
-// configurations linked into one program can't be merged by the linker.
-inline namespace quarry_cfg_9200ca494f010801b830d0857cf66dde {
-inline constexpr std::uint8_t kQuarrySchemaIdAlgorithm = 1U;
-inline constexpr std::array<std::uint8_t, 16> kQuarrySchemaId{0x92U, 0x00U, ..., 0xdeU};
-... // records, layouts, codecs as today
-} // inline namespace quarry_cfg_9200ca494f010801b830d0857cf66dde
-} // namespace engine
-} // namespace truck
-```
-
-- **Source code is unchanged:** users still write `truck::engine::EngineStatus`.
-- **Mangled names change:** `truck::engine::quarry_cfg_9200ca494f010801b830d0857cf66dde::brf_v2_layout_EngineStatus()`,
-  so cross-translation-unit ODR merging between configurations is impossible.
-- **Two configurations in one translation unit** make `truck::engine::EngineStatus` ambiguous, which
-  is a compile error. Such code uses `--name-prefix`.
-- **Older dependencies:** C++ can't test whether a constant exists, so each header also defines
-  `QUARRY_GENERATED_CPP_NS_<body>_SCHEMA_ID_{ALGORITHM,W0..W3}` macros, and dependents test all
-  five before the `static_assert`. `<body>` is the §4.6 encoding. It does not depend on
-  `--root-file-stem`, `--file-extension` or `--output-directory`. A header from before #117 does
-  not define these names, so the dependent reports that it predates generated configuration
-  identity.
+Guards are keyed by namespace and `gid`; dependencies check both identities.
+Different generated definitions can coexist in separate TUs; incompatible
+versions of one namespace in the same TU are rejected. No `--name-prefix`
+workaround exists today. User-defined inline functions and prebuilt native
+interfaces remain the consumer's responsibility, even when their signatures
+hide use of generated types.
 
 ### 4.3 C++/C storage (`--cpp-storage c`)
 
-> Since #111 G1 both inline namespaces are `quarry_gen_<gid>`, the guard is keyed by the
-> generated-code identity, and the C part has C++ linkage, except the enum callbacks, which are
-> identity-named `extern "C" inline` functions (§16.3).
+Both the native C-shaped declarations (global scope) and wrappers
+(`quarry::cxx`) are inside `quarry_gen_<gid>` inline namespaces. Public names
+remain `::truck_engine_EngineStatus_t` and
+`quarry::cxx::truck_engine_EngineStatus`. Isolating the native declarations also
+isolates templates instantiated over them, such as `std::span`.
 
-- The C part has the identity of §4.1.
-- The `quarry::cxx` wrapper classes go in the same kind of inline namespace:
-  `quarry::cxx::quarry_cfg_9200ca494f010801b830d0857cf66dde::truck_engine_EngineStatus`. That removes the ODR hazard of
-  their inline member functions.
-- **The C declarations go in a global inline namespace too** (§15, decision 6). In C++ the C
-  storage types (`truck_engine_FaultCode_t`) have external linkage, and the wrappers instantiate
-  templates over them, such as `std::span<const truck_engine_FaultCode_t>`. Those instantiations
-  are keyed by the C type's name, not the wrapper's, so a wrapper namespace alone would let the
-  linker merge two configurations' `span::size_bytes()` or `operator[]` even though the layouts
-  differ. A4.2 therefore emits the whole C part of a C-storage header inside
-  `inline namespace quarry_cfg_<schema_id> { ... }` at global scope. Source code still writes
-  `::truck_engine_FaultCode_t`; the mangled names become
-  `quarry_cfg_9200ca49...::truck_engine_FaultCode_t`. C-storage headers are C++ only, so the plain
-  C backend does not gain that inline namespace. Its configuration-identity macros use §4.6.
+Descriptors and helpers are C++ inline entities, one per generated identity.
+Enum callbacks are the exception: `extern "C" inline` names carry the full
+`gid`, matching runtime C-language-linkage function pointers without merging
+different definitions. Metadata uses `QUARRY_NS_<body>_SCHEMA_ID_*` and
+`QUARRY_GENERATED_CPP_C_NS_<body>_CODE_ID_*`; guards and dependency checks use
+the generated-code identity. See §16.3 for the linkage details.
 
 ### 4.4 Python
 
@@ -274,9 +210,10 @@ configuration-identity check reports that it predates generated configuration id
 
 ## 5. Deliberate multiple configurations
 
-### 5.1 `--name-prefix <identifier>`
+### 5.1 Proposed A4.5: `--name-prefix <identifier>` (not implemented)
 
-`--name-prefix` is optional and off by default. Bindings are generated as if every namespace were
+The following describes the proposed option, which the current CLI rejects.
+In that proposal `--name-prefix` is optional and off by default. Bindings are generated as if every namespace were
 nested under `<identifier>`, which changes names and paths only:
 
 | Backend | Without prefix | With `--name-prefix rev_a` |
@@ -316,7 +253,7 @@ Alternatives considered:
 2. **Relative imports in Python.** These would make the package tree relocatable without an option,
    but would change the backend's deliberate absolute-import design. I don't recommend it for A4.
 
-### 5.2 Truck cloud application with two vehicle configurations
+### 5.2 Proposed A4.5 truck cloud application with two vehicle configurations
 
 The fleet runs revision A (`class8_truck`, `9200ca494f010801b830d0857cf66dde`) and revision B, which
 adds `truck.cms.MirrorFold` (`class8_truck_rev_b`, `acf1443058daea59db96ff373869a4be`). In both,
@@ -366,6 +303,9 @@ DECODERS = {REV_A: EngineStatusA.decode, REV_B: EngineStatusB.decode}
 
 ## 6. Runtime accessors
 
+This section specifies proposed A4.3 accessors; they are not implemented.
+
+
 ### 6.1 C (`Quarry::runtime_c`)
 
 ```c
@@ -397,9 +337,10 @@ quarry_generic_status_t quarry_qbs_schema_id(const quarry_qbs_view_t* qbs, quarr
 - **Python:** `QbsSchema.schema_id` (`bytes`) and `QbsSchema.schema_id_algorithm`.
 - **Go:** has no QBS runtime, so only the generated constants exist.
 
-## 7. `--describe` and `--print-schema-id`
+## 7. Proposed A4.4 `--describe`; implemented `--print-schema-id`
 
-`--describe` prints human-readable, deterministic, line-oriented text. It ignores `--generate`,
+`--describe` is not implemented. The proposed output below is not a runnable
+current CLI example. In the proposal it prints human-readable, deterministic, line-oriented text. It ignores `--generate`,
 writes nothing, and doesn't affect any output.
 
 ```text
@@ -438,6 +379,10 @@ records: 8
 
 ## 8. Measured overhead
 
+These are historical A4 measurements, before generated-code identity. Current
+measured evidence is in the [G4 validation guide](../generated-code-identity-validation.md).
+
+
 Measured with hand-edited prototypes of the truck headers (§4 code), not with an implementation:
 
 | Configuration | Without identity | With identity, unused | Identity used |
@@ -459,6 +404,11 @@ I didn't measure with `arm-none-eabi-gcc` because Docker was unavailable. The CI
 confirm the numbers with GCC as part of A4.2.
 
 ## 9. Test requirements
+
+This is the original A4 test plan, including future A4.3–A4.5 features. It is
+not a statement that those features or tests exist. Use the [G4 validation
+guide](../generated-code-identity-validation.md) for current measured coverage.
+
 
 1. **Golden identity:** the truck configuration's `schema_id` is pinned
    (`9200ca494f010801b830d0857cf66dde`). A test fails if the identity input changes, including when
@@ -492,75 +442,52 @@ confirm the numbers with GCC as part of A4.2.
 
 ## 10. Separate invocations and CMake
 
-- **Same root, separate invocations:** A3 guarantees selection-independent output, so every invocation
-  embeds the same `schema_id` and the checks pass. Tested (§9.3).
-- **Different roots:** files that reference each other fail to build.
-- **Not detected:** files that don't reference each other (for example cfg-A `truck.engine` and cfg-B
-  `truck.brakes` in one ECU). Without a dependency edge there's nothing to compare. Applications can
-  assert it explicitly: in C, compare the two namespaces' `QUARRY_NS_<body>_SCHEMA_ID_W*` macros; at configure
-  time, use `SCHEMA_ID_VARIABLE`.
-- **`quarry_generate_cpp()`** gains:
-  - `NAME_PREFIX <identifier>`, passed as `--name-prefix`;
-  - `SCHEMA_ID_VARIABLE <var>`, which runs `--print-schema-id` at configure time so projects can assert
-    that several helper calls share, or deliberately differ in, a configuration.
-- **The output-claim registry** already rejects two invocations writing the same path. Two unprefixed
-  configurations therefore can't share an output directory in one CMake project.
-- **#87, the release blocker and A4.5 prerequisite:** without it, editing an imported schema leaves stale bindings with the
-  old `schema_id`. A4 then turns some stale mixes into compile errors, but #87 still has to be fixed,
-  since a fully stale set builds cleanly with outdated IDs. `SCHEMA_ID_VARIABLE` and #87 both change
-  the helper's configure step, so they should land together or in sequence.
-- **Installed packages:** the runtime C package gains `schema_id.h` (additive). Python and Go runtimes
-  are unchanged. Package metadata gets no new variables beyond the helper keywords.
+Generate from the complete configuration root with consistent effective storage
+policy for every namespace, including unselected dependencies. Selection and
+output naming do not change either identity. A bare compact flag and an explicit
+list covering all namespaces are equivalent; matching flag spelling is not the
+requirement. Dependencies with incompatible configuration identity or generated
+policy/definitions fail compilation. No dependency edge means no automatic
+whole-program identity comparison.
 
-## 11. Limitations
+The [consumer guide](../generated-binding-compatibility.md#per-namespace-storage-policy)
+contains executable separate-invocation examples. The
+[CLI contract](../../tools/README.md) and
+[CMake integration](../schema-compiler-tool-distribution.md) define supported
+options. `NAME_PREFIX`, `SCHEMA_ID_VARIABLE` and `--name-prefix` are A4.5
+proposals, not current helper/CLI options. Build systems must regenerate the
+complete affected closure; a wholly stale but internally consistent set can
+compile successfully. Identity checks do not replace dependency tracking.
 
-- **Checks need a dependency edge.** They compare only files that include or import each other (§10).
-- **Python checks at import time,** not build time.
-- **Go's compile error is generic** (`constant -1 overflows uint64`). The explanation is in a comment
-  on the failing line.
-- **The C runtime doesn't verify `schema_id`** (no SHA-256). It reports the value stored in the QBS
-  image.
-- **`schema_id` covers the whole configuration.** Rev A and rev B bindings are rejected as mixed even
-  for `EngineStatus`, which is wire-identical in both. Relaxing this per record needs fingerprints
-  (Stage B §7).
-- **Every configuration change renames all C++ symbols** (inline namespace) and changes every
-  generated file of the configuration. That causes rebuilds and changes symbol names in crash reports
-  and debuggers. C record symbols are unaffected.
-- **#117 macro migration.** Configuration-identity macros, generated-code identity macros and
-  guards, and the plain C identity accessor use §4.6. The generated-code identity canonical format
-  stays 1. Epochs stay C++ `3` and C `7`. There is no runtime API change and no new runtime
-  storage. Python and Go output is byte-identical. C and C++ consumers must regenerate bindings
-  and rebuild. A pre-#117 dependency fails the configuration-identity check, because it does not
-  define the new macro names.
-- **C++ forward declarations break.** User code that forward-declares generated types
-  (`namespace truck::engine { class EngineStatus; }`) declares a different entity, so it must include
-  the generated header instead.
-- **Reserved names** in generated code: `kQuarrySchemaId*` (C++), `QUARRY_SCHEMA_ID*` (Python),
-  `QuarrySchemaID*` (Go), `QUARRY_NS_<body>_SCHEMA_ID_*` and `quarry_ns_<body>_schema_id` (C, #117).
+## 11. Current limitations
 
-## 12. Compatibility
+The [consumer guide](../generated-binding-compatibility.md#known-limits-and-release-recommendation)
+is authoritative for coexistence, native ABI responsibilities, the non-injective
+C symbol prefix (#119), and its release-deferral recommendation. Checks inspect
+included generated headers, not prebuilt archives or all translation units.
+Different `gid`s isolate generated C++ entities, not user-defined exports or
+inline functions. Identical `gid`s do not certify packing, compiler ABI, target
+or standard-library compatibility. Include headers rather than forward-declaring
+generated types. Python imports check configuration identity; Go reports generic
+constant-overflow compile errors for mismatches. Neither gains C/C++ `gid`
+isolation in #111.
 
-- **Formats:** BRF v2, QBS v1 and the `schema_id` algorithm are unchanged.
-- **A4.1:** BRF, QBS, Schema IR and generated-code epochs are unchanged. Generated code still has no
-  runtime dependency.
-- **Generated-code API epochs** (§15, decision 1): A4.2 keeps C++ `3`, C `7`, Python `1` and Go
-  `1`. The generated code references no new runtime symbol or header and calls the runtimes exactly
-  as before, so no generator/runtime contract changed. A future change that needs one requires an
-  explicit epoch decision.
-- **Generated C++ ABI change (A4.2), separate from the epochs:** every generated C++ symbol (owning
-  bindings, `quarry::cxx` wrappers and, in C-storage headers, the C storage types and the templates
-  instantiated over them) now has a configuration-specific mangled name. Consumers must regenerate
-  their bindings and rebuild every binary that depends on generated types; prebuilt libraries that
-  expose generated types are not link-compatible with bindings from another configuration.
-- **Version metadata:** future generated bindings expose compiler and format versions as
-  compile-time constants or equivalent module metadata, without mandatory runtime storage.
-- **Generated output changes** (identity constants, checks, guards, the C++ inline namespace), so all
-  backend goldens are updated.
-- **Source compatibility:** unchanged for code that includes generated headers and uses public names.
-  Two breaks: C++ forward declarations of generated types (§11), and code that names a header guard
-  macro.
-- **C++ ABI** of generated types becomes configuration-specific. That's arguably correct for shared
-  libraries exposing generated types.
+## 12. Compatibility and migration
+
+BRF v2 (generated bindings), QBS v1, Schema IR v1, record IDs, `schema_id`
+algorithm 1 and generated-code identity format 1 are unchanged. Runtime API
+epochs remain C++ owning 3, C / C++-C storage 7, Python 1 and Go 1. Epochs
+check generated/runtime APIs, not native ABI or wire compatibility.
+
+Consumers must regenerate bindings and rebuild affected binaries together,
+including static/prebuilt libraries exposing generated types. Equal `schema_id`
+is insufficient to reuse old native objects. The
+[migration procedure](../generated-binding-compatibility.md#migrating-existing-bindings)
+covers v0.1.30-rc.1–rc.3, A4.2, #117 macro/accessor names, `quarry_cfg_*` to
+`quarry_gen_*`, guards, C headers in C++, forward declarations and mixed-storage
+dependencies. Different releases with identical normalized definitions can
+retain `gid`; renderer changes can change it. No general cross-release native
+binary compatibility is promised.
 
 ## 13. Implementation plan
 
@@ -576,7 +503,8 @@ A4.3 and A4.4 are independent of A4.2. The A5 cross-language matrix follows A4.5
 
 ## 14. Approved design constraints
 
-1. C++ inline namespaces and C/C++ header guards use all 128 bits of `schema_id`.
+1. Originally A4.2 used all 128 bits of `schema_id` for C++ inline namespaces
+   and guards. #111 supersedes that choice with the full 128-bit `gid` (§16).
 2. Generated bindings remain runtime-independent; identity checks introduce no mandatory runtime
    storage.
 3. Before A4.2 changes generated ABI, review the generated-code API epoch policy and decide whether
@@ -621,7 +549,7 @@ A4.3 and A4.4 are independent of A4.2. The A5 cross-language matrix follows A4.5
    types, so the C part is configuration-specific too (§4.3). Two configurations with different
    record IDs and layouts are linked into one executable from separate translation units and tested.
 
-## 16. Generated-code identity in C and C++ bindings (#111 G1–G3)
+## 16. Generated-code identity in C and C++ bindings (#111 G1–G4)
 
 `schema_id` identifies the wire configuration; it does not identify generated definitions. Field
 or enum-member renames, unused enums, `--c-optimize-size` and generator changes all keep
@@ -636,7 +564,9 @@ identity for the C++ owning and C++/C-storage variants, and G2 extends it to pla
 | generated-code API epoch | the generator/runtime contract | `kGeneratedCodeApiVersion` / `QUARRY_C_GENERATED_CODE_API_VERSION` checks |
 
 BRF, QBS, Schema IR, record IDs, the `schema_id` algorithm and every epoch are unchanged.
-G3 adds per-namespace storage selection (§16.4). Python and Go are unchanged.
+G3 adds per-namespace storage selection (§16.4); G4 establishes the
+[reproducible validation baseline](../generated-code-identity-validation.md).
+Python and Go are unchanged.
 
 ### 16.1 Computation
 
@@ -702,13 +632,13 @@ inline constexpr std::array<std::uint8_t, 16> kQuarryGeneratedCodeId{...};
 
 - **Linkage isolation:** `quarry_gen_<gid>` replaces `quarry_cfg_<schema_id>` (same length, so
   mangled names do not grow). It covers `schema_id`, so cross-configuration isolation is kept, and
-  also isolates every same-configuration difference. C storage uses it for the C part (global
+  also isolates differences in normalized generated definitions within one configuration. C storage uses it for the C part (global
   inline namespace) and the `quarry::cxx` wrappers.
 - **Identity macros** are named from the §4.6 encoding of the namespace FQN
   (`QUARRY_GENERATED_CPP_NS_<body>_CODE_ID_*`, root `QUARRY_GENERATED_CPP_NS_0_CODE_ID_*`;
   C storage uses `QUARRY_GENERATED_CPP_C_NS_<body>_`), never from the output path, so naming
   options cannot affect them. The same body is the configuration-identity stem.
-- **Coexistence and rejection:** different definitions without an include edge coexist in one
+- **Coexistence and rejection:** different definitions in separate TUs without an include edge coexist in one
   program, isolated (distinct entities; not interchangeable). Across an include edge they are
   rejected at compile time. Two different definitions of one namespace in one translation unit
   are rejected explicitly by the check after the guard; identical definitions reached through
@@ -717,8 +647,9 @@ inline constexpr std::array<std::uint8_t, 16> kQuarryGeneratedCodeId{...};
 - **Reserved names:** C++ rejects records, enums and namespace segments named
   `kQuarryGeneratedCodeId`, `kQuarryGeneratedCodeIdFormat` or `quarry_gen_*`; C storage reserves
   its `..._CODE_ID_*` macros and the `quarry_gen_` prefix in the file-scope identifier registry.
-- **Footprint:** the identity is macros and `constexpr` constants only; nothing is stored,
-  initialized or hashed at runtime. #117 changes the plain C configuration-identity macro and
+- **Footprint:** identity computation and checks add no mandatory runtime storage,
+  initialization or hashing. ODR-using metadata constants or calling optional
+  accessors can materialize bytes; see the measured G4 footprint evidence. #117 changes the plain C configuration-identity macro and
   accessor spellings (§4.1). The C runtime, the C epoch and Python and Go output stay
   byte-identical. Cortex-M call sites of the accessor use the new name.
 

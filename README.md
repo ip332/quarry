@@ -1,5 +1,8 @@
 # Quarry
 
+See the [generated binding compatibility and migration guide](docs/generated-binding-compatibility.md)
+for wire identity, generated definitions, API epochs and native rebuild requirements.
+
 Quarry is a deterministic, language-neutral schema compiler and binary
 serialization framework for embedded and systems programming. It consumes
 `.brd` schemas and generates BRF-compatible C++, strict-C99 C, Python, and Go

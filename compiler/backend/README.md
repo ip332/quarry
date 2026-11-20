@@ -169,21 +169,13 @@ Current C++ generation behavior:
   implicitly inline. One program can therefore include a generated header from
   any number of translation units (#82). Signatures, symbol names, BRF bytes
   and the generated-code API version are unchanged
-* embeds the configuration identity (#99, `docs/design/configuration-identity.md`
-  §4.2): `kQuarrySchemaIdAlgorithm` and `kQuarrySchemaId` constants, identity
-  metadata macros `QUARRY_GENERATED_CPP_NS_<encoded namespace>_SCHEMA_ID_{ALGORITHM,W0..W3}`,
-  and an include guard containing the full 128-bit `schema_id`. Every
-  declaration is inside `inline namespace quarry_cfg_<schema_id>`, so user code
-  still writes `truck::engine::EngineStatus` but two configurations' symbols
-  never merge at link time (since #111 G1 the inline namespace is
-  `quarry_gen_<generated-code identity>` and the guard is keyed by it; see the
-  bullet below). Each included generated header is checked: a
-  missing identity macro fails with a "predates generated configuration
-  identity" `#error`, a different identity with a `static_assert`. Records,
-  enums or namespace segments named `kQuarrySchemaId`, `kQuarrySchemaIdAlgorithm`
-  or `quarry_cfg_*` are rejected. The generated-code API version stays `3`;
-  the mangled names of every generated symbol change, so consumers regenerate
-  and rebuild dependent binaries
+* embeds the wire configuration identity (#99): `kQuarrySchemaIdAlgorithm`,
+  `kQuarrySchemaId` and
+  `QUARRY_GENERATED_CPP_NS_<encoded namespace>_SCHEMA_ID_{ALGORITHM,W0..W3}`.
+  Dependencies check presence and equality before generated-code identity checks.
+  Equal wire identities do not imply identical generated definitions. See the
+  [consumer compatibility and migration guide](../../docs/generated-binding-compatibility.md)
+  for coexistence, native ABI responsibilities and regeneration requirements
 * embeds a per-namespace generated-code identity (#111 G1,
   `docs/design/configuration-identity.md` §16): SHA-256/128 of the header's
   normalized generated definitions (renderer placeholders for its own identity

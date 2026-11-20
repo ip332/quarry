@@ -23,7 +23,9 @@ cmake --build /tmp/quarry-cpp-c-storage
 ```
 
 Add `-DQUARRY_EXAMPLE_COMPACT_PRESENCE=ON` for packed bits. Generate all imported
-schemas with the same storage/presence options. Link `Quarry::runtime_c`.
+schemas from the complete root with consistent effective per-namespace storage
+policies across invocations. Mixed default/compact dependencies are supported; see
+the [consumer guide](../../../docs/generated-binding-compatibility.md). Link `Quarry::runtime_c`.
 This option is currently selected through the compiler CLI/custom commands,
 not through the installed `quarry_generate()` CMake helper.
 
