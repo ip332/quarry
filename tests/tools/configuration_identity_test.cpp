@@ -330,7 +330,10 @@ TEST_P(ConfigurationIdentityVariantTest, EmbedsThePrintedSchemaIdForEverySelecti
             case Variant::C:
             case Variant::CppCStorage:
                 if (variant.variant == Variant::C) {
-                    EXPECT_NE(text.find("_" + upper(id) + "_GENERATED_H"), std::string::npos)
+                    // Since #111 G2 the plain C guard carries the namespace
+                    // encoding and the generated-code identity, not schema_id.
+                    EXPECT_EQ(text.find(upper(id)), std::string::npos) << file;
+                    EXPECT_NE(text.find("#ifndef QUARRY_GENERATED_C_NS_"), std::string::npos)
                         << file;
                 }
                 {
@@ -845,7 +848,21 @@ fields:
   value:
     type: Mode
 )",
-     "uses the prefix quarry_gen_, which generated C++/C-storage code reserves"},
+     "uses the prefix quarry_gen_, which generated C and C++/C-storage code reserves"},
+    // #111 G2: plain C headers compiled as C++ use the same inline namespace.
+    {"c_generated_namespace_prefix", "--language c", R"(namespace: quarry_gen_x
+record: Sample
+version: 1
+type: data
+enums:
+  Mode:
+    values:
+      off: 0
+fields:
+  value:
+    type: Mode
+)",
+     "uses the prefix quarry_gen_, which generated C and C++/C-storage code reserves"},
     // #117 moved configuration-identity macros off the uppercased symbol
     // prefix, so this enum constant no longer collides with them. The
     // coexistence is checked in PreviouslyCollidingCEnumSpellingGenerates.

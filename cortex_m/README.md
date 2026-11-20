@@ -77,6 +77,19 @@ with the base commit's compiler, runtime and Cortex-M project under the same
 image and toolchain file. Both comparisons list the linked `.text`, `.rodata`,
 `.data` and `.bss` sections and are informational; they never fail the build.
 
+Section sizes do not show whether machine code changed. For pull requests CI
+therefore also builds the base commit and the pull request in the default
+configuration, `MinSizeRel` and `Debug`, and runs
+`cortex_m/scripts/compare_machine_code.py`: it compares every allocatable byte,
+relocation and defined symbol of each ELF and object, and reports debug
+information, symbol tables and other non-allocatable metadata separately. It is
+informational too (`--strict` makes it fail on any difference):
+
+```sh
+python3 cortex_m/scripts/compare_machine_code.py \
+  --base base/cortex_m/build --candidate cortex_m/build --label Default
+```
+
 ## What gets cross-compiled
 
 The smoke target (`quarry_cortex_m_smoke`) links:

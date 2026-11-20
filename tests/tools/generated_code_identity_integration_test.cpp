@@ -10,7 +10,9 @@
 // explicitly; and the ODR reproduction cases of the #111 investigation link
 // and run correctly from two translation units in both link orders.
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -160,6 +162,7 @@ struct Variant {
 };
 constexpr Variant kOwning{"cpp", "--language cpp", ".generated.hpp"};
 constexpr Variant kCStorage{"cpp_c_storage", "--language cpp --cpp-storage c", ".generated.hpp"};
+constexpr Variant kPlainC{"c", "--language c", ".generated.h"};
 
 // AddressSanitizer and UndefinedBehaviorSanitizer, with undefined behavior fatal.
 constexpr std::string_view kSanitizerFlags =
@@ -248,26 +251,33 @@ protected:
 
     // Links two translation units (`a` from tu_a with includes_a, `b` from tu_b
     // with includes_b) and runs the program; returns its "run_a=.. run_b=.." line.
+    // With `c_sources`, `a` and `b` are compiled as C99 (main stays C++).
     [[nodiscard]] std::string link_and_run(const std::string& tu_a, const fs::path& includes_a,
                                            const std::string& tu_b, const fs::path& includes_b,
-                                           const std::string& flags, std::string_view tag) {
+                                           const std::string& flags, std::string_view tag,
+                                           bool c_sources = false) {
         const fs::path directory = work_ / "link" / std::string(tag);
         fs::create_directories(directory);
         write_text_file(directory / "main.cpp",
                         "#include <cstdio>\nextern \"C\" int run_a();\nextern \"C\" int run_b();\n"
                         "int main() { const int a = run_a(); const int b = run_b();\n"
                         "  std::printf(\"run_a=%d run_b=%d\\n\", a, b); return 0; }\n");
-        write_text_file(directory / "a.cpp", tu_a);
-        write_text_file(directory / "b.cpp", tu_b);
+        const std::string extension = c_sources ? ".c" : ".cpp";
+        write_text_file(directory / ("a" + extension), tu_a);
+        write_text_file(directory / ("b" + extension), tu_b);
         const std::string compiler = quote(QUARRY_TEST_CXX_COMPILER) + " -std=c++20 " + flags +
                                      QUARRY_TEST_STRICT_CXX_WARNINGS;
+        const std::string tu_compiler = c_sources ? quote(QUARRY_TEST_CXX_COMPILER) +
+                                                        " -x c -std=c99 " + flags +
+                                                        " -Wall -Wextra -Wpedantic -Wshadow -Werror"
+                                                  : compiler;
         const std::string common = " -I" + quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
                                    quote(QUARRY_TEST_GENERATED_INCLUDE_DIR);
         for (const auto& [name, includes] :
              std::vector<std::pair<std::string, fs::path>>{{"a", includes_a}, {"b", includes_b}}) {
             const RunResult compiled =
-                run(compiler + " -I" + quote(includes.string()) + common + " -c " +
-                        quote((directory / (name + ".cpp")).string()) + " -o " +
+                run(tu_compiler + " -I" + quote(includes.string()) + common + " -c " +
+                        quote((directory / (name + extension)).string()) + " -o " +
                         quote((directory / (name + ".o")).string()),
                     directory / (name + ".log"));
             if (compiled.status != 0) {
@@ -1015,8 +1025,6 @@ TEST_F(GeneratedCodeIdentityTest, CallbackLinkageChecksRejectMutatedHeaders) {
 
 // --- namespace macro injectivity (#117) --------------------------------------
 
-constexpr Variant kPlainC{"c", "--language c", ".generated.h"};
-
 [[nodiscard]] std::string header_relative(std::string_view namespace_fqn,
                                           std::string_view extension) {
     std::string path;
@@ -1137,9 +1145,646 @@ TEST_F(GeneratedCodeIdentityTest, DistinctNamespaceMacroSpellingsCoexistInOneTra
                 const RunResult result =
                     syntax_check(source, {staged}, name + (left_first ? "-lr" : "-rl"), plain_c);
                 EXPECT_EQ(result.status, 0) << name << "\n" << result.output;
+                if (plain_c) {
+                    // #111 G2: the same pair as C++, each in its own identity namespace.
+                    const RunResult as_cpp =
+                        syntax_check(source, {staged}, name + (left_first ? "-lr-cpp" : "-rl-cpp"));
+                    EXPECT_EQ(as_cpp.status, 0) << name << " (C++)\n" << as_cpp.output;
+                }
             }
         }
     }
+}
+
+// --- plain C bindings (#111 G2) ----------------------------------------------
+//
+// Plain C headers carry the generated-code identity in their guard, metadata
+// macros and dependency checks, in C and in C++. Compiled as C++, their
+// declarations go in inline namespace quarry_gen_<gid> inside extern "C": the
+// struct and enum types, and every template instantiated over them, get
+// mangled names specific to their definitions, while every function keeps a
+// C-language-linkage type and internal linkage. Compiled as C, nothing but
+// preprocessor text changes.
+
+[[nodiscard]] std::string plain_c_prefix(std::string_view namespace_fqn) {
+    return std::string(support::kCNamespaceCodeIdMacroPrefix) +
+           support::encode_namespace_macro(namespace_fqn).value();
+}
+
+// Compiles `source` both as C99 and as C++20, strict, with `includes`.
+struct DualResult {
+    RunResult c;
+    RunResult cpp;
+};
+
+// A round trip through the plain C API of inv.core, valid C99 and C++20. In
+// C++ it also instantiates std::vector over the generated struct: #111 case 7,
+// where two translation units with different definitions of
+// inv_core_Status_t shared one std::vector instantiation (corrupted elements,
+// ASan errors) before the C++ wrap.
+//
+// PRESENCE selects the presence API of the header (default or
+// --c-optimize-size); FIELD is the u16 field (rpm, or speed when renamed).
+constexpr std::string_view kPlainCTu = R"(PRESENCE
+#include "inv/core.generated.h"
+#include <stdint.h>
+#include <string.h>
+#ifdef __cplusplus
+#include <vector>
+#define QUARRY_TEST_RUN extern "C" int
+#else
+#define QUARRY_TEST_RUN int
+#endif
+QUARRY_TEST_RUN run_NAME(void) {
+    inv_core_Status_t s;
+    inv_core_Status_init(&s);
+    s.FIELD = 1234U;
+    SET_PRESENT(inv_core_Status, s, FIELD);
+    s.mode = INV_CORE_MODE_ON; /* encoded through the enum_load callback */
+    SET_PRESENT(inv_core_Status, s, mode);
+    for (unsigned i = 0; i < 3U; ++i) {
+        inv_core_Item_init(&s.items[i]);
+        s.items[i].a = 7U + i;
+        SET_PRESENT(inv_core_Item, s.items[i], a);
+    }
+    s.items_count = 3U;
+    uint8_t buffer[256];
+    const inv_core_Status_encode_result_t encoded = inv_core_Status_encode(&s, buffer, sizeof buffer);
+    if (encoded.status != QUARRY_C_STATUS_OK) return 2;
+    const inv_core_Status_decode_result_t decoded = inv_core_Status_decode(buffer, encoded.bytes_written);
+    if (decoded.status != QUARRY_C_STATUS_OK) return 3;
+    if (!HAS(inv_core_Status, decoded.value, FIELD) || decoded.value.FIELD != 1234U) return 4;
+    if (!HAS(inv_core_Status, decoded.value, mode) || decoded.value.mode != INV_CORE_MODE_ON) return 8;
+    if (decoded.value.items_count != 3U || decoded.value.items[2].a != 9U) return 5;
+    if (LEVEL_CHECK) return 6;
+#ifdef __cplusplus
+    inv_core_Status_t fill;
+    memset(&fill, 0x5A, sizeof fill);
+    std::vector<inv_core_Status_t> elements;
+    for (int i = 0; i < 5; ++i) elements.push_back(fill);
+    for (const inv_core_Status_t& element : elements) {
+        const unsigned char* bytes = reinterpret_cast<const unsigned char*>(&element);
+        for (size_t k = 0; k < sizeof element; ++k) if (bytes[k] != 0x5A) return 7;
+    }
+#endif
+    return 0;
+}
+)";
+
+constexpr std::string_view kDefaultPresence =
+    "#define SET_PRESENT(record, value, field) ((value).has_##field = true)\n"
+    "#define HAS(record, value, field) ((value).has_##field)";
+constexpr std::string_view kCompactPresence =
+    "#define SET_PRESENT(record, value, field) record##_set_##field##_present(&(value), true)\n"
+    "#define HAS(record, value, field) record##_has_##field(&(value))";
+
+[[nodiscard]] std::string plain_c_tu(std::string_view name, bool compact,
+                                     std::string_view field = "rpm",
+                                     std::string_view level_high = "1") {
+    return replace_all(
+        replace_all(replace_all(replace_all(std::string(kPlainCTu), "PRESENCE",
+                                            compact ? kCompactPresence : kDefaultPresence),
+                                "NAME", name),
+                    "FIELD", field),
+        "LEVEL_CHECK", "INV_CORE_LEVEL_HIGH != " + std::string(level_high));
+}
+
+// Defined symbols with external linkage in an object file, as nm prints them;
+// `available` is false if nm cannot be run.
+[[nodiscard]] std::vector<std::string> external_symbols(const fs::path& object, const fs::path& log,
+                                                        bool& available) {
+    const RunResult listed = run("nm -g " + quote(object.string()), log);
+    available = listed.status == 0;
+    std::vector<std::string> symbols;
+    std::istringstream lines(listed.output);
+    std::string line;
+    const std::regex defined(R"(^[0-9a-fA-F]+ ([A-TV-Za-tv-z]) (\S+)$)");
+    while (std::getline(lines, line)) {
+        std::smatch match;
+        if (std::regex_match(line, match, defined)) {
+            symbols.push_back(match[2].str());
+        }
+    }
+    return symbols;
+}
+
+// External symbols that name a generated inv.core type but not the header's
+// own identity namespace (mangled as quarry_gen_<gid>): every such symbol is
+// one the linker could merge with another definition of the type.
+[[nodiscard]] std::vector<std::string> unisolated_symbols(const std::vector<std::string>& symbols,
+                                                          const std::string& gid) {
+    std::vector<std::string> found;
+    for (const std::string& symbol : symbols) {
+        if (symbol.find("inv_core_") != std::string::npos &&
+            symbol.find("quarry_gen_" + gid) == std::string::npos) {
+            found.push_back(symbol);
+        }
+    }
+    return found;
+}
+
+// Violations of the plain C callback contract: every enum callback is a
+// static inline function defined inside the header's extern "C" block (so
+// its function type has C language linkage, [dcl.link], CERT EXP56-CPP, and
+// its name has internal linkage), and the member descriptors reference it.
+[[nodiscard]] std::vector<std::string> plain_c_callback_violations(const std::string& header,
+                                                                   std::set<std::string>& bases) {
+    std::vector<std::string> violations;
+    const std::size_t open = header.find("extern \"C\" {\n");
+    const std::size_t close = header.find("} /* extern \"C\" */");
+    if (open == std::string::npos || close == std::string::npos || close < open) {
+        violations.emplace_back("no extern \"C\" block");
+        return violations;
+    }
+    const std::regex definition(
+        R"(^(.*?)\b(?:uint64_t|void) (\w+)_enum_(load|store)\((?:const void\* p|void\* p, uint64_t n)\) \{)");
+    std::istringstream lines(header);
+    std::string line;
+    std::size_t offset = 0;
+    std::set<std::string> loads;
+    std::set<std::string> stores;
+    while (std::getline(lines, line)) {
+        std::smatch match;
+        if (std::regex_search(line, match, definition)) {
+            const std::string name = match[2].str() + "_enum_" + match[3].str();
+            if (match[1].str() != "static inline ") {
+                violations.push_back(name + " is defined with '" + match[1].str() +
+                                     "', not static inline");
+            }
+            if (offset < open || offset > close) {
+                violations.push_back(name + " is defined outside the extern \"C\" block");
+            }
+            (match[3].str() == "load" ? loads : stores).insert(match[2].str());
+        }
+        offset += line.size() + 1U;
+    }
+    if (loads.empty()) {
+        violations.emplace_back("no enum callback definitions");
+    }
+    if (loads != stores) {
+        violations.emplace_back("enum_load and enum_store callbacks are not paired");
+    }
+    for (const std::string& base : loads) {
+        if (header.find(base + "_enum_load, " + base + "_enum_store } },") == std::string::npos) {
+            violations.push_back("no member descriptor references " + base + "_enum_{load,store}");
+        }
+    }
+    bases = loads;
+    return violations;
+}
+
+TEST_F(GeneratedCodeIdentityTest, PlainCIdentitiesIgnoreOutputNamingAndSelection) {
+    const fs::path all = generate(kPlainC, rev_a(), "c-all");
+    const fs::path again = generate(kPlainC, rev_a(), "c-again");
+    const fs::path common = generate(kPlainC, rev_a(), "c-common", "--generate fleet.common");
+    const fs::path engine = generate(kPlainC, rev_a(), "c-engine", "--generate fleet.engine");
+    const fs::path renamed = generate(kPlainC, rev_a(), "c-renamed", "--root-file-stem other");
+    for (const std::string_view ns : {"common", "engine"}) {
+        const std::string file = "fleet/" + std::string(ns) + ".generated.h";
+        const std::string expected = gid(all / file);
+        ASSERT_EQ(expected.size(), 32U);
+        EXPECT_EQ(gid(again / file), expected) << ns;
+        EXPECT_EQ(gid(renamed / file), expected) << ns;
+        EXPECT_EQ(gid((ns == "common" ? common : engine) / file), expected)
+            << ns << ": --generate must not change the identity";
+        // Guard and metadata carry the same identity as the C++ namespace.
+        const std::string text = read_text_file(all / file);
+        std::string upper = expected;
+        std::transform(upper.begin(), upper.end(), upper.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+        const std::string prefix = plain_c_prefix("fleet." + std::string(ns));
+        EXPECT_NE(text.find("#ifndef " + prefix + "_" + upper + "_\n"), std::string::npos) << ns;
+        EXPECT_NE(text.find("#define " + prefix + "_CODE_ID_FORMAT 1U\n"), std::string::npos);
+        EXPECT_NE(text.find("#define " + prefix + "_CODE_ID_W0 0x" + expected.substr(0, 8) + "UL"),
+                  std::string::npos);
+        EXPECT_NE(text.find("#define " + prefix + "_CODE_ID_W3 0x" + expected.substr(24, 8) + "UL"),
+                  std::string::npos);
+    }
+    for (const std::string_view file : {"fleet/common.generated.h", "fleet/common.generated.c"}) {
+        EXPECT_EQ(read_text_file(all / file), read_text_file(common / file)) << file;
+        EXPECT_EQ(read_text_file(all / file), read_text_file(again / file)) << file;
+    }
+}
+
+TEST_F(GeneratedCodeIdentityTest, PlainCDefinitionChangesChangeIdentitiesButNotSchemaId) {
+    const fs::path base = inv_root("base", kCoreSchema);
+    const std::map<std::string, fs::path> changed = {
+        {"field name",
+         inv_root("field", replace_all(std::string(kCoreSchema), "  rpm:", "  speed:"))},
+        {"enum member names",
+         inv_root("enum", replace_all(replace_all(std::string(kCoreSchema), "      off: 0",
+                                                  "      idle: 0"),
+                                      "      on: 1", "      run: 1"))},
+        {"unused enum values",
+         inv_root("unused",
+                  replace_all(replace_all(std::string(kCoreSchema), "      low: 0", "      low: 2"),
+                              "      high: 1", "      high: 0"))},
+    };
+    const auto schema_id = [&](const fs::path& root) {
+        return run(quote(QUARRY_SCHEMA_COMPILER_TOOL) + " --print-schema-id " +
+                       quote(root.string()),
+                   work_ / "sid.log")
+            .output;
+    };
+    const std::string base_gid = gid(generate(kPlainC, base, "c-base") / "inv/core.generated.h");
+    for (const auto& [label, root] : changed) {
+        EXPECT_EQ(schema_id(root), schema_id(base)) << label;
+        EXPECT_NE(gid(generate(kPlainC, root, "c-" + label) / "inv/core.generated.h"), base_gid)
+            << label;
+    }
+    EXPECT_NE(gid(generate(kPlainC, base, "c-os", "--c-optimize-size") / "inv/core.generated.h"),
+              base_gid);
+    // Every variant of one namespace has its own identity.
+    const std::string cstorage = gid(generate(kCStorage, base, "cs") / "inv/core.generated.hpp");
+    const std::string owning = gid(generate(kOwning, base, "own") / "inv/core.generated.hpp");
+    EXPECT_NE(base_gid, cstorage);
+    EXPECT_NE(base_gid, owning);
+}
+
+TEST_F(GeneratedCodeIdentityTest, PlainCDependencyIdentityChangesPropagate) {
+    const fs::path a = generate(kPlainC, dep_root("base", kCommonSchema, kEngineSchema), "a");
+    const fs::path b =
+        generate(kPlainC,
+                 dep_root("common", replace_all(std::string(kCommonSchema), "unix_ms", "millis"),
+                          kEngineSchema),
+                 "b");
+    const fs::path c =
+        generate(kPlainC,
+                 dep_root("engine", kCommonSchema,
+                          replace_all(std::string(kEngineSchema), "  rpm:", "  speed:")),
+                 "c");
+    EXPECT_NE(gid(b / "dep/common.generated.h"), gid(a / "dep/common.generated.h"));
+    EXPECT_NE(gid(b / "dep/engine.generated.h"), gid(a / "dep/engine.generated.h"))
+        << "a dependency's identity must propagate";
+    EXPECT_EQ(gid(c / "dep/common.generated.h"), gid(a / "dep/common.generated.h"));
+    EXPECT_NE(gid(c / "dep/engine.generated.h"), gid(a / "dep/engine.generated.h"));
+}
+
+TEST_F(GeneratedCodeIdentityTest, PlainCIdentityMetadataMatchesTheHeader) {
+    const fs::path output = generate(kPlainC, rev_a(), "c-meta");
+    const std::string id = gid(output / "fleet/engine.generated.h");
+    const std::string prefix = plain_c_prefix("fleet.engine");
+    // C: the macros are usable in #if.
+    const std::string c_source =
+        "#include \"fleet/engine.generated.h\"\n#if " + prefix + "_CODE_ID_FORMAT != 1U || " +
+        prefix + "_CODE_ID_W0 != 0x" + id.substr(0, 8) + "UL || " + prefix + "_CODE_ID_W3 != 0x" +
+        id.substr(24, 8) + "UL\n#error mismatch\n#endif\n" + "int main(void) { return 0; }\n";
+    const RunResult in_c = syntax_check(c_source, {output}, "c-meta-c", true);
+    EXPECT_EQ(in_c.status, 0) << in_c.output;
+    // C++: the declarations are in the namespace named by the same identity,
+    // and remain reachable by their C names.
+    const std::string cpp_source =
+        c_source + "using T = quarry_gen_" + id +
+        "::fleet_engine_EngineStatus_t;\n"
+        "static_assert(sizeof(T) == sizeof(::fleet_engine_EngineStatus_t));\n";
+    const RunResult in_cpp = syntax_check(cpp_source, {output}, "c-meta-cpp");
+    EXPECT_EQ(in_cpp.status, 0) << in_cpp.output;
+}
+
+TEST_F(GeneratedCodeIdentityTest, PlainCRejectsDependenciesWithOtherDefinitions) {
+    const fs::path engine = generate(kPlainC, dep_root("base", kCommonSchema, kEngineSchema), "e");
+    const fs::path common =
+        generate(kPlainC,
+                 dep_root("renamed", replace_all(std::string(kCommonSchema), "unix_ms", "millis"),
+                          kEngineSchema),
+                 "r");
+    const fs::path mixed = work_ / "mixed";
+    fs::create_directories(mixed / "dep");
+    fs::copy_file(engine / "dep/engine.generated.h", mixed / "dep/engine.generated.h");
+    fs::copy_file(common / "dep/common.generated.h", mixed / "dep/common.generated.h");
+    for (const bool plain_c : {true, false}) {
+        const RunResult result =
+            syntax_check("#include \"dep/engine.generated.h\"\nint main(void) { return 0; }\n",
+                         {mixed}, plain_c ? "mixed-c" : "mixed-cpp", plain_c);
+        EXPECT_NE(result.status, 0);
+        EXPECT_NE(result.output.find("dep/common.generated.h contains different generated "
+                                     "definitions than dep/engine.generated.h was generated "
+                                     "against"),
+                  std::string::npos)
+            << result.output;
+        EXPECT_EQ(result.output.find("different Quarry configuration"), std::string::npos)
+            << "the configuration identity still matches";
+    }
+}
+
+TEST_F(GeneratedCodeIdentityTest, PlainCRejectsDependenciesThatPredateGeneratedCodeIdentity) {
+    // Real pre-G2 output: configuration identity with its #117 names, no
+    // generated-code identity.
+    const fs::path migrated = generate(kPlainC, rev_a(), "c-pre", "--generate fleet.engine");
+    fs::copy_file(fixtures() / "pre_generated_code_identity/c/fleet/"
+                               "common.generated.h.pre_generated_code_identity",
+                  migrated / "fleet/common.generated.h");
+    for (const bool plain_c : {true, false}) {
+        const RunResult result =
+            syntax_check("#include \"fleet/engine.generated.h\"\nint main(void) { return 0; }\n",
+                         {migrated}, plain_c ? "pre-c" : "pre-cpp", plain_c);
+        EXPECT_NE(result.status, 0);
+        EXPECT_NE(result.output.find("fleet/common.generated.h predates generated-code identity"),
+                  std::string::npos)
+            << result.output;
+        EXPECT_EQ(result.output.find("predates generated configuration identity"),
+                  std::string::npos)
+            << result.output;
+    }
+}
+
+TEST_F(GeneratedCodeIdentityTest, PlainCRejectsDependenciesWithAnotherIdentityFormat) {
+    const fs::path output = generate(kPlainC, rev_a(), "c-format");
+    const fs::path header = output / "fleet/common.generated.h";
+    const std::string macro = plain_c_prefix("fleet.common") + "_CODE_ID_FORMAT";
+    const std::string text = read_text_file(header);
+    const std::string edited =
+        replace_all(text, "#define " + macro + " 1U", "#define " + macro + " 2U");
+    ASSERT_NE(edited, text);
+    write_text_file(header, edited);
+    for (const bool plain_c : {true, false}) {
+        const RunResult result =
+            syntax_check("#include \"fleet/engine.generated.h\"\nint main(void) { return 0; }\n",
+                         {output}, plain_c ? "format-c" : "format-cpp", plain_c);
+        EXPECT_NE(result.status, 0);
+        EXPECT_NE(result.output.find("fleet/common.generated.h uses a different generated-code "
+                                     "identity format than fleet/engine.generated.h"),
+                  std::string::npos)
+            << result.output;
+    }
+}
+
+TEST_F(GeneratedCodeIdentityTest, PlainCRejectsTwoDefinitionsOfANamespaceInOneTranslationUnit) {
+    const fs::path base = inv_root("base", kCoreSchema);
+    const fs::path first = generate(kPlainC, base, "first");
+    const fs::path second = generate(
+        kPlainC, inv_root("renamed", replace_all(std::string(kCoreSchema), "  rpm:", "  speed:")),
+        "second");
+    const fs::path compact = generate(kPlainC, base, "compact", "--c-optimize-size");
+    const fs::path copy = generate(kPlainC, base, "copy");
+    for (const fs::path& other : {second, compact, copy}) {
+        fs::create_directories(other / "other");
+        fs::rename(other / "inv/core.generated.h", other / "other/core.generated.h");
+    }
+    const std::string pair =
+        "#include \"inv/core.generated.h\"\n#include \"other/core.generated.h\"\n"
+        "int main(void) { return 0; }\n";
+    for (const bool plain_c : {true, false}) {
+        const std::string tag = plain_c ? "-c" : "-cpp";
+        for (const fs::path& different : {second, compact}) {
+            const RunResult result = syntax_check(
+                pair, {first, different}, "same-tu" + tag + different.filename().string(), plain_c);
+            EXPECT_NE(result.status, 0) << different;
+            EXPECT_NE(result.output.find("this translation unit already includes a different "
+                                         "generated definition of namespace inv.core"),
+                      std::string::npos)
+                << different << "\n"
+                << result.output;
+        }
+        // Identical definitions reached through two paths are deduplicated.
+        const RunResult same = syntax_check(pair, {first, copy}, "same-copy" + tag, plain_c);
+        EXPECT_EQ(same.status, 0) << same.output;
+    }
+    // A plain C and a C++/C-storage header of one namespace in one C++
+    // translation unit: different definitions of the same C names.
+    const fs::path cstorage = generate(kCStorage, base, "cstorage");
+    const RunResult mixed =
+        syntax_check("#include \"inv/core.generated.h\"\n#include \"inv/core.generated.hpp\"\n",
+                     {first, cstorage}, "same-tu-variants");
+    EXPECT_NE(mixed.status, 0);
+    EXPECT_NE(mixed.output.find("already includes a different generated definition of namespace "
+                                "inv.core"),
+              std::string::npos)
+        << mixed.output;
+}
+
+TEST_F(GeneratedCodeIdentityTest, PlainCHeadersConsumedFromCppAreIsolated) {
+    const fs::path base_root = inv_root("base", kCoreSchema);
+    const fs::path standard = generate(kPlainC, base_root, "default");
+    const fs::path compact = generate(kPlainC, base_root, "compact", "--c-optimize-size");
+    const fs::path renamed = generate(
+        kPlainC, inv_root("renamed", replace_all(std::string(kCoreSchema), "  rpm:", "  speed:")),
+        "renamed");
+    const fs::path unused = generate(
+        kPlainC,
+        inv_root("unused",
+                 replace_all(replace_all(std::string(kCoreSchema), "      low: 0", "      low: 2"),
+                             "      high: 1", "      high: 0")),
+        "unused");
+    struct Side {
+        std::string tu;
+        fs::path includes;
+    };
+    const auto side = [&](std::string_view name, const fs::path& includes) {
+        const bool is_compact = includes == compact;
+        return Side{plain_c_tu(name, is_compact, includes == renamed ? "speed" : "rpm",
+                               includes == unused ? "0" : "1"),
+                    includes};
+    };
+    const std::vector<std::pair<std::string, std::pair<fs::path, fs::path>>> cases = {
+        {"case7-default-vs-compact", {standard, compact}}, // the original case-7 reproduction
+        {"field-names", {standard, renamed}},              // wire-equivalent definitions
+        {"unused-enum", {standard, unused}},               // wire-equivalent definitions
+        {"identical", {standard, standard}},               // one definition, two TUs
+    };
+    for (const std::string& flags : link_flag_sets()) {
+        const std::string tag = std::to_string(flags.size());
+        for (const auto& [label, pair] : cases) {
+            for (const bool reversed : {false, true}) {
+                const fs::path& first = reversed ? pair.second : pair.first;
+                const fs::path& second = reversed ? pair.first : pair.second;
+                const Side a = side("a", first);
+                const Side b = side("b", second);
+                const std::string name = label + (reversed ? "-ba" : "-ab") + tag;
+                EXPECT_EQ(link_and_run(a.tu, a.includes, b.tu, b.includes, flags, "cpp-" + name),
+                          "run_a=0 run_b=0")
+                    << label << " (C++) " << flags << (reversed ? " reversed" : "");
+                // Control: the same translation units compiled as C.
+                EXPECT_EQ(
+                    link_and_run(a.tu, a.includes, b.tu, b.includes, flags, "c-" + name, true),
+                    "run_a=0 run_b=0")
+                    << label << " (C) " << flags << (reversed ? " reversed" : "");
+            }
+        }
+    }
+
+    // External symbol isolation: every external symbol of a C++ object that
+    // names a generated type carries that header's own identity, so the two
+    // definitions share none; the C objects define no generated external
+    // symbol at all.
+    ASSERT_EQ(link_and_run(side("a", standard).tu, standard, side("b", compact).tu, compact, "-O0",
+                           "nm-cpp"),
+              "run_a=0 run_b=0");
+    ASSERT_EQ(link_and_run(side("a", standard).tu, standard, side("b", compact).tu, compact, "-O0",
+                           "nm-c", true),
+              "run_a=0 run_b=0");
+    bool nm_available = false;
+    const auto symbols_of = [&](std::string_view directory, std::string_view object) {
+        return external_symbols(work_ / "link" / std::string(directory) / std::string(object),
+                                work_ / (std::string(directory) + std::string(object) + ".nm"),
+                                nm_available);
+    };
+    const std::vector<std::string> cpp_a = symbols_of("nm-cpp", "a.o");
+    if (!nm_available) {
+        GTEST_SKIP() << "nm is not available; external symbol isolation not checked";
+    }
+    const std::vector<std::string> cpp_b = symbols_of("nm-cpp", "b.o");
+    const std::string standard_gid = gid(standard / "inv/core.generated.h");
+    const std::string compact_gid = gid(compact / "inv/core.generated.h");
+    ASSERT_NE(standard_gid, compact_gid);
+    const auto generated = [](const std::vector<std::string>& symbols) {
+        std::set<std::string> found;
+        for (const std::string& symbol : symbols) {
+            if (symbol.find("inv_core_") != std::string::npos) {
+                found.insert(symbol);
+            }
+        }
+        return found;
+    };
+    EXPECT_FALSE(generated(cpp_a).empty()) << "std::vector<inv_core_Status_t> instantiations";
+    EXPECT_EQ(unisolated_symbols(cpp_a, standard_gid), std::vector<std::string>{});
+    EXPECT_EQ(unisolated_symbols(cpp_b, compact_gid), std::vector<std::string>{});
+    std::vector<std::string> shared;
+    const std::set<std::string> a_symbols = generated(cpp_a);
+    const std::set<std::string> b_symbols = generated(cpp_b);
+    std::set_intersection(a_symbols.begin(), a_symbols.end(), b_symbols.begin(), b_symbols.end(),
+                          std::back_inserter(shared));
+    EXPECT_EQ(shared, std::vector<std::string>{});
+    for (const std::string_view object : {"a.o", "b.o"}) {
+        EXPECT_EQ(generated(symbols_of("nm-c", object)), std::set<std::string>{})
+            << object << ": a C object exports no generated symbol";
+    }
+}
+
+TEST_F(GeneratedCodeIdentityTest, PlainCEnumCallbacksKeepCLanguageLinkage) {
+    const fs::path standard = generate(kPlainC, inv_root("base", kCoreSchema), "default");
+    const fs::path compact =
+        generate(kPlainC, inv_root("base2", kCoreSchema), "compact", "--c-optimize-size");
+    std::set<std::string> bases;
+    for (const fs::path& output : {standard, compact}) {
+        EXPECT_EQ(
+            plain_c_callback_violations(read_text_file(output / "inv/core.generated.h"), bases),
+            std::vector<std::string>{})
+            << output;
+        EXPECT_EQ(bases, (std::set<std::string>{"inv_core_Status_field_1"}));
+    }
+    // Compilers that track the language linkage of internal-linkage function
+    // types (GCC does, Clang does not) reject a C++-linkage redeclaration of a
+    // callback. Calibrated with a control, so the probe only runs where it can
+    // discriminate.
+    const RunResult control =
+        syntax_check("namespace n {\nextern \"C\" { static int f(void) { return 0; } }\n"
+                     "extern \"C++\" { static int f(void); }\n}\nint main() { return n::f(); }\n",
+                     {}, "linkage-control");
+    const bool tracks_linkage =
+        control.status != 0 && (control.output.find("linkage") != std::string::npos ||
+                                control.output.find("conflicting") != std::string::npos);
+    if (!tracks_linkage) {
+        std::printf("note: this compiler does not track the language linkage of internal-linkage "
+                    "functions; only the structural check applies\n");
+        return;
+    }
+    const std::string id = gid(standard / "inv/core.generated.h");
+    const RunResult redeclared = syntax_check(
+        "#include \"inv/core.generated.h\"\n#include <cstdint>\ninline namespace quarry_gen_" + id +
+            " {\nextern \"C++\" { static std::uint64_t inv_core_Status_field_1_enum_load(const "
+            "void*); }\n}\n",
+        {standard}, "linkage-redeclared");
+    EXPECT_NE(redeclared.status, 0) << "a C++-linkage redeclaration compiled";
+    EXPECT_TRUE(redeclared.output.find("linkage") != std::string::npos ||
+                redeclared.output.find("conflicting") != std::string::npos)
+        << redeclared.output;
+    const RunResult same = syntax_check(
+        "#include \"inv/core.generated.h\"\n#include <cstdint>\ninline namespace quarry_gen_" + id +
+            " {\nextern \"C\" { static std::uint64_t inv_core_Status_field_1_enum_load(const "
+            "void*); }\n}\n",
+        {standard}, "linkage-same");
+    EXPECT_EQ(same.status, 0) << same.output;
+}
+
+// Mutation tests of the plain C checks, applied to real generated output: a
+// header without the C++ identity namespace, a dependent without its
+// generated-code identity checks, and callbacks outside extern "C" must each be
+// caught.
+TEST_F(GeneratedCodeIdentityTest, PlainCIsolationChecksRejectMutatedHeaders) {
+    const fs::path base_root = inv_root("base", kCoreSchema);
+    const fs::path standard = generate(kPlainC, base_root, "default");
+    const fs::path compact = generate(kPlainC, base_root, "compact", "--c-optimize-size");
+    const std::string standard_gid = gid(standard / "inv/core.generated.h");
+    const std::string compact_gid = gid(compact / "inv/core.generated.h");
+
+    // Mutation 1: no C++ namespace isolation (the pre-G2 C++ view). Only the
+    // object is inspected: the mutant program has the case-7 ODR violation.
+    const fs::path mutant = work_ / "mutant-default";
+    fs::copy(standard, mutant, fs::copy_options::recursive);
+    {
+        const fs::path header = mutant / "inv/core.generated.h";
+        const std::string text = read_text_file(header);
+        const std::string stripped = replace_all(
+            replace_all(text, "inline namespace quarry_gen_" + standard_gid + " {\n", ""),
+            "} /* inline namespace quarry_gen_" + standard_gid + " */\n", "");
+        ASSERT_NE(stripped, text);
+        write_text_file(header, stripped);
+    }
+    const auto compile_object = [&](const fs::path& includes, std::string_view tag) {
+        const fs::path source = work_ / (std::string(tag) + ".cpp");
+        const fs::path object = work_ / (std::string(tag) + ".o");
+        write_text_file(source, plain_c_tu("a", false));
+        const RunResult compiled =
+            run(quote(QUARRY_TEST_CXX_COMPILER) +
+                    " -std=c++20 -O0" QUARRY_TEST_STRICT_CXX_WARNINGS " -I" +
+                    quote(includes.string()) + " -I" + quote(QUARRY_TEST_REPO_INCLUDE_DIR) + " -I" +
+                    quote(QUARRY_TEST_GENERATED_INCLUDE_DIR) + " -c " + quote(source.string()) +
+                    " -o " + quote(object.string()),
+                work_ / (std::string(tag) + ".log"));
+        EXPECT_EQ(compiled.status, 0) << compiled.output;
+        return object;
+    };
+    bool nm_available = false;
+    const std::vector<std::string> original_symbols =
+        external_symbols(compile_object(standard, "original"), work_ / "original.nm", nm_available);
+    const std::vector<std::string> mutant_symbols =
+        external_symbols(compile_object(mutant, "mutant"), work_ / "mutant.nm", nm_available);
+    if (nm_available) {
+        EXPECT_EQ(unisolated_symbols(original_symbols, standard_gid), std::vector<std::string>{});
+        EXPECT_NE(unisolated_symbols(mutant_symbols, standard_gid), std::vector<std::string>{})
+            << "the isolation check must flag std::vector<inv_core_Status_t> outside the "
+               "identity namespace";
+    }
+    (void)compact_gid;
+
+    // Mutation 2: the dependent loses its generated-code identity checks, so
+    // a dependency with other definitions is no longer rejected.
+    const fs::path engine = generate(kPlainC, dep_root("e", kCommonSchema, kEngineSchema), "e");
+    const fs::path common = generate(
+        kPlainC,
+        dep_root("r", replace_all(std::string(kCommonSchema), "unix_ms", "millis"), kEngineSchema),
+        "r");
+    const fs::path mixed = work_ / "mixed";
+    fs::create_directories(mixed / "dep");
+    fs::copy_file(common / "dep/common.generated.h", mixed / "dep/common.generated.h");
+    std::string dependent = read_text_file(engine / "dep/engine.generated.h");
+    const std::string begin =
+        "\n/* Every generated header this header includes must contain exactly";
+    const std::size_t from = dependent.find(begin);
+    ASSERT_NE(from, std::string::npos);
+    const std::size_t to = dependent.find("#endif\n", from);
+    ASSERT_NE(to, std::string::npos);
+    const std::string without_checks = dependent.substr(0, from) + dependent.substr(to + 7U);
+    const std::string probe = "#include \"dep/engine.generated.h\"\nint main(void) { return 0; }\n";
+    write_text_file(mixed / "dep/engine.generated.h", dependent);
+    EXPECT_NE(syntax_check(probe, {mixed}, "dep-original", true).status, 0);
+    write_text_file(mixed / "dep/engine.generated.h", without_checks);
+    EXPECT_EQ(syntax_check(probe, {mixed}, "dep-mutant", true).status, 0)
+        << "without the identity checks the mixed set compiles: the dependency check is what "
+           "rejects it";
+
+    // Mutation 3: callbacks moved out of extern "C".
+    std::set<std::string> bases;
+    std::string header = read_text_file(standard / "inv/core.generated.h");
+    const std::string moved =
+        replace_all(replace_all(header, "extern \"C\" {\n", ""), "} /* extern \"C\" */\n", "");
+    EXPECT_NE(plain_c_callback_violations(moved, bases), std::vector<std::string>{});
+    const std::string not_static =
+        replace_all(header, "static inline uint64_t inv_core_Status_field_1_enum_load",
+                    "inline uint64_t inv_core_Status_field_1_enum_load");
+    ASSERT_NE(not_static, header);
+    EXPECT_NE(plain_c_callback_violations(not_static, bases), std::vector<std::string>{});
 }
 
 } // namespace

@@ -263,25 +263,6 @@ struct FieldEncoding;
     return "QUARRY_GENERATED_C_" + uppercase_alnum_or_underscore(relative_header_path) + "_";
 }
 
-// Configuration-specific include guard: the full 128-bit schema_id goes
-// between the path stem and the extension, for example
-// QUARRY_GENERATED_C_TRUCK_ENGINE_9200CA49..._GENERATED_H_, so headers of one
-// namespace from two configurations never share a guard and the second is
-// never skipped silently. Unique exactly when header_guard_macro is.
-[[nodiscard]] std::string
-identity_header_guard_macro(std::string_view relative_header_path,
-                            std::string_view header_extension,
-                            const support::ConfigurationIdentity& identity) {
-    std::string_view stem = relative_header_path;
-    if (!header_extension.empty() && stem.size() > header_extension.size() &&
-        stem.ends_with(header_extension)) {
-        stem.remove_suffix(header_extension.size());
-    }
-    return "QUARRY_GENERATED_C_" + uppercase_alnum_or_underscore(stem) + "_" +
-           support::schema_id_hex_upper(identity) +
-           uppercase_alnum_or_underscore(relative_header_path.substr(stem.size())) + "_";
-}
-
 // Encoded namespace body (#117). Empty when the name is not a namespace FQN;
 // the file plan rejects that before a header is written.
 [[nodiscard]] std::string namespace_macro_body(std::string_view namespace_fqn) {
@@ -307,13 +288,22 @@ identity_header_guard_macro(std::string_view relative_header_path,
            "_schema_id";
 }
 
-// Prefix of the generated-code identity macros of a namespace's C++/C-storage
-// header (#111), for example QUARRY_GENERATED_CPP_C_NS_truck_engine. Derived
-// from the namespace encoding, never from the output path; reserved per
+// Prefix of the generated-code identity macros and guard of a namespace's
+// header (#111): QUARRY_GENERATED_CPP_C_NS_truck_engine for C++/C storage, and
+// QUARRY_GENERATED_C_NS_truck_engine for plain C (G2). Derived from the
+// namespace encoding (#117), never from the output path; reserved per
 // namespace in the file-scope identifier registry.
-[[nodiscard]] std::string cstorage_identity_macro_prefix(std::string_view namespace_fqn) {
-    return std::string(support::kCppCStorageNamespaceMacroPrefix) +
+[[nodiscard]] std::string code_identity_macro_prefix(std::string_view namespace_fqn,
+                                                     bool cpp_wrapper) {
+    return std::string(cpp_wrapper ? support::kCppCStorageNamespaceMacroPrefix
+                                   : support::kCNamespaceCodeIdMacroPrefix) +
            namespace_macro_body(namespace_fqn);
+}
+
+// The generated-code identity variant of a C backend invocation.
+[[nodiscard]] support::GeneratedCodeVariant code_identity_variant(bool cpp_wrapper) {
+    return cpp_wrapper ? support::GeneratedCodeVariant::CppCStorage
+                       : support::GeneratedCodeVariant::C;
 }
 
 [[nodiscard]] std::string hex_word_literal(std::uint32_t word) {
@@ -1513,12 +1503,13 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                             identifier + "' collides with another generated C identifier";
             return false;
         }
-        // C++/C-storage headers declare everything in a global inline namespace
-        // named quarry_gen_<generated-code identity> (#111).
-        if (options.cpp_wrapper && identifier.starts_with("quarry_gen_")) {
+        // In C++, C-storage headers, and plain C headers compiled as C++ (G2),
+        // declare everything in a global inline namespace named
+        // quarry_gen_<generated-code identity> (#111).
+        if (identifier.starts_with("quarry_gen_")) {
             error_message = "backend_c: generated " + std::string(category) + " '" + identifier +
-                            "' uses the prefix quarry_gen_, which generated C++/C-storage code "
-                            "reserves for generated-code identity; rename it";
+                            "' uses the prefix quarry_gen_, which generated C and C++/C-storage "
+                            "code reserves for generated-code identity; rename it";
             return false;
         }
         return true;
@@ -1578,9 +1569,9 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                 "' has no standards-compliant identity macro spelling";
             return false;
         }
-        if (options.cpp_wrapper &&
-            !support::is_unreserved_macro_identifier(
-                cstorage_identity_macro_prefix(file.namespace_fqn) + "_CODE_ID_FORMAT")) {
+        if (!support::is_unreserved_macro_identifier(
+                code_identity_macro_prefix(file.namespace_fqn, options.cpp_wrapper) +
+                "_CODE_ID_FORMAT")) {
             error_message = "backend_c: namespace '" + file.namespace_fqn +
                             "' has no standards-compliant generated-code identity macro spelling";
             return false;
@@ -1594,14 +1585,13 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                 return false;
             }
         }
-        if (options.cpp_wrapper) {
-            for (const std::string_view suffix :
-                 {"_CODE_ID_FORMAT", "_CODE_ID_W0", "_CODE_ID_W1", "_CODE_ID_W2", "_CODE_ID_W3"}) {
-                if (!reserve_file_scope_identifier(
-                        cstorage_identity_macro_prefix(file.namespace_fqn) + std::string(suffix),
-                        "generated-code identity macro")) {
-                    return false;
-                }
+        for (const std::string_view suffix :
+             {"_CODE_ID_FORMAT", "_CODE_ID_W0", "_CODE_ID_W1", "_CODE_ID_W2", "_CODE_ID_W3"}) {
+            if (!reserve_file_scope_identifier(
+                    code_identity_macro_prefix(file.namespace_fqn, options.cpp_wrapper) +
+                        std::string(suffix),
+                    "generated-code identity macro")) {
+                return false;
             }
         }
         for (const PlannedEnum& planned_enum : file.enums) {
@@ -2037,23 +2027,23 @@ void render_cpp_wrapper(::std::ostringstream& stream, const PlannedRecord& recor
 
 // Everything render_header needs beyond the planned file. For C++/C-storage
 // headers, output paths are written as structured placeholders and
-// `dependency_ids` holds the generated-code identity of every generated
-// namespace they include; plain C headers (dependency_ids == nullptr) are
-// rendered with literal paths and carry no generated-code identity (#111 G2).
+// Headers are rendered in placeholder form (support::placeholder) for their
+// generated-code identity (#111; plain C since G2), and `dependency_ids` holds
+// the identity of every generated namespace they include.
 struct CRenderContext {
     bool optimize_size = false;
     bool cpp_wrapper = false;
     const std::map<std::string, std::string>& namespace_by_include;
     std::string_view header_extension;
     const support::ConfigurationIdentity& identity;
-    const std::map<std::string, support::GeneratedCodeIdentity, std::less<>>* dependency_ids =
-        nullptr;
+    const std::map<std::string, support::GeneratedCodeIdentity, std::less<>>& dependency_ids;
 
-    // The include path of `namespace_fqn` as written into the header.
-    [[nodiscard]] std::string path(std::string_view namespace_fqn,
-                                   std::string_view include_path) const {
-        return cpp_wrapper ? support::placeholder::include_path(namespace_fqn)
-                           : std::string(include_path);
+    // The include path of `namespace_fqn` as written into the header: a
+    // placeholder, because output naming (--root-file-stem) must not change
+    // the hashed text.
+    [[nodiscard]] static std::string path(std::string_view namespace_fqn,
+                                          std::string_view /*include_path*/) {
+        return support::placeholder::include_path(namespace_fqn);
     }
 };
 
@@ -2098,9 +2088,6 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Planned
                << "; regenerate both from the same compilation root.\"\n";
         stream << "#endif\n";
     }
-    if (context.dependency_ids == nullptr) {
-        return; // plain C carries no generated-code identity yet (#111 G2)
-    }
     bool wrote_identity_comment = false;
     for (const std::string& include_path : file.generated_includes) {
         const auto it = context.namespace_by_include.find(include_path);
@@ -2113,8 +2100,8 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Planned
                       " * identity). */\n";
             wrote_identity_comment = true;
         }
-        const support::GeneratedCodeIdentity& expected = context.dependency_ids->at(it->second);
-        const std::string macro = cstorage_identity_macro_prefix(it->second);
+        const support::GeneratedCodeIdentity& expected = context.dependency_ids.at(it->second);
+        const std::string macro = code_identity_macro_prefix(it->second, context.cpp_wrapper);
         const std::string path = context.path(it->second, include_path);
         stream << "#if !defined(" << macro << "_CODE_ID_FORMAT)";
         for (std::size_t word = 0; word < 4U; ++word) {
@@ -2148,14 +2135,11 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Planned
     const bool cpp_wrapper = context.cpp_wrapper;
     const support::ConfigurationIdentity& identity = context.identity;
     const CLinkage& linkage = cpp_wrapper ? kCStorageLinkage : kPlainCLinkage;
-    // C-storage headers key their guard by the generated-code identity, so two
-    // different definitions of a namespace never share a guard and identical
-    // ones do; plain C keeps its configuration-keyed guard (#111 G2).
-    const std::string guard = cpp_wrapper
-                                  ? cstorage_identity_macro_prefix(file.namespace_fqn) + "_" +
-                                        support::placeholder::self_identity('H') + "_"
-                                  : identity_header_guard_macro(file.relative_header_path,
-                                                                context.header_extension, identity);
+    // Guards are keyed by the generated-code identity (C++/C storage since G1,
+    // plain C since G2), so two different definitions of a namespace never
+    // share a guard and identical ones do, whatever their output paths.
+    const std::string code_id_prefix = code_identity_macro_prefix(file.namespace_fqn, cpp_wrapper);
+    const std::string guard = code_id_prefix + "_" + support::placeholder::self_identity('H') + "_";
     const std::string identity_macro = identity_macro_prefix(file.namespace_fqn);
     // C++ (C-storage) headers put every declaration in an inline namespace
     // keyed by the full generated-code identity. Source code keeps writing
@@ -2172,13 +2156,14 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Planned
     stream << "#ifndef " << guard << "\n";
     stream << "#define " << guard << "\n";
     stream << "\n";
-    if (cpp_wrapper) {
+    {
         // Explicit same-translation-unit conflict detection (#111): reaching
         // this point with the namespace's identity macros already defined means
-        // a different generated definition of it was included first.
-        const std::string prefix = cstorage_identity_macro_prefix(file.namespace_fqn);
-        stream << "#if defined(" << prefix << "_CODE_ID_FORMAT) || defined(" << identity_macro
-               << "_ALGORITHM)\n";
+        // a different generated definition of it was included first. The
+        // configuration identity macros are shared by plain C and C++/C
+        // storage, so a header of either variant is detected.
+        stream << "#if defined(" << code_id_prefix << "_CODE_ID_FORMAT) || defined("
+               << identity_macro << "_ALGORITHM)\n";
         stream << "#error \"" << context.path(file.namespace_fqn, file.generated_include_path)
                << ": this translation unit already includes a different generated definition of "
                   "namespace "
@@ -2196,8 +2181,8 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Planned
                << hex_word_literal(support::schema_id_word(identity, word)) << "\n";
     }
     stream << "\n";
-    if (cpp_wrapper) {
-        const std::string prefix = cstorage_identity_macro_prefix(file.namespace_fqn);
+    {
+        const std::string& prefix = code_id_prefix;
         stream
             << "/* Generated-code identity of this header: SHA-256 (truncated to 128 bits) of its\n"
                " * normalized generated definitions, its configuration and the identities of the\n"
@@ -2241,7 +2226,17 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Planned
         // mangled with the generated-code identity namespace (CLinkage).
         stream << "inline namespace " << configuration_namespace << " {\n";
     } else {
+        // Plain C compiled as C++ (G2): the declarations go in the inline
+        // generated-code identity namespace, so the C++ entities they define
+        // (struct and enum types and every template instantiation over them,
+        // such as std::vector<truck_engine_EngineStatus_t>) get mangled names
+        // specific to these definitions. extern "C" stays inside it: every
+        // function type keeps C language linkage, as the runtime's callback
+        // pointers require ([dcl.link], CERT EXP56-CPP), and no declaration
+        // has external linkage, so no C-linkage name can merge across
+        // namespaces. Compiled as C, the header is unchanged.
         stream << "#ifdef __cplusplus\n";
+        stream << "inline namespace " << configuration_namespace << " {\n";
         stream << "extern \"C\" {\n";
         stream << "#endif\n";
     }
@@ -2376,7 +2371,8 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Planned
     } else {
         stream << "\n";
         stream << "#ifdef __cplusplus\n";
-        stream << "}\n";
+        stream << "} /* extern \"C\" */\n";
+        stream << "} /* inline namespace " << configuration_namespace << " */\n";
         stream << "#endif\n";
     }
     stream << "\n";
@@ -2441,8 +2437,9 @@ namespace {
            std::string(include_path) + "\"\n";
 }
 
-// C++/C storage (#111): computes the generated-code identity of every planned
-// namespace, dependencies first, from its placeholder-form header and source.
+// Computes the generated-code identity of every planned namespace (C++/C
+// storage since #111 G1, plain C since G2), dependencies first, from its
+// placeholder-form header and source.
 // Every namespace is fully planned whether or not --generate emits it, so
 // unselected dependencies are identified exactly as when they are generated.
 struct IdentifiedFile {
@@ -2465,30 +2462,31 @@ generated_dependencies_of(const PlannedNamespaceFile& file,
     return dependencies;
 }
 
-[[nodiscard]] bool identify_cstorage_file(
-    const PlannedNamespaceFile& file,
-    const std::map<std::string, std::string>& namespace_by_include, const CodegenOptions& options,
-    const std::map<std::string, support::GeneratedCodeIdentity, std::less<>>& ids,
-    IdentifiedFile& result, std::string& error_message) {
+[[nodiscard]] bool
+identify_file(const PlannedNamespaceFile& file,
+              const std::map<std::string, std::string>& namespace_by_include,
+              const CodegenOptions& options,
+              const std::map<std::string, support::GeneratedCodeIdentity, std::less<>>& ids,
+              IdentifiedFile& result, std::string& error_message) {
     std::vector<support::GeneratedCodeIdentityDependency> dependencies;
     for (const std::string& fqn : generated_dependencies_of(file, namespace_by_include)) {
         const auto dependency = ids.find(fqn);
         dependencies.push_back(support::GeneratedCodeIdentityDependency{
             .namespace_fqn = dependency->first,
-            .variant = support::GeneratedCodeVariant::CppCStorage,
+            .variant = code_identity_variant(options.cpp_wrapper),
             .identity = dependency->second});
     }
     const CRenderContext context{.optimize_size = options.optimize_size,
-                                 .cpp_wrapper = true,
+                                 .cpp_wrapper = options.cpp_wrapper,
                                  .namespace_by_include = namespace_by_include,
                                  .header_extension = options.header_extension,
                                  .identity = *options.configuration_identity,
-                                 .dependency_ids = &ids};
+                                 .dependency_ids = ids};
     result.header = render_header(file, context);
     result.source =
         render_compatibility_source(support::placeholder::include_path(file.namespace_fqn));
     const support::GeneratedCodeIdentityInput input{
-        .variant = support::GeneratedCodeVariant::CppCStorage,
+        .variant = code_identity_variant(options.cpp_wrapper),
         .configuration = *options.configuration_identity,
         .namespace_fqn = file.namespace_fqn,
         .files = {support::GeneratedCodeIdentityFile{.role = support::GeneratedFileRole::Header,
@@ -2508,10 +2506,11 @@ generated_dependencies_of(const PlannedNamespaceFile& file,
 
 // Iterative: each pass identifies every namespace whose generated dependencies
 // are already identified; a pass without progress means a cycle.
-[[nodiscard]] bool identify_cstorage_files(
-    const std::vector<PlannedNamespaceFile>& files,
-    const std::map<std::string, std::string>& namespace_by_include, const CodegenOptions& options,
-    std::map<std::string, IdentifiedFile, std::less<>>& identified, std::string& error_message) {
+[[nodiscard]] bool identify_files(const std::vector<PlannedNamespaceFile>& files,
+                                  const std::map<std::string, std::string>& namespace_by_include,
+                                  const CodegenOptions& options,
+                                  std::map<std::string, IdentifiedFile, std::less<>>& identified,
+                                  std::string& error_message) {
     std::set<std::string, std::less<>> planned;
     for (const PlannedNamespaceFile& file : files) {
         planned.insert(file.namespace_fqn);
@@ -2541,8 +2540,7 @@ generated_dependencies_of(const PlannedNamespaceFile& file,
                 continue;
             }
             IdentifiedFile result;
-            if (!identify_cstorage_file(*file, namespace_by_include, options, ids, result,
-                                        error_message)) {
+            if (!identify_file(*file, namespace_by_include, options, ids, result, error_message)) {
                 return false;
             }
             ids.emplace(file->namespace_fqn, result.identity);
@@ -2583,66 +2581,42 @@ generated_dependencies_of(const PlannedNamespaceFile& file,
         namespace_by_include.emplace(file.generated_include_path, file.namespace_fqn);
     }
 
-    if (options.cpp_wrapper) {
-        std::map<std::string, IdentifiedFile, std::less<>> identified;
-        if (!identify_cstorage_files(files, namespace_by_include, options, identified,
-                                     error_message)) {
-            result.success = false;
-            result.error_message = std::move(error_message);
-            return result;
-        }
-        support::PlaceholderValues values;
-        for (const PlannedNamespaceFile& file : files) {
-            values.include_paths.emplace(file.namespace_fqn, file.generated_include_path);
-        }
-        std::vector<GeneratedFile> generated;
-        for (const PlannedNamespaceFile& file : files) {
-            if (!file.emits_output) {
-                continue;
-            }
-            const IdentifiedFile& identified_file = identified.at(file.namespace_fqn);
-            values.self = identified_file.identity;
-            auto header =
-                support::substitute_placeholders(identified_file.header, values, error_message);
-            auto source = header.has_value() ? support::substitute_placeholders(
-                                                   identified_file.source, values, error_message)
-                                             : std::nullopt;
-            if (!header.has_value() || !source.has_value()) {
-                result.success = false;
-                result.error_message = "backend_c: " + error_message;
-                return result;
-            }
-            generated.push_back(GeneratedFile{
-                .path = output_path_for_planned_file(options, file.relative_header_path),
-                .content = std::move(*header)});
-            generated.push_back(GeneratedFile{
-                .path = output_path_for_planned_file(options, file.relative_source_path),
-                .content = std::move(*source)});
-        }
-        result.files = std::move(generated);
+    std::map<std::string, IdentifiedFile, std::less<>> identified;
+    if (!identify_files(files, namespace_by_include, options, identified, error_message)) {
+        result.success = false;
+        result.error_message = std::move(error_message);
         return result;
     }
-
-    const CRenderContext context{.optimize_size = options.optimize_size,
-                                 .cpp_wrapper = false,
-                                 .namespace_by_include = namespace_by_include,
-                                 .header_extension = options.header_extension,
-                                 .identity = *options.configuration_identity,
-                                 .dependency_ids = nullptr};
-    result.files.reserve(files.size() * 2U);
+    support::PlaceholderValues values;
+    for (const PlannedNamespaceFile& file : files) {
+        values.include_paths.emplace(file.namespace_fqn, file.generated_include_path);
+    }
+    std::vector<GeneratedFile> generated;
+    generated.reserve(files.size() * 2U);
     for (const PlannedNamespaceFile& file : files) {
         if (!file.emits_output) {
             continue;
         }
-        result.files.push_back(GeneratedFile{
-            .path = output_path_for_planned_file(options, file.relative_header_path),
-            .content = render_header(file, context),
-        });
-        result.files.push_back(GeneratedFile{
-            .path = output_path_for_planned_file(options, file.relative_source_path),
-            .content = render_compatibility_source(file.generated_include_path),
-        });
+        const IdentifiedFile& identified_file = identified.at(file.namespace_fqn);
+        values.self = identified_file.identity;
+        auto header =
+            support::substitute_placeholders(identified_file.header, values, error_message);
+        auto source = header.has_value() ? support::substitute_placeholders(identified_file.source,
+                                                                            values, error_message)
+                                         : std::nullopt;
+        if (!header.has_value() || !source.has_value()) {
+            result.success = false;
+            result.error_message = "backend_c: " + error_message;
+            return result;
+        }
+        generated.push_back(
+            GeneratedFile{.path = output_path_for_planned_file(options, file.relative_header_path),
+                          .content = std::move(*header)});
+        generated.push_back(
+            GeneratedFile{.path = output_path_for_planned_file(options, file.relative_source_path),
+                          .content = std::move(*source)});
     }
+    result.files = std::move(generated);
     return result;
 }
 

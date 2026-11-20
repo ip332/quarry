@@ -79,13 +79,36 @@ defines `QUARRY_NS_<encoded namespace>_SCHEMA_ID_ALGORITHM` and
 `QUARRY_NS_<encoded namespace>_SCHEMA_ID_W0`..`W3` macros (the root namespace
 uses `QUARRY_NS_0_SCHEMA_ID_*`; #117, `compiler/support/namespace_macro.hpp`) and an
 optional `static inline const uint8_t* quarry_ns_<encoded namespace>_schema_id(void)` accessor, which
-emits no object code unless called. Its include guard contains the full
-128-bit `schema_id`. For every generated header it includes, it checks with
+emits no object code unless called. For every generated header it includes, it checks with
 `#if`/`#error` that all five macros are defined (otherwise the dependency
 predates configuration identity) and equal its own (otherwise it comes from a
 different configuration). Schema names whose generated C identifiers would
 equal one of these names are rejected. The C generated-code API epoch stays
 `7`: nothing new is required from `Quarry::runtime_c`.
+
+## Generated-code identity (#111 G2)
+
+Plain C headers also carry the generated-code identity of their definitions
+(`docs/design/configuration-identity.md` §16.5): the include guard is
+`QUARRY_GENERATED_C_NS_<encoded namespace>_<identity>_`, and
+`QUARRY_GENERATED_C_NS_<encoded namespace>_CODE_ID_{FORMAT,W0..W3}` macros
+record it. Every generated dependency is checked against the identity this
+header was generated with, after the configuration checks, and a second,
+different definition of a namespace in one translation unit is an explicit
+`#error`. Output paths and `--root-file-stem` do not change the identity.
+
+Compiled as C++, the declarations are wrapped in
+`inline namespace quarry_gen_<identity> { extern "C" { ... } }`. The C names
+still work from C++ (`::demo_c_Sample_t`), but their C++ types, and templates
+such as `std::vector<demo_c_Sample_t>`, are specific to these generated
+definitions, so different definitions in different translation units are never
+merged. Functions and objects stay `static`/`static inline` with C-linkage
+function types. A forward declaration of a generated struct type at global
+scope in user C++ code no longer refers to the generated type. Compiled as C,
+the generated machine code is unchanged.
+
+Generated C symbol prefixes join namespace segments with `_`, so `dep.engine`
+and `dep_engine` share prefixes across configurations (#119).
 
 ## Supported data model
 
@@ -217,8 +240,8 @@ different definitions. The header guard and the
 `QUARRY_GENERATED_CPP_C_NS_<encoded namespace>_CODE_ID_{FORMAT,W0..W3}` macros carry the
 identity, dependencies are checked against it, and a second, different
 definition of a namespace in one translation unit is an explicit `#error`
-(`docs/design/configuration-identity.md` §16). Plain C record symbols are unchanged.
-Its configuration-identity macros and accessor use the same namespace encoding.
+(`docs/design/configuration-identity.md` §16). Plain C headers use the same
+mechanism since G2 (above).
 
 See [the runnable example](../../examples/cpp/c_storage_encode_decode/README.md)
 for API details, failure behavior, and build instructions.
