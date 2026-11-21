@@ -53,6 +53,7 @@ Options:
       --list-outputs            Print generated output paths without writing files
       --print-generated-code-api-version
                                 Print the generated-code API compatibility version and exit
+      --describe                Describe the full configuration without writing files
       --print-schema-id         Print the resolved configuration's 128-bit schema_id
       --version                 Show version information
   -h, --help                    Show help
@@ -642,3 +643,29 @@ Encoding validates fields as it writes them. On any encode error, discard or
 clear the affected output span; `bytes_written` reports its extent even on
 failure, including partial nested writes. It is not a valid record length on error. The codec does not roll back failed writes. `encoded_size()` remains
 available for a separate validating size calculation.
+
+### Schema description
+
+Run `quarry-schema-compiler --describe examples/truck/schemas/configuration.brd`
+from the repository root. The deterministic text includes the configuration name
+(for configuration roots), root label, full schema identity and algorithm,
+compiler and release metadata, format versions, API epochs, and assigned domain
+and record mappings. Standalone record roots omit the configuration line.
+Domains and records appear in assigned ID order, using four and eight lowercase
+hexadecimal digits respectively. Only namespaces containing records have domains.
+The IDs and canonical names come from the resolved Schema IR; identity comes from
+the same configuration preparation as `--print-schema-id`.
+
+`--describe` ignores `--generate` (including unknown namespace selections),
+backend, storage, output-directory and naming options. Their basic argument syntax
+is still checked. It describes the complete configuration and creates no files.
+Combining it with `--list-inputs`, `--list-outputs`, `--print-schema-id`,
+`--print-generated-code-api-version`, `--version`, `--emit-qbs` or
+`--qbs-reflective` is a usage error (exit 2); `--help` remains terminal.
+A missing root is exit 2; unreadable or invalid schemas are exit 1.
+
+Relative root labels are lexically normalized with forward slashes; absolute
+inputs display only their basename. Backslashes and control bytes in labels are
+escaped. Output contains no timestamps or host-specific absolute paths and uses
+locale-independent number formatting. Compiler metadata may differ between
+compiler builds; it never contributes to schema identity.

@@ -1,6 +1,7 @@
 #include "compiler/backend/backend.hpp"
 #include "compiler/backend/generated_code_api_version.hpp"
 #include "compiler/backend_c/backend_c.hpp"
+#include "compiler/backend_c/generated_code_api_version_c.hpp"
 #include "compiler/backend_go/backend_go.hpp"
 #include "compiler/backend_python/backend_python.hpp"
 #include "compiler/context/compiler_context.hpp"
@@ -14,13 +15,18 @@
 #include "tools/schema_compiler/configuration_preparation.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <locale>
+#include <map>
 #include <optional>
 #include <set>
 #include <sstream>
+#include <tuple>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -56,6 +62,7 @@ struct CommandLine {
     bool show_version = false;
     bool show_generated_code_api_version = false;
     bool print_schema_id = false;
+    bool describe = false;
     bool list_outputs = false;
     bool list_inputs = false;
     bool c_optimize_size = false;
@@ -98,6 +105,7 @@ struct CommandLine {
            "                                Print the generated-code API compatibility version and "
            "exit\n"
            "      --print-schema-id         Print the resolved configuration's 128-bit schema_id\n"
+           "      --describe                Describe the full configuration without writing files\n"
            "      --version                 Show version information\n"
            "  -h, --help                    Show this help text\n";
 }
@@ -105,8 +113,15 @@ struct CommandLine {
 void print_usage(std::ostream& output) { output << usage_text(); }
 
 void print_version(std::ostream& output) {
-    output << "quarry-schema-compiler " << QUARRY_VERSION_DISPLAY
-            << " (" << QUARRY_GIT_SHA << ")\n";
+    output << "quarry-schema-compiler " << QUARRY_VERSION_DISPLAY << " ("
+           << (std::string_view(QUARRY_GIT_SHA).empty() ? "Git SHA unavailable" : QUARRY_GIT_SHA)
+           << ", ";
+    if (std::string_view(QUARRY_RELEASE_TAG) == "untagged") {
+        output << "untagged";
+    } else {
+        output << "release tag " << QUARRY_RELEASE_TAG;
+    }
+    output << ")\n";
 }
 
 void print_generated_code_api_version(std::ostream& output) {
@@ -116,6 +131,88 @@ void print_generated_code_api_version(std::ostream& output) {
 void print_schema_id(std::ostream& output,
                      const quarry::compiler::support::ConfigurationIdentity& identity) {
     output << quarry::compiler::support::schema_id_hex(identity) << '\n';
+}
+
+// Metadata only: paths are display labels, never host-specific canonical paths.
+[[nodiscard]] std::string description_label(std::string_view value) {
+    constexpr char digits[] = "0123456789abcdef";
+    std::string text;
+    for (const unsigned char byte : value) {
+        if (byte == '\\') {
+            text += "\\\\";
+        } else if (byte < 32U || byte == 127U) {
+            text += "\\x";
+            text += digits[byte >> 4U];
+            text += digits[byte & 15U];
+        } else {
+            text += static_cast<char>(byte);
+        }
+    }
+    return text;
+}
+
+void print_description(const CommandLine& command_line,
+                       const context::CompilerContext& compiler_context,
+                       const quarry::compiler::schema_ir::SchemaIrModel& ir,
+                       const PreparedConfiguration& prepared, std::ostream& output) {
+    struct Record {
+        std::uint32_t id;
+        std::string_view fqn;
+    };
+    std::map<std::uint32_t, std::string_view> domains;
+    std::vector<Record> records;
+    std::vector<const quarry::schema_ir::NamespaceIR*> pending{&ir.root_namespace()};
+    while (!pending.empty()) {
+        const auto* ns = pending.back();
+        pending.pop_back();
+        if (!ns->records().empty()) {
+            // Extract the existing domain component; do not allocate/reassign IDs.
+            domains.emplace(ns->records(0).record_id() >> 16U, ns->fqn());
+        }
+        for (const auto& record : ns->records()) {
+            records.push_back({record.record_id(), record.fqn()});
+        }
+        for (const auto& child : ns->namespaces()) {
+            pending.push_back(&child);
+        }
+    }
+    std::sort(records.begin(), records.end(), [](const Record& left, const Record& right) {
+        return std::tie(left.id, left.fqn) < std::tie(right.id, right.fqn);
+    });
+    std::ostringstream text;
+    text.imbue(std::locale::classic());
+    for (const auto& unit : compiler_context.source_units()) {
+        if (unit.is_root && unit.is_configuration) {
+            text << "configuration: " << description_label(unit.configuration_name) << '\n';
+        }
+    }
+    auto root = std::filesystem::path(command_line.input_path).lexically_normal();
+    if (root.is_absolute()) {
+        root = root.filename();
+    }
+    text << "root: " << description_label(root.generic_string()) << '\n';
+    const auto& identity = *prepared.identity;
+    text << "schema_id: " << quarry::compiler::support::schema_id_hex(identity)
+         << " (algorithm " << static_cast<unsigned int>(identity.algorithm) << ": sha256-128)\n";
+    text << "compiler: ";
+    print_version(text);
+    text << "formats: brf " << static_cast<unsigned int>(quarry::compiler::qbs::kBrfFormatVersion)
+         << ", qbs " << static_cast<unsigned int>(quarry::compiler::qbs::kQbsFormatVersion)
+         << ", schema-ir " << ir.schema_ir_version() << '\n';
+    text << "generated-code epochs: cpp " << backend::kGeneratedCodeApiVersion
+         << ", c " << backend_c::kGeneratedCodeApiVersionC
+         << ", python " << QUARRY_SCHEMA_COMPILER_PYTHON_API_EPOCH
+         << ", go " << backend_go::kGeneratedCodeApiVersionGo << '\n';
+    text << "domains: " << domains.size() << '\n';
+    for (const auto& [id, fqn] : domains) {
+        text << "  0x" << std::hex << std::setfill('0') << std::setw(4) << id << ' '
+             << (fqn.empty() ? "<root>" : fqn) << '\n';
+    }
+    text << std::dec << "records: " << records.size() << '\n';
+    for (const auto& record : records) {
+        text << "  0x" << std::hex << std::setw(8) << record.id << ' ' << record.fqn << '\n';
+    }
+    output << text.str();
 }
 
 [[nodiscard]] bool option_requires_value(std::string_view option) {
@@ -152,6 +249,14 @@ void print_schema_id(std::ostream& output,
                 return std::nullopt;
             }
             command_line.show_generated_code_api_version = true;
+            continue;
+        }
+        if (argument == "--describe") {
+            if (command_line.describe) {
+                errors << "error: duplicate --describe option\n";
+                return std::nullopt;
+            }
+            command_line.describe = true;
             continue;
         }
         if (argument == "--print-schema-id") {
@@ -319,6 +424,23 @@ void print_schema_id(std::ostream& output,
             return std::nullopt;
         }
         command_line.input_path = std::string(argument);
+    }
+
+    if (command_line.describe) {
+        if (!command_line.show_help &&
+            (command_line.show_version || command_line.show_generated_code_api_version ||
+             command_line.print_schema_id || command_line.list_inputs || command_line.list_outputs ||
+             saw_qbs_output || saw_qbs_reflective)) {
+            errors << "error: --describe cannot be combined with other query or QBS operations\n";
+            return std::nullopt;
+        }
+        if (!command_line.show_help && command_line.input_path.empty()) {
+            errors << "error: expected exactly one input file\n";
+            return std::nullopt;
+        }
+        // Syntax was checked above. Backend/output options have no meaning in
+        // a full-configuration metadata query, including --generate selection.
+        return command_line;
     }
 
     if (command_line.show_generated_code_api_version) {
@@ -577,7 +699,8 @@ template <typename CodegenResultT>
     const frontend::YamlCompilationResult compilation_result =
         compiler.compile(source_file_id, compiler_context, diagnostic_engine,
                          quarry::compiler::output_planning::GenerationSelection{
-                             .namespaces = command_line.generate_namespaces});
+                             .namespaces = command_line.describe ? std::vector<std::string>{}
+                                                                : command_line.generate_namespaces});
 
     if (!diagnostic_engine.empty()) {
         errors << diagnostics::DiagnosticFormatter::format_all(
@@ -632,7 +755,7 @@ template <typename CodegenResultT>
         return exit_success;
     }
 
-    if (command_line.c_optimize_size) {
+    if (!command_line.describe && command_line.c_optimize_size) {
         backend_c::CodegenOptions storage_options;
         storage_options.optimize_size_namespaces = command_line.c_optimize_size_namespaces;
         if (const auto error = backend_c::validate_storage_options(*compilation_result.schema_ir,
@@ -645,7 +768,7 @@ template <typename CodegenResultT>
     // Prepare the resolved configuration once: its authoritative BRF layout,
     // and its identity only where an output depends on it. --emit-qbs hashes
     // inside the QBS builder; --list-outputs needs no identity at all.
-    const bool identity_required = command_line.print_schema_id ||
+    const bool identity_required = command_line.describe || command_line.print_schema_id ||
                                    (!command_line.list_outputs && command_line.qbs_output.empty());
     diagnostics::DiagnosticEngine layout_diagnostics;
     const std::optional<PreparedConfiguration> prepared =
@@ -654,6 +777,16 @@ template <typename CodegenResultT>
         errors << diagnostics::DiagnosticFormatter::format_all(layout_diagnostics,
                                                                compiler_context.source_manager());
     };
+
+    if (command_line.describe) {
+        if (!prepared.has_value()) {
+            print_layout_diagnostics();
+            return exit_failure;
+        }
+        print_description(command_line, compiler_context, *compilation_result.schema_ir, *prepared,
+                          output);
+        return exit_success;
+    }
 
     if (command_line.print_schema_id) {
         if (!prepared.has_value()) {

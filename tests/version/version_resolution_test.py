@@ -66,7 +66,8 @@ def write_project(root: Path, resolver: Path) -> None:
         f"include(\"{resolver}\")\n"
         "quarry_resolve_version()\n"
         "file(WRITE \"${CMAKE_BINARY_DIR}/result.txt\"\n"
-        "  \"${QUARRY_VERSION}|${QUARRY_VERSION_DISPLAY}|${QUARRY_VERSION_DIRTY}|${QUARRY_VERSION_SOURCE}\")\n",
+        "  \"${QUARRY_VERSION}|${QUARRY_VERSION_DISPLAY}|${QUARRY_VERSION_DIRTY}|${QUARRY_VERSION_SOURCE}|${QUARRY_RELEASE_TAG}\")\n"
+        "quarry_write_resolved_version_fallback(\"${CMAKE_BINARY_DIR}/QuarryResolvedVersion.cmake\")\n",
         encoding="utf-8")
 
 
@@ -116,6 +117,64 @@ def archive_fallback_scenario(cmake: str, resolver: Path) -> None:
         run(["tar", "-xf", str(archive), "-C", str(extracted)])
         result = configure(extracted, cmake)
         assert result.startswith("0.3.8|packaged-archive|"), result
+
+
+def release_metadata_scenarios(cmake: str, resolver: Path) -> None:
+    with tempfile.TemporaryDirectory(prefix="quarry-release-metadata-") as temporary:
+        root = Path(temporary) / "git"
+        root.mkdir()
+        run(["git", "init", "-q"], cwd=root)
+        run(["git", "config", "user.name", "Quarry version fixture"], cwd=root)
+        run(["git", "config", "user.email", "fixture@example.invalid"], cwd=root)
+        (root / "git_version").write_text("0.1\n")
+        (root / ".gitignore").write_text("build/\n")
+        write_project(root, resolver)
+        commit(root, "initial")
+        assert configure(root, cmake).endswith("|untagged")
+        run(["git", "tag", "v0.1.31-rc.1"], cwd=root)
+        tagged = configure(root, cmake)
+        assert tagged == "0.1.0|0.1.0|FALSE|git|v0.1.31-rc.1", tagged
+        assert configure(root, cmake) == tagged
+        # A build fallback retains the tag without replacing the Git-derived number.
+        archive = Path(temporary) / "fallback"
+        archive.mkdir()
+        (archive / "git_version").write_text("0.1\n")
+        (archive / "cmake").mkdir()
+        (archive / "cmake/QuarryResolvedVersion.cmake").write_bytes(
+            (root / "build/QuarryResolvedVersion.cmake").read_bytes())
+        write_project(archive, resolver)
+        assert configure(archive, cmake) == "0.1.0|0.1.0|FALSE|packaged-fallback|v0.1.31-rc.1"
+        (root / "marker").write_text("tracked\n")
+        commit(root, "after release")
+        assert configure(root, cmake) == "0.1.1|0.1.1|FALSE|git|untagged"
+        run(["git", "tag", "-a", "v0.1.32-rc.2", "-m", "test release"], cwd=root)
+        assert configure(root, cmake).endswith("|v0.1.32-rc.2")
+        (root / "marker").write_text("dirty\n")
+        assert configure(root, cmake) == "0.1.1|0.1.1-dirty|TRUE|git|v0.1.32-rc.2"
+        run(["git", "checkout", "--", "marker"], cwd=root)
+        run(["git", "tag", "-d", "v0.1.32-rc.2"], cwd=root)
+        run(["git", "tag", "v9.9.9"], cwd=root)
+        assert configure(root, cmake).endswith("|untagged")
+
+        cases = {
+            "numeric": ('set(QUARRY_VERSION "0.1.31")\n', "0.1.31|0.1.31|FALSE|packaged-fallback|untagged"),
+            "release": ('set(QUARRY_VERSION "0.1.31")\nset(QUARRY_ARCHIVE_TAG "v0.1.31-rc.1")\n',
+                        "0.1.31|0.1.31|FALSE|packaged-fallback|v0.1.31-rc.1"),
+            "missing": (None, None),
+            "invalid": ('set(QUARRY_VERSION "invalid")\n', None),
+            "ancestor": ('set(QUARRY_ARCHIVE_TAG "v0.1.31-1-gabcdef")\n', None),
+        }
+        for name, (fallback, expected) in cases.items():
+            source = Path(temporary) / name
+            source.mkdir()
+            (source / "git_version").write_text("0.1\n")
+            write_project(source, resolver)
+            if fallback is not None:
+                (source / "cmake").mkdir()
+                (source / "cmake/QuarryResolvedVersion.cmake").write_text(fallback)
+            result = configure(source, cmake, expect_success=expected is not None)
+            if expected is not None:
+                assert result == expected, (name, result)
 
 
 def main() -> None:
@@ -183,6 +242,7 @@ def main() -> None:
         assert "Major.Minor" in configure(malformed_root, args.cmake, expect_success=False)
 
     archive_fallback_scenario(args.cmake, args.resolver)
+    release_metadata_scenarios(args.cmake, args.resolver)
 
 
 if __name__ == "__main__":

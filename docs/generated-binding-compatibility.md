@@ -195,7 +195,8 @@ implementation. See the [C example](../examples/c/basic_encode_decode/README.md)
 [owning CMake integration](../examples/cpp/schema_compiler_cmake/README.md).
 
 The installed `quarry_generate_cpp()` helper is for C++ owning. This guide adds
-no C-storage helper or `--name-prefix` / `--describe` feature. A4.3
+no C-storage helper or `--name-prefix` feature. A4.4 adds the optional
+[`--describe` query](../tools/README.md#schema-description). A4.3
 provides optional [stored QBS identity accessors](../runtime_c/README.md#stored-qbs-configuration-identity)
 in the existing C, C++ parser and Python APIs; these do not change generated
 bindings. Do not treat proposed design examples as current CLI.

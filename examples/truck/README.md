@@ -38,6 +38,15 @@ local IDs number each namespace's records by name.
 Two files contribute to `truck.engine` and two to `truck.brakes`. Each namespace
 is generated as one unit containing all of its records.
 
+Inspect the complete configuration without generating files (from this directory):
+
+```sh
+quarry-schema-compiler --describe schemas/configuration.brd
+```
+
+The report includes the full schema identity, assigned IDs and compiler metadata;
+`--generate` selections do not change it.
+
 ## Generating the bindings
 
 The ECU needs only its own namespace and the shared timestamp:

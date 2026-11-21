@@ -1,0 +1,22 @@
+configuration: class8_truck
+root: examples/truck/schemas/configuration.brd
+schema_id: 9200ca494f010801b830d0857cf66dde (algorithm 1: sha256-128)
+compiler: @COMPILER@
+formats: brf 2, qbs 1, schema-ir 1
+generated-code epochs: cpp 3, c 7, python 1, go 1
+domains: 6
+  0x0001 truck
+  0x0002 truck.brakes
+  0x0003 truck.cms
+  0x0004 truck.common
+  0x0005 truck.engine
+  0x0006 truck.transmission
+records: 8
+  0x00010001 truck.VehicleSnapshot
+  0x00020001 truck.brakes.AbsEvent
+  0x00020002 truck.brakes.BrakeStatus
+  0x00030001 truck.cms.CameraHealth
+  0x00040001 truck.common.Timestamp
+  0x00050001 truck.engine.EngineStatus
+  0x00050002 truck.engine.FaultCode
+  0x00060001 truck.transmission.GearState

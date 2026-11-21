@@ -347,6 +347,7 @@ Schema IR (complete resolved configuration)
   -> consumers, all borrowing the same layout:
        backend plan()/generate()   C++, C, C++/C storage, Python, Go
        QbsModelBuilder::build()    --emit-qbs
+       description formatter      --describe (assigned Schema IR IDs and prepared identity)
 ```
 
 * `PreparedConfiguration` (`tools/schema_compiler/configuration_preparation.hpp`)
@@ -354,7 +355,7 @@ Schema IR (complete resolved configuration)
   receive `const` references, use them only during the call, and keep no copy.
 * The layout always covers the complete configuration, never a `--generate`
   subset, so identity and record IDs do not depend on selection.
-* Identity is hashed for ordinary generation and `--print-schema-id`. With
+* Identity is hashed for ordinary generation, `--describe` and `--print-schema-id`. With
   `--emit-qbs` the QBS builder hashes the same input once instead. With
   `--list-outputs` nothing is hashed, including `--emit-qbs --list-outputs`, which
   still builds and validates the QBS model (`QbsBuildOptions::compute_configuration_identity = false`).
