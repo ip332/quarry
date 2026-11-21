@@ -16,6 +16,7 @@
 // for string/bytes arrays because the C backend does not support those
 // element types.
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -36,6 +37,7 @@
 #include "compiler/qbs/serializer.hpp"
 #include "compiler/schema_ir/schema_ir.hpp"
 #include "quarry/runtime/qbs_brf_encoder.hpp"
+#include "quarry/runtime_c/generic_brf.h"
 #include "tests/support/test_configuration_identity.hpp"
 
 #include <gtest/gtest.h>
@@ -225,11 +227,13 @@ constexpr std::string_view kCHarness =
     "  if (!v->has_f32 || v->f32 != 1.5f) return 10;\n"
     "  if (!v->has_f64 || v->f64 != 2.71828182845904) return 11;\n"
     "  if (!v->has_status || v->status != ACME_TELEMETRY_STATUS_WARNING) return 12;\n"
-    "  if (!(v->label_length != 0U) || v->label_length != 5 || memcmp(v->label, \"caf\\xc3\\xa9\", 5) != 0)\n"
+    "  if (!(v->label_length != 0U) || v->label_length != 5 || memcmp(v->label, \"caf\\xc3\\xa9\", "
+    "5) != 0)\n"
     "    return 13;\n"
     "  {\n"
     "    uint8_t expected_blob[] = {0x00U, 0xFFU, 0x80U};\n"
-    "    if (!(v->blob_length != 0U) || v->blob_length != 3 || memcmp(v->blob, expected_blob, 3) != 0)\n"
+    "    if (!(v->blob_length != 0U) || v->blob_length != 3 || memcmp(v->blob, expected_blob, 3) "
+    "!= 0)\n"
     "      return 14;\n"
     "  }\n"
     "  if (!(v->readings_count != 0U) || v->readings_count != 2 || v->readings[0] != 1.5f ||\n"
@@ -1537,6 +1541,93 @@ else:
                                     shell_quote(cpp_encoded.string())),
               0);
     EXPECT_EQ(run_python(python_encoded, "decode"), 0);
+}
+
+TEST(PythonCppCCodecInteropTest, QbsSchemaIdentityMatchesAcrossLanguagesModesAndSelections) {
+    if (std::string_view(QUARRY_TEST_PYTHON3).empty()) {
+        GTEST_SKIP() << "python3 interpreter not found";
+    }
+    const auto root = make_temp_directory("qbs-identity");
+    const auto schema = std::filesystem::path(QUARRY_TEST_REPO_INCLUDE_DIR).parent_path() /
+                        "examples/truck/schemas/configuration.brd";
+    const std::string tool = shell_quote(QUARRY_SCHEMA_COMPILER_TOOL);
+    const auto query = root / "schema-id.txt";
+    ASSERT_EQ(run_and_get_exit_code(tool + " --print-schema-id " + shell_quote(schema.string()) +
+                                    " > " + shell_quote(query.string())),
+              0);
+    const std::string expected_hex = "9200ca494f010801b830d0857cf66dde";
+    ASSERT_EQ(read_binary_file(query), expected_hex + "\n");
+    const auto python = root / "identity.py";
+    write_text_file(python, R"(import pathlib, sys
+import quarry
+schema = quarry.load_qbs(pathlib.Path(sys.argv[1]).read_bytes())
+assert schema.schema_id_algorithm == 1
+assert len(schema.schema_id) == 16
+pathlib.Path(sys.argv[2]).write_bytes(bytes([schema.schema_id_algorithm]) + schema.schema_id)
+)");
+    unsigned int iteration = 0U;
+    for (const bool reflective : {false, true}) {
+        std::string full_image;
+        for (const std::string_view selection :
+             {"", " --generate truck.engine", " --generate truck.common,truck.engine"}) {
+            SCOPED_TRACE(std::string(reflective ? "reflective" : "minimal") +
+                         std::string(selection));
+            const auto path = root / (std::to_string(iteration++) + ".qbs");
+            ASSERT_EQ(run_and_get_exit_code(tool + " --emit-qbs " + shell_quote(path.string()) +
+                                            (reflective ? " --qbs-reflective" : "") +
+                                            std::string(selection) + " " +
+                                            shell_quote(schema.string())),
+                      0);
+            const std::string raw = read_binary_file(path);
+            if (selection.empty())
+                full_image = raw;
+            EXPECT_EQ(raw, full_image);
+            const std::vector<std::uint8_t> bytes(raw.begin(), raw.end());
+            quarry::compiler::diagnostics::DiagnosticCollection diagnostics;
+            const auto cpp = quarry::compiler::qbs::parse_qbs(bytes, diagnostics);
+            ASSERT_TRUE(cpp);
+            const auto cpp_id = cpp->schema_id();
+            EXPECT_EQ(quarry::compiler::support::schema_id_hex(cpp_id), expected_hex);
+            EXPECT_EQ(cpp_id.schema_id, cpp->header().schema_id);
+            quarry_qbs_record_view_t records[128]{};
+            quarry_qbs_field_view_t fields[512]{};
+            quarry_qbs_type_view_t types[256]{};
+            quarry_qbs_enum_view_t enums[128]{};
+            std::uint64_t values[512]{};
+            quarry_workspace_t workspace{};
+            workspace.records = records;
+            workspace.record_capacity = 128U;
+            workspace.fields = fields;
+            workspace.field_capacity = 512U;
+            workspace.types = types;
+            workspace.type_capacity = 256U;
+            workspace.enums = enums;
+            workspace.enum_capacity = 128U;
+            workspace.enum_values = values;
+            workspace.enum_value_capacity = 512U;
+            quarry_qbs_view_t c{};
+            ASSERT_EQ(quarry_qbs_parse(bytes.data(), bytes.size(), &c, &workspace, nullptr),
+                      QUARRY_GENERIC_OK);
+            quarry_schema_id_t c_id{};
+            ASSERT_EQ(quarry_qbs_schema_id(&c, &c_id), QUARRY_GENERIC_OK);
+            EXPECT_EQ(c_id.algorithm, cpp_id.algorithm);
+            EXPECT_TRUE(quarry_schema_id_equals(&c_id, cpp_id.algorithm, cpp_id.schema_id.data()));
+            EXPECT_EQ(c_id.algorithm, bytes[8]);
+            EXPECT_TRUE(
+                std::equal(std::begin(c_id.bytes), std::end(c_id.bytes), bytes.begin() + 12));
+            const auto output = root / "python-id.bin";
+            ASSERT_EQ(run_and_get_exit_code(
+                          "PYTHONPATH=" + shell_quote(QUARRY_TEST_PYTHON_RUNTIME_SRC_DIR) + " " +
+                          shell_quote(QUARRY_TEST_PYTHON3) + " " + shell_quote(python.string()) +
+                          " " + shell_quote(path.string()) + " " + shell_quote(output.string())),
+                      0);
+            const std::string python_id = read_binary_file(output);
+            ASSERT_EQ(python_id.size(), 17U);
+            EXPECT_EQ(static_cast<std::uint8_t>(python_id[0]), c_id.algorithm);
+            EXPECT_EQ(python_id.substr(1U), raw.substr(12U, 16U));
+        }
+    }
+    std::filesystem::remove_all(root);
 }
 
 } // namespace

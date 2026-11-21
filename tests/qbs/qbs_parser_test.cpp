@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <functional>
 #include <vector>
 
@@ -10,6 +11,36 @@ namespace {
 
 using quarry::compiler::diagnostics::DiagnosticCollection;
 using namespace quarry::compiler::qbs;
+
+// Portable snapshots of the pre-A4.3 member layouts: adding an accessor must
+// not add storage to either public view, on 32-bit or 64-bit hosts.
+struct OriginalQbsHeaderLayout {
+    std::uint8_t qbs_format_version, brf_format_version, flags, identity_offset_width;
+    std::array<std::uint8_t, 16> schema_id;
+    std::uint16_t section_count;
+    std::uint32_t total_size;
+};
+struct OriginalValidatedQbsLayout {
+    std::span<const std::uint8_t> bytes;
+    OriginalQbsHeaderLayout header;
+    std::array<std::uint32_t, 11> offsets;
+    std::array<std::size_t, 4> counts;
+};
+static_assert(sizeof(QbsHeaderView) == sizeof(OriginalQbsHeaderLayout));
+static_assert(alignof(QbsHeaderView) == alignof(OriginalQbsHeaderLayout));
+static_assert(sizeof(ValidatedQbsView) == sizeof(OriginalValidatedQbsLayout));
+static_assert(alignof(ValidatedQbsView) == alignof(OriginalValidatedQbsLayout));
+static_assert(offsetof(QbsHeaderView, qbs_format_version) ==
+              offsetof(OriginalQbsHeaderLayout, qbs_format_version));
+static_assert(offsetof(QbsHeaderView, brf_format_version) ==
+              offsetof(OriginalQbsHeaderLayout, brf_format_version));
+static_assert(offsetof(QbsHeaderView, flags) == offsetof(OriginalQbsHeaderLayout, flags));
+static_assert(offsetof(QbsHeaderView, identity_offset_width) ==
+              offsetof(OriginalQbsHeaderLayout, identity_offset_width));
+static_assert(offsetof(QbsHeaderView, schema_id) == offsetof(OriginalQbsHeaderLayout, schema_id));
+static_assert(offsetof(QbsHeaderView, section_count) ==
+              offsetof(OriginalQbsHeaderLayout, section_count));
+static_assert(offsetof(QbsHeaderView, total_size) == offsetof(OriginalQbsHeaderLayout, total_size));
 
 std::vector<std::uint8_t> image() {
     const auto hex = std::string_view{
@@ -78,6 +109,35 @@ TEST(QbsParserTest, ParsesSerializerOutputAndExposesIdentity) {
     ASSERT_TRUE(view->element_type(3U).has_value());
     EXPECT_EQ(view->element_type(3U)->encoded_width, 2U);
     EXPECT_FALSE(view->referenced_record(1U).has_value());
+}
+
+TEST(QbsParserTest, SchemaIdentityReportsValidatedHeaderWithoutAddingState) {
+    const auto bytes = image();
+    DiagnosticCollection diagnostics;
+    const auto view = parse_qbs(bytes, diagnostics);
+    ASSERT_TRUE(view);
+    const auto id = view->schema_id();
+    EXPECT_EQ(id.algorithm, bytes[8]);
+    EXPECT_EQ(id.schema_id, view->header().schema_id);
+    EXPECT_EQ(quarry::compiler::support::schema_id_hex(id), "68a731750346a0ad2e665f81260ea183");
+    const ValidatedQbsView empty;
+    EXPECT_EQ(empty.schema_id().algorithm, 0U);
+    EXPECT_EQ(empty.schema_id().schema_id, (std::array<std::uint8_t, 16>{}));
+}
+
+TEST(QbsParserTest, IdentityAccessRequiresSuccessfulHeaderValidation) {
+    for (const std::size_t length : {0U, 8U, 12U, 27U, 39U}) {
+        auto bytes = image();
+        bytes.resize(length);
+        DiagnosticCollection diagnostics;
+        EXPECT_FALSE(parse_qbs(bytes, diagnostics));
+    }
+    for (const std::uint8_t algorithm : {0U, 2U, 255U}) {
+        auto bytes = image();
+        bytes[8] = algorithm;
+        DiagnosticCollection diagnostics;
+        EXPECT_FALSE(parse_qbs(bytes, diagnostics));
+    }
 }
 
 TEST(QbsParserTest, RejectsHostileHeaderAndIdentityReferences) {

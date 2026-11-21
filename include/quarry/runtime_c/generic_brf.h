@@ -1,6 +1,8 @@
 #ifndef QUARRY_RUNTIME_C_GENERIC_BRF_H_
 #define QUARRY_RUNTIME_C_GENERIC_BRF_H_
 
+#include "quarry/runtime_c/schema_id.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -220,6 +222,12 @@ struct quarry_brf_record_view {
 
 quarry_generic_status_t quarry_qbs_parse(const uint8_t*, size_t, quarry_qbs_view_t*,
                                          quarry_workspace_t*, const quarry_generic_limits_t*);
+/* Reads the stored wire configuration identity after successful quarry_qbs_parse().
+ * The view and backing bytes must remain valid and unchanged. This is not a
+ * parser or hash verifier. Null/empty/truncated views return INVALID_ARGUMENT;
+ * unsupported identity metadata returns MALFORMED_QBS. A non-null output is
+ * zeroed on failure. No allocation, hashing or retained storage. */
+quarry_generic_status_t quarry_qbs_schema_id(const quarry_qbs_view_t*, quarry_schema_id_t*);
 quarry_generic_status_t quarry_qbs_find_record_by_id(const quarry_qbs_view_t*, uint32_t,
                                                      const quarry_qbs_record_view_t**);
 quarry_generic_status_t quarry_qbs_find_record_by_name(const quarry_qbs_view_t*, const char*,

@@ -162,6 +162,20 @@ class QbsSchema:
         self._by_id = {r.record_id: r for r in records}
         self._by_name = {r.name: r for r in records if r.name is not None}
 
+    @property
+    def schema_id(self) -> bytes:
+        """The 16 stored QBS configuration-identity bytes, not generated-code gid."""
+        if len(self.source) < 40:
+            raise QbsError("schema identity requires a parsed QBS image")
+        return bytes(self.source[12:28])
+
+    @property
+    def schema_id_algorithm(self) -> int:
+        """The stored QBS identity algorithm; no hash is computed or verified."""
+        if len(self.source) < 40:
+            raise QbsError("schema identity requires a parsed QBS image")
+        return self.source[8]
+
     @classmethod
     def from_bytes(cls, source, *, max_image_size=64 * 1024 * 1024):
         raw = bytes(source)

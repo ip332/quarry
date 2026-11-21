@@ -141,7 +141,11 @@ add_custom_target(quarry_cortex_m_generated_code
 
 # The generated headers delegate to this shared codec; compatibility .c files
 # no longer provide the implementation. Keep its archive separate for footprint reporting.
-add_library(quarry_cortex_m_codec STATIC "${CMAKE_CURRENT_SOURCE_DIR}/../runtime_c/typed_record.c")
+# Cross-compile the additive QBS identity accessor too. Its separate archive
+# member must add no bytes to smoke images that do not call it.
+add_library(quarry_cortex_m_codec STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/../runtime_c/typed_record.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../runtime_c/schema_id.c")
 
 add_executable(quarry_cortex_m_smoke
     startup_cortex_m4.c

@@ -33,3 +33,19 @@ Generated modules import the runtime and check
 `QUARRY_GENERATED_CODE_API_VERSION_PYTHON` at import time. Use a compatible
 compiler-generated package and runtime installation. The package is not yet
 published to PyPI.
+
+## Stored QBS configuration identity
+
+For `schema = quarry.load_qbs(qbs_bytes)` (or `QbsSchema.from_bytes(qbs_bytes)`),
+`schema.schema_id_algorithm` is the stored integer algorithm identifier (currently
+1) and `schema.schema_id` is exactly 16 immutable `bytes`, from QBS header bytes
+12–27. These are read-only properties over the already retained source; no hash
+is computed or substituted, and no additional per-schema identity cache is stored.
+Minimal/reflective mode and generated-output selection do not change the identity
+of the same configuration.
+
+Malformed/truncated images and unsupported algorithms retain the parser's
+`QbsError` behavior. Hand-assembled `QbsSchema` metadata without a complete source
+header raises `QbsError` on identity access. This is wire configuration `schema_id`,
+not generated-code `gid`, and not authentication or a wire-compatibility decision.
+The generated-code/runtime epoch remains 1.

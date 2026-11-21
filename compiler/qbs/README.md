@@ -76,3 +76,17 @@ Returned metadata and strings are read-only views tied to the lifetime of the
 validated input buffer. Record IDs are valid within the parsed image, but are
 not yet a persistent cross-version identity guarantee. This layer does not
 decode or encode BRF record payloads.
+
+## Stored configuration identity
+
+`view.schema_id()` returns the existing `support::ConfigurationIdentity` value:
+`algorithm` is QBS byte 8 and `schema_id` holds bytes 12–27. It uses the parsed
+header and validated image, with no new hashing, allocation or view state.
+`view.header().schema_id` remains available; existing structure layouts do not
+change. A default view with no image returns algorithm 0 / zero bytes. Parsed
+views borrow immutable input, which must remain alive and unchanged.
+
+This is the QBS wire configuration identity, not generated-code `gid`. The
+parser's existing canonical identity verification remains part of parsing;
+calling the accessor neither revalidates nor recomputes it. The compiler parser
+is internal tooling, not an added installed runtime abstraction.

@@ -458,3 +458,19 @@ files. `fuzz/run_seed_corpus.py` converts those seeds to temporary raw inputs
 and runs a selected fuzz executable against them. Fuzzing is a hardening tool,
 not a proof of complete parser correctness; deterministic malformed-input unit
 tests remain the regression mechanism for discovered defects.
+
+### Reading a QBS configuration identity
+
+The existing compiler-owned `quarry::compiler::qbs::ValidatedQbsView::schema_id()`
+returns a small `support::ConfigurationIdentity` (`algorithm`, 16 `schema_id`
+bytes), without hashing, allocation or new view storage. The algorithm comes
+from the validated header; `header().schema_id` still works. This does not add
+compiler dependencies to the installed header-only runtime. See the
+[QBS parser contract](../compiler/qbs/README.md#stored-configuration-identity).
+
+C consumers use the additive `quarry_qbs_schema_id()` API and installed
+`schema_id.h`; see the [C contract](../runtime_c/README.md#stored-qbs-configuration-identity).
+Python uses `QbsSchema.schema_id` and `.schema_id_algorithm`. All report the
+stored wire configuration identity, not generated-code `gid`. Parser validation
+is unchanged: C/Python do not compute its hash; the C++ parser already verifies
+it during parsing. The accessors add no verification and no API epoch bump.

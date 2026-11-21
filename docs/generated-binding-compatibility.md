@@ -195,8 +195,10 @@ implementation. See the [C example](../examples/c/basic_encode_decode/README.md)
 [owning CMake integration](../examples/cpp/schema_compiler_cmake/README.md).
 
 The installed `quarry_generate_cpp()` helper is for C++ owning. This guide adds
-no C-storage helper or `--name-prefix`, `--describe`, runtime identity reader or
-other A4.3/A4.4/A4.5 feature. Do not treat proposed design examples as current CLI.
+no C-storage helper or `--name-prefix` / `--describe` feature. A4.3
+provides optional [stored QBS identity accessors](../runtime_c/README.md#stored-qbs-configuration-identity)
+in the existing C, C++ parser and Python APIs; these do not change generated
+bindings. Do not treat proposed design examples as current CLI.
 
 ## Migrating existing bindings
 
@@ -261,14 +263,15 @@ These measured cases are not silent merging, but they block legitimate same-TU
 use. Conflicting definitions of the same namespace/variant have the explicit Quarry conflict
 check independently of this limitation.
 
-**Recommendation for v0.1.31-rc.1:** explicitly defer #119 with this restriction
-and release notes if the release does not require colliding namespace sets in
-one TU. It predates the identity work, has non-silent rejection in the measured
+**Approved release disposition for v0.1.31-rc.1:** defer #119 and explicitly
+exclude same-TU coexistence of distinct namespaces whose generated C symbol
+prefixes collide. Release tracking #105 must retain this exclusion in the release
+notes and readiness review. It predates the identity work, has non-silent rejection in the measured
 cases, and separate-TU isolation is validated. A late C-prefix change would be
 a broad source-API migration requiring a separate naming decision and review.
-If same-TU coexistence of those sets is a release requirement, #119 is a blocker
-until that decision is approved. This is a recommendation, not a milestone
-change or approval to implement it.
+Changing this exclusion requires a separately approved naming/API decision.
+The issue remains open for later scheduling; this disposition does not authorize
+implementation or expand the API contract.
 
 Future A4.5 naming isolation must encode a prefix as an injective leading segment
 for C symbols as well as identity macros. Simply concatenating underscore-joined

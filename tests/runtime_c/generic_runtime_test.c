@@ -21,6 +21,9 @@ static int read_file(const char* path, uint8_t** out, size_t* size) {
     (void)fclose(file);
     return 0;
 }
+static uint32_t read32(const uint8_t* p) {
+    return ((uint32_t)p[0] << 24U) | ((uint32_t)p[1] << 16U) | ((uint32_t)p[2] << 8U) | p[3];
+}
 static void put32(uint8_t* p, size_t value) {
     p[0] = (uint8_t)(value >> 24U);
     p[1] = (uint8_t)(value >> 16U);
@@ -572,6 +575,84 @@ int main(void) {
         0) {
         (void)fprintf(stderr, "qbs parse failed\n");
         return 1;
+    }
+    /* Stored identity access is bounded and independent of reflective names. */
+    {
+        const uint8_t expected_id[16] = {0xdd, 0x5c, 0x92, 0x9f, 0x6a, 0x64, 0x75, 0xbf,
+                                         0x0b, 0xe1, 0x31, 0x8d, 0x37, 0x54, 0x28, 0x71};
+        quarry_schema_id_t id;
+        if (quarry_qbs_schema_id(&schema, &id) != QUARRY_GENERIC_OK ||
+            !quarry_schema_id_equals(&id, 1U, expected_id) ||
+            quarry_schema_id_equals(&id, 2U, expected_id) ||
+            quarry_schema_id_equals(NULL, 1U, expected_id) ||
+            quarry_schema_id_equals(&id, 1U, NULL))
+            return 1;
+        for (unsigned int i = 0U; i < 16U; ++i) {
+            id.bytes[i] ^= 1U;
+            if (quarry_schema_id_equals(&id, 1U, expected_id))
+                return 1;
+            id.bytes[i] ^= 1U;
+        }
+        if (quarry_qbs_schema_id(NULL, &id) != QUARRY_GENERIC_INVALID_ARGUMENT || id.algorithm != 0U)
+            return 1;
+        const quarry_schema_id_t zero = {0};
+        if (memcmp(&id, &zero, sizeof id) != 0 ||
+            quarry_qbs_schema_id(&schema, NULL) != QUARRY_GENERIC_INVALID_ARGUMENT)
+            return 1;
+        quarry_qbs_view_t bad = {0};
+        if (quarry_qbs_schema_id(&bad, &id) != QUARRY_GENERIC_INVALID_ARGUMENT)
+            return 1;
+        bad = schema;
+        bad.size = 27U;
+        if (quarry_qbs_schema_id(&bad, &id) != QUARRY_GENERIC_INVALID_ARGUMENT)
+            return 1;
+        uint8_t header[40];
+        memcpy(header, qbs, sizeof header);
+        bad.bytes = header;
+        bad.size = sizeof header;
+        header[8] = 2U;
+        if (quarry_qbs_schema_id(&bad, &id) != QUARRY_GENERIC_MALFORMED_QBS)
+            return 1;
+        header[8] = 1U;
+        header[11] = 15U;
+        if (quarry_qbs_schema_id(&bad, &id) != QUARRY_GENERIC_MALFORMED_QBS)
+            return 1;
+        uint8_t* changed = (uint8_t*)malloc(qbs_size);
+        if (changed == NULL)
+            return 1;
+        /* Binary offsets are not UTF-8, but every individual string must be.
+         * The split-codepoint control is valid UTF-8 only when concatenated. */
+        for (unsigned int mutation = 0U; mutation < 4U; ++mutation) {
+            memcpy(changed, qbs, qbs_size);
+            uint8_t* strings = changed + schema.strings_offset;
+            const uint32_t count = read32(strings);
+            const size_t payload_offset = 8U + (size_t)count * 4U;
+            const size_t first_end = read32(strings + 8U);
+            if (count < 2U || first_end == 0U || payload_offset + first_end >= schema.strings_size)
+                return 1;
+            if (mutation == 0U)
+                put32(strings + 4U, 1U);
+            else if (mutation == 1U)
+                put32(strings, UINT32_MAX);
+            else if (mutation == 2U)
+                put32(strings + 4U + (size_t)count * 4U, schema.strings_size);
+            else {
+                strings[payload_offset + first_end - 1U] = 0xc3U;
+                strings[payload_offset + first_end] = 0xa9U;
+            }
+            if (quarry_qbs_parse(changed, qbs_size, &bad, &workspace, &limits) !=
+                QUARRY_GENERIC_MALFORMED_QBS)
+                return 1;
+        }
+        memcpy(changed, qbs, qbs_size);
+        memset(changed + 12U, 0, 16U); /* All-zero stored IDs are values, not sentinels. */
+        if (quarry_qbs_parse(changed, qbs_size, &bad, &workspace, &limits) != QUARRY_GENERIC_OK ||
+            quarry_qbs_schema_id(&bad, &id) != QUARRY_GENERIC_OK ||
+            !quarry_schema_id_equals(&id, 1U, changed + 12U))
+            return 1;
+        free(changed);
+        if (quarry_qbs_parse(qbs, qbs_size, &schema, &workspace, &limits) != QUARRY_GENERIC_OK)
+            return 1;
     }
     const quarry_qbs_record_view_t* parent = NULL;
     if (expect(quarry_qbs_find_record_by_id(&schema, 1U, &parent), QUARRY_GENERIC_OK) != 0) {

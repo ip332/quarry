@@ -10,14 +10,19 @@
 #error "QUARRY_PACKAGE_GENERATED_CODE_API_VERSION must be defined"
 #endif
 
+extern "C" int verify_schema_identity_sdk(void);
+
 int main() {
+    if (verify_schema_identity_sdk() != 0) {
+        return 99;
+    }
     static_assert(quarry::runtime::kGeneratedCodeApiVersion ==
                   QUARRY_PACKAGE_GENERATED_CODE_API_VERSION);
 
-    using quarry::runtime::DecodeError;
-    using quarry::runtime::FieldBytes;
     using quarry::runtime::append_u32;
+    using quarry::runtime::DecodeError;
     using quarry::runtime::encode_record_result;
+    using quarry::runtime::FieldBytes;
     using quarry::runtime::find_field;
     using quarry::runtime::parse_record;
     using quarry::runtime::read_u32;

@@ -3,8 +3,8 @@
 This is the validation baseline for v0.1.31-rc.1. G3's baseline is
 `59ebeda4cbbadbd79c0d33498c917cd85eba694d` (PR #121, reviewed head
 `927327b74ce695b643448fee44eaef331fc9faec`). Format 1 and production generators
-are unchanged by G4. This document describes tests and their limits; G5 and
-#112 still own the final consumer contract and release migration guidance.
+are unchanged by G4. This document describes tests and their limits. G5/#112 completed the
+[consumer contract and migration guidance](generated-binding-compatibility.md).
 
 ## Mandatory checks
 
@@ -192,8 +192,8 @@ output; all-zero identity is tested as a valid supplied value, not a sentinel.
 
 No architecture, runtime API/epoch, BRF/QBS, Schema IR, record-ID, `schema_id` or
 format-1 change is authorized here. Python/Go pinned output remains required.
-G5/#112 must turn the validated behavior and limitations into the final consumer
-contract and release migration notes; G4 does not close either issue or #111.
+G5/#112 supplies the final [consumer contract and migration guidance](generated-binding-compatibility.md).
+G4 records measured evidence; it does not broaden that contract.
 
 ## Embedded evidence
 

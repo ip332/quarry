@@ -1,6 +1,7 @@
 #pragma once
 
 #include "compiler/diagnostics/diagnostic.hpp"
+#include "compiler/support/configuration_identity.hpp"
 
 #include <array>
 #include <cstdint>
@@ -78,6 +79,11 @@ struct QbsEnumView {
 class ValidatedQbsView {
 public:
     QbsHeaderView header() const { return header_; }
+    // Reports the validated QBS header identity without hashing or allocating.
+    // A default-constructed view has no image and reports algorithm 0 / zero bytes.
+    [[nodiscard]] support::ConfigurationIdentity schema_id() const noexcept {
+        return {bytes_.size() >= 40U ? bytes_[8U] : std::uint8_t{0U}, header_.schema_id};
+    }
     std::size_t record_count() const { return record_count_; }
     std::size_t field_count() const { return field_count_; }
     std::size_t type_count() const { return type_count_; }

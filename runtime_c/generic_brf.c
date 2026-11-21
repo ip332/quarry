@@ -68,6 +68,29 @@ static bool utf8(const uint8_t* p, size_t n) {
     return true;
 }
 
+/* The string section has a binary count/offset table followed by UTF-8
+ * payloads. Validate each string independently, never the binary table. */
+static bool valid_string_section(const uint8_t* bytes, size_t size) {
+    if (size < 8U)
+        return false;
+    const uint32_t count = u32(bytes);
+    if (count > UINT16_MAX || (size_t)count > (size - 8U) / 4U)
+        return false;
+    const size_t payload_offset = 8U + (size_t)count * 4U;
+    const size_t payload_size = size - payload_offset;
+    uint32_t begin = u32(bytes + 4U);
+    if (begin != 0U)
+        return false;
+    for (uint32_t i = 0U; i < count; ++i) {
+        const uint32_t end = u32(bytes + 8U + (size_t)i * 4U);
+        if (begin > end || end > payload_size ||
+            !utf8(bytes + payload_offset + begin, (size_t)(end - begin)))
+            return false;
+        begin = end;
+    }
+    return begin == payload_size;
+}
+
 static quarry_generic_status_t string_section_entry(const quarry_qbs_view_t* q, uint16_t index,
                                                     size_t* data, size_t* length) {
     if (q->bytes == NULL || q->strings_offset == 0U || q->strings_size < 8U ||
@@ -135,7 +158,7 @@ quarry_generic_status_t quarry_qbs_parse(const uint8_t* b, size_t n, quarry_qbs_
     bool has_enum = section(b, n, 4U, &eo, &es) == QUARRY_GENERIC_OK;
     bool has_values = section(b, n, 5U, &vo, &vs) == QUARRY_GENERIC_OK;
     bool has_strings = section(b, n, 7U, &so, &ss) == QUARRY_GENERIC_OK;
-    if (!utf8(b + io, is) || (has_strings && !utf8(b + so, ss)))
+    if (!utf8(b + io, is) || (has_strings && !valid_string_section(b + so, ss)))
         return QUARRY_GENERIC_MALFORMED_QBS;
     size_t record_stride = 28U + b[9];
     if ((has_enum != has_values) || rs % record_stride != 0U || fs % 28U != 0U || ts % 16U != 0U ||
