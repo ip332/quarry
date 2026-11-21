@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -98,6 +99,15 @@ def main() -> None:
         environment["PYTHONPATH"] = str(truck_python)
         run([str(python), str(truck / "cloud/decode.py"), str(report)], cwd=truck,
             env=environment)
+
+        multi = truck / "multi_configuration/run.py"
+        command = [str(args.python), str(multi), "--prefix", str(prefix),
+                   "--cmake", str(args.cmake), "--python", str(python),
+                   "--go-runtime", str(args.source_dir / "runtime/go"),
+                   "--work", str(root / "truck-multi")]
+        if not shutil.which("go"):
+            command.append("--skip-go")
+        run(command, cwd=root)
 
 
 if __name__ == "__main__":

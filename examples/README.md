@@ -18,6 +18,8 @@ Current examples:
 * `truck`: a Class 8 truck configuration root. Embedded C bindings for the
   engine ECU and cloud-side Python bindings are generated separately from the
   same root and agree on every record ID.
+* `truck/multi_configuration`: rev A and rev B coexist in C++ owning, C99,
+  C++/C storage, Python and Go using explicit prefixes and real round trips.
 * `protobuf/descriptor_to_brd`: descriptor-set protobuf translation into
   bounded `.brd` units, followed by separate Quarry compiler invocations.
 

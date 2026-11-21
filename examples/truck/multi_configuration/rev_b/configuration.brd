@@ -1,0 +1,8 @@
+configuration: class8_truck_rev_b
+imports:
+  - ../../schemas/vehicle.brd
+  - ../../schemas/engine.brd
+  - ../../schemas/transmission.brd
+  - ../../schemas/brakes.brd
+  - ../../schemas/cms.brd
+  - mirror_fold.brd

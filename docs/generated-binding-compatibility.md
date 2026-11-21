@@ -195,7 +195,7 @@ implementation. See the [C example](../examples/c/basic_encode_decode/README.md)
 [owning CMake integration](../examples/cpp/schema_compiler_cmake/README.md).
 
 The installed `quarry_generate_cpp()` helper is for C++ owning. This guide adds
-no C-storage helper or `--name-prefix` feature. A4.4 adds the optional
+no C-storage helper. A4.5 provides explicit `--name-prefix` isolation. A4.4 adds the optional
 [`--describe` query](../tools/README.md#schema-description). A4.3
 provides optional [stored QBS identity accessors](../runtime_c/README.md#stored-qbs-configuration-identity)
 in the existing C, C++ parser and Python APIs; these do not change generated
@@ -274,10 +274,14 @@ Changing this exclusion requires a separately approved naming/API decision.
 The issue remains open for later scheduling; this disposition does not authorize
 implementation or expand the API contract.
 
-Future A4.5 naming isolation must encode a prefix as an injective leading segment
-for C symbols as well as identity macros. Simply concatenating underscore-joined
-text can still collide. `--name-prefix` is not available today and is not a
-current workaround. #119 and its milestone remain unchanged by this guide.
+A4.5 `--name-prefix` implements a separately approved, prefixed-only correction:
+the prefix and canonical namespace segments use the injective #117 encoding for
+C symbols and identity macros. Prefixed enum constants preserve namespace case;
+C-storage wrappers use the same stem. This allows deliberate isolation with
+distinct prefixes, including the adversarial prefix/namespace joins described
+in #119. Unprefixed C spelling and the general #119 migration remain deferred.
+Existing backend restrictions on declaration/member names still apply. See the
+[naming contract](../tools/README.md#deliberate-source-naming-isolation).
 
 ## Evidence boundary
 

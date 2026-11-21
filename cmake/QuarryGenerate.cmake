@@ -226,7 +226,7 @@ endfunction()
 
 function(_quarry_generate_parse_arguments)
     set(_keywords SCHEMA OUTPUT_DIR OUT_FILES ROOT_FILE_STEM FILE_EXTENSION SCHEMA_COMPILER
-        GENERATE)
+        GENERATE NAME_PREFIX SCHEMA_ID_VARIABLE)
     set(_pending_keyword)
 
     foreach(_arg IN LISTS ARGN)
@@ -294,10 +294,13 @@ function(_quarry_generate_validate_outputs output_dir schema outputs)
 endfunction()
 
 function(_quarry_generate_query_outputs compiler output_dir schema root_file_stem file_extension
-         generate output_variable)
+         generate name_prefix output_variable)
     set(_quarry_list_args
         --list-outputs
         --output-directory "${output_dir}")
+    if(NOT "${name_prefix}" STREQUAL "")
+        list(APPEND _quarry_list_args --name-prefix "${name_prefix}")
+    endif()
     if(NOT "${generate}" STREQUAL "")
         list(APPEND _quarry_list_args --generate "${generate}")
     endif()
@@ -349,6 +352,21 @@ endfunction()
 
 # Query the compiler's authoritative resolved import graph, rather than parsing
 # schema syntax in CMake. This includes configuration roots and unused imports.
+function(_quarry_generate_query_schema_id compiler schema output_variable)
+    execute_process(COMMAND "${compiler}" --print-schema-id "${schema}"
+        RESULT_VARIABLE _result OUTPUT_VARIABLE _stdout ERROR_VARIABLE _stderr)
+    if(NOT _result EQUAL 0)
+        _quarry_generate_fail("failed to query schema_id for schema '${schema}' with compiler "
+            "'${compiler}' (exit ${_result}):\n${_stdout}${_stderr}")
+    endif()
+    string(REGEX REPLACE "\r?\n$" "" _schema_id "${_stdout}")
+    string(LENGTH "${_schema_id}" _length)
+    if(NOT _length EQUAL 32 OR NOT "${_schema_id}" MATCHES "^[0-9a-f]+$")
+        _quarry_generate_fail("compiler returned malformed schema_id for '${schema}': ${_stdout}")
+    endif()
+    set(${output_variable} "${_schema_id}" PARENT_SCOPE)
+endfunction()
+
 function(_quarry_generate_query_inputs compiler schema output_variable)
     execute_process(
         COMMAND "${compiler}" --list-inputs "${schema}"
@@ -463,6 +481,7 @@ function(_quarry_generate_verify_output_inventory)
     if(DEFINED QUARRY_VERIFY_FILE_EXTENSION)
         set(_file_extension "${QUARRY_VERIFY_FILE_EXTENSION}")
     endif()
+    set(_name_prefix "${QUARRY_VERIFY_NAME_PREFIX}")
     set(_generate)
     if(DEFINED QUARRY_VERIFY_GENERATE)
         set(_generate "${QUARRY_VERIFY_GENERATE}")
@@ -482,6 +501,7 @@ function(_quarry_generate_verify_output_inventory)
         "${_root_file_stem}"
         "${_file_extension}"
         "${_generate}"
+        "${_name_prefix}"
         _current_outputs)
 
     set(_expected_outputs ${QUARRY_VERIFY_EXPECTED_OUTPUTS})
@@ -602,10 +622,24 @@ function(quarry_generate_cpp)
         list(APPEND _quarry_generate_args --generate "${QUARRY_GENERATE_GENERATE}")
     endif()
 
+    set(_quarry_name_prefix)
+    if(DEFINED QUARRY_GENERATE_NAME_PREFIX)
+        _quarry_generate_reject_unsafe("${QUARRY_GENERATE_NAME_PREFIX}" "NAME_PREFIX")
+        _quarry_generate_reject_genex("${QUARRY_GENERATE_NAME_PREFIX}" "NAME_PREFIX")
+        set(_quarry_name_prefix "${QUARRY_GENERATE_NAME_PREFIX}")
+        list(APPEND _quarry_generate_args --name-prefix "${_quarry_name_prefix}")
+    endif()
+    if(DEFINED QUARRY_GENERATE_SCHEMA_ID_VARIABLE)
+        _quarry_generate_reject_unsafe("${QUARRY_GENERATE_SCHEMA_ID_VARIABLE}" "SCHEMA_ID_VARIABLE")
+        _quarry_generate_reject_genex("${QUARRY_GENERATE_SCHEMA_ID_VARIABLE}" "SCHEMA_ID_VARIABLE")
+        # Deliberately do not pass prefix or --generate: query the complete root.
+        _quarry_generate_query_schema_id("${_quarry_compiler}" "${_quarry_schema}" _quarry_schema_id)
+    endif()
+
     _quarry_generate_query_outputs("${_quarry_compiler}" "${_quarry_output_dir}"
                                         "${_quarry_schema}" "${_quarry_root_file_stem}"
                                         "${_quarry_file_extension}"
-                                        "${_quarry_generate_selection}" _quarry_outputs)
+                                        "${_quarry_generate_selection}" "${_quarry_name_prefix}" _quarry_outputs)
     _quarry_generate_register_outputs("${_quarry_schema}" "${_quarry_outputs}")
 
     _quarry_generate_query_inputs("${_quarry_compiler}" "${_quarry_schema}" _quarry_inputs)
@@ -627,6 +661,7 @@ function(quarry_generate_cpp)
             "-DQUARRY_VERIFY_ROOT_FILE_STEM=${_quarry_root_file_stem}"
             "-DQUARRY_VERIFY_FILE_EXTENSION=${_quarry_file_extension}"
             "-DQUARRY_VERIFY_GENERATE=${_quarry_generate_selection}"
+            "-DQUARRY_VERIFY_NAME_PREFIX=${_quarry_name_prefix}"
             -P "${_quarry_module}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${_quarry_output_dir}"
         COMMAND "${_quarry_compiler}" ${_quarry_generate_args}
@@ -640,6 +675,9 @@ function(quarry_generate_cpp)
         VERBATIM)
     set_source_files_properties(${_quarry_outputs} PROPERTIES GENERATED TRUE)
 
+    if(DEFINED QUARRY_GENERATE_SCHEMA_ID_VARIABLE)
+        set("${QUARRY_GENERATE_SCHEMA_ID_VARIABLE}" "${_quarry_schema_id}" PARENT_SCOPE)
+    endif()
     set(${QUARRY_GENERATE_OUT_FILES} "${_quarry_outputs}" PARENT_SCOPE)
 endfunction()
 

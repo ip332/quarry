@@ -87,14 +87,19 @@ set(QUARRY_SHARED_SCHEMA "${QUARRY_SCHEMAS_DIR}/workload_shared.brd")
 set(QUARRY_WORKLOAD_SCHEMA "${QUARRY_SCHEMAS_DIR}/workload.brd")
 
 set(QUARRY_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+option(QUARRY_SMOKE_PREFIXED "Use the fixed rev_a source naming experiment" OFF)
+set(QUARRY_GENERATED_BINDING_ROOT "${QUARRY_GENERATED_DIR}")
+if(QUARRY_SMOKE_PREFIXED)
+    string(APPEND QUARRY_GENERATED_BINDING_ROOT "/rev_a")
+endif()
 set(QUARRY_GENERATED_SHARED_HEADER
-    "${QUARRY_GENERATED_DIR}/benchmark/workload/shared.generated.h")
+    "${QUARRY_GENERATED_BINDING_ROOT}/benchmark/workload/shared.generated.h")
 set(QUARRY_GENERATED_SHARED_SOURCE
-    "${QUARRY_GENERATED_DIR}/benchmark/workload/shared.generated.c")
+    "${QUARRY_GENERATED_BINDING_ROOT}/benchmark/workload/shared.generated.c")
 set(QUARRY_GENERATED_WORKLOAD_HEADER
-    "${QUARRY_GENERATED_DIR}/benchmark/workload.generated.h")
+    "${QUARRY_GENERATED_BINDING_ROOT}/benchmark/workload.generated.h")
 set(QUARRY_GENERATED_WORKLOAD_SOURCE
-    "${QUARRY_GENERATED_DIR}/benchmark/workload.generated.c")
+    "${QUARRY_GENERATED_BINDING_ROOT}/benchmark/workload.generated.c")
 
 # Both namespaces are generated from one compilation root, workload.brd
 # (which imports workload_shared.brd), so they share one configuration
@@ -117,6 +122,10 @@ elseif(NOT QUARRY_C_OPTIMIZE_SIZE STREQUAL "")
     if("benchmark.workload.shared" IN_LIST compact_namespaces)
         list(APPEND QUARRY_C_STORAGE_DEFINITIONS QUARRY_SMOKE_COMPACT_SHARED)
     endif()
+endif()
+if(QUARRY_SMOKE_PREFIXED)
+    list(APPEND QUARRY_C_STORAGE_ARGUMENTS --name-prefix rev_a)
+    list(APPEND QUARRY_C_STORAGE_DEFINITIONS QUARRY_SMOKE_PREFIXED=1)
 endif()
 add_custom_command(
     OUTPUT "${QUARRY_GENERATED_SHARED_HEADER}" "${QUARRY_GENERATED_SHARED_SOURCE}"

@@ -45,3 +45,13 @@ caller's `layout::LayoutModel`, computed once from the same Schema IR.
 `quarry-schema-compiler` uses those overloads so one compilation computes its BRF layout
 once (see `docs/compiler-architecture.md`, "Configuration Preparation"); the overloads
 without a layout compute it themselves.
+
+## Explicit naming prefix
+
+`CodegenOptions::name_prefix` (CLI `--name-prefix`) is optional and empty by
+default. It projects generated source names and output paths without modifying
+Schema IR, canonical FQNs, record IDs or configuration identity. Selection and
+storage-policy options still use canonical namespace names. Unprefixed output
+is pinned byte for byte in `tests/fixtures/name_prefix/unprefixed_sha256.json`.
+See the [source naming contract](../../tools/README.md#deliberate-source-naming-isolation)
+and [multi-configuration example](../../examples/truck/multi_configuration/README.md).
