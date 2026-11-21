@@ -107,3 +107,10 @@ Generated dependencies check configuration identity and generated-code identity
 at compile time. Preserve consistent effective per-namespace storage policies
 across separate invocations, including unselected dependencies. See the
 [consumer compatibility and migration guide](../../docs/generated-binding-compatibility.md).
+
+## Two revisions in one application
+
+The [multi-configuration example](multi_configuration/README.md) uses the same
+revision A root and a revision B root adding `truck.cms.MirrorFold`. It runs all
+five binding variants with explicit prefixes, checks record IDs and complete
+schema identities, and compares real encoded bytes.

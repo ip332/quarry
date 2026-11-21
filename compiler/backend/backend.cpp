@@ -4,6 +4,7 @@
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/layout/layout.hpp"
 #include "compiler/support/generated_code_identity.hpp"
+#include "compiler/support/generated_names.hpp"
 #include "compiler/support/namespace_macro.hpp"
 
 #include <cstdint>
@@ -39,6 +40,7 @@ struct NamedTypeInfo {
 };
 
 struct TypeCatalog {
+    std::string name_prefix;
     std::map<std::uint64_t, NamedTypeInfo> named_types;
     // Include path of every namespace that declares a record or enum, to the
     // namespace FQN, so a header can name the identity of each generated
@@ -140,6 +142,7 @@ struct DeclarationPlan {
 struct NamespacePlan {
     const ::quarry::schema_ir::NamespaceIR* namespace_ir = nullptr;
     std::string fqn;
+    std::string name_prefix;
     std::string file_path;
     std::string include_path;
     bool emits_file = false;
@@ -201,9 +204,11 @@ struct OutputSelection {
 [[nodiscard]] std::string file_stem_for_namespace(const CodegenOptions& options,
                                                   std::string_view namespace_fqn) {
     if (namespace_fqn.empty()) {
-        return options.root_file_stem + options.file_extension;
+        return support::named_path(options.name_prefix,
+                                   options.root_file_stem + options.file_extension);
     }
-    return join_path(namespace_parts(namespace_fqn)) + options.file_extension;
+    return support::named_path(options.name_prefix,
+                               join_path(namespace_parts(namespace_fqn)) + options.file_extension);
 }
 
 [[nodiscard]] std::string file_path_for_namespace(const CodegenOptions& options,
@@ -220,9 +225,11 @@ struct OutputSelection {
     return file_stem_for_namespace(options, namespace_fqn);
 }
 
-[[nodiscard]] std::string cpp_qualified_name(std::string_view namespace_fqn,
-                                             std::string_view name) {
+[[nodiscard]] std::string cpp_qualified_name(std::string_view namespace_fqn, std::string_view name,
+                                             std::string_view name_prefix = {}) {
     std::string cpp_name = "::";
+    if (!name_prefix.empty())
+        cpp_name += std::string(name_prefix) + "::";
     if (namespace_fqn.empty()) {
         cpp_name.append(name);
         return cpp_name;
@@ -237,8 +244,11 @@ struct OutputSelection {
     return cpp_name;
 }
 
-[[nodiscard]] std::string cpp_namespace_prefix(std::string_view namespace_fqn) {
+[[nodiscard]] std::string cpp_namespace_prefix(std::string_view namespace_fqn,
+                                               std::string_view name_prefix = {}) {
     std::string prefix = "::";
+    if (!name_prefix.empty())
+        prefix += std::string(name_prefix) + "::";
     if (namespace_fqn.empty()) {
         return prefix;
     }
@@ -266,9 +276,9 @@ struct OutputSelection {
 
 // Encoded namespace body (#117). Empty when the name is not a namespace FQN;
 // plan validation rejects that before a header is written.
-[[nodiscard]] std::string namespace_macro_body(std::string_view namespace_fqn) {
-    const std::optional<std::string> encoded = support::encode_namespace_macro(namespace_fqn);
-    return encoded.has_value() ? *encoded : std::string();
+[[nodiscard]] std::string namespace_macro_body(std::string_view namespace_fqn,
+                                               std::string_view name_prefix = {}) {
+    return support::named_macro_body(name_prefix, namespace_fqn);
 }
 
 // Prefix of the configuration-identity and generated-code identity macros of
@@ -276,9 +286,10 @@ struct OutputSelection {
 // from the namespace FQN by support::encode_namespace_macro, never from the
 // output path, so --root-file-stem and --file-extension do not change it.
 // The root namespace uses the same prefix with the root body.
-[[nodiscard]] std::string generated_code_identity_macro_prefix(std::string_view namespace_fqn) {
+[[nodiscard]] std::string generated_code_identity_macro_prefix(std::string_view namespace_fqn,
+                                                               std::string_view name_prefix = {}) {
     return std::string(support::kCppOwningNamespaceMacroPrefix) +
-           namespace_macro_body(namespace_fqn);
+           namespace_macro_body(namespace_fqn, name_prefix);
 }
 
 [[nodiscard]] std::string namespace_display_name(std::string_view namespace_fqn) {
@@ -376,9 +387,8 @@ constexpr std::string_view kReservedGeneratedNamespacePrefix = "quarry_gen_";
 }
 
 [[nodiscard]] bool emits_records(const NamespacePlan& plan) {
-    return std::any_of(plan.declarations.begin(), plan.declarations.end(), [](const auto& decl) {
-        return decl.kind == DeclarationPlan::Kind::Record;
-    });
+    return std::any_of(plan.declarations.begin(), plan.declarations.end(),
+                       [](const auto& decl) { return decl.kind == DeclarationPlan::Kind::Record; });
 }
 
 [[nodiscard]] std::string field_member_name(std::string_view field_name) {
@@ -547,12 +557,10 @@ void merge_type_requirements(TypeLoweringResult& target, const TypeLoweringResul
 [[nodiscard]] const NamedTypeInfo*
 lookup_named_type(const TypeCatalog& catalog, std::uint64_t ir_id, std::string& error_message);
 
-[[nodiscard]] TypeLoweringResult
-lower_field_type(const ::quarry::schema_ir::FieldType& field_type,
-                 const std::string& current_namespace_fqn,
-                 const std::map<std::uint64_t, std::size_t>& local_declaration_ids,
-                 const TypeCatalog& catalog, const OutputSelection* output_selection,
-                 std::string& error_message) {
+[[nodiscard]] TypeLoweringResult lower_field_type(
+    const ::quarry::schema_ir::FieldType& field_type, const std::string& current_namespace_fqn,
+    const std::map<std::uint64_t, std::size_t>& local_declaration_ids, const TypeCatalog& catalog,
+    const OutputSelection* output_selection, std::string& error_message) {
     TypeLoweringResult result;
 
     switch (field_type.kind_case()) {
@@ -697,7 +705,8 @@ lower_runtime_field_encoding(const ::quarry::schema_ir::FieldType& field_type,
             type_it->second.record_ir == nullptr) {
             return encoding;
         }
-        const std::string namespace_prefix = cpp_namespace_prefix(type_it->second.namespace_fqn);
+        const std::string namespace_prefix =
+            cpp_namespace_prefix(type_it->second.namespace_fqn, catalog.name_prefix);
         encoding.record_encoding = RuntimeRecordEncoding{
             .encode_function = namespace_prefix + "encode_result",
             .decode_function =
@@ -749,7 +758,8 @@ lower_runtime_field_encoding(const ::quarry::schema_ir::FieldType& field_type,
                 type_it->second.record_ir == nullptr) {
                 return encoding;
             }
-            const std::string namespace_prefix = cpp_namespace_prefix(type_it->second.namespace_fqn);
+            const std::string namespace_prefix =
+                cpp_namespace_prefix(type_it->second.namespace_fqn, catalog.name_prefix);
             array_encoding.record_encoding = RuntimeRecordEncoding{
                 .encode_function = namespace_prefix + "encode_result",
                 .decode_function =
@@ -926,37 +936,39 @@ lookup_named_type(const TypeCatalog& catalog, std::uint64_t ir_id, std::string& 
     return true;
 }
 
-void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
-                         const CodegenOptions& options, TypeCatalog& catalog) {
+void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns, const CodegenOptions& options,
+                         TypeCatalog& catalog) {
     const std::string file_path = file_path_for_namespace(options, ns.fqn());
     const std::string include_path = include_path_for_namespace(options, ns.fqn());
 
     for (int index = 0; index < ns.records_size(); ++index) {
         const ::quarry::schema_ir::RecordIR& record = ns.records(index);
-        catalog.named_types.emplace(record.ir_id(),
-                                    NamedTypeInfo{
-                                        .kind = NamedTypeInfo::Kind::Record,
-                                        .namespace_fqn = ns.fqn(),
-                                        .file_path = file_path,
-                                        .include_path = include_path,
-                                        .cpp_name = cpp_qualified_name(ns.fqn(), record.name()),
-                                        .record_ir = &record,
-                                        .enum_ir = nullptr,
-                                    });
+        catalog.named_types.emplace(
+            record.ir_id(),
+            NamedTypeInfo{
+                .kind = NamedTypeInfo::Kind::Record,
+                .namespace_fqn = ns.fqn(),
+                .file_path = file_path,
+                .include_path = include_path,
+                .cpp_name = cpp_qualified_name(ns.fqn(), record.name(), options.name_prefix),
+                .record_ir = &record,
+                .enum_ir = nullptr,
+            });
     }
 
     for (int index = 0; index < ns.enums_size(); ++index) {
         const ::quarry::schema_ir::EnumIR& enum_ir = ns.enums(index);
-        catalog.named_types.emplace(enum_ir.ir_id(),
-                                    NamedTypeInfo{
-                                        .kind = NamedTypeInfo::Kind::Enum,
-                                        .namespace_fqn = ns.fqn(),
-                                        .file_path = file_path,
-                                        .include_path = include_path,
-                                        .cpp_name = cpp_qualified_name(ns.fqn(), enum_ir.name()),
-                                        .record_ir = nullptr,
-                                        .enum_ir = &enum_ir,
-                                    });
+        catalog.named_types.emplace(
+            enum_ir.ir_id(),
+            NamedTypeInfo{
+                .kind = NamedTypeInfo::Kind::Enum,
+                .namespace_fqn = ns.fqn(),
+                .file_path = file_path,
+                .include_path = include_path,
+                .cpp_name = cpp_qualified_name(ns.fqn(), enum_ir.name(), options.name_prefix),
+                .record_ir = nullptr,
+                .enum_ir = &enum_ir,
+            });
     }
 
     if (ns.records_size() > 0 || ns.enums_size() > 0) {
@@ -973,8 +985,16 @@ void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
                                      const ::quarry::compiler::layout::LayoutModel& layout_model,
                                      const OutputSelection* output_selection, NamespacePlan& plan,
                                      std::string& error_message) {
+    if (!support::valid_prefix_for_namespace(options.name_prefix, ns.fqn())) {
+        error_message =
+            "invalid or conflicting --name-prefix '" + options.name_prefix +
+            "': use an unreserved identifier distinct from every namespace's first segment";
+        return false;
+    }
+
     plan.namespace_ir = &ns;
     plan.fqn = ns.fqn();
+    plan.name_prefix = options.name_prefix;
     plan.file_path = file_path_for_namespace(options, ns.fqn());
     plan.include_path = file_stem_for_namespace(options, ns.fqn());
     plan.emits_file = ns.records_size() > 0 || ns.enums_size() > 0;
@@ -1042,29 +1062,28 @@ void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
                 record_plan.brf_layout->fields.size() !=
                     static_cast<std::size_t>(record_plan.record->fields_size())) {
                 error_message = "backend codegen could not find canonical BRF v2 layout for '" +
-                                 record_plan.record->fqn() + "'";
+                                record_plan.record->fqn() + "'";
                 return false;
             }
             record_plan.fields.reserve(static_cast<std::size_t>(record_plan.record->fields_size()));
             for (int field_index = 0; field_index < record_plan.record->fields_size();
                  ++field_index) {
-                const ::quarry::schema_ir::FieldIR& field =
-                    record_plan.record->fields(field_index);
-                const TypeLoweringResult lowered = lower_field_type(
-                    field.type(), ns.fqn(), local_declaration_ids, catalog, output_selection,
-                    error_message);
+                const ::quarry::schema_ir::FieldIR& field = record_plan.record->fields(field_index);
+                const TypeLoweringResult lowered =
+                    lower_field_type(field.type(), ns.fqn(), local_declaration_ids, catalog,
+                                     output_selection, error_message);
                 if (!error_message.empty()) {
                     return false;
                 }
                 const RuntimeFieldEncoding runtime_encoding =
                     lower_runtime_field_encoding(field.type(), catalog);
-                record_plan.fields.push_back(
-                    FieldPlan{.field = &field,
-                              .brf_layout = &record_plan.brf_layout->fields[
-                                  static_cast<std::size_t>(field_index)],
-                              .name = field.name(),
-                              .cpp_type = lowered.cpp_type,
-                              .runtime_encoding = runtime_encoding});
+                record_plan.fields.push_back(FieldPlan{
+                    .field = &field,
+                    .brf_layout =
+                        &record_plan.brf_layout->fields[static_cast<std::size_t>(field_index)],
+                    .name = field.name(),
+                    .cpp_type = lowered.cpp_type,
+                    .runtime_encoding = runtime_encoding});
                 plan.standard_includes.insert(lowered.standard_includes.begin(),
                                               lowered.standard_includes.end());
                 plan.includes.insert(lowered.generated_includes.begin(),
@@ -1092,8 +1111,7 @@ void collect_named_types(const ::quarry::schema_ir::NamespaceIR& ns,
     for (int index = 0; index < ns.namespaces_size(); ++index) {
         NamespacePlan child_plan;
         if (!analyze_namespace(ns.namespaces(index), options, catalog, layout_model,
-                               output_selection,
-                               child_plan, error_message)) {
+                               output_selection, child_plan, error_message)) {
             return false;
         }
         plan.children.push_back(std::move(child_plan));
@@ -1150,9 +1168,10 @@ void collect_planned_files(const NamespacePlan& plan, RenderGenerationPlan& gene
                 file.namespace_plan->include_path + ")";
             return false;
         }
-        const std::string identity_prefix =
-            generated_code_identity_macro_prefix(file.namespace_plan->fqn);
-        if (namespace_macro_body(file.namespace_plan->fqn).empty() ||
+        const std::string identity_prefix = generated_code_identity_macro_prefix(
+            file.namespace_plan->fqn, file.namespace_plan->name_prefix);
+        if (namespace_macro_body(file.namespace_plan->fqn, file.namespace_plan->name_prefix)
+                .empty() ||
             !support::is_unreserved_macro_identifier(identity_prefix + "_CODE_ID_FORMAT") ||
             !support::is_unreserved_macro_identifier(identity_prefix + "_SCHEMA_ID_ALGORITHM")) {
             error_message = "backend codegen: namespace '" +
@@ -1191,12 +1210,10 @@ void collect_planned_files(const NamespacePlan& plan, RenderGenerationPlan& gene
 
             const std::size_t dependency_index = it->second;
             if (state[dependency_index] == VisitState::Visiting) {
-                error_message = "backend codegen detected a namespace cycle between '" +
-                                generation_plan.files[index].file.generated_include_path +
-                                "' and '" +
-                                generation_plan.files[dependency_index].file
-                                    .generated_include_path +
-                                "'";
+                error_message =
+                    "backend codegen detected a namespace cycle between '" +
+                    generation_plan.files[index].file.generated_include_path + "' and '" +
+                    generation_plan.files[dependency_index].file.generated_include_path + "'";
                 return false;
             }
             if (state[dependency_index] == VisitState::Unvisited) {
@@ -1220,8 +1237,8 @@ void collect_planned_files(const NamespacePlan& plan, RenderGenerationPlan& gene
     return true;
 }
 
-[[nodiscard]] GenerationPlan to_public_generation_plan(
-    const RenderGenerationPlan& render_generation_plan) {
+[[nodiscard]] GenerationPlan
+to_public_generation_plan(const RenderGenerationPlan& render_generation_plan) {
     GenerationPlan generation_plan;
     generation_plan.files.reserve(render_generation_plan.files.size());
     for (const PlannedRenderFile& file : render_generation_plan.files) {
@@ -1236,6 +1253,7 @@ void collect_planned_files(const NamespacePlan& plan, RenderGenerationPlan& gene
     const output_planning::OutputPlan* output_plan, NamespacePlan& root_plan,
     RenderGenerationPlan& generation_plan, std::string& error_message) {
     TypeCatalog catalog;
+    catalog.name_prefix = options.name_prefix;
     collect_named_types(schema_ir.root_namespace(), options, catalog);
 
     OutputSelection selection;
@@ -1499,8 +1517,8 @@ void render_unsupported_present_field_encoding(const FieldPlan& field, std::size
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
     render_encode_failure_return(stream, indent_level + 1,
-                                 "::quarry::runtime::EncodeError::unsupported_field_type", field_index,
-                                 "std::nullopt");
+                                 "::quarry::runtime::EncodeError::unsupported_field_type",
+                                 field_index, "std::nullopt");
     stream << indent(indent_level) << "}\n";
 }
 
@@ -1512,12 +1530,13 @@ void render_scalar_field_encoding(const FieldPlan& field, std::size_t indent_lev
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
     stream << indent(indent_level + 1) << "if (!::quarry::runtime::" << append_function
            << "(field_bytes, *value." << field.name << "())) {\n";
-    render_encode_failure_return(stream, indent_level + 2, "::quarry::runtime::EncodeError::overflow",
-                                 field_index, "std::nullopt");
+    render_encode_failure_return(stream, indent_level + 2,
+                                 "::quarry::runtime::EncodeError::overflow", field_index,
+                                 "std::nullopt");
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "fields.push_back(::quarry::runtime::FieldBytes{\n";
-    stream << indent(indent_level + 2) << ".field_index = "
-           << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
+    stream << indent(indent_level + 2)
+           << ".field_index = " << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
     stream << indent(indent_level + 2) << ".bytes = std::move(field_bytes),\n";
     stream << indent(indent_level + 1) << "});\n";
     stream << indent(indent_level) << "}\n";
@@ -1529,8 +1548,9 @@ void render_enum_field_encoding(const FieldPlan& field, const RuntimeEnumEncodin
     const std::string unsigned_type = enum_unsigned_type(enum_encoding.width_bytes);
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
-    stream << indent(indent_level + 1) << "const auto enum_numeric = static_cast<std::int64_t>(*value."
-           << field.name << "());\n";
+    stream << indent(indent_level + 1)
+           << "const auto enum_numeric = static_cast<std::int64_t>(*value." << field.name
+           << "());\n";
     stream << indent(indent_level + 1) << "if (!(";
     for (std::size_t index = 0; index < enum_encoding.valid_values.size(); ++index) {
         if (index > 0) {
@@ -1550,8 +1570,8 @@ void render_enum_field_encoding(const FieldPlan& field, const RuntimeEnumEncodin
     stream << indent(indent_level + 1) << "::quarry::runtime::" << append_function
            << "(field_bytes, static_cast<" << unsigned_type << ">(enum_numeric));\n";
     stream << indent(indent_level + 1) << "fields.push_back(::quarry::runtime::FieldBytes{\n";
-    stream << indent(indent_level + 2) << ".field_index = "
-           << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
+    stream << indent(indent_level + 2)
+           << ".field_index = " << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
     stream << indent(indent_level + 2) << ".bytes = std::move(field_bytes),\n";
     stream << indent(indent_level + 1) << "});\n";
     stream << indent(indent_level) << "}\n";
@@ -1560,7 +1580,8 @@ void render_enum_field_encoding(const FieldPlan& field, const RuntimeEnumEncodin
 void render_string_field_encoding(const FieldPlan& field, std::size_t indent_level,
                                   std::ostringstream& stream) {
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
-    stream << indent(indent_level) << "if (value.has_" << field.name << "() && !value." << field.name << "()->empty()) {\n";
+    stream << indent(indent_level) << "if (value.has_" << field.name << "() && !value."
+           << field.name << "()->empty()) {\n";
     stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
            << field.runtime_encoding.max_bytes << "U) {\n";
     render_encode_failure_return(stream, indent_level + 2,
@@ -1569,15 +1590,15 @@ void render_string_field_encoding(const FieldPlan& field, std::size_t indent_lev
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "std::vector<std::byte> field_bytes;\n";
     stream << indent(indent_level + 1)
-           << "if (!::quarry::runtime::append_string_utf8(field_bytes, *value."
-           << field.name << "())) {\n";
+           << "if (!::quarry::runtime::append_string_utf8(field_bytes, *value." << field.name
+           << "())) {\n";
     render_encode_failure_return(stream, indent_level + 2,
                                  "::quarry::runtime::EncodeError::invalid_utf8", field_index,
                                  "std::nullopt");
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "fields.push_back(::quarry::runtime::FieldBytes{\n";
-    stream << indent(indent_level + 2) << ".field_index = "
-           << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
+    stream << indent(indent_level + 2)
+           << ".field_index = " << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
     stream << indent(indent_level + 2) << ".bytes = std::move(field_bytes),\n";
     stream << indent(indent_level + 1) << "});\n";
     stream << indent(indent_level) << "}\n";
@@ -1586,7 +1607,8 @@ void render_string_field_encoding(const FieldPlan& field, std::size_t indent_lev
 void render_bytes_field_encoding(const FieldPlan& field, std::size_t indent_level,
                                  std::ostringstream& stream) {
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
-    stream << indent(indent_level) << "if (value.has_" << field.name << "() && !value." << field.name << "()->empty()) {\n";
+    stream << indent(indent_level) << "if (value.has_" << field.name << "() && !value."
+           << field.name << "()->empty()) {\n";
     stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
            << field.runtime_encoding.max_bytes << "U) {\n";
     render_encode_failure_return(stream, indent_level + 2,
@@ -1598,14 +1620,15 @@ void render_bytes_field_encoding(const FieldPlan& field, std::size_t indent_leve
            << "std::span<const std::byte>(value." << field.name << "()->data(), value."
            << field.name << "()->size()));\n";
     stream << indent(indent_level + 1) << "fields.push_back(::quarry::runtime::FieldBytes{\n";
-    stream << indent(indent_level + 2) << ".field_index = "
-           << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
+    stream << indent(indent_level + 2)
+           << ".field_index = " << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
     stream << indent(indent_level + 2) << ".bytes = std::move(field_bytes),\n";
     stream << indent(indent_level + 1) << "});\n";
     stream << indent(indent_level) << "}\n";
 }
 
-void render_record_field_encoding(const FieldPlan& field, const RuntimeRecordEncoding& record_encoding,
+void render_record_field_encoding(const FieldPlan& field,
+                                  const RuntimeRecordEncoding& record_encoding,
                                   std::size_t indent_level, std::ostringstream& stream) {
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (value.has_" << field.name << "()) {\n";
@@ -1622,8 +1645,8 @@ void render_record_field_encoding(const FieldPlan& field, const RuntimeRecordEnc
            << "field_bytes.error, std::move(nested_path));\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "fields.push_back(::quarry::runtime::FieldBytes{\n";
-    stream << indent(indent_level + 2) << ".field_index = "
-           << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
+    stream << indent(indent_level + 2)
+           << ".field_index = " << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
     stream << indent(indent_level + 2) << ".bytes = std::move(*field_bytes.value),\n";
     stream << indent(indent_level + 1) << "});\n";
     stream << indent(indent_level) << "}\n";
@@ -1632,7 +1655,8 @@ void render_record_field_encoding(const FieldPlan& field, const RuntimeRecordEnc
 void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncoding& array_encoding,
                                  std::size_t indent_level, std::ostringstream& stream) {
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
-    stream << indent(indent_level) << "if (value.has_" << field.name << "() && !value." << field.name << "()->empty()) {\n";
+    stream << indent(indent_level) << "if (value.has_" << field.name << "() && !value."
+           << field.name << "()->empty()) {\n";
     stream << indent(indent_level + 1) << "if (value." << field.name << "()->size() > "
            << array_encoding.max_elements << "U) {\n";
     render_encode_failure_return(stream, indent_level + 2,
@@ -1650,8 +1674,8 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
             field.brf_layout->type.element_type->classification ==
                 ::quarry::compiler::layout::RecordClassification::FixedSize;
         render_array_encode_loop_open(stream, indent_level + 1, field.name);
-        stream << indent(indent_level + 2) << "auto element_bytes = "
-               << record_encoding.encode_function << "(element);\n";
+        stream << indent(indent_level + 2)
+               << "auto element_bytes = " << record_encoding.encode_function << "(element);\n";
         stream << indent(indent_level + 2) << "if (!element_bytes.has_value()) {\n";
         stream << indent(indent_level + 3) << "auto nested_path = std::move(element_bytes.path);\n";
         stream << indent(indent_level + 3)
@@ -1665,12 +1689,10 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
                << "element_bytes.error, std::move(nested_path));\n";
         stream << indent(indent_level + 2) << "}\n";
         if (!fixed_record_elements) {
-            stream << indent(indent_level + 2)
-                   << "::quarry::runtime::append_varuint(field_bytes, "
+            stream << indent(indent_level + 2) << "::quarry::runtime::append_varuint(field_bytes, "
                    << "element_bytes.value->size());\n";
         }
-        stream << indent(indent_level + 2)
-               << "::quarry::runtime::append_bytes(field_bytes, "
+        stream << indent(indent_level + 2) << "::quarry::runtime::append_bytes(field_bytes, "
                << "std::span<const std::byte>(element_bytes.value->data(), "
                << "element_bytes.value->size()));\n";
         stream << indent(indent_level + 1) << "}\n";
@@ -1723,8 +1745,8 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
         }
         stream << ")) {\n";
         render_encode_failure_return(stream, indent_level + 3,
-                                     "::quarry::runtime::EncodeError::unknown_enum_value", field_index,
-                                     "static_cast<std::uint32_t>(element_index)");
+                                     "::quarry::runtime::EncodeError::unknown_enum_value",
+                                     field_index, "static_cast<std::uint32_t>(element_index)");
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2) << "::quarry::runtime::" << append_function
                << "(field_bytes, static_cast<" << unsigned_type << ">(enum_numeric));\n";
@@ -1742,8 +1764,8 @@ void render_array_field_encoding(const FieldPlan& field, const RuntimeArrayEncod
     }
 
     stream << indent(indent_level + 1) << "fields.push_back(::quarry::runtime::FieldBytes{\n";
-    stream << indent(indent_level + 2) << ".field_index = "
-           << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
+    stream << indent(indent_level + 2)
+           << ".field_index = " << static_cast<unsigned int>(field.field->field_index()) << "U,\n";
     stream << indent(indent_level + 2) << ".bytes = std::move(field_bytes),\n";
     stream << indent(indent_level + 1) << "});\n";
     stream << indent(indent_level) << "}\n";
@@ -1797,8 +1819,7 @@ void render_record_encoder_definition(const RecordPlan& record_plan, std::size_t
     } else {
         stream << indent(indent_level + 1) << "(void)value;\n";
     }
-    stream << indent(indent_level + 1)
-           << "return ::quarry::runtime::encode_brf_v2_record_result("
+    stream << indent(indent_level + 1) << "return ::quarry::runtime::encode_brf_v2_record_result("
            << "brf_v2_layout_" << record_name << "(), fields);\n";
     stream << indent(indent_level) << "}\n";
     stream << "\n\n";
@@ -1833,7 +1854,8 @@ void render_decode_failure_return(std::ostringstream& stream, std::size_t indent
 }
 
 void render_unsupported_present_field_decoding(const FieldPlan& field, std::string_view record_name,
-                                               std::size_t indent_level, std::ostringstream& stream) {
+                                               std::size_t indent_level,
+                                               std::ostringstream& stream) {
     const unsigned int field_index = static_cast<unsigned int>(field.field->field_index());
     stream << indent(indent_level) << "if (const auto* field = "
            << "::quarry::runtime::find_field(*parsed.record, " << field_index
@@ -1851,11 +1873,11 @@ void render_scalar_field_decoding(const FieldPlan& field, std::string_view recor
     stream << indent(indent_level) << "if (const auto* field = "
            << "::quarry::runtime::find_field(*parsed.record, " << field_index
            << "U); field != nullptr) {\n";
-    stream << indent(indent_level + 1) << "const auto decoded = ::quarry::runtime::"
-           << read_function << "(field->bytes);\n";
+    stream << indent(indent_level + 1)
+           << "const auto decoded = ::quarry::runtime::" << read_function << "(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
-    render_decode_failure_return(stream, indent_level + 2, record_name, "decoded.error", field_index,
-                                 "std::nullopt", "field->field_offset");
+    render_decode_failure_return(stream, indent_level + 2, record_name, "decoded.error",
+                                 field_index, "std::nullopt", "field->field_offset");
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(*decoded.value)) {\n";
@@ -1874,11 +1896,11 @@ void render_enum_field_decoding(const FieldPlan& field, const RuntimeEnumEncodin
     stream << indent(indent_level) << "if (const auto* field = "
            << "::quarry::runtime::find_field(*parsed.record, " << field_index
            << "U); field != nullptr) {\n";
-    stream << indent(indent_level + 1) << "const auto decoded = ::quarry::runtime::"
-           << read_function << "(field->bytes);\n";
+    stream << indent(indent_level + 1)
+           << "const auto decoded = ::quarry::runtime::" << read_function << "(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
-    render_decode_failure_return(stream, indent_level + 2, record_name, "decoded.error", field_index,
-                                 "std::nullopt", "field->field_offset");
+    render_decode_failure_return(stream, indent_level + 2, record_name, "decoded.error",
+                                 field_index, "std::nullopt", "field->field_offset");
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1)
            << "const auto enum_numeric = static_cast<std::int64_t>(*decoded.value);\n";
@@ -1897,8 +1919,8 @@ void render_enum_field_decoding(const FieldPlan& field, const RuntimeEnumEncodin
                                  "::quarry::runtime::DecodeError::unknown_enum_value", field_index,
                                  "std::nullopt", "field->field_offset");
     stream << indent(indent_level + 1) << "}\n";
-    stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
-           << "(static_cast<" << enum_encoding.cpp_type << ">(enum_numeric))) {\n";
+    stream << indent(indent_level + 1) << "if (!builder.set_" << field.name << "(static_cast<"
+           << enum_encoding.cpp_type << ">(enum_numeric))) {\n";
     render_decode_failure_return(stream, indent_level + 2, record_name,
                                  "::quarry::runtime::DecodeError::bounds_exceeded", field_index,
                                  "std::nullopt", "field->field_offset");
@@ -1921,8 +1943,8 @@ void render_string_field_decoding(const FieldPlan& field, std::string_view recor
     stream << indent(indent_level + 1)
            << "const auto decoded = ::quarry::runtime::read_string_utf8(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
-    render_decode_failure_return(stream, indent_level + 2, record_name, "decoded.error", field_index,
-                                 "std::nullopt", "field->field_offset");
+    render_decode_failure_return(stream, indent_level + 2, record_name, "decoded.error",
+                                 field_index, "std::nullopt", "field->field_offset");
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(*decoded.value)) {\n";
@@ -1948,8 +1970,8 @@ void render_bytes_field_decoding(const FieldPlan& field, std::string_view record
     stream << indent(indent_level + 1)
            << "const auto decoded = ::quarry::runtime::read_bytes(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
-    render_decode_failure_return(stream, indent_level + 2, record_name, "decoded.error", field_index,
-                                 "std::nullopt", "field->field_offset");
+    render_decode_failure_return(stream, indent_level + 2, record_name, "decoded.error",
+                                 field_index, "std::nullopt", "field->field_offset");
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
            << "(*decoded.value)) {\n";
@@ -1968,21 +1990,21 @@ void render_record_field_decoding(const FieldPlan& field,
     stream << indent(indent_level) << "if (const auto* field = "
            << "::quarry::runtime::find_field(*parsed.record, " << field_index
            << "U); field != nullptr) {\n";
-    stream << indent(indent_level + 1) << "auto decoded = "
-           << record_encoding.decode_function << "(field->bytes);\n";
+    stream << indent(indent_level + 1) << "auto decoded = " << record_encoding.decode_function
+           << "(field->bytes);\n";
     stream << indent(indent_level + 1) << "if (!decoded.value.has_value()) {\n";
     stream << indent(indent_level + 2) << "auto nested_path = std::move(decoded.path);\n";
     stream << indent(indent_level + 2) << "nested_path.push_back(::quarry::runtime::PathElement{\n";
     stream << indent(indent_level + 3) << ".field_index = " << field_index << "U,\n";
     stream << indent(indent_level + 3) << ".array_index = std::nullopt,\n";
     stream << indent(indent_level + 2) << "});\n";
-    stream << indent(indent_level + 2)
-           << "const std::optional<std::uint64_t> nested_offset = decoded.byte_offset.has_value()\n";
+    stream
+        << indent(indent_level + 2)
+        << "const std::optional<std::uint64_t> nested_offset = decoded.byte_offset.has_value()\n";
     stream << indent(indent_level + 3)
            << "? std::optional<std::uint64_t>(field->field_offset + *decoded.byte_offset)\n";
     stream << indent(indent_level + 3) << ": std::nullopt;\n";
-    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<" << record_name
            << ">(decoded.error, std::move(nested_path), nested_offset);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << "if (!builder.set_" << field.name
@@ -2012,9 +2034,9 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
     const std::string read_function =
         is_enum_array ? enum_read_function(array_encoding.enum_encoding->width_bytes)
                       : runtime_read_function(array_encoding.scalar);
-    const std::uint8_t element_width =
-        is_enum_array ? array_encoding.enum_encoding->width_bytes
-                      : runtime_scalar_width_bytes(array_encoding.scalar);
+    const std::uint8_t element_width = is_enum_array
+                                           ? array_encoding.enum_encoding->width_bytes
+                                           : runtime_scalar_width_bytes(array_encoding.scalar);
     stream << indent(indent_level) << "if (const auto* field = "
            << "::quarry::runtime::find_field(*parsed.record, " << field_index
            << "U); field != nullptr) {\n";
@@ -2042,10 +2064,9 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
         stream << indent(indent_level + 1)
                << "for (std::size_t index = 0U; index < element_count; ++index) {\n";
         if (fixed_record_elements) {
-            stream << indent(indent_level + 2) << "const std::size_t element_length = "
-                   << fixed_record_element_size << "U;\n";
             stream << indent(indent_level + 2)
-                   << "if (element_offset > field->bytes.size() || "
+                   << "const std::size_t element_length = " << fixed_record_element_size << "U;\n";
+            stream << indent(indent_level + 2) << "if (element_offset > field->bytes.size() || "
                    << "element_length > field->bytes.size() - element_offset) {\n";
             render_decode_failure_return(stream, indent_level + 3, record_name,
                                          "::quarry::runtime::DecodeError::invalid_field_length",
@@ -2053,49 +2074,46 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
                                          "field->field_offset + element_offset");
             stream << indent(indent_level + 2) << "}\n";
         } else {
-        stream << indent(indent_level + 2) << "const std::size_t element_length_start = "
-               << "element_offset;\n";
-        stream << indent(indent_level + 2)
-               << "const auto decoded_length = ::quarry::runtime::read_varuint("
-               << "field->bytes, element_offset);\n";
-        stream << indent(indent_level + 2)
-               << "if (!decoded_length.value.has_value()) {\n";
-        render_decode_failure_return(stream, indent_level + 3, record_name, "decoded_length.error",
-                                     field_index, "static_cast<std::uint32_t>(index)",
-                                     "field->field_offset + element_length_start");
-        stream << indent(indent_level + 2) << "}\n";
-        stream << indent(indent_level + 2)
-               << "if (*decoded_length.value > field->bytes.size() - element_offset) {\n";
-        render_decode_failure_return(stream, indent_level + 3, record_name,
-                                     "::quarry::runtime::DecodeError::invalid_field_length",
-                                     field_index, "static_cast<std::uint32_t>(index)",
-                                     "field->field_offset + element_offset");
-        stream << indent(indent_level + 2) << "}\n";
-        stream << indent(indent_level + 2)
-               << "const auto element_length = static_cast<std::size_t>(*decoded_length.value);\n";
+            stream << indent(indent_level + 2) << "const std::size_t element_length_start = "
+                   << "element_offset;\n";
+            stream << indent(indent_level + 2)
+                   << "const auto decoded_length = ::quarry::runtime::read_varuint("
+                   << "field->bytes, element_offset);\n";
+            stream << indent(indent_level + 2) << "if (!decoded_length.value.has_value()) {\n";
+            render_decode_failure_return(
+                stream, indent_level + 3, record_name, "decoded_length.error", field_index,
+                "static_cast<std::uint32_t>(index)", "field->field_offset + element_length_start");
+            stream << indent(indent_level + 2) << "}\n";
+            stream << indent(indent_level + 2)
+                   << "if (*decoded_length.value > field->bytes.size() - element_offset) {\n";
+            render_decode_failure_return(stream, indent_level + 3, record_name,
+                                         "::quarry::runtime::DecodeError::invalid_field_length",
+                                         field_index, "static_cast<std::uint32_t>(index)",
+                                         "field->field_offset + element_offset");
+            stream << indent(indent_level + 2) << "}\n";
+            stream
+                << indent(indent_level + 2)
+                << "const auto element_length = static_cast<std::size_t>(*decoded_length.value);\n";
         }
         stream << indent(indent_level + 2) << "const auto element_bytes = "
                << "field->bytes.subspan(element_offset, element_length);\n";
-        stream << indent(indent_level + 2) << "auto decoded = "
-               << record_encoding.decode_function << "(element_bytes);\n";
+        stream << indent(indent_level + 2) << "auto decoded = " << record_encoding.decode_function
+               << "(element_bytes);\n";
         stream << indent(indent_level + 2) << "if (!decoded.value.has_value()) {\n";
         stream << indent(indent_level + 3) << "auto nested_path = std::move(decoded.path);\n";
         stream << indent(indent_level + 3)
                << "nested_path.push_back(::quarry::runtime::PathElement{\n";
         stream << indent(indent_level + 4) << ".field_index = " << field_index << "U,\n";
-        stream << indent(indent_level + 4)
-               << ".array_index = static_cast<std::uint32_t>(index),\n";
+        stream << indent(indent_level + 4) << ".array_index = static_cast<std::uint32_t>(index),\n";
         stream << indent(indent_level + 3) << "});\n";
-        stream << indent(indent_level + 3)
-               << "const std::optional<std::uint64_t> nested_offset = "
+        stream << indent(indent_level + 3) << "const std::optional<std::uint64_t> nested_offset = "
                << "decoded.byte_offset.has_value()\n";
         stream << indent(indent_level + 4)
                << "? std::optional<std::uint64_t>(field->field_offset + element_offset + "
                << "*decoded.byte_offset)\n";
         stream << indent(indent_level + 4) << ": std::nullopt;\n";
         stream << indent(indent_level + 3) << "return ::quarry::runtime::decode_failure<"
-               << record_name
-               << ">(decoded.error, std::move(nested_path), nested_offset);\n";
+               << record_name << ">(decoded.error, std::move(nested_path), nested_offset);\n";
         stream << indent(indent_level + 2) << "}\n";
         stream << indent(indent_level + 2) << "elements.push_back(*decoded.value);\n";
         stream << indent(indent_level + 2) << "element_offset += element_length;\n";
@@ -2103,7 +2121,8 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
         stream << indent(indent_level + 1) << "if (element_offset != field->bytes.size()) {\n";
         render_decode_failure_return(stream, indent_level + 2, record_name,
                                      "::quarry::runtime::DecodeError::invalid_field_length",
-                                     field_index, "std::nullopt", "field->field_offset + element_offset");
+                                     field_index, "std::nullopt",
+                                     "field->field_offset + element_offset");
         stream << indent(indent_level + 1) << "}\n";
     } else if (is_string_array || is_bytes_array) {
         stream << indent(indent_level + 1)
@@ -2156,11 +2175,13 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
         stream << indent(indent_level + 1) << "if (element_offset != field->bytes.size()) {\n";
         render_decode_failure_return(stream, indent_level + 2, record_name,
                                      "::quarry::runtime::DecodeError::invalid_field_length",
-                                     field_index, "std::nullopt", "field->field_offset + element_offset");
+                                     field_index, "std::nullopt",
+                                     "field->field_offset + element_offset");
         stream << indent(indent_level + 1) << "}\n";
     } else {
-        stream << indent(indent_level + 1) << "const std::size_t element_width = "
-               << static_cast<unsigned int>(element_width) << "U;\n";
+        stream << indent(indent_level + 1)
+               << "const std::size_t element_width = " << static_cast<unsigned int>(element_width)
+               << "U;\n";
         stream << indent(indent_level + 1)
                << "const std::size_t remaining_bytes = field->bytes.size() - element_offset;\n";
         stream << indent(indent_level + 1)
@@ -2172,8 +2193,9 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
         stream << indent(indent_level + 1) << "}\n";
         stream << indent(indent_level + 1)
                << "for (std::size_t index = 0U; index < element_count; ++index) {\n";
-        stream << indent(indent_level + 2) << "const auto decoded = ::quarry::runtime::"
-               << read_function << "(field->bytes.subspan(element_offset, element_width));\n";
+        stream << indent(indent_level + 2)
+               << "const auto decoded = ::quarry::runtime::" << read_function
+               << "(field->bytes.subspan(element_offset, element_width));\n";
         stream << indent(indent_level + 2) << "if (!decoded.value.has_value()) {\n";
         render_decode_failure_return(stream, indent_level + 3, record_name, "decoded.error",
                                      field_index, "static_cast<std::uint32_t>(index)",
@@ -2217,12 +2239,10 @@ void render_array_field_decoding(const FieldPlan& field, const RuntimeArrayEncod
 }
 
 void render_field_decoding(const FieldPlan& field, std::string_view record_name,
-                           std::size_t indent_level,
-                           std::ostringstream& stream) {
+                           std::size_t indent_level, std::ostringstream& stream) {
     if (field.runtime_encoding.enum_encoding.has_value()) {
         render_enum_field_decoding(field, *field.runtime_encoding.enum_encoding, record_name,
-                                   indent_level,
-                                   stream);
+                                   indent_level, stream);
         return;
     }
     if (field.runtime_encoding.variable == RuntimeVariableEncoding::String) {
@@ -2240,8 +2260,7 @@ void render_field_decoding(const FieldPlan& field, std::string_view record_name,
     }
     if (field.runtime_encoding.array_encoding.has_value()) {
         render_array_field_decoding(field, *field.runtime_encoding.array_encoding, record_name,
-                                    indent_level,
-                                    stream);
+                                    indent_level, stream);
         return;
     }
     if (field.runtime_encoding.scalar != RuntimeScalarEncoder::Unsupported) {
@@ -2272,12 +2291,13 @@ void render_brf_v2_layout_definition(const RecordPlan& record_plan, std::size_t 
     stream << indent(indent_level + 1)
            << "static const ::quarry::runtime::BrfV2RecordLayout layout{\n";
     stream << indent(indent_level + 2) << ".record_id = " << layout.record_id << "U,\n";
-    stream << indent(indent_level + 2) << ".presence_bitmap_size = "
-           << layout.presence_bitmap_size << "U,\n";
+    stream << indent(indent_level + 2) << ".presence_bitmap_size = " << layout.presence_bitmap_size
+           << "U,\n";
     stream << indent(indent_level + 2) << ".fixed_region_size = " << layout.fixed_region_size
            << "U,\n";
     if (layout.complete_fixed_record_size.has_value()) {
-        stream << indent(indent_level + 2) << ".complete_fixed_record_size = std::optional<std::uint32_t>{"
+        stream << indent(indent_level + 2)
+               << ".complete_fixed_record_size = std::optional<std::uint32_t>{"
                << *layout.complete_fixed_record_size << "U},\n";
     } else {
         stream << indent(indent_level + 2) << ".complete_fixed_record_size = std::nullopt,\n";
@@ -2289,8 +2309,8 @@ void render_brf_v2_layout_definition(const RecordPlan& record_plan, std::size_t 
                << field.location.byte_offset << "U, "
                << static_cast<unsigned int>(field.location.bit_offset) << "U, "
                << field.location.bit_width << "U, " << field.slot_size << "U, "
-               << "::quarry::runtime::BrfV2FieldStorage::"
-               << brf_v2_storage_name(field.storage) << ", {}},\n";
+               << "::quarry::runtime::BrfV2FieldStorage::" << brf_v2_storage_name(field.storage)
+               << ", {}},\n";
     }
     stream << indent(indent_level + 2) << "},\n";
     stream << indent(indent_level + 1) << "};\n";
@@ -2307,21 +2327,21 @@ void render_record_decoder_definition(const RecordPlan& record_plan, std::size_t
            << "const auto parsed = ::quarry::runtime::parse_brf_v2_record("
            << "input, brf_v2_layout_" << record_name << "());\n";
     stream << indent(indent_level + 1) << "if (!parsed.record.has_value()) {\n";
-    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, "
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<" << record_name
+           << ">(::quarry::runtime::brf_v2_decode_error(parsed.error), {}, "
            << "parsed.offset);\n";
     stream << indent(indent_level + 1) << "}\n";
-    stream << indent(indent_level + 1) << "if (parsed.record->record_id != "
-           << record_plan.record->record_id() << "U) {\n";
-    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<"
-           << record_name << ">(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);\n";
+    stream << indent(indent_level + 1)
+           << "if (parsed.record->record_id != " << record_plan.record->record_id() << "U) {\n";
+    stream << indent(indent_level + 2) << "return ::quarry::runtime::decode_failure<" << record_name
+           << ">(::quarry::runtime::DecodeError::unexpected_record_id, {}, 0U);\n";
     stream << indent(indent_level + 1) << "}\n";
     stream << indent(indent_level + 1) << record_name << "Builder builder;\n";
     for (const FieldPlan& field : record_plan.fields) {
         render_field_decoding(field, record_name, indent_level + 1, stream);
     }
-    stream << indent(indent_level + 1) << "return ::quarry::runtime::decoded_value<"
-           << record_name << ">(builder.build());\n";
+    stream << indent(indent_level + 1) << "return ::quarry::runtime::decoded_value<" << record_name
+           << ">(builder.build());\n";
     stream << indent(indent_level) << "}\n";
     stream << "\n\n";
     stream << indent(indent_level) << "inline std::optional<" << record_name << "> decode_"
@@ -2406,8 +2426,9 @@ void render_identity_macros(std::ostringstream& stream, std::string_view namespa
 // Generated-code identity metadata (#111): this header's own identity, which
 // is not known until the header is hashed, so every form is a placeholder.
 void render_generated_code_identity_macros(std::ostringstream& stream,
-                                           std::string_view namespace_fqn) {
-    const std::string prefix = generated_code_identity_macro_prefix(namespace_fqn);
+                                           std::string_view namespace_fqn,
+                                           std::string_view name_prefix) {
+    const std::string prefix = generated_code_identity_macro_prefix(namespace_fqn, name_prefix);
     stream << "// Generated-code identity of this header: SHA-256 (truncated to 128 bits) of its\n";
     stream << "// normalized generated definitions, its configuration and the identities of the\n";
     stream << "// generated headers it includes (format "
@@ -2427,9 +2448,9 @@ void render_generated_code_identity_macros(std::ostringstream& stream,
 // different definitions is not skipped. Reaching this point with the
 // namespace's identity macros already defined means a different definition of
 // the namespace was included first.
-void render_same_translation_unit_check(std::ostringstream& stream,
-                                        std::string_view namespace_fqn) {
-    const std::string prefix = generated_code_identity_macro_prefix(namespace_fqn);
+void render_same_translation_unit_check(std::ostringstream& stream, std::string_view namespace_fqn,
+                                        std::string_view name_prefix) {
+    const std::string prefix = generated_code_identity_macro_prefix(namespace_fqn, name_prefix);
     stream << "#if defined(" << prefix << "_CODE_ID_FORMAT) || \\\n    defined("
            << support::placeholder::macro_stem(namespace_fqn) << "_SCHEMA_ID_ALGORITHM)\n";
     stream << "#error \"" << support::placeholder::include_path(namespace_fqn)
@@ -2464,7 +2485,7 @@ void render_dependency_identity_checks(
                   "compilation root as "
                << self_path << ".\"\n";
         stream << "#endif\n";
-        const std::string prefix = cpp_namespace_prefix(namespace_fqn);
+        const std::string prefix = cpp_namespace_prefix(namespace_fqn, plan.name_prefix);
         stream << "static_assert(" << prefix << kReservedIdentityAlgorithmConstant
                << " == " << static_cast<unsigned>(identity.algorithm) << "U &&\n";
         stream << "                  " << prefix << kReservedIdentityConstant << " ==\n";
@@ -2479,7 +2500,8 @@ void render_dependency_identity_checks(
     stream << "// definitions this header was generated against (generated-code identity).\n";
     for (const auto& [include_path, namespace_fqn] : plan.generated_dependencies) {
         const support::GeneratedCodeIdentity& expected = dependency_ids.find(namespace_fqn)->second;
-        const std::string macro = generated_code_identity_macro_prefix(namespace_fqn);
+        const std::string macro =
+            generated_code_identity_macro_prefix(namespace_fqn, plan.name_prefix);
         const std::string path = support::placeholder::include_path(namespace_fqn);
         stream << "#if !defined(" << macro << "_CODE_ID_FORMAT)";
         for (std::size_t word = 0; word < 4U; ++word) {
@@ -2535,14 +2557,14 @@ void render_dependency_identity_checks(
     // when a generated header is compiled on its own.
     // The guard carries the full generated-code identity, so two different
     // definitions of a namespace never share a guard, and identical ones do.
-    const std::string guard = generated_code_identity_macro_prefix(plan.fqn) + "_" +
-                              support::placeholder::self_identity('H') + "_";
+    const std::string guard = generated_code_identity_macro_prefix(plan.fqn, options.name_prefix) +
+                              "_" + support::placeholder::self_identity('H') + "_";
     stream << "#ifndef " << guard << "\n";
     stream << "#define " << guard << "\n";
     stream << '\n';
-    render_same_translation_unit_check(stream, plan.fqn);
+    render_same_translation_unit_check(stream, plan.fqn, options.name_prefix);
     render_identity_macros(stream, plan.fqn, identity);
-    render_generated_code_identity_macros(stream, plan.fqn);
+    render_generated_code_identity_macros(stream, plan.fqn, options.name_prefix);
 
     std::set<std::string> standard_includes = plan.standard_includes;
     standard_includes.insert("<array>");
@@ -2572,7 +2594,8 @@ void render_dependency_identity_checks(
     }
     render_dependency_identity_checks(stream, plan, identity, dependency_ids);
 
-    const std::vector<std::string> parts = namespace_parts(plan.fqn);
+    const std::vector<std::string> parts =
+        namespace_parts(support::named_namespace(options.name_prefix, plan.fqn));
     append_namespace_open(stream, parts);
     // Every declaration of the namespace lives in an inline namespace keyed by
     // its full generated-code identity: user code keeps writing
@@ -2740,7 +2763,8 @@ identify_namespaces(const RenderGenerationPlan& complete_plan, const CodegenOpti
         const NamespacePlan& plan = *file.namespace_plan;
         ids.emplace(plan.fqn, identified.at(plan.fqn).identity);
         values.include_paths.emplace(plan.fqn, plan.include_path);
-        values.macro_stems.emplace(plan.fqn, generated_code_identity_macro_prefix(plan.fqn));
+        values.macro_stems.emplace(
+            plan.fqn, generated_code_identity_macro_prefix(plan.fqn, options.name_prefix));
     }
 
     files.reserve(generation_plan.files.size());
@@ -2810,8 +2834,7 @@ compute_layout(const schema_ir::SchemaIrModel& schema_ir, std::string& error_mes
 
 } // namespace
 
-PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir,
-                         const CodegenOptions& options,
+PlanResult Backend::plan(const schema_ir::SchemaIrModel& schema_ir, const CodegenOptions& options,
                          const output_planning::OutputPlan* output_plan) const {
     std::string error_message;
     const auto layout_model = compute_layout(schema_ir, error_message);

@@ -53,6 +53,7 @@ Options:
       --list-outputs            Print generated output paths without writing files
       --print-generated-code-api-version
                                 Print the generated-code API compatibility version and exit
+      --name-prefix NAME        Nest generated source names and paths beneath NAME
       --describe                Describe the full configuration without writing files
       --print-schema-id         Print the resolved configuration's 128-bit schema_id
       --version                 Show version information
@@ -669,3 +670,45 @@ inputs display only their basename. Backslashes and control bytes in labels are
 escaped. Output contains no timestamps or host-specific absolute paths and uses
 locale-independent number formatting. Compiler metadata may differ between
 compiler builds; it never contributes to schema identity.
+
+### Deliberate source naming isolation
+
+`--name-prefix rev_a` explicitly nests generated source names beneath `rev_a`.
+The configuration name never supplies a prefix automatically. The prefix must
+be an ASCII identifier starting with a letter, with no double underscores,
+language keyword, reserved `std` / `quarry` name, identity constant, or `quarry_gen_` / `quarry_cfg_`
+spelling. Empty, repeated or invalid options are usage errors (exit 2). A prefix
+matching any canonical namespace's first segment is also exit 2, even when that
+namespace is outside `--generate`. Comparisons preserve case. On case-insensitive
+filesystems, choose prefixes differing beyond case when sharing an output tree.
+
+The prefix is a source naming operation. Schema IR, canonical FQNs, hierarchical
+record IDs, BRF/QBS bytes and `schema_id` remain unchanged. `--generate` and
+`--c-optimize-size=NS` continue to take canonical, unprefixed namespace names.
+`--describe`, `--print-schema-id`, `--list-inputs` and `--emit-qbs` do not include
+prefixes in their data. Ordinary query/QBS conflicts keep their existing rules.
+`--list-outputs` reports the prefixed output paths. Generation errors remain exit 1.
+
+| Variant | Naming with `--name-prefix rev_a` |
+|---|---|
+| C++ owning | `rev_a::truck::engine`, with the existing `quarry_gen_<gid>` inline namespace |
+| C | `revq0a_truck_engine_EngineStatus_t`, functions and descriptors with the same stem |
+| C++ with C storage | The C names above and `quarry::cxx::revq0a_truck_engine_EngineStatus` |
+| Python | `rev_a.truck.engine.schema`, absolute dependency imports and `rev_a/__init__.py` |
+| Go | `<go-import-prefix>/rev_a/truck/engine`; the namespace's leaf package name is retained |
+
+Every output path gains a literal `<prefix>/` directory. C/C++ include paths,
+identity macro names and guards use the same prefix consistently. For C symbols
+and identity metadata, encode the prefix as the first namespace segment using
+[#117's encoding](../docs/design/configuration-identity.md#46-namespace-to-macro-encoding-117):
+`q` becomes `qq`, `_` becomes `q0`, and `_` separates encoded segments. Prefixed
+C enum constants retain this encoded namespace's case, followed by the existing
+uppercase enum/member spelling. Unprefixed C symbols retain their legacy names;
+#119's general unprefixed migration remains deferred.
+
+The format-1 generated-code identity still hashes normalized emitted definitions
+under canonical namespace keys. Prefixes can change those definitions and their
+`gid`; the algorithm and format do not change. Prefixes do not make prebuilt
+native objects ABI-interchangeable. See the
+[truck multi-configuration example](../examples/truck/multi_configuration/README.md)
+for working C, C++, C-storage, Python and Go consumers.

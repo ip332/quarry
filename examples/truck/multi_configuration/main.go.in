@@ -1,0 +1,59 @@
+package main
+
+import (
+	ca "@MODULE@/gen/rev_a/truck/common"
+	a "@MODULE@/gen/rev_a/truck/engine"
+	cms "@MODULE@/gen/rev_b/truck/cms"
+	cb "@MODULE@/gen/rev_b/truck/common"
+	b "@MODULE@/gen/rev_b/truck/engine"
+	originalcommon "@MODULE@/gen/truck/common"
+	original "@MODULE@/gen/truck/engine"
+	"bytes"
+	"fmt"
+	"github.com/ip332/quarry/runtime/go/brf"
+)
+
+func main() {
+	if a.QuarrySchemaID() == b.QuarrySchemaID() {
+		panic("configuration identity collision")
+	}
+	av := a.EngineStatus{Rpm: brf.Ptr(uint16(1450)), Time: &ca.Timestamp{UnixMs: brf.Ptr(uint64(42))}}
+	bv := b.EngineStatus{Rpm: brf.Ptr(uint16(1450)), Time: &cb.Timestamp{UnixMs: brf.Ptr(uint64(42))}}
+	wa, err := av.MarshalBRF()
+	if err != nil {
+		panic(err)
+	}
+	wb, err := bv.MarshalBRF()
+	if err != nil {
+		panic(err)
+	}
+	ov := original.EngineStatus{Rpm: brf.Ptr(uint16(1450)), Time: &originalcommon.Timestamp{UnixMs: brf.Ptr(uint64(42))}}
+	wo, err := ov.MarshalBRF()
+	if err != nil || !bytes.Equal(wa, wo) {
+		panic("prefix changed wire bytes")
+	}
+	id, err := brf.PeekRecordID(wa)
+	if err != nil || id != 0x00050001 || !bytes.Equal(wa, wb) {
+		panic("engine wire mismatch")
+	}
+	var da a.EngineStatus
+	var db b.EngineStatus
+	if da.UnmarshalBRF(wa) != nil || db.UnmarshalBRF(wb) != nil || da.Rpm == nil || db.Rpm == nil ||
+		*da.Rpm != 1450 || *db.Rpm != 1450 || da.Time == nil || da.Time.UnixMs == nil || *da.Time.UnixMs != 42 {
+		panic("engine round trip")
+	}
+	m := cms.MirrorFold{Folded: brf.Ptr(true)}
+	wm, err := m.MarshalBRF()
+	if err != nil {
+		panic(err)
+	}
+	id, err = brf.PeekRecordID(wm)
+	if err != nil || id != 0x00030002 {
+		panic("mirror record ID")
+	}
+	var dm cms.MirrorFold
+	if dm.UnmarshalBRF(wm) != nil || dm.Folded == nil || !*dm.Folded {
+		panic("mirror round trip")
+	}
+	fmt.Println("Go: both import paths round-trip; EngineStatus bytes agree")
+}

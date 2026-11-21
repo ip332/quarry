@@ -1,0 +1,7 @@
+namespace: truck.cms
+record: MirrorFold
+version: 1
+type: data
+fields:
+  folded:
+    type: bool
