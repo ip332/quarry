@@ -37,27 +37,28 @@ int main(int argc, char** argv) {
         quarry::compiler::diagnostics::DiagnosticCollection diagnostics;
         const auto qbs = quarry::compiler::qbs::parse_qbs(qbs_bytes, diagnostics);
         require(qbs.has_value());
-        const auto record = qbs->find_record_by_id(0x00050001U);
+        const auto record = qbs.value().find_record_by_id(0x00050001U);
         require(record.has_value());
-        const auto engine = quarry::runtime::validate_brf_record(*qbs, *record, brf_bytes);
+        const auto engine =
+            quarry::runtime::validate_brf_record(qbs.value(), record.value(), brf_bytes);
         require(engine.has_value());
-        const auto time = engine->field(0U);
-        require(time && time->as_record().has_value());
-        timestamp(*time->as_record(), 0U);
-        const auto rpm = engine->field(1U);
-        const auto coolant = engine->field(2U);
+        const auto time = engine.value().field(0U);
+        require(time && time.value().as_record().has_value());
+        timestamp(time.value().as_record().value(), 0U);
+        const auto rpm = engine.value().field(1U);
+        const auto coolant = engine.value().field(2U);
         require(rpm && rpm->as_unsigned() == 1450U);
         require(coolant && coolant->as_signed() == -12);
-        const auto faults = engine->record_array(3U);
-        require(faults && faults->size() == 2U);
-        for (std::size_t index = 0U; index < faults->size(); ++index) {
-            const auto fault = faults->element(index);
-            require(fault.has_value() && fault->schema().record_id == 0x00050002U);
-            const auto fault_time = fault->field(0U);
-            require(fault_time && fault_time->as_record().has_value());
-            timestamp(*fault_time->as_record(), index);
-            const auto spn = fault->field(1U);
-            const auto fmi = fault->field(2U);
+        const auto faults = engine.value().record_array(3U);
+        require(faults && faults.value().size() == 2U);
+        for (std::size_t index = 0U; index < faults.value().size(); ++index) {
+            const auto fault = faults.value().element(index);
+            require(fault.has_value() && fault.value().schema().record_id == 0x00050002U);
+            const auto fault_time = fault.value().field(0U);
+            require(fault_time && fault_time.value().as_record().has_value());
+            timestamp(fault_time.value().as_record().value(), index);
+            const auto spn = fault.value().field(1U);
+            const auto fmi = fault.value().field(2U);
             require(spn && spn->as_unsigned() == 1234U + index);
             require(fmi && fmi->as_unsigned() == 7U + index);
         }
