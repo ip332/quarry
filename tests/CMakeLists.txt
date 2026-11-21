@@ -88,8 +88,33 @@ add_quarry_gtest(backend_python_test backend_python/backend_python_test.cpp
 target_link_libraries(backend_python_test PRIVATE quarry_compiler_schema_ir)
 target_link_libraries(backend_python_test PRIVATE quarry_schema_ir_warning_tweaks)
 
+option(QUARRY_INTEROP_REQUIRE_ALL "Require all five A5 matrix toolchains" OFF)
+
+# Black-box A5 matrix: generated codecs see only public runtime headers;
+# the generic tooling probe deliberately links the existing QBS parser API.
+add_executable(interop_matrix_generic_cpp interop/matrix/generic_cpp.cpp)
+target_link_libraries(interop_matrix_generic_cpp PRIVATE quarry_compiler_qbs quarry_project_options)
+
 find_program(QUARRY_PYTHON3_EXECUTABLE python3)
+if(QUARRY_INTEROP_REQUIRE_ALL AND NOT QUARRY_PYTHON3_EXECUTABLE)
+    message(FATAL_ERROR "A5 matrix requires Python orchestration/runtime")
+endif()
+set(quarry_interop_required_flags)
+if(QUARRY_INTEROP_REQUIRE_ALL)
+    list(APPEND quarry_interop_required_flags --require-all)
+endif()
 if(QUARRY_PYTHON3_EXECUTABLE)
+    add_test(NAME interop_matrix
+        COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/interop/matrix/run.py"
+            --source "${CMAKE_SOURCE_DIR}"
+            --generic-cpp "$<TARGET_FILE:interop_matrix_generic_cpp>"
+            --build-dir "${CMAKE_BINARY_DIR}" --cmake "${CMAKE_COMMAND}"
+            --cc "${CMAKE_C_COMPILER}" --cxx "${CMAKE_CXX_COMPILER}"
+            --runtime-c "$<TARGET_FILE:quarry_runtime_c>" --coverage "$<BOOL:${QUARRY_ENABLE_COVERAGE}>"
+            --work "${CMAKE_BINARY_DIR}/interop-matrix"
+            ${quarry_interop_required_flags})
+    set_tests_properties(interop_matrix PROPERTIES LABELS "interop;black-box" TIMEOUT 600)
     add_test(NAME name_prefix_test
         COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/tools/name_prefix_test.py"
@@ -135,6 +160,10 @@ if(QUARRY_PYTHON3_EXECUTABLE)
             --script "${CMAKE_SOURCE_DIR}/scripts/quarry-validate"
             --resolver "${CMAKE_SOURCE_DIR}/cmake/QuarryVersion.cmake"
             --version-template "${CMAKE_SOURCE_DIR}/include/quarry/version.hpp.in")
+else()
+    add_test(NAME interop_matrix COMMAND ${CMAKE_COMMAND} -E echo
+        "SKIP: A5 matrix requires Python orchestration/runtime")
+    set_tests_properties(interop_matrix PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP:")
 endif()
 add_quarry_gtest(python_execution_test backend_python/python_execution_test.cpp
                       quarry_compiler_support)
