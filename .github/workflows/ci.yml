@@ -22,7 +22,7 @@ jobs:
         run: docker compose build
 
       - name: Configure
-        run: docker compose run --rm dev cmake --preset docker-debug
+        run: docker compose run --rm dev cmake --preset docker-debug -DQUARRY_INTEROP_REQUIRE_ALL=ON
 
       - name: Build
         run: docker compose run --rm dev cmake --build --preset docker-debug --parallel
@@ -51,6 +51,49 @@ jobs:
 
       - name: Test
         run: docker compose run --rm dev ctest --preset docker-debug --output-on-failure
+
+      # The same black-box matrix under Linux Clang 18, including its C runtime
+      # and generic C++ tooling probe. No second whole-project CTest suite.
+      - name: Clang 18 interoperability matrix
+        run: |
+          docker compose run --rm dev sh -ec '
+          clang-18 --version
+          cmake --preset docker-debug -B build/clang18-matrix \
+          -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
+          -DQUARRY_INTEROP_REQUIRE_ALL=ON
+          cmake --build build/clang18-matrix --target quarry_runtime_c interop_matrix_generic_cpp --parallel
+          python3 tests/interop/matrix/run.py \
+          --source . \
+          --generic-cpp build/clang18-matrix/tests/interop_matrix_generic_cpp \
+          --cc clang-18 --cxx clang++-18 \
+          --build-dir build/docker-debug \
+          --runtime-c build/clang18-matrix/runtime_c/libquarry_runtime_c.a \
+          --work build/interop-clang18 --require-all'
+
+      # Docker creates private temporary directories and Go's BRF files are
+      # mode 0600. Give the host runner ownership before upload-artifact walks
+      # the evidence; keep the test's normal file permissions intact.
+      - name: Make interoperability evidence readable
+        if: always()
+        run: |
+          for path in build/docker-debug/interop-matrix build/interop-clang18; do
+            if [ -d "$path" ]; then
+              sudo chown -R "$USER":"$USER" "$path"
+            fi
+          done
+
+      - name: Upload interoperability matrix evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarry-interop-matrix
+          path: |
+            build/docker-debug/interop-matrix/report.json
+            build/docker-debug/interop-matrix/run-*/commands.log
+            build/docker-debug/interop-matrix/run-*/*.brf
+            build/interop-clang18/report.json
+            build/interop-clang18/run-*/commands.log
+            build/interop-clang18/run-*/*.brf
 
       # Small secondary diagnostic; runtime assertions are still required.
       - name: GCC LTO generated identity validation
