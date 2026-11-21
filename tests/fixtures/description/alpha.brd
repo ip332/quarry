@@ -1,0 +1,7 @@
+namespace: m
+record: Alpha
+version: 1
+type: data
+fields:
+  value:
+    type: u16

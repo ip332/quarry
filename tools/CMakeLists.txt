@@ -40,6 +40,22 @@ target_link_libraries(quarry_schema_compiler
         quarry_schema_compiler_preparation
         quarry_schema_ir_warning_tweaks
 )
+# Python's runtime epoch is maintained outside CMake. Read its public literal
+# at configure time so --describe needs neither Python at runtime nor a second
+# hard-coded epoch. Watch the source when an incremental build updates it.
+set(_python_epoch_source "${CMAKE_SOURCE_DIR}/runtime/python/src/quarry/runtime/python/__init__.py")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_python_epoch_source}")
+file(STRINGS "${_python_epoch_source}" _python_epoch_line
+    REGEX "^QUARRY_GENERATED_CODE_API_VERSION_PYTHON = [0-9]+$")
+list(LENGTH _python_epoch_line _python_epoch_count)
+if(NOT _python_epoch_count EQUAL 1)
+    message(FATAL_ERROR "Cannot read the Python runtime's generated-code API epoch")
+endif()
+string(REGEX REPLACE "^QUARRY_GENERATED_CODE_API_VERSION_PYTHON = ([0-9]+)$" "\\1"
+    _python_epoch "${_python_epoch_line}")
+target_compile_definitions(quarry_schema_compiler PRIVATE
+    QUARRY_SCHEMA_COMPILER_PYTHON_API_EPOCH=${_python_epoch})
+
 target_include_directories(quarry_schema_compiler
     PRIVATE
         ${QUARRY_GENERATED_INCLUDE_DIR}

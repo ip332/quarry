@@ -1,7 +1,6 @@
 # Configuration Identity in Generated Code (A4)
 
-Status: **approved; A4.1–A4.3 and #111 G1–G5 implemented**. A4.4 (`--describe`)
-and A4.5 (`--name-prefix`) remain proposals,
+Status: **approved; A4.1–A4.4 and #111 G1–G5 implemented**. A4.5 (`--name-prefix`) remains a proposal,
 not supported CLI/runtime features. A4 builds on hierarchical record IDs (#84)
 and configuration roots / `--generate` (#86); §15 records its historical review
 and §16 specifies the implemented generated-code identity.
@@ -359,10 +358,9 @@ quarry_generic_status_t quarry_qbs_schema_id(const quarry_qbs_view_t* qbs, quarr
   and parser errors retain their existing behavior; no identity cache is added.
 - **Go:** has no QBS runtime, so only the generated constants exist.
 
-## 7. Proposed A4.4 `--describe`; implemented `--print-schema-id`
+## 7. Implemented `--describe` and `--print-schema-id`
 
-`--describe` is not implemented. The proposed output below is not a runnable
-current CLI example. In the proposal it prints human-readable, deterministic, line-oriented text. It ignores `--generate`,
+`--describe` prints human-readable, deterministic, line-oriented text. It ignores `--generate`,
 writes nothing, and doesn't affect any output.
 
 ```text
@@ -370,7 +368,7 @@ $ quarry-schema-compiler --describe examples/truck/schemas/configuration.brd
 configuration: class8_truck
 root: examples/truck/schemas/configuration.brd
 schema_id: 9200ca494f010801b830d0857cf66dde (algorithm 1: sha256-128)
-compiler: quarry-schema-compiler 0.1.31-rc.1 (2507998, release tag v0.1.31-rc.1)
+compiler: quarry-schema-compiler 0.1.288 (2507998, release tag v0.1.31-rc.1)
 formats: brf 2, qbs 1, schema-ir 1
 generated-code epochs: cpp 3, c 7, python 1, go 1
 domains: 6
@@ -394,10 +392,15 @@ records: 8
 - **`--print-schema-id`** prints only the 32 hex digits, for scripts and CMake, alongside the existing
   `--print-generated-code-api-version`.
 - **Record roots** omit the `configuration:` line.
-- **The compiler version line** needs a new version field. `QuarryVersion.cmake` would derive a
-  release tag from `git describe --exact-match --match 'v*'` (or the packaged archive tag), giving
+- **The compiler version line** includes separate release metadata. `QuarryVersion.cmake` derives a
+  release tag from `git describe --tags --exact-match --match 'v*'` (or the packaged archive tag), giving
   `QUARRY_RELEASE_TAG`. Untagged builds print `untagged`.
 - **Version metadata never enters the identity input.** A4.1 leaves generated files unchanged; future bindings expose informational version metadata without mandatory runtime storage.
+
+Mappings use assigned ID order as approved in #101. Numeric Git versions keep
+the existing commit counter; release tags are separate informational metadata.
+See [CLI behavior](../../tools/README.md#schema-description) and
+[version resolution](../versioning.md#informational-release-metadata).
 
 ## 8. Measured overhead
 

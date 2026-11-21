@@ -68,3 +68,22 @@ compiler, so an old build directory cannot silently retain version metadata
 from an earlier checkout. Directly invoking an existing binary does not
 reconfigure CMake; use the wrapper after changing Git state or switching
 commits.
+
+## Informational release metadata
+
+`QUARRY_RELEASE_TAG` and the compiler's `--version` / `--describe` report a
+separate release tag. In Git this is an exact HEAD tag, annotated or lightweight,
+matching `vX.Y.Z` or `vX.Y.Z-rc.N` and the current `git_version` major/minor.
+Ancestor tags, unrelated tags and tags for another development line report
+`untagged`. The numeric commit counter and tracked-file `-dirty` semantics above
+are unchanged: an exact `v0.1.31-rc.1` tag can accompany numeric version
+`0.1.288`. A dirty checkout retains its HEAD tag as informational metadata;
+release creation still requires a clean commit.
+
+Archives use explicit `QUARRY_ARCHIVE_TAG` metadata alongside their existing
+numeric fallback. A valid numeric fallback without a tag reports `untagged`;
+package version strings never imply a release tag. The generated build fallback
+preserves both fields when a tag exists. Missing or invalid numeric fallback
+metadata remains an error without Git. When archive Git SHA metadata is absent,
+the CLI explicitly reports `Git SHA unavailable`. None of these fields enters
+schema identity, generated-code identity or generated bindings.

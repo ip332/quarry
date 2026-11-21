@@ -30,6 +30,7 @@ function(quarry_resolve_version)
     set(_source "")
     set(_sha "")
     set(_dirty FALSE)
+    set(_release_tag "untagged")
     find_package(Git QUIET)
     if(Git_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
         execute_process(
@@ -83,6 +84,24 @@ function(quarry_resolve_version)
             if(NOT _sha_result EQUAL 0)
                 set(_sha "")
             endif()
+            # An ancestor tag is not release metadata for HEAD. Include both
+            # annotated and lightweight tags, as the archive exporter does.
+            execute_process(
+                COMMAND "${GIT_EXECUTABLE}" -C "${CMAKE_SOURCE_DIR}"
+                    describe --tags --exact-match --match "v*"
+                RESULT_VARIABLE _tag_result
+                OUTPUT_VARIABLE _tag
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET
+            )
+            if(_tag_result EQUAL 0 AND
+               _tag MATCHES "^v([0-9]+)\\.([0-9]+)\\.([0-9]+)(-rc\\.[0-9]+)?$")
+                # Only recognize release labels for this development line.
+                # Numeric Git versioning and dirty-tree detection stay independent.
+                if(CMAKE_MATCH_1 STREQUAL _major AND CMAKE_MATCH_2 STREQUAL _minor)
+                    set(_release_tag "${_tag}")
+                endif()
+            endif()
             execute_process(
                 COMMAND "${GIT_EXECUTABLE}" -C "${CMAKE_SOURCE_DIR}" status --porcelain --untracked-files=no
                 RESULT_VARIABLE _dirty_result
@@ -97,6 +116,8 @@ function(quarry_resolve_version)
     endif()
 
     if(NOT _resolved AND EXISTS "${CMAKE_SOURCE_DIR}/cmake/QuarryResolvedVersion.cmake")
+        # A tag must come from the fallback file, not caller/cache state.
+        set(QUARRY_ARCHIVE_TAG "")
         include("${CMAKE_SOURCE_DIR}/cmake/QuarryResolvedVersion.cmake")
         if(DEFINED QUARRY_VERSION AND QUARRY_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
             string(REPLACE "." ";" _resolved_parts "${QUARRY_VERSION}")
@@ -129,6 +150,13 @@ function(quarry_resolve_version)
         endif()
     endif()
 
+    if(_resolved AND _source MATCHES "^packaged-" AND
+       QUARRY_ARCHIVE_TAG MATCHES "^v([0-9]+)\\.([0-9]+)\\.([0-9]+)(-rc\\.[0-9]+)?$")
+        if(CMAKE_MATCH_1 STREQUAL _major AND CMAKE_MATCH_2 STREQUAL _minor)
+            set(_release_tag "${QUARRY_ARCHIVE_TAG}")
+        endif()
+    endif()
+
     if(NOT _resolved)
         message(FATAL_ERROR
             "Unable to resolve Quarry version: Git history is unavailable or shallow and "
@@ -136,6 +164,7 @@ function(quarry_resolve_version)
             "or provide a packaged cmake/QuarryResolvedVersion.cmake fallback.")
     endif()
 
+    set(QUARRY_RELEASE_TAG "${_release_tag}" PARENT_SCOPE)
     set(QUARRY_VERSION_MAJOR "${_major}" PARENT_SCOPE)
     set(QUARRY_VERSION_MINOR "${_minor}" PARENT_SCOPE)
     set(QUARRY_VERSION_REVISION "${_revision}" PARENT_SCOPE)
@@ -156,4 +185,7 @@ function(quarry_write_resolved_version_fallback output_file)
         "# Generated release fallback; do not edit.\n"
         "set(QUARRY_VERSION \"${QUARRY_VERSION}\")\n"
         "set(QUARRY_GIT_SHA \"${QUARRY_GIT_SHA}\")\n")
+    if(NOT QUARRY_RELEASE_TAG STREQUAL "untagged")
+        file(APPEND "${output_file}" "set(QUARRY_ARCHIVE_TAG \"${QUARRY_RELEASE_TAG}\")\n")
+    endif()
 endfunction()

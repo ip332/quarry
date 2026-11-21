@@ -1,0 +1,14 @@
+namespace: m
+record: Zeta
+version: 1
+type: data
+enums:
+  UnusedA:
+    values:
+      first: 1
+  UnusedB:
+    values:
+      second: 2
+fields:
+  value:
+    type: u16
