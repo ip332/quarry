@@ -23,6 +23,8 @@ struct CodegenOptions {
     // Required for generate(), ignored by plan(). The schema compiler computes it
     // once from the resolved configuration; see missing_configuration_identity_message.
     std::optional<support::ConfigurationIdentity> configuration_identity;
+    // Explicit source naming only; canonical Schema IR and schema_id are unchanged.
+    std::string name_prefix = "";
 };
 
 // Checks policy selections against the complete configuration, without layout or identity work.

@@ -900,3 +900,30 @@ A future PR should define and test:
 4. Decide whether imported target overrides, host-tools packages,
    multi-config-specific output directories, package components, or
    stale-output cleanup are justified.
+
+## Explicit names and configure-time configuration identity
+
+The installed `quarry_generate_cpp()` helper accepts `NAME_PREFIX <identifier>`
+and `SCHEMA_ID_VARIABLE <variable>` in addition to its existing keywords:
+
+```cmake
+quarry_generate_cpp(SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/configuration.brd"
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated" NAME_PREFIX rev_a
+    GENERATE truck.engine,truck.common OUT_FILES generated_a
+    SCHEMA_ID_VARIABLE schema_a)
+```
+
+`NAME_PREFIX` is passed to generation and both output-inventory queries, including
+the build-time `cmake -P` verifier. The existing absolute `--list-inputs` inventory
+still covers the complete root and drives reconfiguration. The output claim
+registry still rejects collisions. Different prefixes permit multiple roots to
+share an output directory; the helper does not remove stale output files.
+
+`SCHEMA_ID_VARIABLE` returns 32 lowercase hexadecimal digits to the caller's scope
+by running `--print-schema-id` at configure time. Neither `NAME_PREFIX` nor
+`GENERATE` enters that query. Query failures and malformed responses produce
+configure-time errors with the compiler/root context. Applications may compare
+identities for roots without a dependency edge; these checks stay optional.
+The installed module retains its `3.20...3.31` policy pin. Both configure mode and
+the inventory/query script path are tested with CMake 3.x; the public generation
+function itself requires configure mode because it creates build rules.

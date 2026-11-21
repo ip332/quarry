@@ -10,7 +10,11 @@
  * hosted I/O facility, and so the calls cannot be optimized away as unused.
  */
 
+#if defined(QUARRY_SMOKE_PREFIXED)
+#include "name_prefix_adapter.h"
+#else
 #include "benchmark/workload.generated.h"
+#endif
 
 #ifdef QUARRY_SMOKE_COMPACT_WORKLOAD
 #define WORKLOAD_PRESENT(record, field) benchmark_workload_Workload_set_##field##_present(record, true)

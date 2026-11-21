@@ -13,7 +13,7 @@
 // never contains a reserved identifier spelling. Output paths, file extensions,
 // root file stems and --generate do not enter the encoding.
 //
-// A future --name-prefix (A4.5, #102) is a leading segment of this encoding,
+// --name-prefix (A4.5, #102) is a leading segment of this encoding,
 // not text concatenated onto it. Call encode_namespace_macro_segments with the
 // prefix segment first. This header does not implement the flag.
 //
@@ -74,7 +74,7 @@ inline constexpr std::string_view kCNamespaceAccessorPrefix = "quarry_ns_";
 // identifier or a separator is empty, leading or trailing.
 [[nodiscard]] std::optional<std::string> encode_namespace_macro(std::string_view namespace_fqn);
 
-// Body of `segments` in order. An empty span is the root body "0". A future
+// Body of `segments` in order. An empty span is the root body "0". An explicit
 // --name-prefix passes its identifier as the first segment, ahead of the
 // namespace segments. nullopt when any segment is not an identifier.
 [[nodiscard]] std::optional<std::string>

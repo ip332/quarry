@@ -1,4 +1,5 @@
 #include "compiler/backend/backend.hpp"
+#include "compiler/support/generated_names.hpp"
 #include "compiler/backend/generated_code_api_version.hpp"
 #include "compiler/backend_c/backend_c.hpp"
 #include "compiler/backend_c/generated_code_api_version_c.hpp"
@@ -105,6 +106,7 @@ struct CommandLine {
            "                                Print the generated-code API compatibility version and "
            "exit\n"
            "      --print-schema-id         Print the resolved configuration's 128-bit schema_id\n"
+           "      --name-prefix NAME        Nest generated source names and paths beneath NAME\n"
            "      --describe                Describe the full configuration without writing files\n"
            "      --version                 Show version information\n"
            "  -h, --help                    Show this help text\n";
@@ -218,12 +220,14 @@ void print_description(const CommandLine& command_line,
 [[nodiscard]] bool option_requires_value(std::string_view option) {
     return option == "-o" || option == "--output-directory" || option == "--root-file-stem" ||
            option == "--file-extension" || option == "--language" || option == "--emit-qbs" ||
-           option == "--cpp-storage" || option == "--go-import-prefix" || option == "--generate";
+           option == "--cpp-storage" || option == "--go-import-prefix" || option == "--generate" ||
+           option == "--name-prefix";
 }
 
 [[nodiscard]] std::optional<CommandLine> parse_command_line(int argc, char** argv,
                                                             std::ostream& errors) {
     CommandLine command_line;
+    bool saw_name_prefix = false;
     bool saw_output_directory = false;
     bool saw_root_file_stem = false;
     bool saw_file_extension = false;
@@ -352,7 +356,16 @@ void print_description(const CommandLine& command_line,
                 return std::nullopt;
             }
 
-            if (argument == "-o" || argument == "--output-directory") {
+            if (argument == "--name-prefix") {
+                if (saw_name_prefix || !quarry::compiler::support::valid_name_prefix(value)) {
+                    errors << "error: --name-prefix must be specified once as an unreserved "
+                              "portable identifier (letters, digits and underscores; no leading "
+                              "underscore, double underscore, keyword or reserved library/generator name)\n";
+                    return std::nullopt;
+                }
+                saw_name_prefix = true;
+                command_line.codegen_options.name_prefix = value;
+            } else if (argument == "-o" || argument == "--output-directory") {
                 if (saw_output_directory) {
                     errors << "error: duplicate output-directory option\n";
                     return std::nullopt;
@@ -445,6 +458,7 @@ void print_description(const CommandLine& command_line,
 
     if (command_line.show_generated_code_api_version) {
         const bool has_generation_arguments =
+            !command_line.codegen_options.name_prefix.empty() ||
             command_line.list_inputs || command_line.list_outputs ||
             !command_line.input_path.empty() ||
             command_line.codegen_options.output_directory != "generated" ||
@@ -712,6 +726,24 @@ template <typename CodegenResultT>
         return exit_failure;
     }
 
+    if (!command_line.codegen_options.name_prefix.empty()) {
+        std::vector<const quarry::schema_ir::NamespaceIR*> pending{
+            &compilation_result.schema_ir->root_namespace()};
+        while (!pending.empty()) {
+            const auto* ns = pending.back();
+            pending.pop_back();
+            const auto first = ns->fqn().substr(0, ns->fqn().find('.'));
+            if (first == command_line.codegen_options.name_prefix) {
+                errors << "error: --name-prefix '" << first
+                       << "' conflicts with a namespace's first segment in the complete configuration\n";
+                return exit_usage;
+            }
+            for (const auto& child : ns->namespaces()) {
+                pending.push_back(&child);
+            }
+        }
+    }
+
     if (command_line.list_inputs) {
         // Every unit is listed at its canonical path, which changes when its
         // content does. The root and each import are also listed at the path
@@ -868,6 +900,7 @@ template <typename CodegenResultT>
         c_options.optimize_size =
             command_line.c_optimize_size && command_line.c_optimize_size_namespaces.empty();
         c_options.optimize_size_namespaces = command_line.c_optimize_size_namespaces;
+        c_options.name_prefix = command_line.codegen_options.name_prefix;
         c_options.output_directory = command_line.codegen_options.output_directory;
         c_options.root_file_stem = command_line.codegen_options.root_file_stem;
 
@@ -905,6 +938,7 @@ template <typename CodegenResultT>
 
     if (command_line.language == Language::Go) {
         backend_go::CodegenOptions go_options;
+        go_options.name_prefix = command_line.codegen_options.name_prefix;
         go_options.output_directory = command_line.codegen_options.output_directory;
         go_options.root_file_stem = command_line.codegen_options.root_file_stem;
         go_options.go_import_prefix = command_line.go_import_prefix;
@@ -938,6 +972,7 @@ template <typename CodegenResultT>
 
     if (command_line.language == Language::Python) {
         backend_python::CodegenOptions python_options;
+        python_options.name_prefix = command_line.codegen_options.name_prefix;
         python_options.output_directory = command_line.codegen_options.output_directory;
         python_options.root_module_stem = command_line.codegen_options.root_file_stem;
 

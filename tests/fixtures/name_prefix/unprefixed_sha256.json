@@ -1,0 +1,91 @@
+{
+  "baseline": "85fd8123ac88e9b337ba3b18c57a30736dbf6452",
+  "variants": {
+    "cpp": {
+      "truck/brakes.generated.hpp": "00769adeb014b125badc94653af6cc4b1937745ec31b7b238bd1a732869fcbd2",
+      "truck/cms.generated.hpp": "dc75f846f456e1e46f0877e12b3a3bafb0123e910ee1d1dac1906ab0ea434ad5",
+      "truck/common.generated.hpp": "7805a679fb8d3a6ce2da9c9b99cfd59063ab1a88c0d8a3122f0d6794b9342b4a",
+      "truck/engine.generated.hpp": "3d66e44dab37e744c52ec737c6a9ba1e22ae98502bd1356f339a4dae5f8293bf",
+      "truck/transmission.generated.hpp": "85ee9f3d3c4f57608b89d83ef372ef1a3cb1a08b8628daafcac357544744d792",
+      "truck.generated.hpp": "c2e9e2de1454aaf52093996254e05c7f24cc000d01ff3b9720d8f1227fc91b5b"
+    },
+    "c": {
+      "truck/brakes.generated.c": "1a3a162665e2ec48eb6cad1fa12bad7efbfc3898ee4df732efbd912be3116f8e",
+      "truck/brakes.generated.h": "368ff7fe5b9dab60779fbeecc76588fae4f19ee7338074593cc1ea5773de3965",
+      "truck/cms.generated.c": "ff904c8e4d147215c83b52d2996964616f31d4351389efa18c637d1c4f257b7f",
+      "truck/cms.generated.h": "fe88b6fb857b4dc56ea2bcc9ded3a262d4f25846876fb3e2e399565b6992c53d",
+      "truck/common.generated.c": "c31a57de6bf3e553244aade587c58044c4086dec4982cade10c92666cceeff53",
+      "truck/common.generated.h": "36cf51f29ddc246937e58988c6b66a1d670eaf2a0d4de03ab13920a05960439e",
+      "truck/engine.generated.c": "d874c04f00fe81d1f35afbfeb0d30b16e12bae346a71a5504630672c587a75a5",
+      "truck/engine.generated.h": "0484ba353142765980327720f868546ec66cbd1c669f09c728375f385983bc8e",
+      "truck/transmission.generated.c": "be10915e96c89b3a679d56908e7eb148830b1289cb20eaadd333b1a77f1ddc03",
+      "truck/transmission.generated.h": "44aad0b48b2f1dda4c62df4b5cfa4adcf8976cf8934bc419660ff03a4249d53d",
+      "truck.generated.c": "a94bc1fd4edffaac39da44787659212a1164b9401aea136db40fce5d7841fe00",
+      "truck.generated.h": "732f2e20803f6ea7d2cadfab9911d629a0dbac5d1c020f9d0ae71a26c742cffb"
+    },
+    "c-compact": {
+      "truck/brakes.generated.c": "1a3a162665e2ec48eb6cad1fa12bad7efbfc3898ee4df732efbd912be3116f8e",
+      "truck/brakes.generated.h": "b77ef6380fec1e004981f3a451658863be357ac97494284c070b3e12f8d9b4b6",
+      "truck/cms.generated.c": "ff904c8e4d147215c83b52d2996964616f31d4351389efa18c637d1c4f257b7f",
+      "truck/cms.generated.h": "34faab2e098a8f15479c43fe392ef6c0bb878db92045e9882318876515727066",
+      "truck/common.generated.c": "c31a57de6bf3e553244aade587c58044c4086dec4982cade10c92666cceeff53",
+      "truck/common.generated.h": "93050355a555f05148c7feb58e4192fa05d88172d44196a1692f6f040e41b2c1",
+      "truck/engine.generated.c": "d874c04f00fe81d1f35afbfeb0d30b16e12bae346a71a5504630672c587a75a5",
+      "truck/engine.generated.h": "05e9da8c6b3fe6c59580059c299227aaba2646b9821bd7e5aac8d985798f9ece",
+      "truck/transmission.generated.c": "be10915e96c89b3a679d56908e7eb148830b1289cb20eaadd333b1a77f1ddc03",
+      "truck/transmission.generated.h": "77324385b969398377173add34a0fda0e4c94fb509e415a17956b5f2dda46f51",
+      "truck.generated.c": "a94bc1fd4edffaac39da44787659212a1164b9401aea136db40fce5d7841fe00",
+      "truck.generated.h": "0d0b1fcc92ab1e29e115d66b910c72c4b18763d841c6af578d5235eb79de0bc4"
+    },
+    "cpp-c": {
+      "truck/brakes.generated.cpp": "7e7d23b580151789a8d28fa8bcf22c84184ef21147e72801cf9c3ed0f67f80f2",
+      "truck/brakes.generated.hpp": "4344d07636d3187ee4fbce4598ea4e77bc1a7ea66533f98a676df5bf7a9ccb74",
+      "truck/cms.generated.cpp": "8d812606be1fce3c51fc3cf2b10b3141528c1a2f16343dfd7f6bd4363e6a53e5",
+      "truck/cms.generated.hpp": "2229f180b56154443d3664f9ec5eaf2741954a6d3ef8c25e5d46207bbc090036",
+      "truck/common.generated.cpp": "946b2e6223b5b471c90d86fda310392b517bf08da0947224c32cebf15c221c04",
+      "truck/common.generated.hpp": "f689b7a75227fc72d48b4df74eb171dbbf61d9e91512af70daa2db025a35760f",
+      "truck/engine.generated.cpp": "1eb732d23743351fa916161e81d6b533b263b13a9d97674bfef0b8ca308c2b71",
+      "truck/engine.generated.hpp": "86053413e3abfc1945d6e2ab2b03b5f91fd8b9a3b6aa009d62c0e63b27b6f0a6",
+      "truck/transmission.generated.cpp": "2f9184c568108186ee20d334792db7d9694af314c39bc3d45bf4a9159c925fd9",
+      "truck/transmission.generated.hpp": "99ff55d3a69af9348433dcf656442056099f0c87c8fa06a0fcc85cb6c6f566f5",
+      "truck.generated.cpp": "bf88e32a5ee1138d37e0f1241bd3f40e2ade1a5c1e61a5e269c6dc0e7255cbfc",
+      "truck.generated.hpp": "ce36b516a8558f9a06e788808a7f15f5806a881b8f2fa5a5a58ad100f167d9fd"
+    },
+    "cpp-c-compact": {
+      "truck/brakes.generated.cpp": "7e7d23b580151789a8d28fa8bcf22c84184ef21147e72801cf9c3ed0f67f80f2",
+      "truck/brakes.generated.hpp": "8daceccf0485966aadca8e02f904177bd1b4a3bea3e8d8d5aa5775d84b594fba",
+      "truck/cms.generated.cpp": "8d812606be1fce3c51fc3cf2b10b3141528c1a2f16343dfd7f6bd4363e6a53e5",
+      "truck/cms.generated.hpp": "b34825af24494568eaba3301cfb2b4c962db67b7b1ea0be01abd1b81030612d7",
+      "truck/common.generated.cpp": "946b2e6223b5b471c90d86fda310392b517bf08da0947224c32cebf15c221c04",
+      "truck/common.generated.hpp": "3adb7dbbd759c4c360fa22c175516c5945819cfa2669ac7e3f3ce18dc57e0d07",
+      "truck/engine.generated.cpp": "1eb732d23743351fa916161e81d6b533b263b13a9d97674bfef0b8ca308c2b71",
+      "truck/engine.generated.hpp": "5881bb473d5e9ca872069dd4cc2e235d8210eac3a5105b8ccea2234bd1acf085",
+      "truck/transmission.generated.cpp": "2f9184c568108186ee20d334792db7d9694af314c39bc3d45bf4a9159c925fd9",
+      "truck/transmission.generated.hpp": "d104630147223dc04b677cba93e824129eb4744a8db1f817735bd35592ce7404",
+      "truck.generated.cpp": "bf88e32a5ee1138d37e0f1241bd3f40e2ade1a5c1e61a5e269c6dc0e7255cbfc",
+      "truck.generated.hpp": "19361eebf6395698cace638a2e3f154d0cec38cb397fa9bf50b7ad51bd959573"
+    },
+    "python": {
+      "truck/__init__.py": "371dd0f17d1e6a6855c6b06f159fc30b70e7c6c304b3171280311ff3e1496170",
+      "truck/brakes/__init__.py": "371dd0f17d1e6a6855c6b06f159fc30b70e7c6c304b3171280311ff3e1496170",
+      "truck/brakes/schema.py": "c2bae9a61d329e6e3c0c4900982bb6188b3702a9f2a89634eb37f843fed347d3",
+      "truck/cms/__init__.py": "371dd0f17d1e6a6855c6b06f159fc30b70e7c6c304b3171280311ff3e1496170",
+      "truck/cms/schema.py": "f6e42fc541bfd383c6e5b2ed8b1890093859fe7f6e23ecce7b798cced1c0d4f3",
+      "truck/common/__init__.py": "371dd0f17d1e6a6855c6b06f159fc30b70e7c6c304b3171280311ff3e1496170",
+      "truck/common/schema.py": "31b4def1ae723e011a781dc0ce80b96a2a5962604538fe87462c7556b7c9faa6",
+      "truck/engine/__init__.py": "371dd0f17d1e6a6855c6b06f159fc30b70e7c6c304b3171280311ff3e1496170",
+      "truck/engine/schema.py": "d64bdb81f2ade11bc77a9c09aadef4446cbb654ee2c960ac42306baca63d98b5",
+      "truck/schema.py": "e7de38050ac2d5267a7aa3383fb11b878f878b02bf59453141d58ae828a754ee",
+      "truck/transmission/__init__.py": "371dd0f17d1e6a6855c6b06f159fc30b70e7c6c304b3171280311ff3e1496170",
+      "truck/transmission/schema.py": "b8d53b50f78e1af5896a5b5e99687e9fa448e5155559cf50df652665574c95bf"
+    },
+    "go": {
+      "truck/brakes/schema.quarry.go": "312db809ff82efab04819ea337fd2adde3f410f07c9d1b858c825be14f7a00bd",
+      "truck/cms/schema.quarry.go": "f8d343af3a7a7ded74ea1d76f9502b740ef4904665aca35d554afdb92f25a3ff",
+      "truck/common/schema.quarry.go": "afe5846bb6d5e6f6e7afc696d951777ba25c3792b3c0d22eda3a0d499d413f83",
+      "truck/engine/schema.quarry.go": "5adedeb609f0463f7f0c6774c94e0e8ee683d670e12469d47d77c80b3793b898",
+      "truck/schema.quarry.go": "46f9c2209b9d29ac5614735dccaad6d511102fe2aa9a0ea9f1b9a218a4be3669",
+      "truck/transmission/schema.quarry.go": "64ebb6f88448bea8eb13a82af04ccae2945f1d104669b427278281b17608281a"
+    }
+  }
+}

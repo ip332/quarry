@@ -1,6 +1,7 @@
 #include "compiler/backend_go/backend_go.hpp"
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/layout/layout.hpp"
+#include "compiler/support/generated_names.hpp"
 
 #include <algorithm>
 #include <array>
@@ -449,10 +450,17 @@ lower_field(const RecordIR& record_ir, const FieldIR& field_ir, const EnumCatalo
                                   const LayoutModel& layout_model,
                                   std::vector<PlannedPackageFile>& files,
                                   std::string& error_message) {
+    if (!support::valid_prefix_for_namespace(options.name_prefix, ns.fqn())) {
+        error_message =
+            "invalid or conflicting --name-prefix '" + options.name_prefix +
+            "': use an unreserved identifier distinct from every namespace's first segment";
+        return false;
+    }
+
     if (ns.records_size() > 0 || ns.enums_size() > 0) {
         PlannedPackageFile file;
         file.namespace_fqn = ns.fqn();
-        file.directories = namespace_parts(ns.fqn());
+        file.directories = namespace_parts(support::named_namespace(options.name_prefix, ns.fqn()));
         for (const std::string& segment : file.directories) {
             if (!is_safe_path_segment(segment)) {
                 error_message = "backend_go: namespace segment '" + segment + "' of '" + ns.fqn() +

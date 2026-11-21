@@ -4,6 +4,7 @@
 #include "compiler/diagnostics/diagnostic.hpp"
 #include "compiler/layout/layout.hpp"
 #include "compiler/support/generated_code_identity.hpp"
+#include "compiler/support/generated_names.hpp"
 #include "compiler/support/namespace_macro.hpp"
 
 #include <algorithm>
@@ -25,15 +26,15 @@ namespace quarry::compiler::backend_c {
 
 namespace {
 
+using ::quarry::compiler::layout::FieldStorage;
+using ::quarry::compiler::layout::LayoutModel;
+using ::quarry::compiler::layout::RecordLayout;
 using ::quarry::schema_ir::EnumIR;
 using ::quarry::schema_ir::EnumValueIR;
 using ::quarry::schema_ir::FieldIR;
 using ::quarry::schema_ir::FieldType;
 using ::quarry::schema_ir::NamespaceIR;
 using ::quarry::schema_ir::RecordIR;
-using ::quarry::compiler::layout::FieldStorage;
-using ::quarry::compiler::layout::LayoutModel;
-using ::quarry::compiler::layout::RecordLayout;
 
 // --- Namespace/symbol naming -------------------------------------------------
 //
@@ -75,7 +76,10 @@ using ::quarry::compiler::layout::RecordLayout;
 
 // Namespace FQN -> C symbol prefix, e.g. "quarry.telemetry" -> "quarry_telemetry_".
 // The root (synthetic, unnamed) namespace contributes no prefix segment.
-[[nodiscard]] std::string symbol_prefix_for_namespace(std::string_view fqn) {
+[[nodiscard]] std::string symbol_prefix_for_namespace(std::string_view fqn,
+                                                      std::string_view name_prefix) {
+    if (!name_prefix.empty())
+        return support::named_macro_body(name_prefix, fqn) + "_";
     const std::vector<std::string> parts = namespace_parts(fqn);
     if (parts.empty()) {
         return "";
@@ -89,9 +93,9 @@ using ::quarry::compiler::layout::RecordLayout;
                                                   std::string_view fqn) {
     const std::vector<std::string> parts = namespace_parts(fqn);
     if (parts.empty()) {
-        return options.root_file_stem;
+        return support::named_path(options.name_prefix, options.root_file_stem);
     }
-    return join_with(parts, '/');
+    return support::named_path(options.name_prefix, join_with(parts, '/'));
 }
 
 [[nodiscard]] std::string uppercase_alnum_or_underscore(std::string_view text) {
@@ -112,15 +116,12 @@ using ::quarry::compiler::layout::RecordLayout;
 // the same source spelling differently.
 [[nodiscard]] bool is_c_keyword(std::string_view identifier) {
     static constexpr std::string_view keywords[] = {
-        "auto",     "break",    "case",      "char",      "const",     "continue",
-        "default",  "do",       "double",    "else",      "enum",      "extern",
-        "float",    "for",      "goto",      "if",        "inline",    "int",
-        "long",     "register", "restrict",  "return",    "short",     "signed",
-        "sizeof",   "static",   "struct",    "switch",    "typedef",   "union",
-        "unsigned", "void",     "volatile",  "while",     "_Bool",     "_Complex",
-        "_Imaginary"};
-    return std::find(std::begin(keywords), std::end(keywords), identifier) !=
-           std::end(keywords);
+        "auto",     "break",  "case",   "char",     "const",     "continue", "default",  "do",
+        "double",   "else",   "enum",   "extern",   "float",     "for",      "goto",     "if",
+        "inline",   "int",    "long",   "register", "restrict",  "return",   "short",    "signed",
+        "sizeof",   "static", "struct", "switch",   "typedef",   "union",    "unsigned", "void",
+        "volatile", "while",  "_Bool",  "_Complex", "_Imaginary"};
+    return std::find(std::begin(keywords), std::end(keywords), identifier) != std::end(keywords);
 }
 
 constexpr std::string_view cpp_keywords[] = {"alignas",
@@ -230,7 +231,7 @@ constexpr std::string_view cpp_keywords[] = {"alignas",
 }
 
 class CIdentifierAllocator {
-  public:
+public:
     [[nodiscard]] std::string allocate(std::string_view candidate) {
         const std::string base = safe_c_identifier(candidate);
         if (used_.insert(base).second) {
@@ -252,7 +253,7 @@ class CIdentifierAllocator {
         return used_.find(std::string(identifier)) != used_.end();
     }
 
-  private:
+private:
     std::set<std::string> used_;
 };
 
@@ -265,27 +266,29 @@ struct FieldEncoding;
 
 // Encoded namespace body (#117). Empty when the name is not a namespace FQN;
 // the file plan rejects that before a header is written.
-[[nodiscard]] std::string namespace_macro_body(std::string_view namespace_fqn) {
-    const std::optional<std::string> encoded = support::encode_namespace_macro(namespace_fqn);
-    return encoded.has_value() ? *encoded : std::string();
+[[nodiscard]] std::string namespace_macro_body(std::string_view namespace_fqn,
+                                               std::string_view name_prefix) {
+    return support::named_macro_body(name_prefix, namespace_fqn);
 }
 
 // Configuration-identity macros, for example QUARRY_NS_truck_engine_SCHEMA_ID_W0.
 // The root namespace uses the same prefix with the root body. The spelling is
 // the shared namespace encoding, not the C symbol prefix, so dep.engine and
 // dep_engine do not share a macro.
-[[nodiscard]] std::string identity_macro_prefix(std::string_view namespace_fqn) {
-    return std::string(support::kCNamespaceMacroPrefix) + namespace_macro_body(namespace_fqn) +
-           "_SCHEMA_ID";
+[[nodiscard]] std::string identity_macro_prefix(std::string_view namespace_fqn,
+                                                std::string_view name_prefix) {
+    return std::string(support::kCNamespaceMacroPrefix) +
+           namespace_macro_body(namespace_fqn, name_prefix) + "_SCHEMA_ID";
 }
 
 // Optional runtime accessor. It uses the same encoding as the macros: the old
 // symbol-prefix spelling collided for the same namespace pairs, and a second
 // definition of that static function would reject the translation unit before
 // the macros could coexist.
-[[nodiscard]] std::string identity_accessor_name(std::string_view namespace_fqn) {
-    return std::string(support::kCNamespaceAccessorPrefix) + namespace_macro_body(namespace_fqn) +
-           "_schema_id";
+[[nodiscard]] std::string identity_accessor_name(std::string_view namespace_fqn,
+                                                 std::string_view name_prefix) {
+    return std::string(support::kCNamespaceAccessorPrefix) +
+           namespace_macro_body(namespace_fqn, name_prefix) + "_schema_id";
 }
 
 // Prefix of the generated-code identity macros and guard of a namespace's
@@ -294,10 +297,11 @@ struct FieldEncoding;
 // namespace encoding (#117), never from the output path; reserved per
 // namespace in the file-scope identifier registry.
 [[nodiscard]] std::string code_identity_macro_prefix(std::string_view namespace_fqn,
-                                                     bool cpp_wrapper) {
+                                                     bool cpp_wrapper,
+                                                     std::string_view name_prefix) {
     return std::string(cpp_wrapper ? support::kCppCStorageNamespaceMacroPrefix
                                    : support::kCNamespaceCodeIdMacroPrefix) +
-           namespace_macro_body(namespace_fqn);
+           namespace_macro_body(namespace_fqn, name_prefix);
 }
 
 // The generated-code identity variant of a C backend invocation.
@@ -334,10 +338,10 @@ struct FieldEncoding;
 // though the shared codec no longer needs per-field scratch variables.
 
 struct FieldEncoding {
-    std::string c_type;       // e.g. "int32_t", "float", "bool", or an enum's own typedef name
-                              // -- for an array field, describes the *element* type
-    std::string runtime_verb; // e.g. "i32" -> quarry_c_write_i32 / quarry_c_read_i32
-                              // -- for an array field, the *element* verb
+    std::string c_type;            // e.g. "int32_t", "float", "bool", or an enum's own typedef name
+                                   // -- for an array field, describes the *element* type
+    std::string runtime_verb;      // e.g. "i32" -> quarry_c_write_i32 / quarry_c_read_i32
+                                   // -- for an array field, the *element* verb
     std::uint8_t width_bytes = 0U; // for an array field, the *element* width
     bool is_enum = false;          // for an array field, whether the *element* type is an enum
     std::vector<std::int64_t> enum_valid_values; // only meaningful when is_enum
@@ -351,21 +355,21 @@ struct FieldEncoding {
                                         // this value (no "+1" -- see "Bytes fields" above), so
                                         // unlike string_max_bytes this never needs widening
     bool is_array = false;
-    std::uint32_t array_max_elements = 0U; // only meaningful when is_array
+    std::uint32_t array_max_elements = 0U;     // only meaningful when is_array
     std::uint64_t array_scratch_capacity = 0U; // only meaningful when is_array; widened to
                                                // std::uint64_t for the same overflow-avoidance
                                                // reason as string_max_bytes (max_elements *
                                                // width_bytes, plus the worst-case varuint count
                                                // prefix, could overflow uint32_t)
-    bool array_element_is_record = false; // only meaningful when is_array; true when the
-                                          // array's element type is a same-namespace record
-                                          // reference rather than a scalar/enum. Reuses (does
-                                          // not duplicate) record_target_ir_id/
-                                          // record_symbol_name/record_max_encoded_size below --
-                                          // a field is never simultaneously is_record and
-                                          // is_array, so field reuse is unambiguous, mirroring
-                                          // how is_enum already double-duties for both plain-enum
-                                          // and array-of-enum fields.
+    bool array_element_is_record = false;      // only meaningful when is_array; true when the
+                                               // array's element type is a same-namespace record
+                                               // reference rather than a scalar/enum. Reuses (does
+                                               // not duplicate) record_target_ir_id/
+    // record_symbol_name/record_max_encoded_size below --
+    // a field is never simultaneously is_record and
+    // is_array, so field reuse is unambiguous, mirroring
+    // how is_enum already double-duties for both plain-enum
+    // and array-of-enum fields.
     bool array_element_is_fixed_record = false;
     std::uint32_t array_element_fixed_record_size = 0U;
     bool is_record = false;
@@ -392,8 +396,7 @@ struct FieldEncoding {
 };
 
 [[nodiscard]] bool is_field_scratch_required(const FieldEncoding& encoding) {
-    return encoding.is_array || encoding.is_record ||
-           (!encoding.is_string && !encoding.is_bytes);
+    return encoding.is_array || encoding.is_record || (!encoding.is_string && !encoding.is_bytes);
 }
 
 // A field name participates in more than the struct-member namespace. Its
@@ -406,9 +409,8 @@ struct FieldEncoding {
                                               bool cpp_wrapper = false) {
     const std::string base = safe_c_identifier(source_name);
     for (std::uint32_t suffix = 0U;; ++suffix) {
-        const std::string candidate = suffix == 0U
-                                          ? base
-                                          : base + "_" + std::to_string(suffix + 1U);
+        const std::string candidate =
+            suffix == 0U ? base : base + "_" + std::to_string(suffix + 1U);
         std::vector<std::string> generated_names;
         generated_names.push_back(candidate);
         generated_names.push_back("has_" + candidate);
@@ -432,10 +434,9 @@ struct FieldEncoding {
             generated_names.push_back(candidate + "_size");
         }
 
-        if (std::all_of(generated_names.begin(), generated_names.end(),
-                        [&allocator](const std::string& name) {
-                            return !allocator.contains(name);
-                        })) {
+        if (std::all_of(
+                generated_names.begin(), generated_names.end(),
+                [&allocator](const std::string& name) { return !allocator.contains(name); })) {
             for (const std::string& name : generated_names) {
                 (void)allocator.reserve(name);
             }
@@ -548,13 +549,15 @@ struct EnumCatalogEntry {
 
 using EnumCatalog = std::unordered_map<std::uint64_t, EnumCatalogEntry>;
 
-[[nodiscard]] bool collect_enum_catalog(const NamespaceIR& ns, EnumCatalog& catalog,
-                                        std::string& error_message) {
-    const std::string symbol_prefix = symbol_prefix_for_namespace(ns.fqn());
+[[nodiscard]] bool collect_enum_catalog(const NamespaceIR& ns, const CodegenOptions& options,
+                                        EnumCatalog& catalog, std::string& error_message) {
+    const std::string symbol_prefix = symbol_prefix_for_namespace(ns.fqn(), options.name_prefix);
     for (const EnumIR& enum_ir : ns.enums()) {
         EnumCatalogEntry entry;
         entry.type_name = safe_c_identifier(symbol_prefix + enum_ir.name()) + "_t";
-        entry.value_prefix = uppercase_alnum_or_underscore(symbol_prefix + enum_ir.name());
+        entry.value_prefix = options.name_prefix.empty()
+                                 ? uppercase_alnum_or_underscore(symbol_prefix + enum_ir.name())
+                                 : symbol_prefix + uppercase_alnum_or_underscore(enum_ir.name());
         entry.owning_namespace_fqn = ns.fqn();
         entry.all_non_negative = true;
 
@@ -584,7 +587,7 @@ using EnumCatalog = std::unordered_map<std::uint64_t, EnumCatalogEntry>;
     }
 
     for (const NamespaceIR& child : ns.namespaces()) {
-        if (!collect_enum_catalog(child, catalog, error_message)) {
+        if (!collect_enum_catalog(child, options, catalog, error_message)) {
             return false;
         }
     }
@@ -736,7 +739,7 @@ lower_enum_reference(std::uint64_t target_enum_ir_id, std::string_view current_n
 // every record's catalog entry is first created.
 
 struct RecordCatalogEntry {
-    std::string symbol_name;    // e.g. "quarry_telemetry_Child" (no _t/_encode/_decode suffix)
+    std::string symbol_name; // e.g. "quarry_telemetry_Child" (no _t/_encode/_decode suffix)
     std::string owning_namespace_fqn;
     std::uint64_t max_encoded_size = 0U; // resolved later; see collect_namespace_files
     std::uint32_t record_id = 0U;
@@ -744,8 +747,9 @@ struct RecordCatalogEntry {
 
 using RecordCatalog = std::unordered_map<std::uint64_t, RecordCatalogEntry>;
 
-void collect_record_catalog(const NamespaceIR& ns, RecordCatalog& catalog) {
-    const std::string symbol_prefix = symbol_prefix_for_namespace(ns.fqn());
+void collect_record_catalog(const NamespaceIR& ns, const CodegenOptions& options,
+                            RecordCatalog& catalog) {
+    const std::string symbol_prefix = symbol_prefix_for_namespace(ns.fqn(), options.name_prefix);
     for (const RecordIR& record_ir : ns.records()) {
         RecordCatalogEntry entry;
         entry.symbol_name = safe_c_identifier(symbol_prefix + record_ir.name());
@@ -754,7 +758,7 @@ void collect_record_catalog(const NamespaceIR& ns, RecordCatalog& catalog) {
         catalog.emplace(record_ir.ir_id(), std::move(entry));
     }
     for (const NamespaceIR& child : ns.namespaces()) {
-        collect_record_catalog(child, catalog);
+        collect_record_catalog(child, options, catalog);
     }
 }
 
@@ -873,8 +877,8 @@ compute_record_max_encoded_size(const std::vector<PlannedField>& fields) {
     for (std::size_t index = 0; index < records.size(); ++index) {
         if (indegree[index] == 0U) {
             ready.emplace(index, index); // (source_order, index): original index is the
-                                        // declaration order here, matching the C++
-                                        // backend's identical tie-break
+                                         // declaration order here, matching the C++
+                                         // backend's identical tie-break
         }
     }
 
@@ -941,9 +945,9 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         return encoding;
     } else if (type.kind_case() == FieldType::kEnumType) {
         const std::string context = "field '" + record_ir.fqn() + "." + field_ir.name() + "'";
-        std::optional<FieldEncoding> encoding = lower_enum_reference(
-            type.enum_type().target_enum_ir_id(), current_namespace_fqn, catalog, context,
-            error_message);
+        std::optional<FieldEncoding> encoding =
+            lower_enum_reference(type.enum_type().target_enum_ir_id(), current_namespace_fqn,
+                                 catalog, context, error_message);
         if (encoding.has_value()) {
             return encoding;
         }
@@ -962,9 +966,9 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         } else if (element_type.kind_case() == FieldType::kEnumType) {
             const std::string context =
                 "field '" + record_ir.fqn() + "." + field_ir.name() + "' array element type";
-            element_encoding = lower_enum_reference(element_type.enum_type().target_enum_ir_id(),
-                                                    current_namespace_fqn, catalog, context,
-                                                    error_message);
+            element_encoding =
+                lower_enum_reference(element_type.enum_type().target_enum_ir_id(),
+                                     current_namespace_fqn, catalog, context, error_message);
         } else if (element_type.kind_case() == FieldType::kString) {
             element_encoding = FieldEncoding{};
             element_encoding->is_string = true;
@@ -976,10 +980,9 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         } else if (element_type.kind_case() == FieldType::kRecord) {
             const std::string context =
                 "field '" + record_ir.fqn() + "." + field_ir.name() + "' array element type";
-            element_encoding =
-                lower_record_reference(element_type.record().target_record_ir_id(),
-                                       current_namespace_fqn, record_catalog, context,
-                                       error_message);
+            element_encoding = lower_record_reference(element_type.record().target_record_ir_id(),
+                                                      current_namespace_fqn, record_catalog,
+                                                      context, error_message);
             if (element_encoding.has_value()) {
                 element_encoding->array_element_is_record = true;
             }
@@ -1020,7 +1023,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                 static_cast<std::uint64_t>(array_type.max_elements()) *
                     (static_cast<std::uint64_t>(kMaxVaruintBytesForUint32) +
                      (encoding.is_string ? encoding.string_max_bytes
-                                          : static_cast<std::uint64_t>(encoding.bytes_max_bytes)));
+                                         : static_cast<std::uint64_t>(encoding.bytes_max_bytes)));
         } else {
             encoding.array_scratch_capacity =
                 static_cast<std::uint64_t>(kMaxVaruintBytesForUint32) +
@@ -1030,9 +1033,9 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         return encoding;
     } else if (type.kind_case() == FieldType::kRecord) {
         const std::string context = "field '" + record_ir.fqn() + "." + field_ir.name() + "'";
-        std::optional<FieldEncoding> encoding = lower_record_reference(
-            type.record().target_record_ir_id(), current_namespace_fqn, record_catalog, context,
-            error_message);
+        std::optional<FieldEncoding> encoding =
+            lower_record_reference(type.record().target_record_ir_id(), current_namespace_fqn,
+                                   record_catalog, context, error_message);
         if (encoding.has_value()) {
             encoding->is_record = true;
             return encoding;
@@ -1065,13 +1068,18 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 // the same "emit files only for namespaces that directly own records or
 // enums" rule compiler/backend/backend.cpp already follows for C++ -- an
 // independently reached, not shared, implementation of the same policy.
-[[nodiscard]] bool collect_namespace_files(const NamespaceIR& ns, const CodegenOptions& options,
-                                           const EnumCatalog& catalog,
-                                           RecordCatalog& record_catalog,
-                                           const LayoutModel& layout_model,
-                                           const OutputSelection* output_selection,
-                                           std::vector<PlannedNamespaceFile>& files,
-                                           std::string& error_message) {
+[[nodiscard]] bool
+collect_namespace_files(const NamespaceIR& ns, const CodegenOptions& options,
+                        const EnumCatalog& catalog, RecordCatalog& record_catalog,
+                        const LayoutModel& layout_model, const OutputSelection* output_selection,
+                        std::vector<PlannedNamespaceFile>& files, std::string& error_message) {
+    if (!support::valid_prefix_for_namespace(options.name_prefix, ns.fqn())) {
+        error_message =
+            "invalid or conflicting --name-prefix '" + options.name_prefix +
+            "': use an unreserved identifier distinct from every namespace's first segment";
+        return false;
+    }
+
     if (namespace_emits_file(ns)) {
         PlannedNamespaceFile file;
         file.namespace_fqn = ns.fqn();
@@ -1084,8 +1092,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         }
         if (output_selection != nullptr &&
             !output_selection->planned_namespaces.contains(ns.fqn())) {
-            error_message = "backend_c: namespace '" + ns.fqn() +
-                            "' is missing from the compiler output plan";
+            error_message =
+                "backend_c: namespace '" + ns.fqn() + "' is missing from the compiler output plan";
             return false;
         }
         CIdentifierAllocator enum_constants;
@@ -1111,22 +1119,22 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                 const std::string normalized_name = uppercase_alnum_or_underscore(value_ir.name());
                 planned_enum.values.push_back(PlannedEnumValue{
                     .name = normalized_name,
-                    .c_name = enum_constants.allocate(planned_enum.symbol_name + "_" +
-                                                       normalized_name),
+                    .c_name =
+                        enum_constants.allocate(planned_enum.symbol_name + "_" + normalized_name),
                     .value = value_ir.value()});
             }
             file.enums.push_back(std::move(planned_enum));
         }
 
-        const std::string symbol_prefix = symbol_prefix_for_namespace(ns.fqn());
+        const std::string symbol_prefix =
+            symbol_prefix_for_namespace(ns.fqn(), options.name_prefix);
 
         CIdentifierAllocator type_names;
         for (const PlannedEnum& planned_enum : file.enums) {
             (void)type_names.reserve(planned_enum.type_name);
         }
         for (const RecordIR& record_ir : ns.records()) {
-            (void)type_names.reserve(
-                safe_c_identifier(symbol_prefix + record_ir.name()) + "_t");
+            (void)type_names.reserve(safe_c_identifier(symbol_prefix + record_ir.name()) + "_t");
         }
 
         // Phase 1: lower every field of every record in this namespace, in
@@ -1146,7 +1154,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         for (const RecordIR& record_ir : ns.records()) {
             const RecordLayout* canonical_layout = layout_model.find_record(record_ir.fqn());
             if (canonical_layout == nullptr ||
-                canonical_layout->fields.size() != static_cast<std::size_t>(record_ir.fields_size())) {
+                canonical_layout->fields.size() !=
+                    static_cast<std::size_t>(record_ir.fields_size())) {
                 error_message = "backend_c: canonical BRF v2 layout is missing record '" +
                                 record_ir.fqn() + "' or has an inconsistent field count";
                 return false;
@@ -1213,7 +1222,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                         unsigned_runtime_verb_for_width(planned_field.encoding.width_bytes);
                 }
                 if (!planned_field.encoding.is_string && !planned_field.encoding.is_bytes &&
-                    !planned_field.encoding.is_record && !planned_field.encoding.array_element_is_record &&
+                    !planned_field.encoding.is_record &&
+                    !planned_field.encoding.array_element_is_record &&
                     canonical_type->encoded_width != 0U) {
                     planned_field.encoding.width_bytes =
                         static_cast<std::uint8_t>(canonical_type->encoded_width);
@@ -1232,21 +1242,22 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                         canonical_field.type.element_type->encoded_width;
                 }
                 ++field_position;
-                const bool references_record =
-                    planned_field.encoding.is_record ||
-                    planned_field.encoding.array_element_is_record;
+                const bool references_record = planned_field.encoding.is_record ||
+                                               planned_field.encoding.array_element_is_record;
                 const bool references_enum = planned_field.encoding.is_enum;
                 if (references_record || references_enum) {
                     const std::uint64_t target_id =
-                        references_record
-                            ? planned_field.encoding.record_target_ir_id
-                            : (field_ir.type().kind_case() == FieldType::kArray
-                                   ? field_ir.type().array().element_type().enum_type()
-                                         .target_enum_ir_id()
-                                   : field_ir.type().enum_type().target_enum_ir_id());
-                    const std::string& owner = references_record
-                                                   ? record_catalog.at(target_id).owning_namespace_fqn
-                                                   : catalog.at(target_id).owning_namespace_fqn;
+                        references_record ? planned_field.encoding.record_target_ir_id
+                                          : (field_ir.type().kind_case() == FieldType::kArray
+                                                 ? field_ir.type()
+                                                       .array()
+                                                       .element_type()
+                                                       .enum_type()
+                                                       .target_enum_ir_id()
+                                                 : field_ir.type().enum_type().target_enum_ir_id());
+                    const std::string& owner =
+                        references_record ? record_catalog.at(target_id).owning_namespace_fqn
+                                          : catalog.at(target_id).owning_namespace_fqn;
                     if (owner != ns.fqn()) {
                         if (output_selection != nullptr &&
                             !output_selection->planned_namespaces.contains(owner)) {
@@ -1306,7 +1317,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                         record_catalog.at(planned_field.encoding.record_target_ir_id)
                             .max_encoded_size;
                 } else if (planned_field.encoding.is_array &&
-                          planned_field.encoding.array_element_is_record) {
+                           planned_field.encoding.array_element_is_record) {
                     // Only array_scratch_capacity is set here, not
                     // record_max_encoded_size: every read site of
                     // record_max_encoded_size (compute_record_max_encoded_size,
@@ -1335,9 +1346,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 
     for (const NamespaceIR& child : ns.namespaces()) {
         if (!collect_namespace_files(child, options, catalog, record_catalog, layout_model,
-                                     output_selection,
-                                     files,
-                                     error_message)) {
+                                     output_selection, files, error_message)) {
             return false;
         }
     }
@@ -1350,14 +1359,15 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
 // collected later, so use the already compiler-resolved record ids and a
 // small deterministic DFS over the generated record plans. This is sizing
 // metadata only; declaration and codec lowering remain unchanged.
-[[nodiscard]] bool resolve_record_sizes(
-    std::uint64_t record_id, const std::map<std::uint64_t, PlannedRecord*>& records,
-    RecordCatalog& record_catalog, std::map<std::uint64_t, unsigned char>& state,
-    std::string& error_message) {
+[[nodiscard]] bool resolve_record_sizes(std::uint64_t record_id,
+                                        const std::map<std::uint64_t, PlannedRecord*>& records,
+                                        RecordCatalog& record_catalog,
+                                        std::map<std::uint64_t, unsigned char>& state,
+                                        std::string& error_message) {
     const auto record_it = records.find(record_id);
     if (record_it == records.end()) {
-        error_message = "backend_c: could not resolve record sizing dependency " +
-                        std::to_string(record_id);
+        error_message =
+            "backend_c: could not resolve record sizing dependency " + std::to_string(record_id);
         return false;
     }
     const unsigned char current_state = state[record_id];
@@ -1373,8 +1383,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     state[record_id] = 1U;
     PlannedRecord& record = *record_it->second;
     for (PlannedField& field : record.fields) {
-        const bool nested_record = field.encoding.is_record ||
-                                   field.encoding.array_element_is_record;
+        const bool nested_record =
+            field.encoding.is_record || field.encoding.array_element_is_record;
         if (!nested_record) {
             continue;
         }
@@ -1392,8 +1402,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                     (kMaxVaruintBytesForUint64 + target_size);
         }
     }
-    record_catalog.at(record_id).max_encoded_size =
-        compute_record_max_encoded_size(record.fields);
+    record_catalog.at(record_id).max_encoded_size = compute_record_max_encoded_size(record.fields);
     state[record_id] = 2U;
     return true;
 }
@@ -1422,13 +1431,14 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             }
         }
     }
-    const OutputSelection* output_selection_ptr = output_plan == nullptr ? nullptr : &output_selection;
+    const OutputSelection* output_selection_ptr =
+        output_plan == nullptr ? nullptr : &output_selection;
     EnumCatalog catalog;
-    if (!collect_enum_catalog(schema_ir.root_namespace(), catalog, error_message)) {
+    if (!collect_enum_catalog(schema_ir.root_namespace(), options, catalog, error_message)) {
         return false;
     }
     RecordCatalog record_catalog;
-    collect_record_catalog(schema_ir.root_namespace(), record_catalog);
+    collect_record_catalog(schema_ir.root_namespace(), options, record_catalog);
     std::optional<LayoutModel> computed_layout;
     ::quarry::compiler::diagnostics::DiagnosticEngine layout_diagnostics;
     if (precomputed_layout == nullptr) {
@@ -1460,12 +1470,13 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                                    FieldType::kEnumType) {
                         enum_type = &field_ir.type().array().element_type();
                     }
-                    if (enum_type == nullptr) continue;
-                    const auto enum_it = catalog.find(
-                        enum_type->enum_type().target_enum_ir_id());
+                    if (enum_type == nullptr)
+                        continue;
+                    const auto enum_it = catalog.find(enum_type->enum_type().target_enum_ir_id());
                     if (enum_it != catalog.end() && !enum_it->second.all_non_negative) {
                         error_message = "backend_c: field '" + record_ir.fqn() + "." +
-                                        field_ir.name() + "' references an enum with a negative "
+                                        field_ir.name() +
+                                        "' references an enum with a negative "
                                         "declared value; enum fields are only supported when "
                                         "every declared value is non-negative";
                         if (field_ir.type().kind_case() == FieldType::kArray) {
@@ -1475,15 +1486,15 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                     }
                 }
             }
-            for (const NamespaceIR& child : current->namespaces()) namespaces.push_back(&child);
+            for (const NamespaceIR& child : current->namespaces())
+                namespaces.push_back(&child);
         }
         return false;
     }
     const LayoutModel& layout_model =
         precomputed_layout != nullptr ? *precomputed_layout : *computed_layout;
     if (!collect_namespace_files(schema_ir.root_namespace(), options, catalog, record_catalog,
-                                 layout_model,
-                                 output_selection_ptr, files, error_message)) {
+                                 layout_model, output_selection_ptr, files, error_message)) {
         return false;
     }
 
@@ -1508,8 +1519,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
     const auto reserve_file_scope_identifier = [&](const std::string& identifier,
                                                    std::string_view category) {
         if (!seen_file_scope_identifiers.insert(identifier).second) {
-            error_message = "backend_c: generated " + std::string(category) + " '" +
-                            identifier + "' collides with another generated C identifier";
+            error_message = "backend_c: generated " + std::string(category) + " '" + identifier +
+                            "' collides with another generated C identifier";
             return false;
         }
         // In C++, C-storage headers, and plain C headers compiled as C++ (G2),
@@ -1551,13 +1562,13 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         };
     for (const PlannedNamespaceFile& file : files) {
         if (!seen_paths.insert(file.relative_header_path).second) {
-            error_message = "backend_c: duplicate generated header path: " +
-                            file.relative_header_path;
+            error_message =
+                "backend_c: duplicate generated header path: " + file.relative_header_path;
             return false;
         }
         if (!seen_paths.insert(file.relative_source_path).second) {
-            error_message = "backend_c: duplicate generated source path: " +
-                            file.relative_source_path;
+            error_message =
+                "backend_c: duplicate generated source path: " + file.relative_source_path;
             return false;
         }
         const std::string guard = header_guard_macro(file.relative_header_path);
@@ -1567,9 +1578,11 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             return false;
         }
         // Configuration identity names of this namespace (render_header).
-        const std::string macro_prefix = identity_macro_prefix(file.namespace_fqn);
-        const std::string accessor = identity_accessor_name(file.namespace_fqn);
-        if (namespace_macro_body(file.namespace_fqn).empty() ||
+        const std::string macro_prefix =
+            identity_macro_prefix(file.namespace_fqn, options.name_prefix);
+        const std::string accessor =
+            identity_accessor_name(file.namespace_fqn, options.name_prefix);
+        if (namespace_macro_body(file.namespace_fqn, options.name_prefix).empty() ||
             !support::is_unreserved_macro_identifier(macro_prefix + "_ALGORITHM") ||
             !support::is_unreserved_macro_identifier(accessor)) {
             error_message =
@@ -1579,7 +1592,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             return false;
         }
         if (!support::is_unreserved_macro_identifier(
-                code_identity_macro_prefix(file.namespace_fqn, options.cpp_wrapper) +
+                code_identity_macro_prefix(file.namespace_fqn, options.cpp_wrapper,
+                                           options.name_prefix) +
                 "_CODE_ID_FORMAT")) {
             error_message = "backend_c: namespace '" + file.namespace_fqn +
                             "' has no standards-compliant generated-code identity macro spelling";
@@ -1596,10 +1610,11 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
         }
         for (const std::string_view suffix :
              {"_CODE_ID_FORMAT", "_CODE_ID_W0", "_CODE_ID_W1", "_CODE_ID_W2", "_CODE_ID_W3"}) {
-            if (!reserve_file_scope_identifier(
-                    code_identity_macro_prefix(file.namespace_fqn, options.cpp_wrapper) +
-                        std::string(suffix),
-                    "generated-code identity macro")) {
+            if (!reserve_file_scope_identifier(code_identity_macro_prefix(file.namespace_fqn,
+                                                                          options.cpp_wrapper,
+                                                                          options.name_prefix) +
+                                                   std::string(suffix),
+                                               "generated-code identity macro")) {
                 return false;
             }
         }
@@ -1617,8 +1632,7 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
             const std::string type_name = record.symbol_name + "_t";
             if (!reserve_file_scope_identifier(type_name, "record type") ||
                 !reserve_file_scope_identifier(record.symbol_name + "_init", "function") ||
-                !reserve_file_scope_identifier(record.symbol_name + "_encoded_size",
-                                               "function") ||
+                !reserve_file_scope_identifier(record.symbol_name + "_encoded_size", "function") ||
                 !reserve_file_scope_identifier(record.symbol_name + "_encode_result_t",
                                                "encode result type") ||
                 !reserve_file_scope_identifier(record.symbol_name + "_encode", "function") ||
@@ -1628,8 +1642,8 @@ lower_field_encoding(const RecordIR& record_ir, const FieldIR& field_ir,
                 return false;
             }
             for (const std::string_view suffix :
-                 {"_encoded_size_result_t", "_type", "_members", "_brf_v2_fields", "_brf_v2_layout", "_encode_with_record_id",
-                  "_decode_with_record_id"}) {
+                 {"_encoded_size_result_t", "_type", "_members", "_brf_v2_fields", "_brf_v2_layout",
+                  "_encode_with_record_id", "_decode_with_record_id"}) {
                 if (!reserve_file_scope_identifier(record.symbol_name + std::string(suffix),
                                                    "binding symbol")) {
                     return false;
@@ -1909,7 +1923,8 @@ void render_binding(std::ostringstream& stream, const PlannedRecord& record, boo
         << "    " << n << "_encoded_size_result_t result;\n"
         << "    result.status = (quarry_c_status_t)measured.status; result.size = measured.size;\n"
         << "    return result;\n}\n";
-    stream << "typedef struct { quarry_c_status_t status; size_t bytes_written; } " << n << "_encode_result_t;\n";
+    stream << "typedef struct { quarry_c_status_t status; size_t bytes_written; } " << n
+           << "_encode_result_t;\n";
     stream << linkage.function << n << "_encode_result_t " << n << "_encode_with_record_id(const "
            << n << "_t* record, uint32_t record_id, uint8_t* output, size_t output_capacity) {\n"
            << "    quarry_c_typed_encode_result_t encoded = quarry_c_typed_encode(&" << n
@@ -2040,6 +2055,7 @@ void render_cpp_wrapper(::std::ostringstream& stream, const PlannedRecord& recor
 // generated-code identity (#111; plain C since G2), and `dependency_ids` holds
 // the identity of every generated namespace they include.
 struct CRenderContext {
+    std::string_view name_prefix;
     bool optimize_size = false;
     bool cpp_wrapper = false;
     const std::map<std::string, std::string>& namespace_by_include;
@@ -2076,7 +2092,7 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Planned
                       " * configuration (compilation root). */\n";
             wrote_comment = true;
         }
-        const std::string macro = identity_macro_prefix(it->second);
+        const std::string macro = identity_macro_prefix(it->second, context.name_prefix);
         stream << "#if !defined(" << macro << "_ALGORITHM)";
         for (std::size_t word = 0; word < 4U; ++word) {
             stream << " || \\\n    !defined(" << macro << "_W" << word << ")";
@@ -2110,7 +2126,8 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Planned
             wrote_identity_comment = true;
         }
         const support::GeneratedCodeIdentity& expected = context.dependency_ids.at(it->second);
-        const std::string macro = code_identity_macro_prefix(it->second, context.cpp_wrapper);
+        const std::string macro =
+            code_identity_macro_prefix(it->second, context.cpp_wrapper, context.name_prefix);
         const std::string path = context.path(it->second, include_path);
         stream << "#if !defined(" << macro << "_CODE_ID_FORMAT)";
         for (std::size_t word = 0; word < 4U; ++word) {
@@ -2147,9 +2164,11 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Planned
     // Guards are keyed by the generated-code identity (C++/C storage since G1,
     // plain C since G2), so two different definitions of a namespace never
     // share a guard and identical ones do, whatever their output paths.
-    const std::string code_id_prefix = code_identity_macro_prefix(file.namespace_fqn, cpp_wrapper);
+    const std::string code_id_prefix =
+        code_identity_macro_prefix(file.namespace_fqn, cpp_wrapper, context.name_prefix);
     const std::string guard = code_id_prefix + "_" + support::placeholder::self_identity('H') + "_";
-    const std::string identity_macro = identity_macro_prefix(file.namespace_fqn);
+    const std::string identity_macro =
+        identity_macro_prefix(file.namespace_fqn, context.name_prefix);
     // C++ (C-storage) headers put every declaration in an inline namespace
     // keyed by the full generated-code identity. Source code keeps writing
     // ::truck_engine_EngineStatus_t, but the C++ entities those declarations
@@ -2291,7 +2310,8 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Planned
             if (optimize_size) {
                 std::size_t bits = 0U;
                 for (const auto& field : record.fields)
-                    if (!field.encoding.is_array && !field.encoding.is_string && !field.encoding.is_bytes)
+                    if (!field.encoding.is_array && !field.encoding.is_string &&
+                        !field.encoding.is_bytes)
                         ++bits;
                 if (bits != 0U)
                     stream << "    uint8_t quarry_presence_bits[" << (bits + 7U) / 8U << "];\n";
@@ -2365,8 +2385,8 @@ void render_dependency_identity_checks(std::ostringstream& stream, const Planned
     stream << "\n";
     stream << "/* Optional runtime access to the configuration identity; emitted into object\n";
     stream << " * code only when called. */\n";
-    stream << linkage.function << "const uint8_t* " << identity_accessor_name(file.namespace_fqn)
-           << "(void) {\n";
+    stream << linkage.function << "const uint8_t* "
+           << identity_accessor_name(file.namespace_fqn, context.name_prefix) << "(void) {\n";
     stream << "    static const uint8_t id[16] = {";
     for (std::size_t index = 0; index < identity.schema_id.size(); ++index) {
         stream << (index == 0U ? "" : ", ") << hex_byte_literal(identity.schema_id[index]);
@@ -2521,7 +2541,8 @@ identify_file(const PlannedNamespaceFile& file,
             .variant = code_identity_variant(options.cpp_wrapper),
             .identity = dependency->second});
     }
-    const CRenderContext context{.optimize_size = file.optimize_size,
+    const CRenderContext context{.name_prefix = options.name_prefix,
+                                 .optimize_size = file.optimize_size,
                                  .cpp_wrapper = options.cpp_wrapper,
                                  .namespace_by_include = namespace_by_include,
                                  .header_extension = options.header_extension,

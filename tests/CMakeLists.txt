@@ -90,6 +90,18 @@ target_link_libraries(backend_python_test PRIVATE quarry_schema_ir_warning_tweak
 
 find_program(QUARRY_PYTHON3_EXECUTABLE python3)
 if(QUARRY_PYTHON3_EXECUTABLE)
+    add_test(NAME name_prefix_test
+        COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/name_prefix_test.py"
+            --source "${CMAKE_SOURCE_DIR}" --compiler "$<TARGET_FILE:quarry_schema_compiler>"
+            --generated-include "${QUARRY_GENERATED_INCLUDE_DIR}"
+            --cc "${CMAKE_C_COMPILER}" --cxx "${CMAKE_CXX_COMPILER}"
+            --runtime-c "$<TARGET_FILE:quarry_runtime_c>" --coverage "$<BOOL:${QUARRY_ENABLE_COVERAGE}>")
+    add_test(NAME name_prefix_cmake_test
+        COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/name_prefix_cmake_test.py"
+            --source "${CMAKE_SOURCE_DIR}" --build-dir "${CMAKE_BINARY_DIR}"
+            --cmake "${CMAKE_COMMAND}")
     add_test(NAME schema_description_test
         COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/tools/schema_description_test.py"

@@ -287,3 +287,21 @@ The [consumer compatibility and migration guide](../../docs/generated-binding-co
 defines the shared plain-C/C++ contract, mixed-TU native boundaries, older-binding
 migration and working per-namespace storage commands. Equal wire identity or API
 epoch is not a prebuilt-library ABI guarantee.
+
+## Explicit naming prefix
+
+`CodegenOptions::name_prefix` (CLI `--name-prefix`) is optional and empty by
+default. It projects generated source names and output paths without modifying
+Schema IR, canonical FQNs, record IDs or configuration identity. Selection and
+storage-policy options still use canonical namespace names. Unprefixed output
+is pinned byte for byte in `tests/fixtures/name_prefix/unprefixed_sha256.json`.
+See the [source naming contract](../../tools/README.md#deliberate-source-naming-isolation)
+and [multi-configuration example](../../examples/truck/multi_configuration/README.md).
+
+Prefixed C symbols use the case-preserving #117 encoding of the prefix followed
+by every canonical namespace segment. Enum constants preserve that encoded
+namespace's case, then retain the existing uppercase enum/member suffix.
+C++/C-storage wrappers use the same encoded stem; callback language linkage and
+identity-bearing external names retain their established rules. Unprefixed
+legacy C spellings and #119's general migration remain unchanged. The existing
+format-1 generated-code identity hashes the changed definitions normally.

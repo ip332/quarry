@@ -144,3 +144,18 @@ policy of each namespace.
 Compare equivalent policies to detect implementation overhead. Comparing default
 and compact policies instead measures expected native layout and codec changes;
 those differences are not overhead introduced by namespace selection.
+
+## Explicit source-prefix comparison
+
+`-DQUARRY_SMOKE_PREFIXED=ON` runs the same smoke workload against bindings
+created with the fixed test prefix `rev_a`. A validation-only adapter maps the
+smoke consumer to the approved encoded C names; generated files are untouched.
+The option defaults to OFF and changes no runtime API or schema identity.
+
+CI compares plain and prefixed builds under identical toolchain/linker settings
+in Default, MinSizeRel and Debug. `name-prefix-report.md` reports actual
+allocatable bytes, relocations and defined symbols, and the artifact includes
+raw symbol dumps. Renamed symbols, function-section names and debug paths may
+differ, so a naming-only change is not described as an identical object file.
+Inspect linked flash/RAM and section contents separately from those names.
+Stack/heap high-water marks and execution on physical hardware are not measured.

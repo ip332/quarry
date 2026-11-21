@@ -1,7 +1,6 @@
 # Configuration Identity in Generated Code (A4)
 
-Status: **approved; A4.1–A4.4 and #111 G1–G5 implemented**. A4.5 (`--name-prefix`) remains a proposal,
-not supported CLI/runtime features. A4 builds on hierarchical record IDs (#84)
+Status: **approved; A4.1–A4.5 and #111 G1–G5 implemented**. A4 builds on hierarchical record IDs (#84)
 and configuration roots / `--generate` (#86); §15 records its historical review
 and §16 specifies the implemented generated-code identity.
 
@@ -101,8 +100,7 @@ but the actual declarations are inside
 
 Guards are keyed by namespace and `gid`; dependencies check both identities.
 Different generated definitions can coexist in separate TUs; incompatible
-versions of one namespace in the same TU are rejected. No `--name-prefix`
-workaround exists today. User-defined inline functions and prebuilt native
+versions of one namespace in the same TU are rejected. Use explicit, distinct `--name-prefix` values for deliberate same-TU coexistence (§5). User-defined inline functions and prebuilt native
 interfaces remain the consumer's responsibility, even when their signatures
 hide use of generated types.
 
@@ -191,11 +189,11 @@ The composed macro is a prefix that ends in one `_`, the body, and a suffix that
 the whole identifier matches `[A-Za-z][A-Za-z0-9_]*`. It is a C and C++ macro name and not a
 reserved identifier.
 
-A future `--name-prefix` (#102) is a leading segment of this encoding, not text concatenated onto
+`--name-prefix` (#102) is a leading segment of this encoding, not text concatenated onto
 it. `encode_namespace_macro_segments` takes the prefix identifier first. A prefix `rev_a` on
 `truck.engine` encodes as `revq0a_truck_engine`. A prefix `rev_` on `a_b` encodes as
 `revq0_aq0b`. Concatenating the prefix onto an already encoded body would not be injective.
-The flag is not implemented.
+The flag is opt-in and does not change canonical namespace FQNs.
 
 The canonical generated-code identity format stays 1. Renderers still write the `M` placeholder;
 only the substituted stem is this encoding. The `CODE_ID` prefix and the identity guard are
@@ -209,32 +207,47 @@ configuration-identity check reports that it predates generated configuration id
 
 ## 5. Deliberate multiple configurations
 
-### 5.1 Proposed A4.5: `--name-prefix <identifier>` (not implemented)
+### 5.1 Implemented A4.5: `--name-prefix <identifier>`
 
-The following describes the proposed option, which the current CLI rejects.
-In that proposal `--name-prefix` is optional and off by default. Bindings are generated as if every namespace were
+`--name-prefix` is optional and off by default. Bindings are generated as if every namespace were
 nested under `<identifier>`, which changes names and paths only:
 
 | Backend | Without prefix | With `--name-prefix rev_a` |
 |---|---|---|
-| C types, functions | `truck_engine_EngineStatus_t` | `rev_a_truck_engine_EngineStatus_t` |
+| C types, functions | `truck_engine_EngineStatus_t` | `revq0a_truck_engine_EngineStatus_t` |
 | C macros | `QUARRY_NS_truck_engine_SCHEMA_ID_W0` | `QUARRY_NS_revq0a_truck_engine_SCHEMA_ID_W0` |
 | C/C++ files, includes | `truck/engine.generated.h` | `rev_a/truck/engine.generated.h` |
-| Header guards | `QUARRY_GENERATED_C_TRUCK_ENGINE_…` | `QUARRY_GENERATED_C_REV_A_TRUCK_ENGINE_…` |
-| C++ namespace | `truck::engine` (+ inline cfg namespace) | `rev_a::truck::engine` (+ inline cfg namespace) |
-| C++/C-storage wrappers | `quarry::cxx::truck_engine_EngineStatus` | `quarry::cxx::rev_a_truck_engine_EngineStatus` |
+| Header guards | `QUARRY_GENERATED_C_NS_truck_engine_<gid>_` | `QUARRY_GENERATED_C_NS_revq0a_truck_engine_<gid>_` |
+| C++ namespace | `truck::engine` (+ inline `quarry_gen_<gid>` namespace) | `rev_a::truck::engine` (+ inline `quarry_gen_<gid>` namespace) |
+| C++/C-storage wrappers | `quarry::cxx::truck_engine_EngineStatus` | `quarry::cxx::revq0a_truck_engine_EngineStatus` |
 | Python modules | `truck.engine.schema` | `rev_a.truck.engine.schema` (with `rev_a/__init__.py`) |
 | Go packages | `<prefix>/truck/engine`, package `engine` | `<prefix>/rev_a/truck/engine`, package `engine` |
 
 - **Unaffected:** record IDs, Schema IR, QBS (FQNs stay `truck.engine.EngineStatus`) and `schema_id`.
 - **Byte-identity baseline (#102).** Output without `--name-prefix` is the output after #117.
   It is not the A4.2 spelling: #117 renamed the C and C++ identity macros. Python and Go output
-  without the flag stays byte-identical to their current output. The prefix, when implemented,
+  without the flag stays byte-identical to their current output. The prefix
   uses §4.6 with the prefix as the leading segment.
 - **Validation:** the prefix must be a valid identifier and must not equal a namespace's first
   segment.
 - **Mismatched prefixes:** when dependencies are generated with different prefixes, the dependency
   include or import path doesn't exist, so the build fails visibly.
+
+**Approved prefixed-only C correction (#102 / #119).** Prefixes and canonical
+namespace segments use §4.6's injective encoding for C symbols as well as macros.
+Thus `rev_a` + `dep.engine` and `rev` + `a_dep.engine` produce different stems,
+`revq0a_dep_engine_` and `rev_aq0dep_engine_`. Prefixed enum constants preserve the
+encoded namespace's case, so case-only prefixes do not merge C enumerators.
+C-storage wrappers use the same stem. This optional naming rule was approved
+separately; it does not migrate unprefixed symbols or close #119. Existing
+backend rules for record/enum/member identifiers still apply.
+
+Prefixes use portable, unreserved identifiers and are checked against the entire
+resolved namespace tree, including unselected namespaces. The
+[CLI contract](../../tools/README.md#deliberate-source-naming-isolation) specifies
+validation and query behavior. The existing format-1 algorithm hashes changed
+emitted definitions normally; it need not retain the same `gid` under a prefix.
+Canonical identity-input namespace keys, `schema_id` and wire bytes stay unchanged.
 
 **When a prefix is needed:**
 
@@ -252,21 +265,21 @@ Alternatives considered:
 2. **Relative imports in Python.** These would make the package tree relocatable without an option,
    but would change the backend's deliberate absolute-import design. I don't recommend it for A4.
 
-### 5.2 Proposed A4.5 truck cloud application with two vehicle configurations
+### 5.2 Truck cloud application with two vehicle configurations
 
 The fleet runs revision A (`class8_truck`, `9200ca494f010801b830d0857cf66dde`) and revision B, which
-adds `truck.cms.MirrorFold` (`class8_truck_rev_b`, `acf1443058daea59db96ff373869a4be`). In both,
+adds `truck.cms.MirrorFold` with one `folded: bool` field (`class8_truck_rev_b`, `806e9a4e11d0df71c4e5b51045f85010`). In both,
 `EngineStatus` is `0x00050001`; `MirrorFold` is `0x00030002` and exists only in B.
 
 ```sh
-# Go service: separate import paths, no prefix needed.
-quarry-schema-compiler --language go --go-import-prefix example.com/fleet/gen/rev_a \
-  -o gen/rev_a rev_a/configuration.brd
-quarry-schema-compiler --language go --go-import-prefix example.com/fleet/gen/rev_b \
-  -o gen/rev_b rev_b/configuration.brd
+# Go service: explicit names below a caller-selected import root.
+quarry-schema-compiler --language go --name-prefix rev_a --go-import-prefix example.com/fleet/gen \
+  -o gen examples/truck/schemas/configuration.brd
+quarry-schema-compiler --language go --name-prefix rev_b --go-import-prefix example.com/fleet/gen \
+  -o gen examples/truck/multi_configuration/rev_b/configuration.brd
 # Python analytics: one package tree, prefixed.
-quarry-schema-compiler --language python --name-prefix rev_a -o py rev_a/configuration.brd
-quarry-schema-compiler --language python --name-prefix rev_b -o py rev_b/configuration.brd
+quarry-schema-compiler --language python --name-prefix rev_a -o py examples/truck/schemas/configuration.brd
+quarry-schema-compiler --language python --name-prefix rev_b -o py examples/truck/multi_configuration/rev_b/configuration.brd
 ```
 
 ```go
@@ -430,7 +443,7 @@ confirm the numbers with GCC as part of A4.2.
 
 ## 9. Test requirements
 
-This is the original A4 test plan, including future A4.4–A4.5 features. A4.3
+This is the original A4 test plan, now including implemented A4.4–A4.5 features. A4.3
 now has parser, C99, installed-package and three-language identity tests; the
 remaining proposed tests are not a statement that future features exist. Use the [G4 validation
 guide](../generated-code-identity-validation.md) for current measured coverage.
@@ -480,8 +493,8 @@ The [consumer guide](../generated-binding-compatibility.md#per-namespace-storage
 contains executable separate-invocation examples. The
 [CLI contract](../../tools/README.md) and
 [CMake integration](../schema-compiler-tool-distribution.md) define supported
-options. `NAME_PREFIX`, `SCHEMA_ID_VARIABLE` and `--name-prefix` are A4.5
-proposals, not current helper/CLI options. Build systems must regenerate the
+options. `NAME_PREFIX`, `SCHEMA_ID_VARIABLE` and `--name-prefix` are implemented A4.5
+helper/CLI options. Build systems must regenerate the
 complete affected closure; a wholly stale but internally consistent set can
 compile successfully. Identity checks do not replace dependency tracking.
 
@@ -557,7 +570,7 @@ A4.3 and A4.4 are independent of A4.2. The A5 cross-language matrix follows A4.5
 3. **Fixtures.** Revision B fixtures live under `tests/fixtures/configuration_identity/`: one with a
    different `schema_id` and unchanged numeric record IDs (`rev_b_same_ids`), one with a different
    `schema_id`, renumbered records and changed layouts (`rev_b_renumbered`). The public
-   multi-configuration example remains A4.5 work.
+   multi-configuration example is implemented in `examples/truck/multi_configuration`.
 4. **Footprint.** The byte-identical object-code requirement is replaced by a zero mandatory runtime
    footprint: linked `.text`, `.rodata`, `.data` and `.bss` are compared under identical GCC build
    settings; no mandatory identity-related storage, startup code, allocation or hashing. Symbol
