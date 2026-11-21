@@ -37,6 +37,40 @@ class GenericRuntimeConformanceTest(unittest.TestCase):
         cls.schema = quarry.load_qbs(cls.schema_bytes)
         cls.record = quarry.validate_brf(cls.schema, cls.schema.record("Parent"), cls.brf_bytes)
 
+    def test_schema_identity_is_the_stored_small_read_only_value(self):
+        schema = self.schema
+        self.assertEqual(schema.schema_id_algorithm, 1)
+        self.assertIsInstance(schema.schema_id, bytes)
+        self.assertEqual(len(schema.schema_id), 16)
+        self.assertEqual(schema.schema_id.hex(), "dd5c929f6a6475bf0be1318d37542871")
+        self.assertEqual(schema.schema_id, self.schema_bytes[12:28])
+        with self.assertRaises(AttributeError):
+            schema.schema_id = b""
+        with self.assertRaises(AttributeError):
+            schema.schema_id_algorithm = 2
+        altered = bytearray(self.schema_bytes)
+        altered[12:28] = bytes(16)
+        stored = quarry.load_qbs(altered)
+        altered[12] = 255
+        self.assertEqual(stored.schema_id, bytes(16))  # report, do not rehash or substitute
+        self.assertEqual(stored.schema_id_algorithm, 1)
+
+    def test_identity_input_errors_preserve_qbs_parser_behavior(self):
+        for length in (0, 8, 12, 27, 39):
+            with self.subTest(length=length), self.assertRaises(QbsError):
+                quarry.load_qbs(self.schema_bytes[:length])
+        for algorithm in (0, 2, 255):
+            raw = bytearray(self.schema_bytes)
+            raw[8] = algorithm
+            with self.subTest(algorithm=algorithm), self.assertRaises(QbsError):
+                quarry.load_qbs(raw)
+        from quarry.runtime.generic import QbsSchema
+        synthetic = QbsSchema(b"", [], [], [], [], False)
+        with self.assertRaises(QbsError):
+            _ = synthetic.schema_id
+        with self.assertRaises(QbsError):
+            _ = synthetic.schema_id_algorithm
+
     def test_valid_fixture_matches_canonical_values(self):
         record = self.record
         self.assertEqual(record["sequence"], 42)

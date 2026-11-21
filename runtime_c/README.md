@@ -172,3 +172,32 @@ The typed decoder validates the wire layout before reading values, then accesses
 fields directly by their layout ordinal rather than searching their schema field
 indexes. Native decode storage is still fully zero-initialized, including absent
 values and unused capacity. This preserves the existing decode behavior.
+
+## Stored QBS configuration identity
+
+After `quarry_qbs_parse()` returns `QUARRY_GENERIC_OK`, call
+`quarry_qbs_schema_id(&view, &id)` with a `quarry_schema_id_t` output. The installed
+`quarry/runtime_c/schema_id.h` defines `algorithm`, `bytes[16]`,
+`QUARRY_SCHEMA_ID_ALGORITHM_SHA256_128` (1), `QUARRY_SCHEMA_ID_SIZE` (16) and the
+header-only `quarry_schema_id_equals(&id, algorithm, bytes)` comparison. Null
+comparison operands compare unequal.
+
+The accessor reads header byte 8 and copies bytes 12–27. It performs no hashing,
+allocation or global initialization, retains no storage, and adds no code when unused.
+This is stored wire `schema_id`, not generated-code `gid`, and is not hash
+verification/authentication. Use a successfully parsed view with live, unchanged
+backing bytes; defensive header checks are not a second parser.
+
+Null view/output/backing pointers and a backing size below 40 return
+`QUARRY_GENERIC_INVALID_ARGUMENT`; unsupported identity algorithm/length metadata
+returns `QUARRY_GENERIC_MALFORMED_QBS`. Non-null output is zeroed on failure.
+Minimal and reflective images expose the same configuration identity. Link the
+updated `Quarry::runtime_c` when using this new function. Existing C structures,
+parser APIs and generated-code epoch 7 are unchanged; generated bindings do not
+acquire a dependency on this optional API.
+
+Reflective string validation treats the binary count/offset table separately
+from UTF-8 text. Each bounded string payload must be valid UTF-8 on its own;
+valid large offset bytes are not interpreted as text. This preserves the QBS
+layout while accepting valid reflective truck images and rejecting malformed
+offsets or UTF-8 split across string boundaries.

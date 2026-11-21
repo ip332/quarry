@@ -1,7 +1,7 @@
 # Configuration Identity in Generated Code (A4)
 
-Status: **approved; A4.1–A4.2 and #111 G1–G4 implemented**. A4.3 (runtime
-accessors), A4.4 (`--describe`) and A4.5 (`--name-prefix`) remain proposals,
+Status: **approved; A4.1–A4.3 and #111 G1–G5 implemented**. A4.4 (`--describe`)
+and A4.5 (`--name-prefix`) remain proposals,
 not supported CLI/runtime features. A4 builds on hierarchical record IDs (#84)
 and configuration roots / `--generate` (#86); §15 records its historical review
 and §16 specifies the implemented generated-code identity.
@@ -303,13 +303,17 @@ DECODERS = {REV_A: EngineStatusA.decode, REV_B: EngineStatusB.decode}
 
 ## 6. Runtime accessors
 
-This section specifies proposed A4.3 accessors; they are not implemented.
+A4.3 (#100) exposes the existing stored QBS configuration identity. Accessors
+perform no hashing or allocation (apart from Python returning its small `bytes`
+value), and never expose per-namespace generated-code `gid` as wire metadata.
+C/Python parsers retain their existing structural checks; the C++ parser retains
+its existing canonical hash verification. An accessor adds no verification.
 
 
 ### 6.1 C (`Quarry::runtime_c`)
 
 ```c
-/* quarry/runtime_c/schema_id.h (new, header-only, no dependencies beyond <stdint.h>) */
+/* quarry/runtime_c/schema_id.h: header-only value/comparison, <stdint.h>/<stdbool.h> */
 #define QUARRY_SCHEMA_ID_ALGORITHM_SHA256_128 1U
 #define QUARRY_SCHEMA_ID_SIZE 16U
 typedef struct {
@@ -320,7 +324,7 @@ typedef struct {
 static inline bool quarry_schema_id_equals(const quarry_schema_id_t* id, uint8_t algorithm,
                                            const uint8_t bytes[QUARRY_SCHEMA_ID_SIZE]);
 
-/* generic_brf.h: copies the identity of an already parsed QBS image. No hashing, no allocation. */
+/* generic_brf.h: copies the identity of an already parsed QBS image. */
 quarry_generic_status_t quarry_qbs_schema_id(const quarry_qbs_view_t* qbs, quarry_schema_id_t* out);
 ```
 
@@ -328,13 +332,31 @@ quarry_generic_status_t quarry_qbs_schema_id(const quarry_qbs_view_t* qbs, quarr
   QBS image it stores or receives.
 - **The runtime doesn't verify the hash.** Verifying needs SHA-256, which stays optional (Stage B).
   The compiler-side QBS parser does recompute it.
+- **Invalid arguments:** a null view/output, null backing buffer or fewer than
+  40 backing bytes returns `QUARRY_GENERIC_INVALID_ARGUMENT`; unsupported identity
+  algorithm/length metadata returns `QUARRY_GENERIC_MALFORMED_QBS`. Non-null output
+  is cleared on failure. Call only after successful parsing, with unchanged live
+  backing bytes; these bounded checks do not validate a fabricated view.
+- **Packaging:** the C SDK installs `schema_id.h`; applications using the new
+  external accessor must link the updated `Quarry::runtime_c`. Existing public
+  C structures, parser behavior and old entry points are unchanged.
 - **Generated C doesn't depend on this header,** so it doesn't need a new runtime. That keeps the
   C epoch at 7.
 
-### 6.2 Other runtimes (additive)
+### 6.2 Existing C++ and Python views (additive)
 
-- **C++:** `quarry::runtime::QbsSchema::schema_id()` returns `{algorithm, std::array<std::uint8_t, 16>}`.
-- **Python:** `QbsSchema.schema_id` (`bytes`) and `QbsSchema.schema_id_algorithm`.
+- **C++:** `quarry::compiler::qbs::ValidatedQbsView::schema_id()` returns the existing
+  compiler `support::ConfigurationIdentity` value (`algorithm`, `schema_id`, a
+  16-byte `std::array`). It reads the already validated algorithm byte and cached
+  header identity; no new parser or standalone schema class is introduced.
+  `header().schema_id` and all existing view layouts remain unchanged. A default
+  view without an image returns algorithm 0 and zero bytes. This compiler-owned
+  parser remains internal tooling, not an installed C++ runtime SDK dependency.
+- **Python:** `QbsSchema.schema_id` (`bytes`, exactly 16) and
+  `QbsSchema.schema_id_algorithm` (`int`) are read-only properties over the existing
+  retained image from `quarry.load_qbs()` / `QbsSchema.from_bytes()`. Hand-built
+  metadata with no complete QBS header raises `QbsError` when queried. Construction
+  and parser errors retain their existing behavior; no identity cache is added.
 - **Go:** has no QBS runtime, so only the generated constants exist.
 
 ## 7. Proposed A4.4 `--describe`; implemented `--print-schema-id`
@@ -405,8 +427,9 @@ confirm the numbers with GCC as part of A4.2.
 
 ## 9. Test requirements
 
-This is the original A4 test plan, including future A4.3–A4.5 features. It is
-not a statement that those features or tests exist. Use the [G4 validation
+This is the original A4 test plan, including future A4.4–A4.5 features. A4.3
+now has parser, C99, installed-package and three-language identity tests; the
+remaining proposed tests are not a statement that future features exist. Use the [G4 validation
 guide](../generated-code-identity-validation.md) for current measured coverage.
 
 
@@ -495,7 +518,7 @@ binary compatibility is promised.
 |---|---|---|
 | A4.1 | Build one `ConfigurationIdentity` from the complete resolved configuration, share it with QBS serialization and all backends, and add `--print-schema-id`. No QBS model validation or serialization for ordinary code generation and no generated-code change. | – |
 | A4.2 | After #82 is fixed and the generated-code API epoch policy is reviewed: generated identity constants, dependency checks and full-128-bit `schema_id` guards in C, C++, C++/C storage, Python and Go. Add the full-128-bit C++ inline namespace. Update goldens and run the mixing/ODR and Cortex-M checks. **Implemented (#99).** | A4.1, #82 |
-| A4.3 | Runtime accessors: C `schema_id.h` and `quarry_qbs_schema_id()`, the C++ reader and Python generic `schema_id`. | A4.1 (tests only) |
+| A4.3 | **Implemented (#100).** Runtime accessors: C `schema_id.h` and `quarry_qbs_schema_id()`, the C++ reader and Python generic `schema_id`. | A4.1 (tests only) |
 | A4.4 | `--describe` and the release-tag version field (`QuarryVersion.cmake`, `--version`, `--describe`). | A4.1 |
 | A4.5 | After #87 is fixed: `--name-prefix` in all backends; CMake `NAME_PREFIX` and `SCHEMA_ID_VARIABLE`; the two-configuration truck cloud example (Go and Python, rev A and rev B); docs. | A4.2, #87 |
 
