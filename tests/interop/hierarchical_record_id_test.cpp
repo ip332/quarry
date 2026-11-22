@@ -332,6 +332,73 @@ TEST_F(HierarchicalRecordIdTest, EveryBackendAndQbsUseTheRootCompilationsMapping
     }
 }
 
+TEST_F(HierarchicalRecordIdTest, InsertingLocalRecordShiftsOnlyLaterLocalsInItsDomain) {
+    // All three domains contain multiple records. Hotel sorts between Alpha
+    // and Mike in domain b: this is an insertion, not an appended local ID.
+    const auto record = [](std::string_view ns, std::string_view name) {
+        return "namespace: " + std::string(ns) + "\nrecord: " + std::string(name) +
+               "\nversion: 1\ntype: data\nfields:\n  value:\n    type: u8\n";
+    };
+    const std::string imports = "imports:\n  - a_zulu.brd\n  - b_alpha.brd\n"
+                                "  - b_mike.brd\n  - b_zulu.brd\n"
+                                "  - c_alpha.brd\n  - c_zulu.brd\n";
+    write_text(root / "insertion.brd", record("a", "Alpha") + imports);
+    write_text(root / "a_zulu.brd", record("a", "Zulu"));
+    write_text(root / "b_alpha.brd", record("b", "Alpha"));
+    write_text(root / "b_mike.brd", record("b", "Mike"));
+    write_text(root / "b_zulu.brd", record("b", "Zulu"));
+    write_text(root / "c_alpha.brd", record("c", "Alpha"));
+    write_text(root / "c_zulu.brd", record("c", "Zulu"));
+
+    const IdMap expected_a = {
+        {"a.Alpha", 0x00010001U}, {"a.Zulu", 0x00010002U}, {"b.Alpha", 0x00020001U},
+        {"b.Mike", 0x00020002U},  {"b.Zulu", 0x00020003U}, {"c.Alpha", 0x00030001U},
+        {"c.Zulu", 0x00030002U},
+    };
+    const IdMap expected_b = {
+        {"a.Alpha", 0x00010001U}, {"a.Zulu", 0x00010002U}, {"b.Alpha", 0x00020001U},
+        {"b.Hotel", 0x00020002U}, {"b.Mike", 0x00020003U}, {"b.Zulu", 0x00020004U},
+        {"c.Alpha", 0x00030001U}, {"c.Zulu", 0x00030002U},
+    };
+    std::string error;
+    const auto a = compile("insertion.brd", &error);
+    ASSERT_TRUE(a.has_value()) << error;
+    const auto a_repeat = compile("insertion.brd");
+    ASSERT_TRUE(a_repeat.has_value());
+    const IdMap ids_a = schema_ir_ids(*a);
+    EXPECT_EQ(ids_a, expected_a);
+    EXPECT_EQ(schema_ir_ids(*a_repeat), expected_a);
+
+    // The root path, namespace set and existing definitions remain unchanged.
+    write_text(root / "b_hotel.brd", record("b", "Hotel"));
+    write_text(root / "insertion.brd", record("a", "Alpha") + imports + "  - b_hotel.brd\n");
+    error.clear();
+    const auto b = compile("insertion.brd", &error);
+    ASSERT_TRUE(b.has_value()) << error;
+    const auto b_repeat = compile("insertion.brd");
+    ASSERT_TRUE(b_repeat.has_value());
+    const IdMap ids_b = schema_ir_ids(*b);
+    EXPECT_EQ(ids_b, expected_b);
+    EXPECT_EQ(schema_ir_ids(*b_repeat), expected_b);
+    for (const auto& [fqn, id] : ids_a) {
+        SCOPED_TRACE(fqn);
+        ASSERT_TRUE(ids_b.contains(fqn));
+        EXPECT_EQ(ids_b.at(fqn) >> 16U, id >> 16U); // unchanged domain
+        if (fqn == "b.Mike" || fqn == "b.Zulu") {
+            EXPECT_EQ(ids_b.at(fqn), id + 1U);
+        } else {
+            EXPECT_EQ(ids_b.at(fqn), id); // earlier local and all other domains
+        }
+    }
+    const auto qbs_a = build_qbs(*a);
+    const auto qbs_b = build_qbs(*b);
+    ASSERT_FALSE(qbs_a.bytes.empty());
+    ASSERT_FALSE(qbs_b.bytes.empty());
+    EXPECT_NE(qbs_a.schema_id, qbs_b.schema_id);
+    EXPECT_EQ(build_qbs(*a_repeat).schema_id, qbs_a.schema_id);
+    EXPECT_EQ(build_qbs(*b_repeat).schema_id, qbs_b.schema_id);
+}
+
 TEST_F(HierarchicalRecordIdTest, ImportOrderDoesNotAffectIdsOrSchemaId) {
     const auto forward = compile("top.brd");
     const auto reordered = compile("top_reordered.brd");
