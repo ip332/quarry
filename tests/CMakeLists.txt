@@ -104,6 +104,9 @@ if(QUARRY_INTEROP_REQUIRE_ALL)
     list(APPEND quarry_interop_required_flags --require-all)
 endif()
 if(QUARRY_PYTHON3_EXECUTABLE)
+    add_test(NAME benchmark_infrastructure_test
+        COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/benchmarks/scripts/test_infrastructure.py")
     add_test(NAME interop_matrix
         COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/interop/matrix/run.py"

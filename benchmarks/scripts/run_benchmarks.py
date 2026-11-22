@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 import sys
 import tempfile
@@ -19,13 +20,23 @@ PROTOBUF_BACKENDS = ("protobuf-cpp", "protobuf-cpp-arena", "protobuf-python")
 NATIVE_BACKENDS = ("cpp", "c", "protobuf-cpp", "protobuf-cpp-arena")
 BACKENDS = QUARRY_BACKENDS + PROTOBUF_BACKENDS
 CASES = ("telemetry", "configuration", "nested", "large", "stress")
-EPOCHS = {"cpp": 3, "c": 2, "python": 1}
 
 
-def wire_format(backend: str) -> str:
+def binding_metadata(description: str) -> tuple[str, dict[str, int]]:
+    """Read the compiler's authoritative format/epoch query, without defaults."""
+    formats = re.search(r"^formats: brf (\d+), qbs \d+, schema-ir \d+$", description, re.M)
+    epochs = re.search(
+        r"^generated-code epochs: cpp (\d+), c (\d+), python (\d+), go \d+$",
+        description, re.M)
+    if formats is None or epochs is None:
+        raise ValueError("compiler --describe is missing format or generated-code epoch metadata")
+    return "brf-v" + formats.group(1), dict(zip(QUARRY_BACKENDS, map(int, epochs.groups())))
+
+
+def wire_format(backend: str, quarry_format: str) -> str:
     if backend.startswith("protobuf-"):
         return "protobuf"
-    return "brf-v2" if backend == "c" else "brf-v1"
+    return quarry_format
 
 
 def run(command: list[str], cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
@@ -136,6 +147,12 @@ def main() -> None:
         compiler = find_file(build, "quarry-schema-compiler")
         compiler_version = version([str(compiler), "--version"])
         quarry_version = compiler_version.split()[1] if len(compiler_version.split()) > 1 else compiler_version
+        # Query the same compiler that generated the benchmark bindings. This
+        # setup is outside the harnesses' warmup and measured operations.
+        description = subprocess.check_output(
+            [str(compiler), "--describe", str(source / "benchmarks/schemas/workload.brd")],
+            text=True)
+        quarry_format, epochs = binding_metadata(description)
         executable = {}
         if args.backend in ("all", "native", "cpp", "c", "python"):
             executable.update({"cpp": find_file(build, "quarry_benchmark_cpp"),
@@ -206,9 +223,9 @@ def main() -> None:
                     metrics_root = protobuf_generated if backend.startswith("protobuf-") else generated
                     source_file_count, source_bytes = generated_file_metrics(metrics_root, backend)
                     value.update({
-                        "quarry_version": quarry_version, "generated_code_api_epoch": EPOCHS.get(backend),
+                        "quarry_version": quarry_version, "generated_code_api_epoch": epochs.get(backend),
                         "compiler_or_interpreter_version": version([sys.executable, "--version"] if python_backend else ["c++", "--version"]),
-                        "wire_format": wire_format(backend),
+                        "wire_format": wire_format(backend, quarry_format),
                         "protobuf_version": version(["protoc", "--version"]) if backend.startswith("protobuf-") else None,
                         "protoc_version": version(["protoc", "--version"]) if backend.startswith("protobuf-") else None,
                         "benchmark_harness_version": 3, "benchmark_suite_version": "153",

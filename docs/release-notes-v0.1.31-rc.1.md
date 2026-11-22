@@ -1,6 +1,6 @@
 # v0.1.31-rc.1 release notes
 
-Candidate documentation; no release or public tag is created by A6. Relative to
+Release candidate documentation; publication requires explicit maintainer approval. Relative to
 v0.1.30-rc.3, Stage A adds configuration-wide identity and interoperability.
 Publication remains gated by the [readiness report](release-readiness-v0.1.31-rc.1.md).
 
@@ -40,8 +40,8 @@ Publication remains gated by the [readiness report](release-readiness-v0.1.31-rc
   producer/consumer pairs, generated and generic decoding, inspector checks,
   nested cuts, negative controls, mutation detection and determinism. The baseline
   passed 295 streams / 1,475 consumer checks without matrix skips, including
-  Linux GCC and a targeted Linux Clang 18 matrix. This does not resolve #85's
-  separate full generic conformance failure.
+  Linux GCC and a targeted Linux Clang 18 matrix. The separate generic
+  conformance test defect was subsequently fixed by #131 (see below).
 - Post-RC3 C generation moved to header bindings backed by the shared BRF v2
   codec (#77), with no schema-specific C object required. C/C-storage runtime
   descriptors, presence operations and generated decode operations evolved through
@@ -50,8 +50,18 @@ Publication remains gated by the [readiness report](release-readiness-v0.1.31-rc
   decode operations (#79), C++ include guards (#81), inline header definitions
   (#97), strict warning fixes (#98), complete CMake import dependencies (#95),
   Git-environment isolation (#96) and receipt-based pre-push validation (#114).
+- Release benchmark reporting derives format and epoch metadata from the same
+  compiler's `--describe` query, identifying current Quarry bindings as BRF v2
+  and C epoch 7, C++ epoch 3 and Python epoch 1. A maintained regression checks those labels
+  against the CLI description fixture and rejects encoded-size disagreement
+  within one wire format; this corrects reporting, not codec behavior.
 
 ## Compatibility and migration
+
+Release artifacts use numeric package version **0.1.31** and exact release tag
+**v0.1.31-rc.1**. The ordinary Git checkout retains its independently derived
+development version; its commit counter need not equal the release revision.
+See [versioning](versioning.md) for the archive fallback and exact-tag rules.
 
 BRF remains version **2**, QBS **1**, Schema IR **1**, wire identity algorithm **1**
 and native gid format **1**. Owning C++ epoch remains **3** and Python **1**.
@@ -88,12 +98,15 @@ There is no automatic discovery, translation or persistent manifest/rename state
 
 ## Known limitations and release gates
 
-- [#85](https://github.com/ip332/quarry/issues/85): Linux Clang 18 generic
-  conformance failure remains a publication blocker by recorded maintainer decision.
-  Targeted A5 Clang success is separate evidence, not resolution.
-- [#88](https://github.com/ip332/quarry/issues/88): Python packaging-module
-  detection can succeed spuriously. Still in the milestone with no deferral;
-  publication readiness requires resolution or an explicit maintainer disposition.
+- [#85](https://github.com/ip332/quarry/issues/85): fixed by merged #131.
+  The conformance test used a wire record ID as a table index and dereferenced
+  empty optional metadata. The corrected lookup retains the absence assertion;
+  Linux Clang 18 Debug and ASan/UBSan with checked optional access passed.
+- [#88](https://github.com/ip332/quarry/issues/88): fixed by merged #132.
+  Dependency detection checks the executable `build.__main__` capability,
+  preserving the selected interpreter and user-site installations. The regression
+  validates missing/installed dependencies and registration from both source-root
+  and out-of-source directories; packaging and public examples execute in CI.
 - [#89](https://github.com/ip332/quarry/issues/89): fixed by validated-commit
   receipts and short pre-push checks (#114); no hook bypass is required.
 - [#90](https://github.com/ip332/quarry/issues/90): explicitly deferred,
@@ -103,6 +116,12 @@ There is no automatic discovery, translation or persistent manifest/rename state
   same-TU coexistence of distinct namespaces whose unprefixed C symbols collide
   is unsupported, including dot/underscore and uppercase-enum case collisions.
   Prefixed-only injective naming is implemented; general C renaming is deferred.
+- [#129](https://github.com/ip332/quarry/issues/129) and
+  [#130](https://github.com/ip332/quarry/issues/130): open, non-blocking regression
+  follow-ups for this RC by maintainer disposition. Dedicated insertion-before-local
+  and comment-only identity-mutation coverage is still missing. Existing sorted
+  allocation and canonical identity tests provide indirect protection, not those
+  exact regressions; see the readiness report's risk assessment.
 - Dependency checks cover generated edges, not arbitrary prebuilt objects or
   application inline functions. Go's older-metadata diagnostic can be a generic
   `undefined:` error; Python/Go have no native gid mechanism; Go has no QBS runtime.

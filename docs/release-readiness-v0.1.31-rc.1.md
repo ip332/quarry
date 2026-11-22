@@ -10,6 +10,33 @@ not claims about a later A6 revision. Exact A6 commit validation/CI is recorded 
 its PR and commit-bound `quarry-validate` receipt, avoiding a self-referential SHA
 in this file.
 
+## Current release-preparation status
+
+A6 was independently reviewed and merged as #128; #104 is closed. The final
+publication gates #85 and #88 were fixed by merged #131 and #132 respectively.
+Their exact-head [#131 CI](https://github.com/ip332/quarry/actions/runs/44986124280)
+and [#132 CI](https://github.com/ip332/quarry/actions/runs/45036263480) passed
+Linux GCC, coverage, clang-tidy and Cortex-M; Clang 18 Debug and sanitizer
+conformance also passed. These are separate subsequent results, not changes to
+the historical A5 measurements above. PR-policy benchmark skips in these runs
+do not satisfy #105's release benchmark gate.
+
+Final release preparation derives benchmark format and epoch metadata from the
+same compiler's `--describe` query, outside measured operations. Current values
+are BRF v2 and C/C++/Python epochs 7/3/1. `benchmark_infrastructure_test` checks
+the maintained CLI description fixture, future-value propagation, missing-metadata
+rejection and same-format encoded-size comparisons. Historical measurements above
+are not relabeled or rerun claims.
+
+#105 final validation and artifact staging are in progress. All final evidence
+must identify the frozen candidate commit, including an executed benchmark run;
+record it in #105 and commit-bound validation receipts. Publication, a public
+tag, asset uploads and milestone closure still require explicit approval.
+
+The release package version is `0.1.31`, with exact tag `v0.1.31-rc.1` in staged
+archive metadata. Git development versions use the independent commit counter;
+they need not be `0.1.31`. Neither `git_version` nor version resolution changes.
+
 “Covered” means a maintained test exists and baseline CI passed it, not exhaustive
 proof over all inputs/toolchains. “Partial” explicitly identifies a missing dedicated
 scenario. “Future” rows are mapped exclusions, never counted as Stage A passes.
@@ -27,7 +54,8 @@ identify executable test registrations (one CTest may contain many assertions).
 | G3/G4/G5 | #121 per-namespace C storage; #122 validation; #123 compatibility contract |
 | A4.3/A4.4/A4.5 | #124 stored QBS identity; #125 describe/tag metadata; #126 explicit prefixes |
 | A5 | #127 five-language byte-exchange matrix |
-| A6 | This documentation/consistency-test PR, Closes #104; no compiler/runtime behavior changes |
+| A6 | #128 reviewed and merged; #104 closed; no compiler/runtime behavior changes |
+| Final blocker fixes | #131 fixes #85's test metadata lookup; #132 fixes #88's packaging dependency detection |
 
 ## Design §13 coverage
 
@@ -44,7 +72,7 @@ Each semicolon-separated subrequirement is accounted for below.
 | Domain/local limits and reserved values | #84 layout | `layout_smoke_test`: ApplicationDomainLimitIsEnforced, LocalRecordLimitIsEnforced, RootNamespaceIsTheFirstDomain | Covered allocator boundary; no system records assigned |
 | Truck golden mapping | #84/#91 | `hierarchical_record_id_test`, `schema_description_test`, `interop_matrix`, `stage_a_documentation_test` | Covered all 8 IDs |
 | Local name order independent of declarations/files | #84 layout | `layout_smoke_test`: AssignmentIsIndependentOfInputOrder; `schema_description_test` swaps declarations/files | Covered |
-| Insertion before existing local shifts only its domain | #84 sorted allocator | source algorithm plus rev B MirrorFold in `name_prefix_test`/`public_examples_test` | Partial: sorted/permutation and append cases provide indirect coverage only; dedicated before/after insertion regression tracked in [#129](https://github.com/ip332/quarry/issues/129). Low residual coverage risk; recommend non-blocking follow-up, not an approved exclusion |
+| Insertion before existing local shifts only its domain | #84 sorted allocator | source algorithm plus rev B MirrorFold in `name_prefix_test`/`public_examples_test` | Partial: sorted/permutation and append cases provide indirect coverage only; dedicated before/after insertion regression tracked in [#129](https://github.com/ip332/quarry/issues/129). Low residual coverage risk; open, non-blocking follow-up for this RC by maintainer disposition; dedicated coverage still missing |
 | Repeated generation byte identity | output planning/backends | `hierarchical_record_id_test`: RepeatedCompilationIsDeterministic; `interop_matrix` determinism | Covered for maintained fixtures/options |
 | Import reorder preserves IDs/schema_id | #84/#91 | `hierarchical_record_id_test`, `schema_compiler_tool_test`, `interop_matrix` | Covered, also both QBS modes; source declaration byte order excluded (#90) |
 | Selection preserves IDs/schema_id | #86/#91 | `schema_compiler_tool_test`: GenerationSelectionNeverChangesIdsOrQbs; `configuration_identity_test`; matrix | Covered, selected/full shared output bytes |
@@ -55,7 +83,7 @@ Each semicolon-separated subrequirement is accounted for below.
 | Configuration mixing C/C++/C-storage/Python/Go | #106/#127 | `configuration_identity_test`, matrix dependency replacement with expected guard diagnostics | Covered all 5; import/build checks, no whole-program scan |
 | RC3 IDs rejected | current generated decoders and inspector | matrix legacy controls for actual expected types and nested Timestamp; valid positive controls | Covered contextual mapping rejection, no universal numeric parser rule claimed |
 | Identity excludes reflective names | #91 canonical QBS input | `qbs_model_test`: IdentityInputIgnoresReflectiveNames; native gid field/member rename checks | Covered; FQNs still identity inputs |
-| Identity excludes comments/import paths | canonical model/preparation | `schema_compiler_tool_test`: PrintSchemaIdIgnoresSourcePathAndDiffersByResolvedConfiguration, ConfigurationMetadataDoesNotAffectSchemaIdentity | Partial: paths/metadata/reflection invariance provide indirect coverage only; comment-only mutation tracked in [#130](https://github.com/ip332/quarry/issues/130). Low residual coverage risk; recommend non-blocking follow-up, not an approved exclusion |
+| Identity excludes comments/import paths | canonical model/preparation | `schema_compiler_tool_test`: PrintSchemaIdIgnoresSourcePathAndDiffersByResolvedConfiguration, ConfigurationMetadataDoesNotAffectSchemaIdentity | Partial: paths/metadata/reflection invariance provide indirect coverage only; comment-only mutation tracked in [#130](https://github.com/ip332/quarry/issues/130). Low residual coverage risk; open, non-blocking follow-up for this RC by maintainer disposition; dedicated coverage still missing |
 | Identity excludes compiler version | QBS identity builder | `qbs_model_test`: ConfigurationIdentityIgnoresCompilerVersion | Covered metadata strings; exhaustive real cross-release build comparison unavailable |
 | Identity changes with IDs/wire definitions | QBS canonical input | QBS model/serializer tests; `configuration_identity_test` rev B same-ID/renumbered fixtures; matrix identity mutation | Covered representative changes; not exhaustive all wire changes |
 | Describe golden | #125 CLI | `schema_description_test`, `tests/fixtures/description/truck.txt` | Covered locale, normalization, errors, epochs and header identity |
@@ -100,10 +128,10 @@ is N/A (not a skipped producer/consumer cell).
 | Manifest superseded | `specifications/manifest-format.md` status and cross references | Historical proposal retained, not available compiler mode |
 | Versioning and A4.2 epoch rationale | `versioning.md`; version resolution tests; description/header checks | 3/7/1/1, BRF2/QBS1/IR1, exact tag separate from numeric version |
 | Tools, compiler/runtime/backend/example and installed-package docs | Updated READMEs/distribution docs; [literal CLI guide](stage-a-cli.md) | Executable CLI/diagnostic checks plus installed consumer/example tests |
-| Stage A implemented / Stage B future | Both design status lines, architecture boundary and specs | A1–A5 merged; A6 documentation delivered here, publication not authorized |
+| Stage A implemented / Stage B future | Both design status lines, architecture boundary and specs | A1–A6 merged; final validation/staging in #105; publication not authorized |
 | Release notes: breaks, migration, compatibility, known issues | [Release notes](release-notes-v0.1.31-rc.1.md) | Requires regeneration/rebuild; does not promise RC3 BRF readability |
 | Complete readiness map / open issue disposition | Every §13 area/subrequirement and §9 numbered item above; issue table below | Explicit partial/future rows retained, never counted as full coverage |
-| Acceptance 1: scope updated and reviewed | This focused PR for independent review | Implementation complete; independent review pending |
+| Acceptance 1: scope updated and reviewed | #128 independently reviewed and merged | Complete; #104 closed |
 | Acceptance 2: merged behavior checked | `stage_a_documentation_test`, existing `schema_description_test`, `consumer_documentation_test`, full native/Linux suites | Baseline CLI checked directly; A6 exact-revision results in PR/receipt |
 | Acceptance 3: release notes and no unmapped requirements | This report and release notes | Covered, including explicit gaps |
 | Acceptance 4: every doc link resolves | `stage_a_documentation_test` scans tracked Markdown paths and local heading fragments | Relative links checked; external services/network uptime not certified |
@@ -138,28 +166,33 @@ issue titles and searched issue bodies before creating the focused follow-ups.
 
 | Gap / follow-up | Existing protection and remaining exposure | Risk / publication recommendation |
 |---|---|---|
-| [#129: insertion before existing locals](https://github.com/ip332/quarry/issues/129) | `layout_smoke_test` pins sorted domains/locals, permutation invariance and bytewise ordering. The A/B example appends MirrorFold. None directly compares insertion before existing locals while keeping the namespace set fixed, including unaffected IDs in another domain. | Low residual coverage risk because the allocator sorts each domain independently (`compiler/layout/layout.cpp`), backed by golden mappings and interoperability tests. A regression could have serious record-mapping impact. No current defect was found. Recommend a non-blocking focused test follow-up, subject to maintainer review. |
-| [#130: comment-only identity mutation](https://github.com/ip332/quarry/issues/130) | QBS/CLI tests cover names, compiler metadata, paths, configuration names, selection and QBS modes. None directly edits only YAML comments and compares full identity plus both QBS images. | Low residual coverage risk: hashing consumes canonical resolved wire definitions, not raw source. A regression could cause spurious identity churn and configuration-guard failures; no unsafe decoding or current defect was demonstrated. Recommend a non-blocking focused test follow-up, subject to maintainer review. |
+| [#129: insertion before existing locals](https://github.com/ip332/quarry/issues/129) | `layout_smoke_test` pins sorted domains/locals, permutation invariance and bytewise ordering. The A/B example appends MirrorFold. None directly compares insertion before existing locals while keeping the namespace set fixed, including unaffected IDs in another domain. | Low residual coverage risk because the allocator sorts each domain independently (`compiler/layout/layout.cpp`), backed by golden mappings and interoperability tests. A regression could have serious record-mapping impact. No current defect was found. Maintainer disposition: open, non-blocking regression follow-up for this RC; the dedicated coverage gap remains. |
+| [#130: comment-only identity mutation](https://github.com/ip332/quarry/issues/130) | QBS/CLI tests cover names, compiler metadata, paths, configuration names, selection and QBS modes. None directly edits only YAML comments and compares full identity plus both QBS images. | Low residual coverage risk: hashing consumes canonical resolved wire definitions, not raw source. A regression could cause spurious identity churn and configuration-guard failures; no unsafe decoding or current defect was demonstrated. Maintainer disposition: open, non-blocking regression follow-up for this RC; the dedicated coverage gap remains. |
 
-These are recommendations for newly tracked coverage gaps, not maintainer-approved
-release exclusions. They do not resolve or defer #85/#88, change #90's recorded
-disposition, or broaden #119's approved exclusion. The follow-ups request tests
+The maintainer has designated both open coverage follow-ups non-blocking for this
+RC. This does not count their missing regressions as covered or broaden #119's
+approved exclusion. #85/#88 are independently resolved by #131/#132; #90's
+recorded disposition is unchanged. The follow-ups request tests
 using existing helpers, not compiler/runtime functionality or identity redesign.
 
 ## Outstanding issues and release decision
 
 | Issue | Disposition | Supporting evidence / remaining gate |
 |---|---|---|
-| [#85](https://github.com/ip332/quarry/issues/85) | **Publication blocker** | Open milestone bug; maintainer's 2026-11-17 comment requires investigation/resolution before #105. Linux Clang18 full generic presence assertion remains unresolved. A5 targeted Clang18 matrix passes, does not close it. |
-| [#88](https://github.com/ip332/quarry/issues/88) | **Unresolved publication gate** | Open milestone bug, no approved deferral. `import build` can resolve a local namespace directory. Current CI has real dependencies and passes, which does not fix detection. Resolve or obtain explicit disposition before #105; A6 does not change build behavior. |
+| [#85](https://github.com/ip332/quarry/issues/85) | **Fixed** | #131 merged; #85 closed. Wire-ID/table-index misuse and empty-optional dereference were in the conformance test. Correct metadata lookup and engagement checks preserve the original presence assertion; Linux Clang18 Debug and ASan/UBSan with checked libstdc++ pass. |
+| [#88](https://github.com/ip332/quarry/issues/88) | **Fixed** | #132 merged; #88 closed. Probe imports `build.__main__` and setuptools using the selected interpreter; packaging builds use a clean temporary directory. Real CMake registration rejects missing dependencies and accepts installed dependencies from root/out-of-source locations; packaging and examples execute in Linux CI. |
 | [#89](https://github.com/ip332/quarry/issues/89) | **Fixed** | Closed; #114 commit receipts, `quarry_validate_test`, documented hooked pushes. Validation completes before SSH connection; no bypass needed. |
 | [#90](https://github.com/ip332/quarry/issues/90) | **Explicitly deferred / non-blocking** | Maintainer's 2026-11-17 backlog comment; declaration order may change source/gid after import reorder. IDs/schema_id/QBS remain invariant. |
 | [#119](https://github.com/ip332/quarry/issues/119) | **Approved exclusion / deferred** | Maintainer's recorded RC disposition: same-TU distinct namespaces with colliding unprefixed C symbols unsupported. #126 implements prefixed-only injective names, not general renaming. |
-| [#104](https://github.com/ip332/quarry/issues/104) | **Independent review pending** | This documentation PR; no automatic merge. |
-| [#105](https://github.com/ip332/quarry/issues/105) | **Not started** | Final release validation/publication remains separate; no tag or release created here. |
+| [#129](https://github.com/ip332/quarry/issues/129) | **Open / non-blocking regression follow-up** | Maintainer RC disposition; insertion-before-local gap and risk remain disclosed above. |
+| [#130](https://github.com/ip332/quarry/issues/130) | **Open / non-blocking regression follow-up** | Maintainer RC disposition; comment-only mutation gap and risk remain disclosed above. |
+| [#104](https://github.com/ip332/quarry/issues/104) | **Complete** | Independently reviewed #128 merged; #104 closed. |
+| [#105](https://github.com/ip332/quarry/issues/105) | **In progress / publication not authorized** | Final candidate validation, benchmarks and artifact staging; no public tag, release or asset upload is authorized. |
 
 No other issue disposition is changed by this report. The experimental
 `explore/fqn-hash-record-ids` branch remains outside main; its rejected hash
 allocation algorithm is not used. Native compiler/ABI permutations, actual
 cross-release generator comparisons and board/RTOS execution are not exhaustive.
-The candidate is ready for **A6 review**, not release publication.
+Stage A implementation and A6 review are complete. The final GO/NO-GO decision
+depends on #105's exact-candidate validation and staged artifacts; it is not
+publication approval.
