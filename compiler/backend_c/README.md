@@ -305,3 +305,13 @@ C++/C-storage wrappers use the same encoded stem; callback language linkage and
 identity-bearing external names retain their established rules. Unprefixed
 legacy C spellings and #119's general migration remain unchanged. The existing
 format-1 generated-code identity hashes the changed definitions normally.
+
+## Stage A contract and release migration
+
+Generate dependent namespaces from one authoritative configuration root. Selection
+changes emission only; `--name-prefix` isolates deliberately coexisting sets without
+changing wire identity. The [normative identity contract](../../docs/specifications/configuration-and-code-identity.md)
+and [release notes](../../docs/release-notes-v0.1.31-rc.1.md) distinguish wire
+schema_id, native gid and runtime epochs. Regenerate old bindings and rebuild
+consumers; equal epochs do not certify native ABI compatibility. Python has
+configuration import checks; the native per-namespace gid applies only to C/C++.

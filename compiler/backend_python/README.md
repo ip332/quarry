@@ -55,3 +55,13 @@ storage-policy options still use canonical namespace names. Unprefixed output
 is pinned byte for byte in `tests/fixtures/name_prefix/unprefixed_sha256.json`.
 See the [source naming contract](../../tools/README.md#deliberate-source-naming-isolation)
 and [multi-configuration example](../../examples/truck/multi_configuration/README.md).
+
+## Stage A contract and release migration
+
+Generate dependent namespaces from one authoritative configuration root. Selection
+changes emission only; `--name-prefix` isolates deliberately coexisting sets without
+changing wire identity. The [normative identity contract](../../docs/specifications/configuration-and-code-identity.md)
+and [release notes](../../docs/release-notes-v0.1.31-rc.1.md) distinguish wire
+schema_id, native gid and runtime epochs. Regenerate old bindings and rebuild
+consumers; equal epochs do not certify native ABI compatibility. Python has
+configuration import checks; the native per-namespace gid applies only to C/C++.

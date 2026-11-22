@@ -249,9 +249,10 @@ separate from the compact runtime manifest.
 
 ## Import Resolution Policy
 
-There is no active import-resolution stage in the current repository.
-Import declarations remain legacy parser syntax only and are ignored by the
-current downstream compiler pipeline.
+Production YAML compilation resolves transitive relative imports through the
+frontend graph loader before shared symbols, semantics and layout. Canonical paths
+are loaded once and cycles are rejected. Legacy declaration-syntax imports remain
+parser-only compatibility syntax; no package/network import resolver exists.
 
 ---
 
@@ -385,7 +386,8 @@ C/C++ backends additionally compute generated-code identity for each namespace
 and variant over the complete configuration in dependency order. Format 1 hashes
 normalized generated definitions, the supplied wire configuration identity and
 direct dependency identities, including unselected namespaces and their effective
-storage policies. `--generate` and output naming do not affect the result. This
+storage policies. `--generate`, output directories, extensions and root-file stems do not affect
+the result. `--name-prefix` can change emitted definitions and therefore gid. This
 is generation-time metadata, with no runtime Schema IR interpretation or hashing.
 It is distinct from both wire `schema_id` and the generated/runtime API epoch;
 see [the identity specification](design/configuration-identity.md#161-computation)
@@ -406,3 +408,14 @@ Open questions for later specifications or implementation documents:
 * whether Schema IR should remain an in-memory compiler structure only, or also
   have a serialized debug/tooling representation for documentation generators,
   compatibility checkers, visualization tools, and IDE integrations
+
+## Stage A implementation boundary
+
+A1–A5 are merged; A6 reconciles specifications and release evidence. The
+[normative identity contract](specifications/configuration-and-code-identity.md)
+defines configuration, generated definitions and epochs separately. QBS identity
+accessors read stored metadata without introducing runtime hashing or Schema IR
+dependencies. `--describe` reports resolved IDs, identity, formats and epochs;
+exact release tags are informational build metadata. Discovery, descriptors,
+partial images and translation remain Stage B proposals. See the
+[readiness report](release-readiness-v0.1.31-rc.1.md).

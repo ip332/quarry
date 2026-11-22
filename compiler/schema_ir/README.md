@@ -54,9 +54,9 @@ Implementation status:
 
 * the normative `.brd` source contract is defined in
   `docs/specifications/schema-language.md`
-* the production-facing YAML frontend now orchestrates the import-free YAML
-  pipeline through validated Schema IR directly from the normalized
-  source-schema model
+* the production-facing YAML frontend resolves the complete relative-import
+  closure and orchestrates validated Schema IR directly from the combined
+  normalized source-schema model
 * direct normalized-source-schema tests under
   `tests/yaml/normalized_source_schema_pipeline_test.cpp` provide the primary
   Schema IR builder unit coverage

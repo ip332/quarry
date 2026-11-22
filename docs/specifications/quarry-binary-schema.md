@@ -2,18 +2,19 @@
 
 ## Status
 
-Draft design specification. No QBS encoder, decoder, runtime, or exchange
-protocol is implemented by this document.
+Implemented QBS v1 container and identity contract. Compiler serialization,
+C/Python generic runtimes and internal C++ QBS tooling exist. Schema exchange,
+discovery and descriptor extensions remain future Stage B work.
 
 ## Version
 
-QBS format version 1 (proposed).
+QBS format version 1.
 
 ## Purpose
 
 QBS is a compact, architecture-independent runtime serialization of Quarry's
 canonical semantic schema and BRF v2 layout metadata. It is intended to let a
-future runtime understand a BRF v2 record without recompiling the source schema
+generic runtime understand a BRF v2 record without recompiling the source schema
 or importing compiler-only Schema IR.
 
 QBS is declarative metadata. It is not executable bytecode, a virtual machine,
@@ -957,3 +958,24 @@ later  stable record-ID allocation, schema exchange, and protocol evolution
 The QBS backend SHALL consume the existing canonical BRF Layout IR. It SHALL
 not introduce a second offset, width, nesting, or fixed/variable calculation
 path.
+
+## Stage A configuration identity access
+
+REQ-QBS-021: Minimal and reflective images of one configuration SHALL contain the
+same algorithm-1 configuration identity at header bytes 12–27. Emission selection
+and source naming prefixes SHALL NOT change either image's wire bytes.
+
+REQ-QBS-022: Runtime identity accessors SHALL read stored identity metadata rather
+than recompute schema identity. The C accessor's argument/error contract, C++
+validated-view accessor and Python read-only properties SHALL follow
+[REQ-ID-011](configuration-and-code-identity.md#accessors-and-compatibility).
+An accessor SHALL NOT imply digest verification beyond its parser's contract.
+
+REQ-QBS-023: QBS schema_id SHALL remain distinct from native generated-code gid.
+Generated identity SHALL NOT be introduced into BRF or QBS wire metadata.
+
+C uses the installed `quarry/runtime_c/generic_brf.h` and links `Quarry::runtime_c`.
+C++ `ValidatedQbsView` remains compiler-owned tooling; Python uses `quarry.load_qbs()`.
+Go has generated identity constants but no QBS runtime. Existing public view
+layouts and runtime epochs are unchanged by accessors. Reflective C parsing
+validates individual string payloads, not the binary offset table as UTF-8.

@@ -30,21 +30,14 @@ Markdown specifications SHALL use the shared structure defined in
 
 # Required Sections
 
-Every specification SHALL include these sections:
+Follow [the authoring guide](spec-authoring-guide.md): Purpose, Scope,
+Terminology, numbered Requirements, Examples and Related Documents. Add optional
+sections only where useful; existing historical specifications are being reconciled
+incrementally rather than creating empty sections.
 
-* Status
-* Version
-* Purpose
-* Scope
-* Terminology
-* Requirements
-* Validation Rules
-* Compatibility Rules
-* Examples
-* Open Questions
-
-Specifications MAY add additional sections when needed, but the required
-sections SHOULD remain in the template order.
+The implemented Stage A [configuration and generated-code identity contract](configuration-and-code-identity.md)
+complements BRF allocation and QBS wire identity. The [manifest proposal](manifest-format.md)
+is superseded, not an available persistent-ID mode.
 
 ---
 

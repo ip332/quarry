@@ -133,6 +133,11 @@ if(QUARRY_PYTHON3_EXECUTABLE)
             --source "${CMAKE_SOURCE_DIR}"
             --compiler "$<TARGET_FILE:quarry_schema_compiler>"
             --generated-include "${QUARRY_GENERATED_INCLUDE_DIR}")
+    add_test(NAME stage_a_documentation_test
+        COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage_a_documentation_test.py"
+            --source "${CMAKE_SOURCE_DIR}"
+            --compiler "$<TARGET_FILE:quarry_schema_compiler>")
     add_test(NAME consumer_documentation_test
         COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/tools/consumer_documentation_test.py"

@@ -2,7 +2,9 @@
 
 Status: **approved; A4.1–A4.5 and #111 G1–G5 implemented**. A4 builds on hierarchical record IDs (#84)
 and configuration roots / `--generate` (#86); §15 records its historical review
-and §16 specifies the implemented generated-code identity.
+and §16 describes the implemented generated-code identity. The normative
+[configuration and generated identity contract](../specifications/configuration-and-code-identity.md)
+and [release-readiness report](../release-readiness-v0.1.31-rc.1.md) record the Stage A baseline.
 
 ## 1. Summary
 
@@ -381,7 +383,7 @@ $ quarry-schema-compiler --describe examples/truck/schemas/configuration.brd
 configuration: class8_truck
 root: examples/truck/schemas/configuration.brd
 schema_id: 9200ca494f010801b830d0857cf66dde (algorithm 1: sha256-128)
-compiler: quarry-schema-compiler 0.1.288 (2507998, release tag v0.1.31-rc.1)
+compiler: quarry-schema-compiler 0.1.291 (2a9aafd, untagged)
 formats: brf 2, qbs 1, schema-ir 1
 generated-code epochs: cpp 3, c 7, python 1, go 1
 domains: 6
@@ -462,7 +464,7 @@ guide](../generated-code-identity-validation.md) for current measured coverage.
    order, C and C++ must fail to compile.
 5. **Multiple configurations:**
    - C++: a program links rev A and rev B in separate translation units and decodes each
-     configuration's records correctly. This is the ODR regression test, and it would fail today.
+     configuration's records correctly. This is the maintained ODR regression test; it passes with generated-code identity isolation.
    - C: the same with two translation units.
    - Go: two import paths in one binary.
    - Python: rev A and rev B imported with `--name-prefix` in one process.
@@ -588,7 +590,7 @@ A4.3 and A4.4 are independent of A4.2. The A5 cross-language matrix follows A4.5
    types, so the C part is configuration-specific too (§4.3). Two configurations with different
    record IDs and layouts are linked into one executable from separate translation units and tested.
 
-## 16. Generated-code identity in C and C++ bindings (#111 G1–G4)
+## 16. Generated-code identity in C and C++ bindings (#111 G1–G5)
 
 `schema_id` identifies the wire configuration; it does not identify generated definitions. Field
 or enum-member renames, unused enums, `--c-optimize-size` and generator changes all keep
@@ -641,11 +643,13 @@ identity it has when it is generated itself. The selected headers are checked to
 the normalized text their identity was computed from (A3); then every placeholder is substituted.
 
 Consequently the identity does **not** depend on `--output-directory`, `--file-extension`,
-`--root-file-stem`, `--generate`, import order, the configuration name, source paths or the
+`--root-file-stem`, `--generate`, the configuration name, source paths or the
 compiler build; and it **does** change with any change of generated definitions: names, unused
 enums, storage options, generator implementation, epochs, `schema_id` and, through the dependency
-list and the dependency checks, any change of a generated dependency. Identical output from two
-compiler releases has one identity.
+list and the dependency checks, any change of a generated dependency. Identical normalized output from two
+compiler releases has one identity. Import reordering preserves wire identity, but
+may change declaration order and therefore gid (#90). `--name-prefix` can change
+emitted definitions and therefore gid without changing format 1 or schema_id.
 
 ### 16.2 Generated C++ (owning and C storage)
 

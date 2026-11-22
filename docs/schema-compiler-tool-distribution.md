@@ -20,30 +20,16 @@ explicit host compiler override for cross-compiling builds.
 
 ## Current CLI Contract
 
-The build-tree command is:
-
-```text
-quarry-schema-compiler [options] INPUT
-
-Options:
-  -o, --output-directory PATH  Directory for generated files (default: generated)
-      --root-file-stem NAME     Root namespace file stem (default: schema)
-      --file-extension EXT      Generated file extension (default: .generated.hpp)
-      --list-outputs            Print generated output paths without writing files
-      --emit-qbs PATH           Emit the resolved schema as a deterministic QBS image
-      --qbs-reflective          Include reflective record, field, and enum type names in QBS
-      --print-generated-code-api-version
-                                Print the generated-code API compatibility version and exit
-      --version                 Show version information
-  -h, --help                    Show help
-```
+The installed/build-tree CLI contract and verified flag examples are maintained
+in [Tools](../tools/README.md#quarry-schema-compiler) and the
+[Stage A CLI guide](stage-a-cli.md). `--help` is checked against the Tools excerpt.
+Supported variants are C99, C++ owning, C++/C storage, Python and Go.
 
 Current behavior:
 
 * accepts exactly one YAML `.brd` input file
-* supports one YAML document and the current single-schema-unit frontend
-  boundary
-* writes generated C++ files into one output directory
+* loads one YAML document per source unit across the complete relative-import closure
+* writes selected namespaces for the requested backend into one output directory
 * defaults to `generated` for the output directory
 * defaults to `schema` for the root file stem
 * defaults to `.generated.hpp` for generated file extensions
@@ -614,10 +600,10 @@ quarry-schema-compiler --print-generated-code-api-version
 ```
 
 Successful output should be exactly one base-10 unsigned integer followed by a
-newline, for example:
+newline; the current C++ owning query returns:
 
 ```text
-1
+3
 ```
 
 The query:
@@ -927,3 +913,13 @@ identities for roots without a dependency edge; these checks stay optional.
 The installed module retains its `3.20...3.31` policy pin. Both configure mode and
 the inventory/query script path are tested with CMake 3.x; the public generation
 function itself requires configure mode because it creates build rules.
+
+## Stage A configuration metadata
+
+`--print-schema-id` and `--describe` query the complete root; `--generate` changes
+emission only. `--list-inputs` enumerates resolved input dependencies. The installed
+C++ helper supports `GENERATE`, `NAME_PREFIX` and `SCHEMA_ID_VARIABLE`; source naming
+never changes wire IDs or schema_id. Full-query metadata and exact release tags
+are [documented separately](versioning.md). No Stage B discovery or translation
+API is installed. Existing install/package/example tests remain the verification
+boundary; see [release readiness](release-readiness-v0.1.31-rc.1.md).

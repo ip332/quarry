@@ -1,7 +1,7 @@
 # Distribution Model
 
 Quarry currently supports a small downstream SDK consisting of the
-header-only runtime plus the installed schema compiler executable target. The
+C++ header-only runtime, compiled C runtime and installed schema compiler executable target. The
 installed package surface is intentionally smaller than the source-tree build
 graph.
 
@@ -9,7 +9,8 @@ graph.
 
 The supported installed SDK surface is:
 
-* `Quarry::runtime`
+* `Quarry::runtime` (C++ owning)
+* `Quarry::runtime_c` (C99 and C++/C storage)
 * `Quarry::schema_compiler`
 * public runtime headers, including
   `<quarry/runtime/binary_record.hpp>` and
@@ -68,9 +69,10 @@ fails configuration on mismatch.
 | C runtime library | `quarry_runtime_c`, exported as `Quarry::runtime_c` (PR-108) | Link through CMake and include public C runtime headers | Supported public SDK |
 | C runtime headers | `include/quarry/runtime_c/binary_record.h`, `include/quarry/runtime_c/version.h` | Compile generated or handwritten C that uses BRF runtime mechanics for the supported scalar, enum, bounded string/bytes, bounded array, nested-record, and compiler-resolved cross-namespace field subset of `--language c` | Supported public SDK |
 | CMake package files | `QuarryConfig.cmake`, `QuarryConfigVersion.cmake`, `QuarryTargets.cmake`, `QuarryGenerate.cmake` | Package discovery for the runtime(s), schema compiler target, generated-code API package metadata (C++ and, since PR-108, C), and installed-package generation helper (C++ only; no C equivalent yet, see "Evaluated Packaging Models") | Supported public SDK |
-| Schema compiler executable | `quarry_schema_compiler`, exported as `Quarry::schema_compiler`, installed as `quarry-schema-compiler` | Direct CLI invocation or CMake command use through `$<TARGET_FILE:...>`; supports `--language cpp` (default), `--language c`, and, since PR-118, `--language python` | Installed tool target |
+| Schema compiler executable | `quarry_schema_compiler`, exported as `Quarry::schema_compiler`, installed as `quarry-schema-compiler` | Direct CLI invocation or CMake command use through `$<TARGET_FILE:...>`; supports `--language cpp` (owning or C storage), `c`, `python` and `go` | Installed tool target |
 | Generated C++ code | Backend output under caller-selected paths | Owned by the downstream project that generated it | Downstream-owned build artifact |
 | Generated C code | C backend output under caller-selected paths (PR-107/PR-108) | Owned by the downstream project that generated it | Downstream-owned build artifact |
+| Generated Go code | Go backend output under caller-selected module paths | Owned by the downstream project that generated it; links the separate Go runtime module | Downstream-owned build artifact |
 | Generated Python code | Python backend output under caller-selected paths (scalar, enum, bounded string/bytes, supported arrays, nested records, and record arrays) | Owned by the downstream project that generated it | Downstream-owned build artifact |
 | Python runtime package | `runtime/python/` (`quarry-runtime-python`, importable as `quarry.runtime.python`, with schema-neutral scalar, enum, string/bytes, and array helpers) | Standard wheel/sdist build and `pip install`; not CMake-installed or exported | Supported public SDK within documented scope; PyPI publication remains deferred |
 | Compiler libraries | `quarry_compiler_*`, `quarry_schema_ir_proto` | Internal source-tree composition and tests | Implementation detail |
@@ -202,3 +204,15 @@ decision. In particular:
   separate host-tools package
 * language-specific examples should be introduced with their corresponding
   runtime or generator support
+
+## Stage A installed consumption
+
+Installed C includes `quarry/runtime_c/schema_id.h` and `generic_brf.h`; the QBS
+identity accessor links `Quarry::runtime_c`. C++ QBS parsing remains compiler-owned
+source-tree tooling, not an installed compiler-library SDK. Python wheel/sdist
+and the Go runtime module are separate language packages, not CMake targets.
+All five binding variants use one root identity; the installed C++ helper supports
+`GENERATE`, `NAME_PREFIX` and `SCHEMA_ID_VARIABLE`. C, Python and Go generation
+use the installed CLI directly. See [the CLI guide](stage-a-cli.md),
+[consumer compatibility](generated-binding-compatibility.md) and
+[release migration](release-notes-v0.1.31-rc.1.md).

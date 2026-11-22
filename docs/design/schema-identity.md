@@ -100,61 +100,22 @@ configuration changes, if it is needed, is future compatibility work.
 
 ## Record Renames
 
-A record's Fully Qualified Name (FQN) defines its logical identity.
+Stage A has no rename declaration or preserved allocation state. Renaming a record
+changes its FQN and can shift the sorted local IDs; renaming a namespace can shift
+domain IDs. Recompile the complete configuration and assess compatibility rather
+than assuming the previous ID survives. Explicit rename/evolution policy is future
+work, not accepted schema syntax.
 
-Changing the FQN is therefore considered a change of logical identity unless
-the schema explicitly declares that the new record is a rename of an existing
-record.
+## Configuration and generated identity
 
-Record renames are explicit.
-
-The compiler never attempts to infer a rename.
-
-If a record's FQN changes without an explicit rename declaration, the compiler
-treats the old record as removed and the new record as added.
-
-An explicit rename instructs the compiler to preserve the existing `recordId`
-and associated compiler state.
-
-Illustrative example:
-
-```text
-existing record:
-quarry.telemetry.Location
-
-renamed record:
-quarry.telemetry.GpsLocation
-
-explicit rename relationship:
-quarry.telemetry.GpsLocation was renamed from quarry.telemetry.Location
-```
-
-With an explicit rename:
-
-```text
-quarry.telemetry.Location
-recordId = 17
-
-becomes:
-
-quarry.telemetry.GpsLocation
-recordId = 17
-```
-
-Without an explicit rename, the compiler treats this as:
-
-```text
-quarry.telemetry.Location removed
-quarry.telemetry.GpsLocation added
-new recordId allocated for quarry.telemetry.GpsLocation
-
-illustrative recordId:
-quarry.telemetry.GpsLocation
-recordId = 42
-```
-
-This example describes the intended relationship only. It does not define final
-schema syntax for declaring record renames.
+The complete configuration has a 128-bit QBS `schema_id` (algorithm 1). It covers
+canonical wire definitions and record/enum FQNs, but excludes field/member names,
+unused enums, source paths, compiler versions and source naming options.
+C/C++ namespaces additionally have a format-1 `gid` over normalized generated
+definitions and dependency identities. API epochs check the generator/runtime
+contract independently. None is an authentication mechanism or a native ABI proof.
+See the [normative identity contract](../specifications/configuration-and-code-identity.md)
+and [consumer migration guide](../generated-binding-compatibility.md).
 
 ---
 
@@ -170,7 +131,7 @@ representations without changing their meaning.
 
 Binary identifiers are compiler-managed implementation details.
 
-Binary identifiers remain stable as schemas evolve.
+Binary identifiers are stable for the same configuration mapping, not across arbitrary schema evolution.
 
 Generated language bindings never define record identity; they only represent
 it.
@@ -182,8 +143,6 @@ it.
 Topics intentionally deferred to future specifications or design documents:
 
 * record rename declaration syntax
-* record ID allocation algorithm
-* manifest format
 * namespace rename semantics
 * fieldIndex compatibility rules
 * compatibility rules

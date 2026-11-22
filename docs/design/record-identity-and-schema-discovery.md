@@ -1,10 +1,10 @@
 # Record Identity and Schema Discovery
 
-Status: **accepted; Stage A in progress.** A1 (C++ include guards) is merged (#81), and so is A2
-(hierarchical record IDs, §3, #84). A3 (configuration roots and `--generate`, §4) is implemented.
-Of A4, A4.1 (configuration identity, #91) and A4.2 (generated identity and dependency checks, #99)
-are implemented; A4.3 onward are not.
-`v0.1.31-rc.1` is blocked on Stage A.
+Status: **accepted; Stage A implementation A1–A5 complete, A6 documentation reconciled**.
+A1 #81, A2 #84, A3 #86, A4.1 #91, A4.2 #106 and #111 G1–G5 (#116–#123),
+A4.3 #124, A4.4 #125, A4.5 #126 and A5 #127 are merged. Stage B remains future work.
+This does not authorize release publication: see the
+[release-readiness report](../release-readiness-v0.1.31-rc.1.md) for unresolved gates.
 
 ## 1. Summary
 
@@ -20,7 +20,7 @@ for selected namespaces, but IDs always come from the complete configuration.
 The configuration's identity is QBS's existing `schema_id`, reused unchanged. Its input already covers
 every record ID, FQN and wire definition.
 
-A Schema Descriptor and a three-level discovery protocol let a cloud service identify each vehicle's
+The future Stage B Schema Descriptor and three-level discovery protocol would let a cloud service identify each vehicle's
 configuration, classify compatibility, and decode or translate data during OTA rollouts.
 
 Stage A, which blocks the release, delivers:
@@ -35,7 +35,7 @@ Stage A, which blocks the release, delivers:
 Stage B delivers the binary descriptor section, discovery messages, partial retrieval, compatibility
 negotiation and gateway translation.
 
-## 2. Findings from the current implementation
+## 2. Historical findings before Stage A
 
 | Area | Current behavior | Consequence for this design |
 |---|---|---|
@@ -50,7 +50,7 @@ negotiation and gateway translation.
 | Version metadata | Git builds report a numeric development version (`0.1.269-dirty`); the prerelease tag exists only in release-archive metadata | A release identity field is needed for "version including prerelease" |
 | Generic runtime nested records | Located by QBS table index; the child header must equal the referenced record's `record_id` | Works unchanged with hierarchical IDs |
 
-## 3. Record ID assignment (normative proposal)
+## 3. Implemented record ID assignment
 
 ### 3.1 Definitions
 
@@ -97,8 +97,10 @@ FQN = namespace + `.` + name (`BC7006`).
 `record_id = (domain_id << 16) | local_record_id`, written big-endian in the BRF v2 header as today.
 Consequences:
 
-- Every valid ID is at least `0x00010001`, and every ID below `0x10000` is invalid. Every RC3-era ID was
-  below `0x10000`, so legacy records are detectable and always rejected.
+- Every application ID allocated by this algorithm is at least `0x00010001`. RC3-era IDs
+  below `0x10000` do not match the current expected mappings; generated decoders and the
+  inspector reject them in that configuration context. This does not add a universal numeric
+  range check to every generic parser.
 - Nested records carry their own domain's ID; there is no inheritance from the parent.
 - IDs are local to the configuration. The same record has different IDs in different configurations, so a
   receiver must know the sender's configuration (§6) before interpreting any ID.
@@ -158,7 +160,7 @@ ruled out.
   separates configurations by import prefix. A4 adds an opt-in per-configuration name prefix for the
   other languages:
 
-  - C: a symbol prefix (for example `cfgA_truck_engine_EngineStatus_t`);
+  - C: an injectively encoded symbol prefix (for example `cfgA_truck_engine_EngineStatus_t`);
   - C++: an outer namespace (`cfgA::truck::engine`);
   - Python: a package prefix.
 
@@ -187,12 +189,11 @@ Challenges and limits:
 - **Partial QBS images** (§8, level 2) would get a different `schema_id`, because the input covers the
   image's records. A subset must therefore carry its parent configuration's `schema_id` separately from
   its own content ID.
-- **Device-side availability:** the C runtime doesn't expose or verify `schema_id`. Stage A adds a
-  read-only accessor; verifying it on the device needs SHA-256 in the runtime, which is a footprint
-  question and belongs to Stage B.
+- **Device-side availability:** A4.3 exposes the stored identity with `quarry_qbs_schema_id()`.
+  This read-only accessor does not verify the digest; optional device-side hashing remains Stage B.
 - **128 bits** is sufficient for discrimination and uncoordinated identifiers.
 
-## 6. Schema Descriptor
+## 6. Schema Descriptor (future Stage B)
 
 ### 6.1 Contents
 
@@ -252,7 +253,7 @@ very low risk:
 The binary section and the parser fix move to Stage B with the discovery protocol, where their
 format-design choices can be made together. That keeps the RC free of new wire-adjacent format work.
 
-## 7. Fingerprints and compatibility classification
+## 7. Fingerprints and compatibility classification (future Stage B)
 
 Two fingerprints per record, each SHA-256 truncated to 64 bits over the canonical QBS identity encoding:
 
@@ -301,7 +302,7 @@ with the claimed value.
 **Authentication and authorization** belong to the transport (for example mutual TLS or the vehicle
 security gateway). The discovery messages carry no credentials.
 
-## 9. OTA operation
+## 9. OTA operation (future Stage B)
 
 1. **Release time.** CI compiles each vehicle software configuration and uploads its QBS image, keyed by
    `schema_id`, to a cloud schema registry. The generated cloud decoders are versioned by `schema_id`;
@@ -378,7 +379,8 @@ configuration root. Its domains are `truck.common` = 1 and `truck.engine` = 2, s
 `0x00020001`.
 
 - That number equals `truck.brakes.AbsEvent` in the truck configuration. **Interpreting IDs without
-  knowing the configuration is unsafe**, which is why the `schema_id` handshake is mandatory.
+  knowing the configuration is unsafe**, which is why Stage B proposes a `schema_id` handshake. Stage A applications
+  supply configuration context explicitly; no handshake is implemented.
 - Integration options:
   1. **Preferred:** the supplier builds against the OEM's configuration root and `--generate`s only its
      namespaces, giving an exact match.
@@ -402,7 +404,7 @@ configuration root. Its domains are `truck.common` = 1 and `truck.engine` = 2, s
 
 ## 12. Implementation plan
 
-### Stage A (required for `v0.1.31-rc.1`)
+### Stage A (implemented; documentation in A6)
 
 | PR | Scope |
 |---|---|
@@ -420,7 +422,7 @@ version gates the release.
 
 | PR | Scope |
 |---|---|
-| B1 | Compiler-side QBS parser honors ignorable sections; descriptor extension section `0x8001`; release-tag version field |
+| B1 | Compiler-side QBS parser honors ignorable sections; descriptor extension section `0x8001` (informational CLI release-tag reporting already shipped in A4.4) |
 | B2 | `quarry.discovery` schemas and reference responder/requester (levels 0–2), paging, limits |
 | B3 | Partial QBS images with content ID plus parent `schema_id` |
 | B4 | Fingerprints and the compatibility classifier (`--compare A.qbs B.qbs --records ...`) |
@@ -436,7 +438,7 @@ version gates the release.
 | Determinism | repeated builds byte-identical; import reorder leaves IDs and `schema_id` unchanged; selection (`--generate`) never changes IDs or `schema_id` |
 | Cross-language | C, C++, C++/C-storage, Python, Go × encode/decode × top-level, depth 1, depth 2 × inspector with the configuration image; nested records cut from a parent decode with their own type's decoder |
 | Configuration mixing | code generated from two configurations fails to build (C, C++, Go) or import (Python) |
-| Legacy | RC3-era IDs (all below `0x10000`) rejected by every decoder and the inspector |
+| Legacy | RC3-era IDs below `0x10000` rejected against each expected current type mapping by generated decoders and the inspector |
 | Identity | `schema_id` unchanged by reflective names, comments, import paths and compiler version; changed by any ID or wire change; `--describe` golden output |
 | Generation | multi-file namespace emits one complete file; CMake helper with a configuration root and selection; install and package consumer tests |
 | Stage B | descriptor section round trip; old readers skip it; paging and size limits; partial image identity; classifier on the truck A/B and reorder scenarios; translator round trips |

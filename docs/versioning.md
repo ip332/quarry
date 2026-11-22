@@ -53,7 +53,7 @@ The wire `schema_id` algorithm and generated-code identity format are both `1`,
 with separate meanings. None derives from the package version, and equal epochs
 do not establish native ABI compatibility. See the
 [consumer compatibility and migration guide](generated-binding-compatibility.md)
-for the three mechanisms and regeneration requirements. #111 G1–G4 changes none
+for the three mechanisms and regeneration requirements. #111 G1–G5 changes none
 of these versions or epochs.
 
 To build the native compiler with fresh version metadata and display its
@@ -87,3 +87,23 @@ preserves both fields when a tag exists. Missing or invalid numeric fallback
 metadata remains an error without Git. When archive Git SHA metadata is absent,
 the CLI explicitly reports `Git SHA unavailable`. None of these fields enters
 schema identity, generated-code identity or generated bindings.
+
+## Stage A epoch decision
+
+A4.2 (#106) adds generated configuration checks and changes generated C++ linkage;
+#111 G1–G5 adds gid guards, inline namespaces and policy validation. These changes
+require regenerating bindings and rebuilding affected native consumers, but do
+not change the generator/runtime call contract, so owning C++ 3, C/C-storage 7,
+Python 1 and Go 1 remain unchanged (approved A4.2 decision). A4.3's C accessor is
+additive: only callers of it require the updated linked library. `--version` and
+`--describe` report numeric development version, short Git SHA (or `Git SHA
+unavailable`) and `release tag <exact tag>` or `untagged`. These fields enter
+neither wire schema_id nor native gid. A prefix may change gid through generated
+source definitions, not release metadata. See the
+[normative compatibility contract](specifications/configuration-and-code-identity.md#accessors-and-compatibility).
+
+The earlier post-RC3 C codec migration is a different epoch decision: the exact
+`v0.1.30-rc.3` tag had C epoch 2, while the shared-codec/presence/decode-operation
+work (#77/#79) reaches epoch 7. The unchanged A4.2/gid decision must not be read as
+“no C runtime-contract changes since RC3.” Regenerate and link the matching C
+runtime. Go was added after RC3 at epoch 1.

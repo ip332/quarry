@@ -77,17 +77,16 @@ validation as an unsupported v0.1 construct; see `compiler/backend/README.md`
 for the exact supported array element type set.
 
 The `compiler/frontend` orchestration layer now exposes a production-facing
-import-free YAML compilation path through validated Schema IR. That layer now
+import-aware YAML compilation path through validated Schema IR. That layer now
 builds symbols, semantic state, and Schema IR directly from the normalized
 source-schema model. AST remains in use only for the independent legacy
 declaration-syntax parser and AST tests. The legacy declaration parser remains
 available during the migration.
 
-Source loading remains outside the compiler passes. Callers register source
-text with `SourceManager`, receive a `SourceFileId`, and parse exactly one
-registered source file per parser invocation. There is no import-resolver
-pass in the current repository; import declarations remain syntax only on the
-legacy AST path and are ignored by downstream passes.
+Root source registration remains caller-owned: callers register text with
+`SourceManager` and receive a `SourceFileId`. Production `YamlCompiler` loads
+relative imports through its graph loader. Each parser invocation parses one
+registered unit. Legacy AST imports remain syntax only.
 There is no production root-source loading facade for declaration syntax yet;
 file loading and source registration remain caller-owned.
 The legacy declaration-syntax frontend is compatibility infrastructure rather
@@ -173,15 +172,15 @@ or layout computation.
 
 ---
 
-## 2. Import Resolution Status
+## 2. Production YAML import loading
 
-There is no import-resolver pass in the current repository. Import
-declarations remain legacy AST syntax only. The parser retains them for
-compatibility with historical `.brd` files, but downstream passes ignore them
-and no production stage loads imported files, resolves import names to files,
-or builds a document graph.
-
----
+`frontend::YamlCompiler` loads the root's transitive relative-import graph,
+canonicalizes paths, loads each once and rejects cycles before downstream layout.
+A configuration root (`configuration` and `imports` only) owns no declarations
+and cannot be imported. A record root also defines a configuration. Every source
+unit contributes to the shared normalized/symbol/semantic models; namespaces may
+span files. The legacy declaration parser retains imports as syntax only and is
+not the production loader. No package or network import resolver is implied.
 
 ## 3. Namespace Builder
 
@@ -216,8 +215,7 @@ Required by:
 
 ### Assumptions on Input
 
-The schema has already had unsupported YAML imports rejected and normalized
-identifiers validated.
+The complete YAML import closure has been loaded and normalized identifiers validated.
 
 ### Responsibilities
 
@@ -234,7 +232,7 @@ identifiers validated.
 * every registered declaration has a fully qualified name
 * namespace nesting is represented canonically
 * duplicate symbols have been rejected
-* import declarations remain syntax only and do not produce symbols
+* imported declarations participate in the shared symbol index; import directives do not become symbols
 
 ### Diagnostics Emitted
 
@@ -585,3 +583,15 @@ Internal compiler errors indicate compiler defects rather than user errors.
 Schema IR is produced only if all compilation passes complete successfully.
 
 Backends are never invoked after fatal compilation failures.
+
+## Configuration preparation and generation
+
+After validated Schema IR, `tools/schema_compiler/configuration_preparation.hpp`
+prepares the canonical BRF layout and algorithm-1 wire configuration identity once.
+QBS and every backend consume those values; listing outputs uses planning without
+hashing. Native backends then compute per-namespace format-1 gid in dependency
+order, including unselected dependencies and effective storage policies. Selection
+controls emission, never the resolved configuration or record IDs. Prefixing is a
+backend naming projection. See [compiler architecture](compiler-architecture.md#configuration-preparation),
+[the identity contract](specifications/configuration-and-code-identity.md) and
+[CLI verification](stage-a-cli.md).

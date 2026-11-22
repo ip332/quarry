@@ -32,7 +32,7 @@ through the production YAML frontend and writes generated files for the
 selected namespaces and the selected C++, C, Python, or Go backend.
 
 ```text
-quarry-schema-compiler [options] INPUT
+usage: quarry-schema-compiler [options] INPUT
 
 Options:
   -o, --output-directory PATH  Directory for generated files (default: generated)
@@ -48,16 +48,17 @@ Options:
       --generate NS[,NS...]     Emit only these namespaces (repeatable). Default: the
                                 root's namespace, or every namespace of a
                                 configuration root. IDs and QBS never change.
-      --emit-qbs PATH           Emit a deterministic binary QBS image
+      --emit-qbs PATH           Emit the resolved schema as a deterministic QBS image
+      --qbs-reflective          Include reflective record, field, and enum names in QBS
       --list-inputs             Print all resolved schema input paths without writing files
       --list-outputs            Print generated output paths without writing files
       --print-generated-code-api-version
                                 Print the generated-code API compatibility version and exit
+      --print-schema-id         Print the resolved configuration's 128-bit schema_id
       --name-prefix NAME        Nest generated source names and paths beneath NAME
       --describe                Describe the full configuration without writing files
-      --print-schema-id         Print the resolved configuration's 128-bit schema_id
       --version                 Show version information
-  -h, --help                    Show help
+  -h, --help                    Show this help text
 ```
 
 `--language` selects which backend generates output: `cpp` (the default,
@@ -314,10 +315,12 @@ compilation is quiet and returns exit code `0`.
 `--version` is a terminal informational option. It prints:
 
 ```text
-quarry-schema-compiler <version>
+quarry-schema-compiler <numeric-version>[-dirty] (<short-SHA-or-Git-SHA-unavailable>, <release-tag-metadata>)
 ```
 
-to stdout, writes nothing to stderr, and exits with code `0`. When combined
+Release-tag metadata is `release tag <exact-tag>` or `untagged`; it is
+independent of the numeric development version. Output goes to stdout, with
+nothing on stderr and exit code `0`. When combined
 with otherwise valid generation options or an input path, it still reports the
 version and does not generate files.
 
@@ -383,8 +386,6 @@ directory. If the output directory is absolute, listed paths are absolute. The
 tool does not canonicalize or rebase them. Output order is deterministic and
 matches backend `GenerationPlan` order.
 
-The output is line-oriented and does not define an escaping format; scripts
-should avoid newline characters in output-directory, root-stem, or extension
 The output is line-oriented; scripts should avoid newline characters in
 output-directory, root-stem, or extension arguments.
 
@@ -712,3 +713,11 @@ under canonical namespace keys. Prefixes can change those definitions and their
 native objects ABI-interchangeable. See the
 [truck multi-configuration example](../examples/truck/multi_configuration/README.md)
 for working C, C++, C-storage, Python and Go consumers.
+
+### Stage A executable documentation
+
+The [CLI verification guide](../docs/stage-a-cli.md) runs literal commands for all
+identity/root/selection/prefix/QBS/storage query modes and checks expected errors.
+The [release notes](../docs/release-notes-v0.1.31-rc.1.md) describe regeneration and
+rebuild requirements. These are implemented Stage A features; descriptor discovery,
+partial images, compatibility classification and translation remain future work.
