@@ -1,6 +1,7 @@
 # Parser
 
-Owns lexical scanning and syntax parsing for the current schema language.
+Owns the legacy declaration-syntax lexer/parser compatibility surface. The
+production schema language uses the YAML frontend.
 
 ## Lexer Responsibility
 
@@ -46,12 +47,11 @@ errors through the diagnostics framework.
 Current implementation status:
 
 * the normative `.brd` grammar is defined in `docs/specifications/schema-language.md`
-* the current parser implementation is transitional scaffolding for that YAML
-  grammar
+* this declaration parser is legacy compatibility infrastructure, not the YAML grammar
 * the repository also contains a separate generic YAML syntax layer under
-  `compiler/yaml`; it preserves YAML order and source ranges but does not yet
-  decode Quarry schema vocabulary
-* the production-facing YAML orchestration layer now compiles import-free YAML
+  `compiler/yaml`; its parser preserves YAML order/source ranges, and the separate
+  schema decoder interprets Quarry vocabulary
+* the production-facing YAML orchestration layer resolves transitive YAML relative imports and compiles the configuration
   through validated Schema IR without a compatibility AST hop after source-
   schema normalization
 * the legacy declaration parser and AST remain compatibility infrastructure for
@@ -61,8 +61,7 @@ Current implementation status:
   shape, source identity, source ranges, and parser diagnostics; they do not
   require symbol construction or semantic validation
 * import declarations remain parser syntax only on the legacy declaration
-  path; there is no import resolver or multi-file import graph in the current
-  compiler
+  path; production YAML has its own multi-file relative-import graph loader
 * the current temporary declaration grammar, annotation parsing, and
   fixed-size array handling are not normative language contracts
 * current annotations are transitional string-valued metadata; the normative

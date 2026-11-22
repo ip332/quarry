@@ -101,3 +101,9 @@ unavailable`) and `release tag <exact tag>` or `untagged`. These fields enter
 neither wire schema_id nor native gid. A prefix may change gid through generated
 source definitions, not release metadata. See the
 [normative compatibility contract](specifications/configuration-and-code-identity.md#accessors-and-compatibility).
+
+The earlier post-RC3 C codec migration is a different epoch decision: the exact
+`v0.1.30-rc.3` tag had C epoch 2, while the shared-codec/presence/decode-operation
+work (#77/#79) reaches epoch 7. The unchanged A4.2/gid decision must not be read as
+“no C runtime-contract changes since RC3.” Regenerate and link the matching C
+runtime. Go was added after RC3 at epoch 1.

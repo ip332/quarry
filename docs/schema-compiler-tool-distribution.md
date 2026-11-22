@@ -600,10 +600,10 @@ quarry-schema-compiler --print-generated-code-api-version
 ```
 
 Successful output should be exactly one base-10 unsigned integer followed by a
-newline, for example:
+newline; the current C++ owning query returns:
 
 ```text
-1
+3
 ```
 
 The query:

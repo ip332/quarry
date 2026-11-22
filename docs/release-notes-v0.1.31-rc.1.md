@@ -42,6 +42,10 @@ Publication remains gated by the [readiness report](release-readiness-v0.1.31-rc
   passed 295 streams / 1,475 consumer checks without matrix skips, including
   Linux GCC and a targeted Linux Clang 18 matrix. This does not resolve #85's
   separate full generic conformance failure.
+- Post-RC3 C generation moved to header bindings backed by the shared BRF v2
+  codec (#77), with no schema-specific C object required. C/C-storage runtime
+  descriptors, presence operations and generated decode operations evolved through
+  epoch 7 (#79); these are source/runtime-contract changes, not a wire-format bump.
 - Earlier post-RC3 maintenance includes Go bindings/runtime (#80), generated C
   decode operations (#79), C++ include guards (#81), inline header definitions
   (#97), strict warning fixes (#98), complete CMake import dependencies (#95),
@@ -50,8 +54,11 @@ Publication remains gated by the [readiness report](release-readiness-v0.1.31-rc
 ## Compatibility and migration
 
 BRF remains version **2**, QBS **1**, Schema IR **1**, wire identity algorithm **1**
-and native gid format **1**. Owning C++ epoch remains **3**, C/C-storage **7**,
-Python **1**, Go **1**. A4.2/gid changes do not alter the runtime call contract,
+and native gid format **1**. Owning C++ epoch remains **3** and Python **1**.
+C/C-storage is now **7**, up from C epoch **2** at the exact v0.1.30-rc.3 tag;
+Go is newly available with epoch **1**. Upgrade generated C/C-storage and their
+linked runtime together: older epoch-2 bindings are not current runtime-contract
+consumers. A4.2/gid changes themselves do not alter the runtime call contract,
 so no epoch bump accompanies their generated source/linkage changes. Equal epochs
 are not native ABI compatibility guarantees.
 

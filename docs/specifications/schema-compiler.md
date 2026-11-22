@@ -2,7 +2,9 @@
 
 ## Status
 
-Draft
+Implemented Stage A responsibilities, with historical future compatibility
+requirements explicitly identified below. No manifest, profile-selection or
+historical schema-comparison mode is implemented.
 
 ## Version
 
@@ -20,6 +22,20 @@ The `.brd` source-language grammar and semantics are defined by
 responsibilities and architecture only.
 
 ---
+
+## Scope
+
+Production YAML configuration compilation, namespace output selection and the
+existing generation/identity contracts. Legacy declaration syntax is parser-test
+compatibility infrastructure. Stage B discovery and historical schema evolution
+are not available production modes.
+
+## Terminology
+
+A root is the one CLI input; its complete relative-import closure is the
+configuration. A namespace is the generation unit; a domain is a namespace that
+declares records. Wire schema_id, native gid and runtime epochs are defined in
+[the identity contract](configuration-and-code-identity.md).
 
 ## Requirements
 
@@ -61,7 +77,7 @@ languages.
 The Schema Compiler SHALL produce compiler artifacts requested by the selected
 configuration.
 
-### REQ-SC-009
+### REQ-SC-009 (future compatibility work, not implemented in Stage A)
 
 The Schema Compiler SHALL support compatibility analysis involving `fieldIndex`
 and type associations.
@@ -124,35 +140,22 @@ detail.
 
 ## Inputs
 
-The Schema Compiler consumes:
-
-* `.brd` schema files
-* normalized source-schema documents
-* compatibility metadata
-* reserved field metadata
-* target language configuration
-* target profile configuration
-
-Target profiles may describe constraints such as embedded memory limits,
-supported field types, maximum nesting depth, and enabled generated outputs.
+The production CLI consumes exactly one YAML root, its transitive relative-import
+closure, target language/storage/naming options and emission selections. Internal
+passes consume normalized source-schema models. Compatibility metadata, reserved
+field mappings, persistent manifests and selectable target profiles are historical
+future proposals, not supported CLI inputs.
 
 ---
 
 ## Outputs
 
-The Schema Compiler may produce:
-
-* generated accessors
-* generated validators
-* generated binary codecs
-* generated inspector metadata
-* generated documentation
-* compatibility reports
-* schema manifests
-* language-specific SDK files
-
-Generated outputs are build artifacts. Production systems consume these
-artifacts directly.
+Current outputs are C, C++ owning, C++/C-storage, Python or Go bindings for
+selected namespaces, explicit minimal/reflective QBS images, and read-only CLI
+inventories/identity/description text. Generated files include accessors,
+validators and codecs. Schema IR remains compiler-owned tooling data.
+Compatibility reports, persistent schema manifests and generated documentation
+are not implemented outputs. Generation never deletes stale files.
 
 ---
 
@@ -232,3 +235,18 @@ apply to unselected dependencies when computing native generated identity.
 CLI argument rules, diagnostics and exits are defined in
 [Tools](../../tools/README.md); executable examples and checks are in the
 [Stage A CLI guide](../stage-a-cli.md).
+
+## Examples
+
+The root `examples/truck/schemas/configuration.brd` imports eight record units.
+Selecting `truck.engine` emits the complete engine namespace while its dependencies
+retain the full root's IDs/identity. Compiling `engine.brd` independently instead
+creates a different configuration. [Executable examples](../stage-a-cli.md) cover
+selection, prefixes, storage, QBS modes and query diagnostics.
+
+## Related Documents
+
+- [Schema language](schema-language.md)
+- [Configuration and generated-code identity](configuration-and-code-identity.md)
+- [Compiler architecture](../compiler-architecture.md)
+- [Tools](../../tools/README.md)

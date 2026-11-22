@@ -20,6 +20,7 @@ identify executable test registrations (one CTest may contain many assertions).
 
 | Delivery | Implementation |
 |---|---|
+| Post-RC3 C runtime | #77 shared codec / #79 generated operations, C epoch 2 at RC3 to current 7; Go introduced by #80 |
 | A1/A2/A3 | #81 guards; #84 hierarchical allocation; #86 roots/selection; #95 complete CMake dependencies |
 | A4.1 | #91 identity preparation; #93 shared layout; #115 explicit backend identity |
 | A4.2 | #106 configuration dependency checks; #116 native gid; #118 injective identity stems; #120 plain-C gid |

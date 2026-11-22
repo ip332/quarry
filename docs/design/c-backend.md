@@ -1,10 +1,13 @@
 # C Backend
 
-> Current status (PR-139): the C backend supports compiler-resolved
-> cross-namespace enum and record fields, including arrays, by consuming
-> `OutputPlan` dependency metadata and emitting deterministic generated-header
-> includes. Referenced namespaces are generated from the same compilation root.
-> Nested arrays and recursive by-value records remain out of scope.
+> Stage A status: C/C++-storage epoch 7, header bindings backed by the shared C
+> codec, with include-only compatibility `.c`/`.cpp` stubs. Relative-import
+> dependencies, configuration/gid checks, per-namespace storage and explicit
+> prefixes are implemented. The original proposal and milestone history below
+> (including epoch-2 and split-source recommendations) are historical, not the
+> current generation contract. See `compiler/backend_c/README.md` and
+> `docs/specifications/configuration-and-code-identity.md`. Nested arrays and
+> recursive by-value records remain unsupported.
 
 ## Implementation Status
 

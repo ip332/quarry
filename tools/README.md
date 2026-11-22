@@ -315,10 +315,12 @@ compilation is quiet and returns exit code `0`.
 `--version` is a terminal informational option. It prints:
 
 ```text
-quarry-schema-compiler <version>
+quarry-schema-compiler <numeric-version>[-dirty] (<short-SHA-or-Git-SHA-unavailable>, <release-tag-metadata>)
 ```
 
-to stdout, writes nothing to stderr, and exits with code `0`. When combined
+Release-tag metadata is `release tag <exact-tag>` or `untagged`; it is
+independent of the numeric development version. Output goes to stdout, with
+nothing on stderr and exit code `0`. When combined
 with otherwise valid generation options or an input path, it still reports the
 version and does not generate files.
 

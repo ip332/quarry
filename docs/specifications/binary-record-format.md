@@ -19,7 +19,17 @@ payloads, nested records, scalar values, arrays, strings, bytes, and enum values
 are encoded.
 
 This document does not define schema syntax, transport protocols, application
-semantics, cloud APIs, or the future QBS representation.
+semantics, cloud APIs, or the separately specified QBS representation.
+
+## Scope
+
+BRF physical layouts, value encoding and validation, plus current configuration-local
+ID allocation. Transport/discovery, persistent evolution policy and native ABI are
+outside this specification.
+
+## Terminology
+
+The following format and identity terms are independent.
 
 ## Format Versions and Identities
 
@@ -1137,7 +1147,9 @@ The following are intentionally outside the first v2 implementation contract:
 None of these questions changes the v2 fixed-region, 8-byte descriptor,
 record-relative-offset, or independent-identity decisions in this draft.
 
-## Stage A allocation requirements
+## Requirements
+
+### Stage A allocation requirements
 
 REQ-BRF-001: Application IDs SHALL be `(domain_id << 16) | local_record_id`,
 using the complete configuration. Domains SHALL be record-declaring canonical
@@ -1160,3 +1172,11 @@ number below `0x10000` independently of expected schema context.
 - [Configuration and generated identity](configuration-and-code-identity.md)
 - [Layout allocation](../layout-algorithm.md)
 - [QBS](quarry-binary-schema.md)
+
+## Examples
+
+In the authoritative truck configuration, EngineStatus is domain 5/local 1
+(`0x00050001`) and its nested Timestamp is domain 4/local 1 (`0x00040001`).
+The nested header carries Timestamp's own ID. Revision B adds MirrorFold local 2
+in domain 3 without changing EngineStatus's numeric ID; the configuration identity
+still changes. These examples do not define a cross-configuration compatibility rule.

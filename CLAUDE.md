@@ -97,8 +97,8 @@ YAML source (.brd)
 
 Two frontends coexist during migration:
 - **The normative YAML frontend** (`frontend::YamlCompiler::compile`, `compiler/frontend`) is
-  the production path. It is import-free and feeds normalized YAML directly through symbols,
-  semantic validation, layout, and Schema IR.
+  the production path. It loads the root and transitive relative-import closure, then feeds
+  normalized YAML through shared symbols, semantic validation, layout, and Schema IR.
 - **A legacy declaration-syntax lexer/parser** (`compiler/parser`, `compiler/ast`) exists only
   for parser/AST compatibility testing. It is not wired into the production pipeline, and
   import declarations it parses are syntax only — nothing resolves them.
@@ -124,7 +124,7 @@ treats architecture docs as authoritative "what" and expects code to match them.
 | `schema_ir/` | Schema IR builder/validator (`proto/quarry/schema_ir.proto`) |
 | `frontend/` | `YamlCompiler` — orchestrates YAML → Schema IR |
 | `backend/` | Schema IR → generated C++ output planning and rendering |
-| `imports/` | Reserved; no active import-resolution pass exists yet |
+| `imports/` | Reserved; production relative-import graph loading lives in `frontend/` |
 
 Each CMake target in `compiler/CMakeLists.txt` corresponds 1:1 to one of these directories
 (`quarry_compiler_<name>`), with dependencies flowing strictly downstream along the
@@ -156,16 +156,16 @@ schema compiler's `--print-generated-code-api-version` query.
 ### `tools/` — `quarry-schema-compiler`
 
 The CLI entry point (`tools/schema_compiler`) built on the compiler libraries above. It
-compiles exactly one `.brd` file through `YamlCompiler` and the backend, and writes generated
-files. Supports `--list-outputs` (print planned generated paths without writing),
+compiles one `.brd` root and its complete relative-import closure through `YamlCompiler`,
+then emits selected namespaces for C, C++ owning/C-storage, Python or Go. Supports `--list-outputs` (print planned generated paths without writing),
 `--print-generated-code-api-version` (machine-readable compatibility query used by CMake),
 `--version`, `--help`. Full CLI contract and exit codes are documented in `tools/README.md` —
 treat that file as the source of truth for flag behavior rather than re-deriving it from code.
 
 ### Distribution boundary
 
-Only two things are installed/exported: `Quarry::runtime` (header-only) and
-`Quarry::schema_compiler` (executable), plus CMake package files
+Installed/exported targets are `Quarry::runtime` (C++ header-only), `Quarry::runtime_c`
+(compiled C runtime) and `Quarry::schema_compiler` (executable), plus CMake package files
 (`QuarryConfig.cmake`, `QuarryGenerate.cmake`, etc.) and the
 `quarry_generate_cpp()` helper. Everything else under `compiler/` (compiler libraries,
 Schema IR protobuf), `tests/`, `fuzz/` is a source-tree implementation detail, not a public
