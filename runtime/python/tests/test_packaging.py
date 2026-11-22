@@ -17,9 +17,10 @@ import venv
 import zipfile
 
 
-def run(command: List[str], *, env: Optional[Dict[str, str]] = None) -> subprocess.CompletedProcess:
+def run(command: List[str], *, env: Optional[Dict[str, str]] = None,
+        cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
     try:
-        return subprocess.run(command, check=True, text=True, env=env, capture_output=True)
+        return subprocess.run(command, check=True, text=True, env=env, cwd=cwd, capture_output=True)
     except subprocess.CalledProcessError as error:
         raise RuntimeError("command failed: " + " ".join(command) + "\n" +
                            error.stdout + error.stderr) from error
@@ -107,7 +108,7 @@ def install_from_sdist(python: Path, sdist: Path, root: Path) -> None:
         archive.extractall(extracted)
     source_dir = next(extracted.iterdir())
     run([sys.executable, "-m", "build", "--no-isolation", "--wheel",
-         "--outdir", str(wheel_dir), str(source_dir)], env=clean_env())
+         "--outdir", str(wheel_dir), str(source_dir)], env=clean_env(), cwd=root)
     wheel = next(wheel_dir.glob("quarry_runtime_python-*.whl"))
     install_wheel(python, wheel)
 
@@ -208,7 +209,7 @@ def main() -> None:
         root = Path(temporary)
         dist = root / "dist"
         run([sys.executable, "-m", "build", "--no-isolation", "--wheel", "--sdist", "--outdir", str(dist),
-             str(args.runtime_source)], env=clean_env())
+             str(args.runtime_source)], env=clean_env(), cwd=root)
         wheel, sdist = assert_artifacts(dist)
         expected_version = resolve_source_version(sys.executable, args.runtime_source)
         install_prefix = root / "quarry-install"

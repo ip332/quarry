@@ -189,7 +189,11 @@ target_compile_definitions(python_runtime_test PRIVATE
 
 if(QUARRY_PYTHON3_EXECUTABLE)
     execute_process(
-        COMMAND "${QUARRY_PYTHON3_EXECUTABLE}" -c "import build, setuptools"
+        # An empty source-tree build/ is importable as a namespace package,
+        # but cannot provide the python -m build entry point used below.
+        # Keep user-site dependencies available for the selected interpreter.
+        COMMAND "${QUARRY_PYTHON3_EXECUTABLE}" -c "import build.__main__, setuptools"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
         RESULT_VARIABLE QUARRY_PYTHON_PACKAGING_AVAILABLE
         OUTPUT_QUIET
         ERROR_QUIET
@@ -197,6 +201,11 @@ if(QUARRY_PYTHON3_EXECUTABLE)
 endif()
 
 if(QUARRY_PYTHON3_EXECUTABLE AND QUARRY_PYTHON_PACKAGING_AVAILABLE EQUAL 0)
+    add_test(NAME python_packaging_dependency_test
+        COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/python_packaging_dependency_test.py"
+            --source "${CMAKE_SOURCE_DIR}" --cmake "${CMAKE_COMMAND}"
+            --ctest "${CMAKE_CTEST_COMMAND}" --gtest-source "${googletest_SOURCE_DIR}")
     add_test(NAME python_packaging_test
         COMMAND ${QUARRY_PYTHON3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/../runtime/python/tests/test_packaging.py"

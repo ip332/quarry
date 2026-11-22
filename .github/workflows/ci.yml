@@ -49,6 +49,18 @@ jobs:
           esac;
           test "$python_version" = "$expected"'
 
+      # Packaging dependencies are optional locally, but installed in this
+      # release-validation image. Do not silently lose their test coverage.
+      - name: Verify Python packaging test registration
+        run: >-
+          docker compose run --rm dev sh -ec
+          'ctest --test-dir build/docker-debug --show-only=json-v1 |
+          python3 -c "import json, sys;
+          names = {test[\"name\"] for test in json.load(sys.stdin)[\"tests\"]};
+          expected = {\"python_packaging_dependency_test\", \"python_packaging_test\", \"public_examples_test\"};
+          assert expected <= names, (\"Missing required packaging coverage\", expected - names);
+          print(\"Registered packaging coverage:\", sorted(expected))"'
+
       - name: Test
         run: docker compose run --rm dev ctest --preset docker-debug --output-on-failure
 
