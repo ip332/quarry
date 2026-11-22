@@ -136,8 +136,9 @@ A `recordId` is the compiler-generated binary identifier of the logical record
 or message type. It is not a schema-version, schema-hash, physical-layout, or
 BRF-format identifier.
 
-Physical format version and configuration-local IDs are independent. Allocation
-is specified below; adding a domain or inserting a record can renumber IDs.
+Physical format version and configuration-local IDs are independent. Current
+Stage A allocation is specified below; adding a domain or inserting a record
+can renumber IDs.
 Generated decoders require their expected type ID and layout. Regenerate all
 bindings and rebuild affected consumers after allocation changes.
 
@@ -150,10 +151,17 @@ work.
 
 ## recordId Structure and Reserved Ranges
 
-This section is part of the protocol contract. It applies to BRF v1 and BRF v2
-alike; the header field remains an unsigned 32-bit big-endian integer.
+The BRF v1 and BRF v2 physical headers represent `recordId` as an unsigned
+32-bit big-endian integer. That field representation does not prescribe how IDs
+are allocated.
 
-A `recordId` is hierarchical:
+The hierarchical mapping and reserved ranges below describe the **current Stage A
+compiler's BRF v2 generation contract**. They do not specify historical BRF v1
+allocation or guarantee that older generated bindings used this algorithm. The
+historical BRF v1 physical layout above remains unchanged; its allocation policy
+is not defined here.
+
+A `recordId` allocated by the current Stage A compiler is hierarchical:
 
 ```text
 recordId = (domain_id << 16) | local_record_id
@@ -166,15 +174,15 @@ Reserved and assigned ranges:
 
 | Range | Meaning |
 | --- | --- |
-| `domain_id = 0x0000` | Reserved. No valid `recordId` has domain 0, so `recordId = 0` and every value below `0x00010000` is invalid. |
+| `domain_id = 0x0000` | Reserved by current Stage A allocation; it assigns neither `recordId = 0` nor any value below `0x00010000`. |
 | `domain_id = 0x0001`–`0xFEFF` | Application domains (65,279), assigned by the schema compiler. |
 | `domain_id = 0xFF00`–`0xFFFF` | Quarry system domains (256). Reserved for Quarry-defined records; each is assigned an explicit constant by this specification when defined. None is defined yet. |
 | `local_record_id = 0x0000` | Reserved. |
 | `local_record_id = 0x0001`–`0xFFFE` | Application records (65,534 per domain). |
 | `local_record_id = 0xFFFF` | Reserved. |
 
-The schema compiler assigns application IDs from one complete compilation root
-(the root schema and its complete import closure, called the configuration):
+The current Stage A compiler assigns application IDs from one complete
+compilation root (the root schema and its complete import closure, called the configuration):
 
 1. A record domain is a canonical namespace, not a source file. Several source
    files MAY contribute records to one namespace; they share its domain. Every
@@ -1150,6 +1158,9 @@ record-relative-offset, or independent-identity decisions in this draft.
 ## Requirements
 
 ### Stage A allocation requirements
+
+These requirements apply to current Stage A BRF v2 generation, not historical
+BRF v1 allocation or older generated bindings.
 
 REQ-BRF-001: Application IDs SHALL be `(domain_id << 16) | local_record_id`,
 using the complete configuration. Domains SHALL be record-declaring canonical
