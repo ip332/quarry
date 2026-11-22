@@ -60,8 +60,7 @@ namespace {
     const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
     const std::filesystem::path directory =
         std::filesystem::temp_directory_path() /
-        (std::string("quarry-schema-compiler-") + std::string(stem) + "-" +
-         std::to_string(suffix));
+        (std::string("quarry-schema-compiler-") + std::string(stem) + "-" + std::to_string(suffix));
     std::filesystem::remove_all(directory);
     std::filesystem::create_directories(directory);
     return directory;
@@ -199,8 +198,7 @@ TEST(SchemaCompilerToolTest, HelpReturnsSuccess) {
     const CommandResult result = run_tool({"--help"}, root);
 
     EXPECT_EQ(result.status, 0);
-    EXPECT_NE(result.stdout_text.find("quarry-schema-compiler [options] INPUT"),
-              std::string::npos);
+    EXPECT_NE(result.stdout_text.find("quarry-schema-compiler [options] INPUT"), std::string::npos);
     EXPECT_NE(result.stdout_text.find("--list-outputs"), std::string::npos);
     EXPECT_TRUE(result.stderr_text.empty());
 }
@@ -219,8 +217,11 @@ TEST(SchemaCompilerToolTest, EmitsDeterministicQbsForBenchmarkWorkload) {
     const std::vector<uint8_t> second_bytes{std::istreambuf_iterator<char>(b), {}};
     EXPECT_EQ(first_bytes, second_bytes);
     ASSERT_FALSE(first_bytes.empty());
-    quarry_qbs_record_view_t records[128]{}; quarry_qbs_field_view_t fields[128]{};
-    quarry_qbs_type_view_t types[128]{}; quarry_qbs_enum_view_t enums[128]{}; uint64_t values[128]{};
+    quarry_qbs_record_view_t records[128]{};
+    quarry_qbs_field_view_t fields[128]{};
+    quarry_qbs_type_view_t types[128]{};
+    quarry_qbs_enum_view_t enums[128]{};
+    uint64_t values[128]{};
     quarry_workspace_t workspace{};
     workspace.records = records;
     workspace.record_capacity = 128;
@@ -245,10 +246,12 @@ TEST(SchemaCompilerToolTest, EmitsDeterministicReflectiveQbsWhenRequested) {
     const auto first = root / "first.qbs";
     const auto second = root / "second.qbs";
     ASSERT_EQ(run_tool({"--emit-qbs", minimal.string(), input.string()}, root).status, 0);
-    ASSERT_EQ(run_tool({"--emit-qbs", first.string(), "--qbs-reflective", input.string()}, root).status,
-              0);
-    ASSERT_EQ(run_tool({"--qbs-reflective", "--emit-qbs", second.string(), input.string()}, root).status,
-              0);
+    ASSERT_EQ(
+        run_tool({"--emit-qbs", first.string(), "--qbs-reflective", input.string()}, root).status,
+        0);
+    ASSERT_EQ(
+        run_tool({"--qbs-reflective", "--emit-qbs", second.string(), input.string()}, root).status,
+        0);
     std::ifstream minimal_stream(minimal, std::ios::binary);
     std::ifstream first_stream(first, std::ios::binary);
     std::ifstream second_stream(second, std::ios::binary);
@@ -258,14 +261,22 @@ TEST(SchemaCompilerToolTest, EmitsDeterministicReflectiveQbsWhenRequested) {
     EXPECT_NE(first_bytes, minimal_bytes);
     EXPECT_EQ(first_bytes, second_bytes);
 
-    quarry_qbs_record_view_t records[128]{}; quarry_qbs_field_view_t fields[128]{};
-    quarry_qbs_type_view_t types[128]{}; quarry_qbs_enum_view_t enums[128]{}; uint64_t values[128]{};
+    quarry_qbs_record_view_t records[128]{};
+    quarry_qbs_field_view_t fields[128]{};
+    quarry_qbs_type_view_t types[128]{};
+    quarry_qbs_enum_view_t enums[128]{};
+    uint64_t values[128]{};
     quarry_workspace_t workspace{};
-    workspace.records = records; workspace.record_capacity = 128;
-    workspace.fields = fields; workspace.field_capacity = 128;
-    workspace.types = types; workspace.type_capacity = 128;
-    workspace.enums = enums; workspace.enum_capacity = 128;
-    workspace.enum_values = values; workspace.enum_value_capacity = 128;
+    workspace.records = records;
+    workspace.record_capacity = 128;
+    workspace.fields = fields;
+    workspace.field_capacity = 128;
+    workspace.types = types;
+    workspace.type_capacity = 128;
+    workspace.enums = enums;
+    workspace.enum_capacity = 128;
+    workspace.enum_values = values;
+    workspace.enum_value_capacity = 128;
     quarry_qbs_view_t view{};
     ASSERT_EQ(quarry_qbs_parse(first_bytes.data(), first_bytes.size(), &view, &workspace, nullptr),
               QUARRY_GENERIC_OK);
@@ -294,7 +305,8 @@ TEST(SchemaCompilerToolTest, DuplicateQbsReflectiveFails) {
     write_text_file(input,
                     "namespace: quarry.test\nrecord: Sample\nversion: 1\ntype: data\nfields:\n"
                     "  value:\n    type: uint32\n");
-    const CommandResult result = run_tool({"--qbs-reflective", "--qbs-reflective", input.string()}, root);
+    const CommandResult result =
+        run_tool({"--qbs-reflective", "--qbs-reflective", input.string()}, root);
     EXPECT_EQ(result.status, 2);
     EXPECT_NE(result.stderr_text.find("duplicate --qbs-reflective option"), std::string::npos);
 }
@@ -305,20 +317,17 @@ TEST(SchemaCompilerToolTest, HelpIsTerminalBeforeListOutputs) {
     const CommandResult result = run_tool({"--help", "--list-outputs"}, root);
 
     EXPECT_EQ(result.status, 0);
-    EXPECT_NE(result.stdout_text.find("quarry-schema-compiler [options] INPUT"),
-              std::string::npos);
+    EXPECT_NE(result.stdout_text.find("quarry-schema-compiler [options] INPUT"), std::string::npos);
     EXPECT_TRUE(result.stderr_text.empty());
 }
 
 TEST(SchemaCompilerToolTest, HelpIsTerminalBeforeGeneratedCodeApiVersionQuery) {
     const std::filesystem::path root = make_temp_directory("help-generated-code-api-version");
 
-    const CommandResult result =
-        run_tool({"--help", "--print-generated-code-api-version"}, root);
+    const CommandResult result = run_tool({"--help", "--print-generated-code-api-version"}, root);
 
     EXPECT_EQ(result.status, 0);
-    EXPECT_NE(result.stdout_text.find("quarry-schema-compiler [options] INPUT"),
-              std::string::npos);
+    EXPECT_NE(result.stdout_text.find("quarry-schema-compiler [options] INPUT"), std::string::npos);
     EXPECT_TRUE(result.stderr_text.empty());
 }
 
@@ -337,14 +346,13 @@ TEST(SchemaCompilerToolTest, VersionIsTerminalWhenCombinedWithInputAndOptions) {
     const std::filesystem::path root = make_temp_directory("version-combined");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n");
 
     const CommandResult result =
         run_tool({"--version", "--output-directory", output.string(), input.string()}, root);
@@ -359,14 +367,13 @@ TEST(SchemaCompilerToolTest, VersionIsTerminalWhenCombinedWithInputAndOptions) {
 TEST(SchemaCompilerToolTest, VersionIsTerminalBeforeListOutputs) {
     const std::filesystem::path root = make_temp_directory("version-list-outputs");
     const std::filesystem::path input = root / "schema.brd";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n");
 
     const CommandResult result = run_tool({"--version", "--list-outputs", input.string()}, root);
 
@@ -380,19 +387,17 @@ TEST(SchemaCompilerToolTest, VersionIsTerminalBeforeGeneratedCodeApiVersionQuery
     const std::filesystem::path root = make_temp_directory("version-generated-code-api-version");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n");
 
-    const CommandResult result = run_tool(
-        {"--version", "--print-generated-code-api-version", "--output-directory", output.string(),
-         input.string()},
-        root);
+    const CommandResult result = run_tool({"--version", "--print-generated-code-api-version",
+                                           "--output-directory", output.string(), input.string()},
+                                          root);
 
     EXPECT_EQ(result.status, 2);
     EXPECT_TRUE(result.stdout_text.empty());
@@ -407,8 +412,7 @@ TEST(SchemaCompilerToolTest, GeneratedCodeApiVersionQueryReturnsExactValue) {
     const CommandResult result = run_tool({"--print-generated-code-api-version"}, root);
 
     EXPECT_EQ(result.status, 0);
-    EXPECT_EQ(result.stdout_text,
-              std::to_string(QUARRY_TEST_GENERATED_CODE_API_VERSION) + "\n");
+    EXPECT_EQ(result.stdout_text, std::to_string(QUARRY_TEST_GENERATED_CODE_API_VERSION) + "\n");
     EXPECT_TRUE(result.stderr_text.empty());
     EXPECT_FALSE(std::filesystem::exists(root / "generated"));
 }
@@ -417,19 +421,17 @@ TEST(SchemaCompilerToolTest, GeneratedCodeApiVersionQueryRejectsGenerationArgume
     const std::filesystem::path root = make_temp_directory("generated-code-api-version-usage");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n");
 
-    const CommandResult result = run_tool(
-        {"--print-generated-code-api-version", "--output-directory", output.string(),
-         input.string()},
-        root);
+    const CommandResult result = run_tool({"--print-generated-code-api-version",
+                                           "--output-directory", output.string(), input.string()},
+                                          root);
 
     EXPECT_EQ(result.status, 2);
     EXPECT_TRUE(result.stdout_text.empty());
@@ -487,21 +489,19 @@ TEST(SchemaCompilerToolTest, ListOutputsPrintsRelativePathsAndDoesNotWriteFiles)
     const std::filesystem::path root = make_temp_directory("list-outputs-relative");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = "generated output with spaces";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n");
 
     const CommandResult result =
         run_tool({"--list-outputs", "--output-directory", output.string(), input.string()}, root);
 
     EXPECT_EQ(result.status, 0) << result.stderr_text;
-    EXPECT_EQ(result.stdout_text,
-              "generated output with spaces/quarry/telemetry.generated.hpp\n");
+    EXPECT_EQ(result.stdout_text, "generated output with spaces/quarry/telemetry.generated.hpp\n");
     EXPECT_TRUE(result.stderr_text.empty());
     EXPECT_FALSE(std::filesystem::exists(root / output));
 }
@@ -509,22 +509,20 @@ TEST(SchemaCompilerToolTest, ListOutputsPrintsRelativePathsAndDoesNotWriteFiles)
 TEST(SchemaCompilerToolTest, ListOutputsKeepsImportedUnitsAsDependenciesOnly) {
     const std::filesystem::path root = make_temp_directory("list-outputs-imports");
     const std::filesystem::path input = root / "schema.brd";
-    write_text_file(root / "shared.brd",
-                    "namespace: quarry.shared\n"
-                    "record: Shared\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields: {}\n");
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "imports:\n"
-                    "  - shared.brd\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n");
+    write_text_file(root / "shared.brd", "namespace: quarry.shared\n"
+                                         "record: Shared\n"
+                                         "version: 1\n"
+                                         "type: data\n"
+                                         "fields: {}\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "imports:\n"
+                           "  - shared.brd\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n");
 
     const CommandResult result =
         run_tool({"--list-outputs", "--output-directory", "generated", input.string()}, root);
@@ -540,37 +538,35 @@ TEST(SchemaCompilerToolTest, CppCrossNamespaceGenerationUsesPlannedDependencyHea
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
 
-    write_text_file(shared,
-                    "namespace: quarry.shared\n"
-                    "record: Shared\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  value:\n"
-                    "    type: uint32\n"
-                    "enums:\n"
-                    "  Mode:\n"
-                    "    values:\n"
-                    "      Off: 0\n"
-                    "      On: 1\n");
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "imports:\n"
-                    "  - shared.brd\n"
-                    "fields:\n"
-                    "  child:\n"
-                    "    type: quarry.shared.Shared\n"
-                    "  mode:\n"
-                    "    type: quarry.shared.Mode\n"
-                    "  children:\n"
-                    "    type: quarry.shared.Shared[]\n"
-                    "    max_elements: 2\n"
-                    "  modes:\n"
-                    "    type: quarry.shared.Mode[]\n"
-                    "    max_elements: 2\n");
+    write_text_file(shared, "namespace: quarry.shared\n"
+                            "record: Shared\n"
+                            "version: 1\n"
+                            "type: data\n"
+                            "fields:\n"
+                            "  value:\n"
+                            "    type: uint32\n"
+                            "enums:\n"
+                            "  Mode:\n"
+                            "    values:\n"
+                            "      Off: 0\n"
+                            "      On: 1\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "imports:\n"
+                           "  - shared.brd\n"
+                           "fields:\n"
+                           "  child:\n"
+                           "    type: quarry.shared.Shared\n"
+                           "  mode:\n"
+                           "    type: quarry.shared.Mode\n"
+                           "  children:\n"
+                           "    type: quarry.shared.Shared[]\n"
+                           "    max_elements: 2\n"
+                           "  modes:\n"
+                           "    type: quarry.shared.Mode[]\n"
+                           "    max_elements: 2\n");
 
     const CommandResult shared_result =
         // The dependency comes from the same compilation root: bindings
@@ -580,13 +576,11 @@ TEST(SchemaCompilerToolTest, CppCrossNamespaceGenerationUsesPlannedDependencyHea
                  root);
     ASSERT_EQ(shared_result.status, 0) << shared_result.stderr_text;
 
-    const CommandResult root_result =
-        run_tool({"--language", "cpp", "--output-directory", output.string(), input.string()},
-                 root);
+    const CommandResult root_result = run_tool(
+        {"--language", "cpp", "--output-directory", output.string(), input.string()}, root);
     ASSERT_EQ(root_result.status, 0) << root_result.stderr_text;
 
-    const std::filesystem::path generated_header =
-        output / "quarry" / "telemetry.generated.hpp";
+    const std::filesystem::path generated_header = output / "quarry" / "telemetry.generated.hpp";
     const std::string header = read_text_file(generated_header);
     EXPECT_NE(header.find("#include \"quarry/shared.generated.hpp\""), std::string::npos);
     EXPECT_EQ(header.find("#include \"quarry/shared.generated.hpp\""),
@@ -614,37 +608,35 @@ TEST(SchemaCompilerToolTest, CCrossNamespaceGenerationUsesPlannedDependencyHeade
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
 
-    write_text_file(shared,
-                    "namespace: quarry.shared\n"
-                    "record: Shared\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  value:\n"
-                    "    type: uint32\n"
-                    "enums:\n"
-                    "  Mode:\n"
-                    "    values:\n"
-                    "      Off: 0\n"
-                    "      On: 1\n");
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "imports:\n"
-                    "  - shared.brd\n"
-                    "fields:\n"
-                    "  child:\n"
-                    "    type: quarry.shared.Shared\n"
-                    "  mode:\n"
-                    "    type: quarry.shared.Mode\n"
-                    "  children:\n"
-                    "    type: quarry.shared.Shared[]\n"
-                    "    max_elements: 2\n"
-                    "  modes:\n"
-                    "    type: quarry.shared.Mode[]\n"
-                    "    max_elements: 2\n");
+    write_text_file(shared, "namespace: quarry.shared\n"
+                            "record: Shared\n"
+                            "version: 1\n"
+                            "type: data\n"
+                            "fields:\n"
+                            "  value:\n"
+                            "    type: uint32\n"
+                            "enums:\n"
+                            "  Mode:\n"
+                            "    values:\n"
+                            "      Off: 0\n"
+                            "      On: 1\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "imports:\n"
+                           "  - shared.brd\n"
+                           "fields:\n"
+                           "  child:\n"
+                           "    type: quarry.shared.Shared\n"
+                           "  mode:\n"
+                           "    type: quarry.shared.Mode\n"
+                           "  children:\n"
+                           "    type: quarry.shared.Shared[]\n"
+                           "    max_elements: 2\n"
+                           "  modes:\n"
+                           "    type: quarry.shared.Mode[]\n"
+                           "    max_elements: 2\n");
 
     const CommandResult shared_result =
         // The dependency comes from the same compilation root: bindings
@@ -654,12 +646,10 @@ TEST(SchemaCompilerToolTest, CCrossNamespaceGenerationUsesPlannedDependencyHeade
                  root);
     ASSERT_EQ(shared_result.status, 0) << shared_result.stderr_text;
     const CommandResult root_result =
-        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
-                 root);
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()}, root);
     ASSERT_EQ(root_result.status, 0) << root_result.stderr_text;
 
-    const std::filesystem::path generated_header =
-        output / "quarry" / "telemetry.generated.h";
+    const std::filesystem::path generated_header = output / "quarry" / "telemetry.generated.h";
     const std::string header = read_text_file(generated_header);
     ASSERT_FALSE(header.empty());
     EXPECT_EQ(header.find("#include \"quarry/shared.generated.h\""),
@@ -670,12 +660,13 @@ TEST(SchemaCompilerToolTest, CCrossNamespaceGenerationUsesPlannedDependencyHeade
     EXPECT_NE(header.find("quarry_shared_Mode_t modes[2];"), std::string::npos);
 
     for (const char* stem : {"shared", "telemetry"}) {
-        const std::filesystem::path source = output / "quarry" / (std::string(stem) + ".generated.c");
+        const std::filesystem::path source =
+            output / "quarry" / (std::string(stem) + ".generated.c");
         const std::filesystem::path object = root / (std::string(stem) + ".o");
         std::ostringstream command;
         command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER)) << " -x c -std=c99"
-                << " -Wall -Wextra -Wpedantic -Werror -I" << std::quoted(output.string())
-                << " -I" << std::quoted(QUARRY_TEST_REPO_INCLUDE_DIR) << " -I"
+                << " -Wall -Wextra -Wpedantic -Werror -I" << std::quoted(output.string()) << " -I"
+                << std::quoted(QUARRY_TEST_REPO_INCLUDE_DIR) << " -I"
                 << std::quoted(QUARRY_TEST_GENERATED_INCLUDE_DIR) << " -c "
                 << std::quoted(source.string()) << " -o " << std::quoted(object.string());
         EXPECT_EQ(std::system(command.str().c_str()), 0);
@@ -689,22 +680,20 @@ TEST(SchemaCompilerToolTest, ListOutputsPrintsAbsolutePathsAndDoesNotCreateOutpu
     const std::filesystem::path input = input_directory / "schema.brd";
     const std::filesystem::path output = root / "generated output with spaces";
     std::filesystem::create_directories(working_directory);
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n");
 
     const CommandResult result =
         run_tool({"--list-outputs", "--output-directory", output.string(), input.string()},
                  working_directory);
 
     EXPECT_EQ(result.status, 0) << result.stderr_text;
-    EXPECT_EQ(result.stdout_text, (output / "quarry" / "telemetry.generated.hpp").string() +
-                                      "\n");
+    EXPECT_EQ(result.stdout_text, (output / "quarry" / "telemetry.generated.hpp").string() + "\n");
     EXPECT_TRUE(result.stderr_text.empty());
     EXPECT_FALSE(std::filesystem::exists(output));
     EXPECT_FALSE(std::filesystem::exists(working_directory / "generated"));
@@ -714,19 +703,17 @@ TEST(SchemaCompilerToolTest, ListOutputsReflectsCustomFileExtension) {
     const std::filesystem::path root = make_temp_directory("list-outputs-custom-extension");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n");
 
-    const CommandResult result =
-        run_tool({"--list-outputs", "--output-directory", output.string(), "--file-extension",
-                  ".hpp", input.string()},
-                 root);
+    const CommandResult result = run_tool({"--list-outputs", "--output-directory", output.string(),
+                                           "--file-extension", ".hpp", input.string()},
+                                          root);
 
     EXPECT_EQ(result.status, 0) << result.stderr_text;
     EXPECT_EQ(result.stdout_text, (output / "quarry" / "telemetry.hpp").string() + "\n");
@@ -753,14 +740,13 @@ TEST(SchemaCompilerToolTest, ListOutputsMatchesNormalGenerationInventory) {
     const std::filesystem::path root = make_temp_directory("list-outputs-consistency");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n");
 
     const CommandResult listed =
         run_tool({"--list-outputs", "--output-directory", output.string(), input.string()}, root);
@@ -785,14 +771,13 @@ TEST(SchemaCompilerToolTest, ValidYamlWritesGeneratedFiles) {
     const std::filesystem::path root = make_temp_directory("valid-yaml");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n");
 
     const CommandResult result =
         run_tool({"--output-directory", output.string(), input.string()}, root);
@@ -818,14 +803,13 @@ TEST(SchemaCompilerToolTest, ExistingGeneratedFileIsReplacedAndUnrelatedOutputIs
         output / "quarry" / "telemetry.generated.hpp.tmp-quarry-schema-compiler";
     const std::filesystem::path unrelated_file = output / "keep.txt";
 
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n");
     write_text_file(generated_file, "old generated content\n");
     write_text_file(unrelated_file, "do not touch\n");
 
@@ -850,14 +834,13 @@ TEST(SchemaCompilerToolTest, AbsolutePathsWorkFromUnrelatedWorkingDirectory) {
     const std::filesystem::path input = input_root / "schema.brd";
     const std::filesystem::path output = root / "generated";
     std::filesystem::create_directories(working_directory);
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n");
 
     const CommandResult result =
         run_tool({"--output-directory", output.string(), input.string()}, working_directory);
@@ -875,19 +858,17 @@ TEST(SchemaCompilerToolTest, PathsWithSpacesWorkWithDirectArguments) {
     const std::filesystem::path input_directory = root / "input directory with spaces";
     const std::filesystem::path output = root / "generated output with spaces";
     const std::filesystem::path input = input_directory / "schema file with spaces.brd";
-    const std::filesystem::path generated_file =
-        output / "quarry" / "telemetry.generated.hpp";
+    const std::filesystem::path generated_file = output / "quarry" / "telemetry.generated.hpp";
     const std::filesystem::path temporary_file =
         output / "quarry" / "telemetry.generated.hpp.tmp-quarry-schema-compiler";
     std::filesystem::create_directories(working_directory);
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n");
 
     const CommandResult result =
         run_tool({"--output-directory", output.string(), input.string()}, working_directory);
@@ -910,31 +891,28 @@ TEST(SchemaCompilerToolTest, DefaultBackendIsCpp) {
     const std::filesystem::path root = make_temp_directory("language-default");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields: {}\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields: {}\n");
 
     const CommandResult result =
         run_tool({"--list-outputs", "--output-directory", output.string(), input.string()}, root);
 
     EXPECT_EQ(result.status, 0) << result.stderr_text;
-    EXPECT_EQ(result.stdout_text,
-              (output / "quarry" / "telemetry.generated.hpp").string() + "\n");
+    EXPECT_EQ(result.stdout_text, (output / "quarry" / "telemetry.generated.hpp").string() + "\n");
 }
 
 TEST(SchemaCompilerToolTest, ExplicitCppBackendMatchesDefault) {
     const std::filesystem::path root = make_temp_directory("language-explicit-cpp");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields: {}\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields: {}\n");
 
     const CommandResult default_result =
         run_tool({"--list-outputs", "--output-directory", output.string(), input.string()}, root);
@@ -952,22 +930,20 @@ TEST(SchemaCompilerToolTest, ExplicitCBackendListsHeaderAndSourcePaths) {
     const std::filesystem::path root = make_temp_directory("language-c-list-outputs");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields: {}\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields: {}\n");
 
-    const CommandResult result = run_tool(
-        {"--list-outputs", "--language", "c", "--output-directory", output.string(),
-         input.string()},
-        root);
+    const CommandResult result = run_tool({"--list-outputs", "--language", "c",
+                                           "--output-directory", output.string(), input.string()},
+                                          root);
 
     EXPECT_EQ(result.status, 0) << result.stderr_text;
-    EXPECT_EQ(result.stdout_text,
-              (output / "quarry" / "telemetry.generated.h").string() + "\n" +
-                  (output / "quarry" / "telemetry.generated.c").string() + "\n");
+    EXPECT_EQ(result.stdout_text, (output / "quarry" / "telemetry.generated.h").string() + "\n" +
+                                      (output / "quarry" / "telemetry.generated.c").string() +
+                                      "\n");
     EXPECT_TRUE(result.stderr_text.empty());
     EXPECT_FALSE(std::filesystem::exists(output));
 }
@@ -976,21 +952,18 @@ TEST(SchemaCompilerToolTest, ListOutputsForCBackendIsDeterministic) {
     const std::filesystem::path root = make_temp_directory("language-c-deterministic");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields: {}\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields: {}\n");
 
-    const CommandResult first =
-        run_tool({"--list-outputs", "--language", "c", "--output-directory", output.string(),
-                  input.string()},
-                 root);
-    const CommandResult second =
-        run_tool({"--list-outputs", "--language", "c", "--output-directory", output.string(),
-                  input.string()},
-                 root);
+    const CommandResult first = run_tool({"--list-outputs", "--language", "c", "--output-directory",
+                                          output.string(), input.string()},
+                                         root);
+    const CommandResult second = run_tool({"--list-outputs", "--language", "c",
+                                           "--output-directory", output.string(), input.string()},
+                                          root);
 
     EXPECT_EQ(first.status, 0) << first.stderr_text;
     EXPECT_EQ(second.status, 0) << second.stderr_text;
@@ -1001,17 +974,15 @@ TEST(SchemaCompilerToolTest, ExplicitPythonBackendListsPackageAndModulePaths) {
     const std::filesystem::path root = make_temp_directory("language-python-list-outputs");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: acme.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields: {}\n");
+    write_text_file(input, "namespace: acme.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields: {}\n");
 
-    const CommandResult result = run_tool(
-        {"--list-outputs", "--language", "python", "--output-directory", output.string(),
-         input.string()},
-        root);
+    const CommandResult result = run_tool({"--list-outputs", "--language", "python",
+                                           "--output-directory", output.string(), input.string()},
+                                          root);
 
     EXPECT_EQ(result.status, 0) << result.stderr_text;
     EXPECT_EQ(result.stdout_text,
@@ -1026,21 +997,18 @@ TEST(SchemaCompilerToolTest, ListOutputsForPythonBackendIsDeterministic) {
     const std::filesystem::path root = make_temp_directory("language-python-deterministic");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: acme.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields: {}\n");
+    write_text_file(input, "namespace: acme.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields: {}\n");
 
-    const CommandResult first =
-        run_tool({"--list-outputs", "--language", "python", "--output-directory", output.string(),
-                  input.string()},
-                 root);
-    const CommandResult second =
-        run_tool({"--list-outputs", "--language", "python", "--output-directory", output.string(),
-                  input.string()},
-                 root);
+    const CommandResult first = run_tool({"--list-outputs", "--language", "python",
+                                          "--output-directory", output.string(), input.string()},
+                                         root);
+    const CommandResult second = run_tool({"--list-outputs", "--language", "python",
+                                           "--output-directory", output.string(), input.string()},
+                                          root);
 
     EXPECT_EQ(first.status, 0) << first.stderr_text;
     EXPECT_EQ(second.status, 0) << second.stderr_text;
@@ -1051,37 +1019,35 @@ TEST(SchemaCompilerToolTest, CrossNamespaceGenerationIsByteForByteDeterministicF
     const std::filesystem::path root = make_temp_directory("cross-namespace-deterministic");
     const std::filesystem::path shared = root / "shared.brd";
     const std::filesystem::path input = root / "root.brd";
-    write_text_file(shared,
-                    "namespace: acme.shared\n"
-                    "record: Child\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  value:\n"
-                    "    type: uint32\n"
-                    "enums:\n"
-                    "  Status:\n"
-                    "    values:\n"
-                    "      READY: 0\n"
-                    "      BUSY: 1\n");
-    write_text_file(input,
-                    "namespace: acme.root\n"
-                    "record: Envelope\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "imports:\n"
-                    "  - shared.brd\n"
-                    "fields:\n"
-                    "  child:\n"
-                    "    type: acme.shared.Child\n"
-                    "  status:\n"
-                    "    type: acme.shared.Status\n"
-                    "  children:\n"
-                    "    type: acme.shared.Child[]\n"
-                    "    max_elements: 2\n"
-                    "  statuses:\n"
-                    "    type: acme.shared.Status[]\n"
-                    "    max_elements: 2\n");
+    write_text_file(shared, "namespace: acme.shared\n"
+                            "record: Child\n"
+                            "version: 1\n"
+                            "type: data\n"
+                            "fields:\n"
+                            "  value:\n"
+                            "    type: uint32\n"
+                            "enums:\n"
+                            "  Status:\n"
+                            "    values:\n"
+                            "      READY: 0\n"
+                            "      BUSY: 1\n");
+    write_text_file(input, "namespace: acme.root\n"
+                           "record: Envelope\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "imports:\n"
+                           "  - shared.brd\n"
+                           "fields:\n"
+                           "  child:\n"
+                           "    type: acme.shared.Child\n"
+                           "  status:\n"
+                           "    type: acme.shared.Status\n"
+                           "  children:\n"
+                           "    type: acme.shared.Child[]\n"
+                           "    max_elements: 2\n"
+                           "  statuses:\n"
+                           "    type: acme.shared.Status[]\n"
+                           "    max_elements: 2\n");
 
     const std::vector<std::string> languages = {"cpp", "c", "python"};
     for (const std::string& language : languages) {
@@ -1089,17 +1055,16 @@ TEST(SchemaCompilerToolTest, CrossNamespaceGenerationIsByteForByteDeterministicF
         const std::filesystem::path second_output = root / (language + "-second");
         std::vector<std::string> first_list;
         std::vector<std::string> second_list;
-        for (const auto& [output, list] :
-             {std::pair{first_output, std::ref(first_list)},
-              std::pair{second_output, std::ref(second_list)}}) {
-            const CommandResult shared_list = run_tool(
-                {"--list-outputs", "--language", language, "--output-directory",
-                 output.string(), shared.string()},
-                root);
-            const CommandResult root_list = run_tool(
-                {"--list-outputs", "--language", language, "--output-directory",
-                 output.string(), input.string()},
-                root);
+        for (const auto& [output, list] : {std::pair{first_output, std::ref(first_list)},
+                                           std::pair{second_output, std::ref(second_list)}}) {
+            const CommandResult shared_list =
+                run_tool({"--list-outputs", "--language", language, "--output-directory",
+                          output.string(), shared.string()},
+                         root);
+            const CommandResult root_list =
+                run_tool({"--list-outputs", "--language", language, "--output-directory",
+                          output.string(), input.string()},
+                         root);
             ASSERT_EQ(shared_list.status, 0) << shared_list.stderr_text;
             ASSERT_EQ(root_list.status, 0) << root_list.stderr_text;
             for (const std::string& line : non_empty_lines(shared_list.stdout_text)) {
@@ -1144,7 +1109,8 @@ TEST(SchemaCompilerToolTest, CrossNamespaceGenerationIsByteForByteDeterministicF
         ASSERT_EQ(first_list.size(), first_files.size()) << language;
         ASSERT_EQ(second_list.size(), second_files.size()) << language;
         for (const std::string& relative : first_files) {
-            EXPECT_EQ(read_text_file(first_output / relative), read_text_file(second_output / relative))
+            EXPECT_EQ(read_text_file(first_output / relative),
+                      read_text_file(second_output / relative))
                 << language << ": " << relative;
         }
     }
@@ -1153,12 +1119,11 @@ TEST(SchemaCompilerToolTest, CrossNamespaceGenerationIsByteForByteDeterministicF
 TEST(SchemaCompilerToolTest, FileExtensionIsRejectedWithLanguagePython) {
     const std::filesystem::path root = make_temp_directory("language-python-file-extension");
     const std::filesystem::path input = root / "schema.brd";
-    write_text_file(input,
-                    "namespace: acme.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields: {}\n");
+    write_text_file(input, "namespace: acme.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields: {}\n");
 
     const CommandResult result =
         run_tool({"--language", "python", "--file-extension", ".py", input.string()}, root);
@@ -1172,12 +1137,11 @@ TEST(SchemaCompilerToolTest, PythonBackendWritesPackageWithExpectedContent) {
     const std::filesystem::path root = make_temp_directory("language-python-generate");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: acme.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields: {}\n");
+    write_text_file(input, "namespace: acme.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields: {}\n");
 
     const CommandResult result = run_tool(
         {"--language", "python", "--output-directory", output.string(), input.string()}, root);
@@ -1190,19 +1154,17 @@ TEST(SchemaCompilerToolTest, PythonBackendWritesPackageWithExpectedContent) {
     const std::string module_content = read_text_file(output / "acme" / "telemetry" / "schema.py");
     EXPECT_NE(module_content.find("class Sample:"), std::string::npos);
     EXPECT_NE(module_content.find("def _quarry_encode_sample(value):"), std::string::npos);
-    EXPECT_NE(module_content.find("QUARRY_GENERATED_CODE_API_VERSION_PYTHON"),
-             std::string::npos);
+    EXPECT_NE(module_content.find("QUARRY_GENERATED_CODE_API_VERSION_PYTHON"), std::string::npos);
 }
 
 TEST(SchemaCompilerToolTest, InvalidLanguageReturnsUsageErrorNamingAcceptedValues) {
     const std::filesystem::path root = make_temp_directory("language-invalid");
     const std::filesystem::path input = root / "schema.brd";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields: {}\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields: {}\n");
 
     const CommandResult result = run_tool({"--language", "rust", input.string()}, root);
 
@@ -1214,22 +1176,21 @@ TEST(SchemaCompilerToolTest, InvalidLanguageReturnsUsageErrorNamingAcceptedValue
 TEST(SchemaCompilerToolTest, CompactPresenceOptionRequiresCAndChangesGeneratedLayout) {
     const auto root = make_temp_directory("c-optimize-size");
     const auto input = root / "schema.brd";
-    write_text_file(input,
-                    "namespace: demo\nrecord: Sample\nversion: 1\ntype: data\nfields:\n"
-                    "  count:\n    type: uint32\n");
+    write_text_file(input, "namespace: demo\nrecord: Sample\nversion: 1\ntype: data\nfields:\n"
+                           "  count:\n    type: uint32\n");
     auto rejected = run_tool({"--c-optimize-size", input.string()}, root);
     EXPECT_EQ(rejected.status, 2);
     EXPECT_NE(rejected.stderr_text.find("requires --language c"), std::string::npos);
-    auto duplicate = run_tool({"--language", "c", "--c-optimize-size", "--c-optimize-size",
-                               input.string()}, root);
+    auto duplicate = run_tool(
+        {"--language", "c", "--c-optimize-size", "--c-optimize-size", input.string()}, root);
     EXPECT_EQ(duplicate.status, 2);
     auto generated = run_tool({"--language", "c", "--c-optimize-size", input.string()}, root);
     ASSERT_EQ(generated.status, 0) << generated.stderr_text;
     const auto header = read_text_file(root / "generated/demo.generated.h");
     EXPECT_NE(header.find("uint8_t quarry_presence_bits[1]"), std::string::npos);
     EXPECT_NE(header.find("demo_Sample_set_count_present"), std::string::npos);
-    auto planned = run_tool({"--language", "c", "--c-optimize-size", "--list-outputs",
-                             input.string()}, root);
+    auto planned =
+        run_tool({"--language", "c", "--c-optimize-size", "--list-outputs", input.string()}, root);
     EXPECT_EQ(planned.status, 0) << planned.stderr_text;
 }
 
@@ -1683,12 +1644,11 @@ int main() {
 TEST(SchemaCompilerToolTest, FileExtensionIsRejectedWithLanguageC) {
     const std::filesystem::path root = make_temp_directory("language-c-file-extension");
     const std::filesystem::path input = root / "schema.brd";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields: {}\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields: {}\n");
 
     const CommandResult result =
         run_tool({"--language", "c", "--file-extension", ".h", input.string()}, root);
@@ -1702,16 +1662,14 @@ TEST(SchemaCompilerToolTest, CBackendWritesHeaderAndSourceWithExpectedContent) {
     const std::filesystem::path root = make_temp_directory("language-c-generate");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields: {}\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields: {}\n");
 
     const CommandResult result =
-        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
-                 root);
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()}, root);
 
     EXPECT_EQ(result.status, 0) << result.stderr_text;
     EXPECT_TRUE(result.stderr_text.empty());
@@ -1728,7 +1686,8 @@ TEST(SchemaCompilerToolTest, CBackendWritesHeaderAndSourceWithExpectedContent) {
     const std::string source_text = read_text_file(source);
     EXPECT_NE(source_text.find("#include \"quarry/telemetry.generated.h\""), std::string::npos);
     EXPECT_EQ(source_text.find("quarry_telemetry_Sample_init"), std::string::npos);
-    EXPECT_NE(header_text.find("static inline void quarry_telemetry_Sample_init"), std::string::npos);
+    EXPECT_NE(header_text.find("static inline void quarry_telemetry_Sample_init"),
+              std::string::npos);
 }
 
 TEST(SchemaCompilerToolTest, CBackendRejectsUnsupportedFieldType) {
@@ -1749,24 +1708,22 @@ TEST(SchemaCompilerToolTest, CBackendRejectsUnsupportedFieldType) {
     const std::filesystem::path root = make_temp_directory("language-c-unsupported-field");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  label:\n"
-                    "    type: Status[]\n"
-                    "    max_elements: 4\n"
-                    "enums:\n"
-                    "  Status:\n"
-                    "    values:\n"
-                    "      OK: 0\n"
-                    "      NEGATIVE: -1\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  label:\n"
+                           "    type: Status[]\n"
+                           "    max_elements: 4\n"
+                           "enums:\n"
+                           "  Status:\n"
+                           "    values:\n"
+                           "      OK: 0\n"
+                           "      NEGATIVE: -1\n");
 
     const CommandResult result =
-        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
-                 root);
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()}, root);
 
     EXPECT_NE(result.status, 0);
     EXPECT_NE(result.stderr_text.find("quarry.telemetry.Sample.label"), std::string::npos);
@@ -1787,19 +1744,17 @@ TEST(SchemaCompilerToolTest, CBackendRejectsSelfReferentialArrayOfRecordsWithCyc
         make_temp_directory("language-c-self-referential-array-cycle");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.tree\n"
-                    "record: Node\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  children:\n"
-                    "    type: Node[]\n"
-                    "    max_elements: 4\n");
+    write_text_file(input, "namespace: quarry.tree\n"
+                           "record: Node\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  children:\n"
+                           "    type: Node[]\n"
+                           "    max_elements: 4\n");
 
     const CommandResult result =
-        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
-                 root);
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()}, root);
 
     EXPECT_NE(result.status, 0);
     EXPECT_NE(result.stderr_text.find("cycle"), std::string::npos);
@@ -1810,20 +1765,18 @@ TEST(SchemaCompilerToolTest, CBackendGeneratesScalarStructAndCodecApi) {
     const std::filesystem::path root = make_temp_directory("language-c-scalar-generate");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n"
-                    "  ratio:\n"
-                    "    type: float32\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n"
+                           "  ratio:\n"
+                           "    type: float32\n");
 
     const CommandResult result =
-        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
-                 root);
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()}, root);
 
     EXPECT_EQ(result.status, 0) << result.stderr_text;
     EXPECT_TRUE(result.stderr_text.empty());
@@ -1842,26 +1795,24 @@ TEST(SchemaCompilerToolTest, CBackendGeneratesEnumFieldAndCompilesAsC) {
     const std::filesystem::path root = make_temp_directory("language-c-enum-field");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n"
-                    "  status:\n"
-                    "    type: Status\n"
-                    "enums:\n"
-                    "  Status:\n"
-                    "    values:\n"
-                    "      OK: 0\n"
-                    "      WARNING: 1\n"
-                    "      ERROR: 2\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n"
+                           "  status:\n"
+                           "    type: Status\n"
+                           "enums:\n"
+                           "  Status:\n"
+                           "    values:\n"
+                           "      OK: 0\n"
+                           "      WARNING: 1\n"
+                           "      ERROR: 2\n");
 
     const CommandResult result =
-        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
-                 root);
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()}, root);
 
     EXPECT_EQ(result.status, 0) << result.stderr_text;
     EXPECT_TRUE(result.stderr_text.empty());
@@ -1886,11 +1837,10 @@ TEST(SchemaCompilerToolTest, CBackendGeneratesEnumFieldAndCompilesAsC) {
     std::ostringstream command;
     command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER)) << " -x c -std=c99"
             << " -Wall -Wextra -Wpedantic -Werror"
-            << " -I" << std::quoted(output.string())
-            << " -I" << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR))
-            << " -I" << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR))
-            << " -c " << std::quoted(source.string()) << " -o "
-            << std::quoted(object_file.string());
+            << " -I" << std::quoted(output.string()) << " -I"
+            << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR)) << " -I"
+            << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << " -c "
+            << std::quoted(source.string()) << " -o " << std::quoted(object_file.string());
     const int status = std::system(command.str().c_str());
     EXPECT_EQ(status, 0) << "command: " << command.str();
     EXPECT_TRUE(std::filesystem::exists(object_file));
@@ -1900,21 +1850,19 @@ TEST(SchemaCompilerToolTest, CBackendGeneratesStringFieldAndCompilesAsC) {
     const std::filesystem::path root = make_temp_directory("language-c-string-field");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n"
-                    "  label:\n"
-                    "    type: string\n"
-                    "    max_bytes: 16\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n"
+                           "  label:\n"
+                           "    type: string\n"
+                           "    max_bytes: 16\n");
 
     const CommandResult result =
-        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
-                 root);
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()}, root);
 
     EXPECT_EQ(result.status, 0) << result.stderr_text;
     EXPECT_TRUE(result.stderr_text.empty());
@@ -1934,11 +1882,10 @@ TEST(SchemaCompilerToolTest, CBackendGeneratesStringFieldAndCompilesAsC) {
     std::ostringstream command;
     command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER)) << " -x c -std=c99"
             << " -Wall -Wextra -Wpedantic -Werror"
-            << " -I" << std::quoted(output.string())
-            << " -I" << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR))
-            << " -I" << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR))
-            << " -c " << std::quoted(source.string()) << " -o "
-            << std::quoted(object_file.string());
+            << " -I" << std::quoted(output.string()) << " -I"
+            << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR)) << " -I"
+            << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << " -c "
+            << std::quoted(source.string()) << " -o " << std::quoted(object_file.string());
     const int status = std::system(command.str().c_str());
     EXPECT_EQ(status, 0) << "command: " << command.str();
     EXPECT_TRUE(std::filesystem::exists(object_file));
@@ -1948,21 +1895,19 @@ TEST(SchemaCompilerToolTest, CBackendGeneratesBytesFieldAndCompilesAsC) {
     const std::filesystem::path root = make_temp_directory("language-c-bytes-field");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n"
-                    "  blob:\n"
-                    "    type: bytes\n"
-                    "    max_bytes: 16\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n"
+                           "  blob:\n"
+                           "    type: bytes\n"
+                           "    max_bytes: 16\n");
 
     const CommandResult result =
-        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
-                 root);
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()}, root);
 
     EXPECT_EQ(result.status, 0) << result.stderr_text;
     EXPECT_TRUE(result.stderr_text.empty());
@@ -1982,11 +1927,10 @@ TEST(SchemaCompilerToolTest, CBackendGeneratesBytesFieldAndCompilesAsC) {
     std::ostringstream command;
     command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER)) << " -x c -std=c99"
             << " -Wall -Wextra -Wpedantic -Werror"
-            << " -I" << std::quoted(output.string())
-            << " -I" << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR))
-            << " -I" << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR))
-            << " -c " << std::quoted(source.string()) << " -o "
-            << std::quoted(object_file.string());
+            << " -I" << std::quoted(output.string()) << " -I"
+            << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR)) << " -I"
+            << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << " -c "
+            << std::quoted(source.string()) << " -o " << std::quoted(object_file.string());
     const int status = std::system(command.str().c_str());
     EXPECT_EQ(status, 0) << "command: " << command.str();
     EXPECT_TRUE(std::filesystem::exists(object_file));
@@ -1996,30 +1940,28 @@ TEST(SchemaCompilerToolTest, CBackendGeneratesArrayFieldAndCompilesAsC) {
     const std::filesystem::path root = make_temp_directory("language-c-array-field");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n"
-                    "  readings:\n"
-                    "    type: float32[]\n"
-                    "    max_elements: 4\n"
-                    "  statuses:\n"
-                    "    type: Status[]\n"
-                    "    max_elements: 3\n"
-                    "enums:\n"
-                    "  Status:\n"
-                    "    values:\n"
-                    "      OK: 0\n"
-                    "      WARNING: 1\n"
-                    "      ERROR: 2\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n"
+                           "  readings:\n"
+                           "    type: float32[]\n"
+                           "    max_elements: 4\n"
+                           "  statuses:\n"
+                           "    type: Status[]\n"
+                           "    max_elements: 3\n"
+                           "enums:\n"
+                           "  Status:\n"
+                           "    values:\n"
+                           "      OK: 0\n"
+                           "      WARNING: 1\n"
+                           "      ERROR: 2\n");
 
     const CommandResult result =
-        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
-                 root);
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()}, root);
 
     EXPECT_EQ(result.status, 0) << result.stderr_text;
     EXPECT_TRUE(result.stderr_text.empty());
@@ -2041,11 +1983,10 @@ TEST(SchemaCompilerToolTest, CBackendGeneratesArrayFieldAndCompilesAsC) {
     std::ostringstream command;
     command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER)) << " -x c -std=c99"
             << " -Wall -Wextra -Wpedantic -Werror"
-            << " -I" << std::quoted(output.string())
-            << " -I" << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR))
-            << " -I" << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR))
-            << " -c " << std::quoted(source.string()) << " -o "
-            << std::quoted(object_file.string());
+            << " -I" << std::quoted(output.string()) << " -I"
+            << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR)) << " -I"
+            << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << " -c "
+            << std::quoted(source.string()) << " -o " << std::quoted(object_file.string());
     const int status = std::system(command.str().c_str());
     EXPECT_EQ(status, 0) << "command: " << command.str();
     EXPECT_TRUE(std::filesystem::exists(object_file));
@@ -2055,24 +1996,22 @@ TEST(SchemaCompilerToolTest, CBackendGeneratedSourceCompilesAsC) {
     const std::filesystem::path root = make_temp_directory("language-c-compiles");
     const std::filesystem::path input = root / "schema.brd";
     const std::filesystem::path output = root / "generated";
-    write_text_file(input,
-                    "namespace: quarry.telemetry\n"
-                    "record: Sample\n"
-                    "version: 1\n"
-                    "type: data\n"
-                    "fields:\n"
-                    "  count:\n"
-                    "    type: uint32\n"
-                    "  ratio:\n"
-                    "    type: float32\n"
-                    "  active:\n"
-                    "    type: bool\n"
-                    "  level:\n"
-                    "    type: int8\n");
+    write_text_file(input, "namespace: quarry.telemetry\n"
+                           "record: Sample\n"
+                           "version: 1\n"
+                           "type: data\n"
+                           "fields:\n"
+                           "  count:\n"
+                           "    type: uint32\n"
+                           "  ratio:\n"
+                           "    type: float32\n"
+                           "  active:\n"
+                           "    type: bool\n"
+                           "  level:\n"
+                           "    type: int8\n");
 
     const CommandResult generate_result =
-        run_tool({"--language", "c", "--output-directory", output.string(), input.string()},
-                 root);
+        run_tool({"--language", "c", "--output-directory", output.string(), input.string()}, root);
     ASSERT_EQ(generate_result.status, 0) << generate_result.stderr_text;
 
     const std::filesystem::path source = output / "quarry" / "telemetry.generated.c";
@@ -2086,11 +2025,10 @@ TEST(SchemaCompilerToolTest, CBackendGeneratedSourceCompilesAsC) {
     std::ostringstream command;
     command << std::quoted(std::string(QUARRY_TEST_CXX_COMPILER)) << " -x c -std=c99"
             << " -Wall -Wextra -Wpedantic -Werror"
-            << " -I" << std::quoted(output.string())
-            << " -I" << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR))
-            << " -I" << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR))
-            << " -c " << std::quoted(source.string()) << " -o "
-            << std::quoted(object_file.string());
+            << " -I" << std::quoted(output.string()) << " -I"
+            << std::quoted(std::string(QUARRY_TEST_REPO_INCLUDE_DIR)) << " -I"
+            << std::quoted(std::string(QUARRY_TEST_GENERATED_INCLUDE_DIR)) << " -c "
+            << std::quoted(source.string()) << " -o " << std::quoted(object_file.string());
     const int status = std::system(command.str().c_str());
     EXPECT_EQ(status, 0) << "command: " << command.str();
     EXPECT_TRUE(std::filesystem::exists(object_file));
@@ -2229,6 +2167,81 @@ TEST(SchemaCompilerToolTest, PrintSchemaIdMatchesTruckGoldenAndQbsHeader) {
     const std::string reflective = qbs_for(schema, {"--qbs-reflective"}, root, "reflective");
     EXPECT_EQ(qbs_schema_id(minimal), query.stdout_text.substr(0U, 32U));
     EXPECT_EQ(qbs_schema_id(reflective), query.stdout_text.substr(0U, 32U));
+}
+
+TEST(SchemaCompilerToolTest, CommentOnlyEditsPreserveConfigurationIdentityAndQbsBytes) {
+    const std::filesystem::path root = make_temp_directory("comment-only-identity");
+    const std::filesystem::path fixtures =
+        std::filesystem::path(QUARRY_TEST_SOURCE_DIR) / "tests/fixtures/description";
+    for (const char* file : {"configuration.brd", "alpha.brd", "zeta.brd"}) {
+        std::filesystem::copy_file(fixtures / file, root / file);
+    }
+    const auto schema = root / "configuration.brd";
+    const std::string expected_records = "records: 2\n  0x00010001 m.Alpha\n  0x00010002 m.Zeta\n";
+    struct Snapshot {
+        std::string schema_id;
+        std::string description;
+        std::string minimal;
+        std::string reflective;
+    };
+    const auto capture = [&](const std::string& name) {
+        SCOPED_TRACE(name);
+        const CommandResult identity = run_tool({"--print-schema-id", schema.string()}, root);
+        EXPECT_EQ(identity.status, 0) << identity.stderr_text;
+        EXPECT_TRUE(std::regex_match(identity.stdout_text, std::regex("[0-9a-f]{32}\\n")))
+            << identity.stdout_text;
+        const CommandResult description = run_tool({"--describe", schema.string()}, root);
+        EXPECT_EQ(description.status, 0) << description.stderr_text;
+        // Pin the complete record mapping, including its count, in every phase.
+        EXPECT_NE(description.stdout_text.find(expected_records), std::string::npos)
+            << description.stdout_text;
+        Snapshot result{identity.stdout_text.substr(0U, 32U), description.stdout_text,
+                        qbs_for(schema, {}, root, name + "-minimal"),
+                        qbs_for(schema, {"--qbs-reflective"}, root, name + "-reflective")};
+        EXPECT_FALSE(result.minimal.empty());
+        EXPECT_FALSE(result.reflective.empty());
+        EXPECT_EQ(qbs_schema_id(result.minimal), result.schema_id);
+        EXPECT_EQ(qbs_schema_id(result.reflective), result.schema_id);
+        return result;
+    };
+    const auto expect_identical = [](const Snapshot& expected, const Snapshot& actual) {
+        EXPECT_EQ(actual.schema_id, expected.schema_id);
+        // --describe includes every hierarchical record ID as well as identity.
+        EXPECT_EQ(actual.description, expected.description);
+        EXPECT_EQ(actual.minimal, expected.minimal);
+        EXPECT_EQ(actual.reflective, expected.reflective);
+    };
+    const auto baseline = capture("baseline");
+    expect_identical(baseline, capture("baseline-repeat"));
+
+    // These small fixtures contain plain YAML scalars, not block scalars.
+    // Preserve every original line verbatim; add only standalone and inline
+    // comments before/between declarations, enum members and fields. Mutate
+    // the root and both imported units without changing paths or membership.
+    for (const char* file : {"configuration.brd", "alpha.brd", "zeta.brd"}) {
+        std::istringstream input(read_text_file(root / file));
+        std::string commented = "# Before the first declaration\n";
+        for (std::string line; std::getline(input, line);) {
+            commented += line + " # Inline comment only\n# Between declarations\n";
+        }
+        write_text_file(root / file, commented);
+    }
+    const auto commented = capture("commented");
+    expect_identical(baseline, commented);
+    expect_identical(commented, capture("commented-repeat"));
+
+    // A real wire change must be distinguishable from comment-only edits.
+    // Names and namespace membership are unchanged, so IDs need not change.
+    std::string changed = read_text_file(root / "alpha.brd");
+    const auto position = changed.find("type: u16");
+    ASSERT_NE(position, std::string::npos);
+    changed.replace(position, std::string("type: u16").size(), "type: u32");
+    write_text_file(root / "alpha.brd", changed);
+    const auto wire_changed = capture("wire-changed");
+    EXPECT_NE(wire_changed.schema_id, baseline.schema_id);
+    EXPECT_NE(wire_changed.minimal, baseline.minimal);
+    EXPECT_NE(wire_changed.reflective, baseline.reflective);
+    expect_identical(wire_changed, capture("wire-changed-repeat"));
 }
 
 TEST(SchemaCompilerToolTest, PrintSchemaIdIgnoresImportOrderConfigurationNameAndSelection) {
