@@ -21,7 +21,7 @@ and `backend::CodegenOptions` and returns generated files or a backend error.
 The compiler does not currently provide:
 
 * a file-loading source compiler facade
-* an import resolver
+* a package/network import resolver (production YAML relative imports are supported)
 * a declaration-syntax production frontend
 * a combined source-to-backend facade
 * install or export rules for compiler libraries
@@ -83,3 +83,14 @@ libraries remain source-tree implementation details. There are currently no
 for compiler libraries. External compiler-library API shape, package layout,
 and stability guarantees are deferred until a real embedding consumer or
 packaging requirement exists.
+
+## Stage A configuration boundary
+
+`YamlCompiler::compile` resolves the complete transitive relative-import closure,
+rejects cycles and imported configuration documents, and plans all namespaces
+before selecting outputs. Multiple files may contribute to one namespace.
+The CLI's configuration preparation shares one layout and wire identity with all
+backends. Native gid then identifies normalized definitions and dependencies,
+independently of schema_id and epochs. Compiler QBS accessors remain internal
+tooling. See the [normative contract](../docs/specifications/configuration-and-code-identity.md)
+and [readiness evidence](../docs/release-readiness-v0.1.31-rc.1.md).

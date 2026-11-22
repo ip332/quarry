@@ -35,10 +35,8 @@ The Semantic Model provides:
 
 All references have already been resolved before layout computation begins.
 
-Layout computation may also consume preserved compiler state when the selected
-compiler mode provides it. Preserved compiler state is an optional compiler
-input used to reuse existing compiler-managed identifiers. It is not semantic
-input and does not change the meaning of the Semantic Model.
+Stage A computes identifiers afresh from the complete configuration; no preserved
+compiler-state or manifest input is supported.
 
 Layout computation does not resolve names, validate schema language semantics,
 or recover from invalid Semantic Model state.
@@ -89,7 +87,6 @@ reproducible.
 The assignment algorithm has these goals:
 
 * uniqueness
-* stable assignment when preserved compiler state supplies an existing mapping
 * deterministic assignment
 * no user-authored record IDs
 
@@ -128,28 +125,11 @@ The layout pass also verifies that each record's FQN is its namespace FQN and
 local name joined by `.` (`BC7006`), so the grouping and the canonical identity
 cannot disagree.
 
-## Recompilation With Preserved Compiler State
+## Recompilation and deletion
 
-When preserved compiler state is available, the compiler may reuse existing
-`recordId` assignments according to the selected compatibility policy.
-
-Identifier preservation is policy applied by the compiler before or during
-layout computation. Layout computation consumes the resulting identifier mapping
-and validates that it is usable for the current Semantic Model.
-
-New records receive new `recordId` values from the compiler-managed allocation
-state after preserved assignments have been applied.
-
-Rules for record renames, removed records, and long-term identifier reuse belong
-to a future compatibility specification.
-
-## Deleted Records
-
-Deleted records do not appear in the Layout Model.
-
-When preserved compiler state is available, deleted record handling is governed
-by compatibility policy. Layout computation does not define long-term record ID
-reuse policy.
+Every compilation recomputes the sorted mapping. Deleted records disappear;
+insertions or removals can renumber later locals or domains. No persisted ID reuse,
+rename mapping or compatibility-policy mode is implemented.
 
 ---
 
@@ -172,24 +152,10 @@ The deterministic field order is derived from the validated Semantic Model and
 must not depend on map iteration order, file system ordering, or backend
 behavior.
 
-## Recompilation With Preserved Compiler State
+## Recompilation and removed fields
 
-When preserved compiler state is available, the compiler may preserve existing
-`fieldIndex` assignments according to the selected compatibility policy.
-
-Layout computation consumes the resulting field index mapping and validates that
-it is usable for the current record layout.
-
-New fields receive new `fieldIndex` values from the record's compiler-managed
-field allocation state after preserved assignments have been applied.
-
-## Removed Fields
-
-Removed fields do not appear in the Layout Model.
-
-When preserved compiler state is available, removed field handling is governed
-by compatibility policy. Layout computation does not define long-term
-`fieldIndex` reuse policy.
+Field indexes are recomputed from declaration order. Removed fields disappear;
+there is no persisted field allocation state or automatic schema evolution policy.
 
 ## Limits
 
@@ -287,7 +253,7 @@ reintroducing unresolved names.
 
 # Determinism
 
-Identical Semantic Models and identical compiler state must always produce
+Identical Semantic Models must always produce
 identical Layout Models.
 
 Determinism is achieved by:
@@ -295,8 +261,6 @@ Determinism is achieved by:
 * deterministic record ordering
 * deterministic field ordering
 * compiler-managed identifier allocation
-* consistent application of preserved identifier mappings supplied by compiler
-  state
 * deterministic diagnostic ordering
 * avoiding dependence on file system order, hash map order, or backend order
 
@@ -307,34 +271,10 @@ artifacts, compatibility analysis, and predictable diagnostics.
 
 # Compatibility
 
-Layout computation may evaluate compatibility constraints against preserved
-compiler state when that state is available.
-
-The layout algorithm itself does not define schema evolution policy. It applies
-the compatibility policy selected by the compiler and reports layout-level
-conflicts.
-
-Changes that compatibility policy may allow include:
-
-* preserving a record's logical identity
-* preserving an existing `recordId`
-* preserving an existing field's `fieldIndex`
-* preserving the field type associated with an existing `fieldIndex`
-* appending a new field with a new `fieldIndex`
-
-Changes that compatibility policy may reject or require updated layout metadata
-for include:
-
-* changing a record's logical identity without an explicit rename already
-  applied before layout computation
-* changing the type associated with an existing `fieldIndex`
-* exceeding field count limits
-* attempting to reuse removed compiler-managed identifiers
-* conflicting with preserved compiler state
-
-This section describes layout-level compatibility concepts only. Detailed
-schema evolution, rename, identifier reuse, and binary compatibility rules
-belong to a future compatibility specification.
+Stage A validates one resolved configuration; it does not compare historical
+schemas or apply a rename/evolution policy. Changes to IDs or layouts require
+regeneration and rebuilding. BRF v2 alone does not guarantee historical data
+compatibility. See [the migration guide](generated-binding-compatibility.md).
 
 ---
 
@@ -347,10 +287,7 @@ Layout computation may emit diagnostics such as:
 * too many fields
 * layout overflow
 * unsupported layout construct
-* incompatible preserved compiler state
 * invalid compiler-managed identifiers
-* missing preserved identifier state required by the selected compiler mode
-* field layout incompatible with preserved `fieldIndex`
 
 Diagnostics should use source metadata from the Semantic Model when reporting
 user-facing schema problems.

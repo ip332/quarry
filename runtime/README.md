@@ -40,9 +40,8 @@ or perform schema exchange.
 
 The nested-reader Phase A substrate is kept in
 `runtime/detail/brf_validation_cache.hpp`. It uses stable integer indexes for
-validated record nodes and relations, plus an explicit work stack. Public
-nested-record and record-array access remains disabled until the subsequent
-phase wires complete BRF child validation through this cache.
+validated record nodes and relations, plus an explicit work stack. Nested-record and record-array access uses complete child validation through
+this cache.
 
 `quarry/runtime/qbs_brf_reader.hpp` provides a read-only bridge from a
 validated `ValidatedQbsView` to an untrusted BRF v2 record. Callers validate a
@@ -474,3 +473,14 @@ Python uses `QbsSchema.schema_id` and `.schema_id_algorithm`. All report the
 stored wire configuration identity, not generated-code `gid`. Parser validation
 is unchanged: C/Python do not compute its hash; the C++ parser already verifies
 it during parsing. The accessors add no verification and no API epoch bump.
+
+## Stage A QBS identity access
+
+C `quarry_qbs_schema_id()` and Python `QbsSchema.schema_id` /
+`schema_id_algorithm` expose the stored full configuration identity. The existing
+C++ compiler-owned `ValidatedQbsView::schema_id()` is internal tooling, not a new
+installed C++ QBS SDK. These accessors introduce no hashing or mandatory startup;
+they preserve public view layouts and epochs. C requires the updated linked
+`Quarry::runtime_c`; its generated-code epoch remains 7. C++ owning stays 3,
+Python and Go stay 1. Native gid is separate and absent from BRF/QBS. See
+[the accessor contract](../docs/specifications/configuration-and-code-identity.md#accessors-and-compatibility).

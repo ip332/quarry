@@ -29,9 +29,9 @@ The Schema Compiler SHALL parse schema files.
 
 ### REQ-SC-002
 
-The Schema Compiler SHALL accept legacy import declarations as syntax only and
-SHALL NOT require an import-resolution stage to compile the current supported
-schema pipeline.
+The production YAML compiler SHALL load the root and its complete transitive
+relative-import closure. Legacy declaration-syntax imports SHALL remain parser
+compatibility syntax only.
 
 ### REQ-SC-003
 
@@ -210,3 +210,25 @@ Detailed behavior is intentionally deferred to dedicated specifications:
 
 This document defines compiler architecture only. Detailed behavior is defined
 by the dedicated specifications that own those topics.
+
+## Implemented configuration generation
+
+REQ-SC-022: Configuration preparation SHALL compute the canonical BRF layout and
+configuration identity once for generation/identity queries, then pass them to
+backends and optional QBS emission. Output listing SHALL use backend planning and
+SHALL NOT require identity hashing. Identity and selection behavior SHALL follow
+[REQ-ID-001 through REQ-ID-010](configuration-and-code-identity.md#requirements).
+
+REQ-SC-023: Repeated generation with identical inputs and effective options SHALL
+produce identical output files. Import reordering SHALL preserve record IDs,
+schema_id and QBS bytes; source declaration ordering is not guaranteed invariant
+(issue #90). `--generate` SHALL change emission selection only.
+
+REQ-SC-024: `--name-prefix` SHALL change source names and paths, not canonical
+Schema IR names, record IDs, schema_id or BRF/QBS bytes. Storage-selection FQNs
+SHALL remain canonical and unprefixed. Effective C host-storage policies SHALL
+apply to unselected dependencies when computing native generated identity.
+
+CLI argument rules, diagnostics and exits are defined in
+[Tools](../../tools/README.md); executable examples and checks are in the
+[Stage A CLI guide](../stage-a-cli.md).

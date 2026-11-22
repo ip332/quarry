@@ -2,7 +2,16 @@
 
 ## Status
 
-Draft
+**Superseded; historical proposal, not an implemented format.**
+
+Stage A assigns IDs deterministically from the complete configuration without
+persistent allocation state. There is no manifest reader/writer, rename mapping
+or supported identifier-preservation mode. QBS is the implemented runtime schema
+image; Schema IR remains compiler-owned. The historical proposal below is
+non-normative and MUST NOT be read as an available compiler contract.
+See [the accepted design](../design/record-identity-and-schema-discovery.md#11-compatibility-and-format-impact),
+[BRF allocation](binary-record-format.md#recordid-structure-and-reserved-ranges)
+and [QBS](quarry-binary-schema.md).
 
 ## Version
 

@@ -10,7 +10,7 @@ Version resolution and release cleanliness are documented in
 [`versioning.md`](versioning.md).
 
 Quarry is a language-neutral schema compiler and BRF serialization system with
-production C++, strict-C99 C, and Python backends. The documentation records
+production C++, strict-C99 C, Python and Go backends. The documentation records
 current behavior and stable architecture decisions separately from deferred
 work.
 
@@ -213,3 +213,10 @@ When adding or changing documentation:
 
 When two documents need the same concept, keep the full explanation in the most
 specific architecture document and add a short reference from the other.
+
+## Stage A release candidate
+
+- [Normative configuration and generated identity](specifications/configuration-and-code-identity.md)
+- [Executable CLI guide](stage-a-cli.md)
+- [v0.1.31-rc.1 release notes](release-notes-v0.1.31-rc.1.md)
+- [Readiness and unresolved release gates](release-readiness-v0.1.31-rc.1.md)

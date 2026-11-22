@@ -1,7 +1,7 @@
 # Distribution Model
 
 Quarry currently supports a small downstream SDK consisting of the
-header-only runtime plus the installed schema compiler executable target. The
+C++ header-only runtime, compiled C runtime and installed schema compiler executable target. The
 installed package surface is intentionally smaller than the source-tree build
 graph.
 
@@ -9,7 +9,8 @@ graph.
 
 The supported installed SDK surface is:
 
-* `Quarry::runtime`
+* `Quarry::runtime` (C++ owning)
+* `Quarry::runtime_c` (C99 and C++/C storage)
 * `Quarry::schema_compiler`
 * public runtime headers, including
   `<quarry/runtime/binary_record.hpp>` and
@@ -202,3 +203,15 @@ decision. In particular:
   separate host-tools package
 * language-specific examples should be introduced with their corresponding
   runtime or generator support
+
+## Stage A installed consumption
+
+Installed C includes `quarry/runtime_c/schema_id.h` and `generic_brf.h`; the QBS
+identity accessor links `Quarry::runtime_c`. C++ QBS parsing remains compiler-owned
+source-tree tooling, not an installed compiler-library SDK. Python wheel/sdist
+and the Go runtime module are separate language packages, not CMake targets.
+All five binding variants use one root identity; the installed C++ helper supports
+`GENERATE`, `NAME_PREFIX` and `SCHEMA_ID_VARIABLE`. C, Python and Go generation
+use the installed CLI directly. See [the CLI guide](stage-a-cli.md),
+[consumer compatibility](generated-binding-compatibility.md) and
+[release migration](release-notes-v0.1.31-rc.1.md).

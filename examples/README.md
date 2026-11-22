@@ -26,3 +26,12 @@ Current examples:
 Each example README gives the install, generation, build, and execution
 commands. Bindings that reference one another are always generated from the
 same compilation root, so they share one record-ID mapping.
+
+## Stage A verification
+
+The [truck A/B example](truck/multi_configuration/README.md) demonstrates all five
+variants in one application/process. The maintained [A5 matrix](../tests/interop/matrix/README.md)
+exchanges actual BRF streams across all 25 producer/consumer pairs, including
+nested cuts. These are complementary checks; independent round trips alone do
+not establish interoperability. See the [CLI guide](../docs/stage-a-cli.md) and
+[release migration](../docs/release-notes-v0.1.31-rc.1.md).
