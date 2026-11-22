@@ -70,6 +70,27 @@ jobs:
           --runtime-c build/clang18-matrix/runtime_c/libquarry_runtime_c.a \
           --work build/interop-clang18 --require-all'
 
+      # #85: run this fixture under Clang, not only the default GCC suite.
+      # Checked optional preconditions also catch invalid metadata lookups reliably.
+      - name: Clang 18 generic runtime conformance
+        run: |
+          docker compose run --rm dev sh -ec '
+          cmake --build build/clang18-matrix --parallel \
+          --target generic_runtime_conformance_test generic_runtime_conformance_fixture_generator
+          ctest --test-dir build/clang18-matrix --output-on-failure \
+          -R "^generic_runtime_conformance_(test|fixture_check)$"
+          cmake -S . -B build/clang18-conformance-sanitized \
+          -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
+          "-DCMAKE_C_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer" \
+          "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer -D_GLIBCXX_ASSERTIONS" \
+          -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined
+          cmake --build build/clang18-conformance-sanitized --parallel \
+          --target generic_runtime_conformance_test generic_runtime_conformance_fixture_generator
+          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+          UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+          ctest --test-dir build/clang18-conformance-sanitized --output-on-failure \
+          -R "^generic_runtime_conformance_(test|fixture_check)$"'
+
       # Docker creates private temporary directories and Go's BRF files are
       # mode 0600. Give the host runner ownership before upload-artifact walks
       # the evidence; keep the test's normal file permissions intact.

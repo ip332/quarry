@@ -176,7 +176,12 @@ TEST(GenericRuntimeConformance, ValidFixture) {
     EXPECT_EQ(view->record_array(10)->element(0)->field(0)->as_signed(), -4);
     EXPECT_EQ(view->record_array(10)->element(1)->field(0)->as_signed(), 8);
     EXPECT_EQ(view->record_array(10)->element(0)->nested_record(1)->field(0)->as_unsigned(), 101U);
-    EXPECT_FALSE(view->is_present(*schema->find_field(parent->record_id, 11U)));
+    // find_field takes a QBS table index, not Parent's wire record ID.
+    ASSERT_FALSE(schema->find_field(parent->record_id, 11U).has_value());
+    const auto absent_field = view->field_metadata(11U);
+    ASSERT_TRUE(absent_field.has_value());
+    EXPECT_FALSE(view->is_present(*absent_field));
+    EXPECT_FALSE(view->field(11U).has_value());
     ASSERT_TRUE(view->array(12));
     EXPECT_EQ(view->array(12)->size(), 0U);
 }
