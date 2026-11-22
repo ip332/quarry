@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         golang-go \
         libabsl-dev \
+        libclang-rt-18-dev \
         libnewlib-arm-none-eabi \
         libprotobuf-dev \
         libyaml-dev \
