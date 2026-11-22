@@ -44,7 +44,7 @@ Each semicolon-separated subrequirement is accounted for below.
 | Domain/local limits and reserved values | #84 layout | `layout_smoke_test`: ApplicationDomainLimitIsEnforced, LocalRecordLimitIsEnforced, RootNamespaceIsTheFirstDomain | Covered allocator boundary; no system records assigned |
 | Truck golden mapping | #84/#91 | `hierarchical_record_id_test`, `schema_description_test`, `interop_matrix`, `stage_a_documentation_test` | Covered all 8 IDs |
 | Local name order independent of declarations/files | #84 layout | `layout_smoke_test`: AssignmentIsIndependentOfInputOrder; `schema_description_test` swaps declarations/files | Covered |
-| Insertion before existing local shifts only its domain | #84 sorted allocator | source algorithm plus rev B MirrorFold in `name_prefix_test`/`public_examples_test` | Partial: append case maintained; no dedicated insertion-before-existing-name regression asserted here |
+| Insertion before existing local shifts only its domain | #84 sorted allocator | source algorithm plus rev B MirrorFold in `name_prefix_test`/`public_examples_test` | Partial: sorted/permutation and append cases provide indirect coverage only; dedicated before/after insertion regression tracked in [#129](https://github.com/ip332/quarry/issues/129). Low residual coverage risk; recommend non-blocking follow-up, not an approved exclusion |
 | Repeated generation byte identity | output planning/backends | `hierarchical_record_id_test`: RepeatedCompilationIsDeterministic; `interop_matrix` determinism | Covered for maintained fixtures/options |
 | Import reorder preserves IDs/schema_id | #84/#91 | `hierarchical_record_id_test`, `schema_compiler_tool_test`, `interop_matrix` | Covered, also both QBS modes; source declaration byte order excluded (#90) |
 | Selection preserves IDs/schema_id | #86/#91 | `schema_compiler_tool_test`: GenerationSelectionNeverChangesIdsOrQbs; `configuration_identity_test`; matrix | Covered, selected/full shared output bytes |
@@ -55,7 +55,7 @@ Each semicolon-separated subrequirement is accounted for below.
 | Configuration mixing C/C++/C-storage/Python/Go | #106/#127 | `configuration_identity_test`, matrix dependency replacement with expected guard diagnostics | Covered all 5; import/build checks, no whole-program scan |
 | RC3 IDs rejected | current generated decoders and inspector | matrix legacy controls for actual expected types and nested Timestamp; valid positive controls | Covered contextual mapping rejection, no universal numeric parser rule claimed |
 | Identity excludes reflective names | #91 canonical QBS input | `qbs_model_test`: IdentityInputIgnoresReflectiveNames; native gid field/member rename checks | Covered; FQNs still identity inputs |
-| Identity excludes comments/import paths | canonical model/preparation | `schema_compiler_tool_test`: PrintSchemaIdIgnoresSourcePathAndDiffersByResolvedConfiguration, ConfigurationMetadataDoesNotAffectSchemaIdentity | Partial: paths maintained; no dedicated comment-only mutation claimed |
+| Identity excludes comments/import paths | canonical model/preparation | `schema_compiler_tool_test`: PrintSchemaIdIgnoresSourcePathAndDiffersByResolvedConfiguration, ConfigurationMetadataDoesNotAffectSchemaIdentity | Partial: paths/metadata/reflection invariance provide indirect coverage only; comment-only mutation tracked in [#130](https://github.com/ip332/quarry/issues/130). Low residual coverage risk; recommend non-blocking follow-up, not an approved exclusion |
 | Identity excludes compiler version | QBS identity builder | `qbs_model_test`: ConfigurationIdentityIgnoresCompilerVersion | Covered metadata strings; exhaustive real cross-release build comparison unavailable |
 | Identity changes with IDs/wire definitions | QBS canonical input | QBS model/serializer tests; `configuration_identity_test` rev B same-ID/renumbered fixtures; matrix identity mutation | Covered representative changes; not exhaustive all wire changes |
 | Describe golden | #125 CLI | `schema_description_test`, `tests/fixtures/description/truck.txt` | Covered locale, normalization, errors, epochs and header identity |
@@ -128,6 +128,23 @@ Revision B adds `truck.cms.MirrorFold` = `0x00030002`, retaining EngineStatus's 
 and bytes but changing full identity to `806e9a4e11d0df71c4e5b51045f85010`.
 `public_examples_test` runs the existing installed-package/wheel A/B application
 in all five variants. The A5 matrix adds prefixed/unprefixed byte comparisons.
+
+## Coverage-gap risk assessment
+
+The completion audit found no maintained test equivalent to either exact
+metamorphic regression below. Existing tests reduce risk but do not close these
+gaps; neither row is counted as fully covered. Duplicate searches reviewed all
+issue titles and searched issue bodies before creating the focused follow-ups.
+
+| Gap / follow-up | Existing protection and remaining exposure | Risk / publication recommendation |
+|---|---|---|
+| [#129: insertion before existing locals](https://github.com/ip332/quarry/issues/129) | `layout_smoke_test` pins sorted domains/locals, permutation invariance and bytewise ordering. The A/B example appends MirrorFold. None directly compares insertion before existing locals while keeping the namespace set fixed, including unaffected IDs in another domain. | Low residual coverage risk because the allocator sorts each domain independently (`compiler/layout/layout.cpp`), backed by golden mappings and interoperability tests. A regression could have serious record-mapping impact. No current defect was found. Recommend a non-blocking focused test follow-up, subject to maintainer review. |
+| [#130: comment-only identity mutation](https://github.com/ip332/quarry/issues/130) | QBS/CLI tests cover names, compiler metadata, paths, configuration names, selection and QBS modes. None directly edits only YAML comments and compares full identity plus both QBS images. | Low residual coverage risk: hashing consumes canonical resolved wire definitions, not raw source. A regression could cause spurious identity churn and configuration-guard failures; no unsafe decoding or current defect was demonstrated. Recommend a non-blocking focused test follow-up, subject to maintainer review. |
+
+These are recommendations for newly tracked coverage gaps, not maintainer-approved
+release exclusions. They do not resolve or defer #85/#88, change #90's recorded
+disposition, or broaden #119's approved exclusion. The follow-ups request tests
+using existing helpers, not compiler/runtime functionality or identity redesign.
 
 ## Outstanding issues and release decision
 
