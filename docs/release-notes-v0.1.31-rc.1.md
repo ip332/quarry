@@ -132,3 +132,71 @@ There is no automatic discovery, translation or persistent manifest/rename state
 
 See the [normative identity contract](specifications/configuration-and-code-identity.md),
 [CLI guide](stage-a-cli.md) and [consumer migration contract](generated-binding-compatibility.md).
+
+## Selected Benchmark Results
+
+*Post-publication documentation addendum: these measurements are from the original
+release commit `7fab3f00b50306a0b1243aaca501325e68def20c`, not later main revisions.
+The published release artifacts remain unchanged.*
+
+Sources: [benchmark CI run](https://github.com/ip332/quarry/actions/runs/45047787257)
+and [full benchmark artifact](https://github.com/ip332/quarry/actions/runs/45047787257/artifacts/14764700924).
+The artifact contains five executions, 450 raw results and 90 aggregate groups.
+
+**Methodology:** deterministic datasets; two warm-up passes and five timed samples
+of ten dataset passes per execution. Values below are median throughput across
+five executions, with observed minimum–maximum in parentheses, in **millions of
+records/second**. Ranges describe observed variation, not confidence intervals.
+Dataset record counts are telemetry 128, nested 32, large 16 and stress 1,000.
+
+**Environment:** Linux x86-64 GitHub Actions runner reporting an AMD EPYC 7763 CPU;
+GCC 13.3.0, Release build and Protobuf 3.21.12. Metadata identifies Quarry BRF v2
+and generated-code epochs C=7, C++=3 and Python=1.
+
+These public-API measurements include ownership costs. Quarry C uses caller-owned
+fixed-capacity buffers; Quarry C++ uses owning vectors and decoded objects.
+Standard Protobuf C++ and Arena use different allocation models and are reported
+separately.
+
+| Workload | Implementation | Encode Mrecords/s | Decode Mrecords/s | Encoded bytes¹ |
+| --- | --- | ---: | ---: | ---: |
+| Telemetry | Quarry C | 20.174 (20.028–20.231) | 22.640 (20.910–22.713) | 84 |
+| Telemetry | Quarry owning C++ | 1.576 (1.573–1.581) | 3.541 (3.520–3.590) | 84 |
+| Telemetry | Protobuf C++ | 18.741 (18.600–18.766) | 13.920 (13.776–13.954) | 22 |
+| Telemetry | Protobuf Arena | 10.056 (9.846–10.112) | 12.173 (12.078–12.185) | 22 |
+| Nested records | Quarry C | 5.039 (4.862–5.062) | 4.396 (4.259–4.413) | 324 |
+| Nested records | Quarry owning C++ | 0.562 (0.561–0.569) | 0.622 (0.605–0.628) | 324 |
+| Nested records | Protobuf C++ | 5.614 (5.451–5.622) | 1.667 (1.657–1.701) | 124 |
+| Nested records | Protobuf Arena | 1.141 (1.109–1.150) | 1.167 (1.166–1.199) | 124 |
+| Large payloads | Quarry C | 1.487 (1.445–1.488) | 1.269 (1.263–1.273) | 1,771 |
+| Large payloads | Quarry owning C++ | 0.217 (0.213–0.220) | 0.232 (0.228–0.234) | 1,771 |
+| Large payloads | Protobuf C++ | 1.560 (1.542–1.569) | 0.573 (0.567–0.577) | 1,427 |
+| Large payloads | Protobuf Arena | 0.388 (0.386–0.393) | 0.444 (0.440–0.453) | 1,427 |
+| Small-message stress | Quarry C | 21.234 (20.480–22.435) | 23.202 (22.084–23.912) | 84 |
+| Small-message stress | Quarry owning C++ | 2.747 (2.732–2.763) | 3.635 (3.587–3.679) | 84 |
+| Small-message stress | Protobuf C++ | 30.120 (28.237–30.145) | 19.373 (19.052–19.643) | 9 |
+| Small-message stress | Protobuf Arena | 13.148 (13.045–13.270) | 16.209 (16.167–16.473) | 9 |
+
+¹ Encoded size is the harness-reported first fixture record, not a dataset
+average. BRF and Protobuf are different wire formats.
+
+### Cortex-M linked footprint: RC3 to RC1
+
+The separately validated Cortex-M4 comparison used GNU Arm 13.2.1 with matching
+workload and linker settings, with smoke-code adaptations for the changed API.
+
+| Profile | RC3 flash | RC1 flash | Flash change | RAM change |
+| --- | ---: | ---: | ---: | ---: |
+| Default | 20,492 B | 11,756 B | −8,736 B | −96 B |
+| MinSizeRel (`-Os`) | 6,816 B | 6,892 B | +76 B | −96 B |
+
+These are linked footprint measurements, separate from the Linux runtime-throughput
+results. No physical Cortex-M execution or stack/heap high-water measurement was
+performed.
+
+**Limitations:** shared-runner timings are advisory and reflect differing ownership
+models. Cross-backend allocation measurements are incomplete; the bundle's native
+`runtime_size=0` is reporting metadata, not evidence of zero runtime footprint.
+No comparable RC3 throughput series was established here, so no RC3-to-RC1
+throughput improvement is claimed. The artifact also includes Python,
+configuration and round-trip results.
