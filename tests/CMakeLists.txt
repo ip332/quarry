@@ -238,6 +238,10 @@ add_quarry_gtest(runtime_qbs_brf_reader_test runtime/qbs_brf_reader_test.cpp
                       quarry_compiler_qbs)
 add_quarry_gtest(runtime_qbs_brf_encoder_test runtime/qbs_brf_encoder_test.cpp
                       quarry_compiler_qbs)
+add_quarry_gtest(runtime_qbs_nested_array_test runtime/qbs_brf_nested_array_test.cpp
+                      quarry_compiler_qbs)
+target_link_libraries(runtime_qbs_nested_array_test PRIVATE quarry_runtime_c)
+
 add_quarry_gtest(runtime_qtf_exporter_test runtime/qtf_exporter_test.cpp
                       quarry_compiler_qbs)
 add_quarry_gtest(runtime_qtf_parser_test runtime/qtf_parser_test.cpp

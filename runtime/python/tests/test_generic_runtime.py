@@ -220,5 +220,46 @@ class GenericRuntimeTest(unittest.TestCase):
             validate_brf(schema, schema.records[0], root, limits=limits)
 
 
+
+
+class NestedRecordArrayOrderTest(unittest.TestCase):
+    def test_recursive_array_children_keep_independent_order(self):
+        schema = QbsSchema(b"", [], [], [], [], False)
+        schema.types = (
+            QbsType(TypeCode.U32, True, 4, 0, 0, 0),
+            QbsType(TypeCode.RECORD, True, 21, 2, 0, 0),
+            QbsType(TypeCode.ARRAY, False, 0, 1, 8, 0),
+            QbsType(TypeCode.RECORD, False, 0, 1, 0, 0),
+            QbsType(TypeCode.ARRAY, False, 0, 3, 4, 0),
+        )
+        schema.records = (
+            QbsRecord(schema, 0, 1, True, 1, 9, 0, "Root", "Root", 0, 1),
+            QbsRecord(schema, 1, 2, True, 1, 13, 0, "Branch", "Branch", 1, 2),
+            QbsRecord(schema, 2, 3, False, 1, 5, 21, "Leaf", "Leaf", 3, 1),
+        )
+        schema.fields = (
+            QbsField(0, 4, 17, 0, 0, 0, 8, 2, 1, "groups", schema.records[0]),
+            QbsField(0, 0, 17, 0, 0, 0, 4, 0, 0, "marker", schema.records[1]),
+            QbsField(1, 2, 21, 0, 0, 1, 8, 2, 1, "leaves", schema.records[1]),
+            QbsField(0, 0, 17, 0, 0, 0, 4, 0, 0, "value", schema.records[2]),
+        )
+        def branch(marker, values):
+            array = bytes([len(values)]) + b"".join(_record(3, v) for v in values)
+            body = bytes([3]) + struct.pack(">III", marker, 29, len(array)) + array
+            return bytes([2, 0, 0, 16]) + struct.pack(">III", 2, 13, 16 + len(body)) + body
+        children = [branch(10, [100, 101]), branch(20, []), branch(30, [200, 201, 202])]
+        payload = bytes([3]) + b"".join(bytes([len(child)]) + child for child in children)
+        raw = bytes([2, 0, 0, 16]) + struct.pack(">III", 1, 9, 25 + len(payload)) + bytes([1]) + struct.pack(">II", 25, len(payload)) + payload
+        view = validate_brf(schema, schema.records[0], raw)
+        for repeat in range(2):
+            groups = view["groups"]
+            self.assertEqual([item["marker"] for item in groups], [10, 20, 30])
+            self.assertEqual([[leaf["value"] for leaf in item["leaves"]] for item in groups],
+                             [[100, 101], [], [200, 201, 202]])
+            self.assertEqual([item.record_schema.identity for item in groups], ["Branch"] * 3)
+            # Force traversal before repeating random/indexed lookups.
+            self.assertTrue(list(view.traverse()))
+
+
 if __name__ == "__main__":
     unittest.main()

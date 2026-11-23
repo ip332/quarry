@@ -51,7 +51,6 @@ struct ChildRelation {
 struct RecordArrayRelation {
     std::size_t parent_node = 0U;
     std::size_t parent_field = 0U;
-    std::size_t child_begin = 0U;
     std::size_t count = 0U;
 };
 
@@ -101,7 +100,11 @@ public:
     }
     const std::vector<ChildRelation>& children() const { return children_; }
     const std::vector<RecordArrayRelation>& arrays() const { return arrays_; }
-    const std::vector<std::size_t>& array_children() const { return array_children_; }
+    // Recursive validation interleaves array elements globally. Each relation
+    // owns its logical child order, just as each node owns its field indexes.
+    const std::vector<std::size_t>& array_children(std::size_t relation_index) const {
+        return array_children_[relation_index];
+    }
     std::size_t work_items() const { return work_items_; }
     std::size_t validations() const { return validations_; }
 
@@ -112,7 +115,7 @@ private:
     std::vector<std::vector<std::size_t>> field_indexes_;
     std::vector<ChildRelation> children_;
     std::vector<RecordArrayRelation> arrays_;
-    std::vector<std::size_t> array_children_;
+    std::vector<std::vector<std::size_t>> array_children_;
     std::size_t work_items_ = 0U;
     std::size_t validations_ = 0U;
 };

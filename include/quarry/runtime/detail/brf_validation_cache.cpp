@@ -45,12 +45,12 @@ std::optional<std::size_t> ValidationCache::add_array(std::size_t parent_node,
     if (parent_node >= nodes_.size() || child_nodes.size() > limits_.max_array_elements_traversed ||
         child_nodes.size() > limits_.max_work_items - work_items_)
         return std::nullopt;
-    const auto child_begin = array_children_.size();
-    arrays_.push_back({parent_node, parent_field, child_begin, child_nodes.size()});
+    arrays_.push_back({parent_node, parent_field, child_nodes.size()});
+    array_children_.emplace_back();
     for (const auto child : child_nodes) {
         if (child >= nodes_.size() || !account_work())
             return std::nullopt;
-        array_children_.push_back(child);
+        array_children_.back().push_back(child);
     }
     nodes_[parent_node].array_count++;
     return arrays_.size() - 1U;
@@ -61,7 +61,8 @@ ValidationCache::begin_array(std::size_t parent_node, std::size_t parent_field, 
     if (parent_node >= nodes_.size() || count > limits_.max_array_elements_traversed ||
         arrays_.size() >= limits_.max_array_elements_traversed || !account_work())
         return std::nullopt;
-    arrays_.push_back({parent_node, parent_field, array_children_.size(), 0U});
+    arrays_.push_back({parent_node, parent_field, 0U});
+    array_children_.emplace_back();
     ++nodes_[parent_node].array_count;
     return arrays_.size() - 1U;
 }
@@ -72,7 +73,7 @@ bool ValidationCache::add_array_element(std::size_t relation_index, std::size_t 
     auto& relation = arrays_[relation_index];
     if (relation.count >= limits_.max_array_elements_traversed)
         return false;
-    array_children_.push_back(child_node);
+    array_children_[relation_index].push_back(child_node);
     ++relation.count;
     return true;
 }

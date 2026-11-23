@@ -41,7 +41,8 @@ or perform schema exchange.
 The nested-reader Phase A substrate is kept in
 `runtime/detail/brf_validation_cache.hpp`. It uses stable integer indexes for
 validated record nodes and relations, plus an explicit work stack. Nested-record and record-array access uses complete child validation through
-this cache.
+this cache. Each array relation owns its ordered child-node list; recursive
+validation does not assume globally contiguous array children.
 
 `quarry/runtime/qbs_brf_reader.hpp` provides a read-only bridge from a
 validated `ValidatedQbsView` to an untrusted BRF v2 record. Callers validate a

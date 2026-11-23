@@ -57,7 +57,7 @@ TEST(BrfValidationCacheTest, RelationsUseStableIndexesAcrossGrowth) {
     ASSERT_TRUE(array.has_value());
     EXPECT_EQ(cache.children().front().child_node, 1U);
     EXPECT_EQ(cache.arrays()[*array].count, children.size());
-    EXPECT_EQ(cache.array_children()[cache.arrays()[*array].child_begin], 1U);
+    EXPECT_EQ(cache.array_children(*array).front(), 1U);
     EXPECT_TRUE(cache.reuse_node(children.back()));
     EXPECT_EQ(cache.nodes().size(), 33U);
 }
@@ -103,6 +103,28 @@ TEST(BrfValidationCacheTest, ChildRelationZeroIsRepresentable) {
     ASSERT_TRUE(cache.set_child_relation(0U, relation->second));
     ASSERT_TRUE(cache.fields()[0].child_relation.has_value());
     EXPECT_EQ(*cache.fields()[0].child_relation, 0U);
+}
+
+TEST(BrfValidationCacheTest, NestedArrayAppendsKeepIndependentLogicalOrders) {
+    ValidationCache cache;
+    const auto root = cache.add_node(0U, 0U, 1U).value();
+    const auto outer = cache.begin_array(root, 0U, 2U).value();
+    const auto first = cache.add_node(1U, 1U, 1U).value();
+    const auto inner = cache.begin_array(first, 0U, 1U).value();
+    const auto leaf = cache.add_node(2U, 2U, 1U).value();
+    ASSERT_TRUE(cache.add_array_element(inner, leaf));
+    ASSERT_TRUE(cache.add_array_element(outer, first));
+    const auto empty = cache.begin_array(root, 1U, 0U).value();
+    const auto sibling = cache.begin_array(root, 2U, 1U).value();
+    const auto last = cache.add_node(1U, 3U, 1U).value();
+    ASSERT_TRUE(cache.add_array_element(sibling, leaf));
+    ASSERT_TRUE(cache.add_array_element(outer, last));
+    EXPECT_EQ(cache.array_children(outer), (std::vector<std::size_t>{first, last}));
+    EXPECT_EQ(cache.array_children(inner), (std::vector<std::size_t>{leaf}));
+    EXPECT_TRUE(cache.array_children(empty).empty());
+    EXPECT_EQ(cache.array_children(sibling), (std::vector<std::size_t>{leaf}));
+    EXPECT_FALSE(cache.add_array_element(cache.arrays().size(), leaf));
+    EXPECT_FALSE(cache.add_array_element(outer, cache.nodes().size()));
 }
 
 } // namespace

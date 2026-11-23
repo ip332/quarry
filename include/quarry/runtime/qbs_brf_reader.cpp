@@ -977,12 +977,10 @@ std::optional<ValidatedBrfRecordView> BrfRecordArrayView::element(std::size_t in
         relation_ >= owner_.validation_cache_->arrays().size())
         return std::nullopt;
     const auto& relation = owner_.validation_cache_->arrays()[relation_];
-    if (index >= relation.count ||
-        relation.child_begin > owner_.validation_cache_->array_children().size() ||
-        index >= owner_.validation_cache_->array_children().size() - relation.child_begin)
+    const auto& children = owner_.validation_cache_->array_children(relation_);
+    if (index >= relation.count || index >= children.size())
         return std::nullopt;
-    return owner_.view_for_node(
-        owner_.validation_cache_->array_children()[relation.child_begin + index]);
+    return owner_.view_for_node(children[index]);
 }
 
 std::optional<ValidatedBrfRecordView> ValidatedBrfRecordView::nested_record(
