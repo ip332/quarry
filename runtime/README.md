@@ -447,6 +447,12 @@ This is an opt-in input extension: comment-bearing files are not accepted by
 older/default v1 readers. See the [QTF specification](../docs/specifications/quarry-text-format.md).
 Special float tokens use the selected QBS float width, including both signs of infinity.
 
+These C++ QTF APIs currently require the internal `quarry_compiler_qbs` target
+and compiler headers. Copied runtime headers alone do not provide a supported
+installed QTF SDK. See the [DBC model exchange feasibility study](../docs/design/dbc-model-exchange-feasibility.md)
+for a source-tree host consumer, compatibility probes and the resolved nested
+record-array reader defect. No distribution boundary is expanded by the study.
+
 ## Fuzzing
 
 BRF parser fuzz targets are available behind the opt-in

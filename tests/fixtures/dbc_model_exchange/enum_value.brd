@@ -1,0 +1,10 @@
+namespace: dbc.exchange
+record: EnumValue
+version: 1
+type: data
+fields:
+  raw:
+    type: u64
+  label:
+    type: string
+    max_bytes: 64

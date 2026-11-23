@@ -1,0 +1,11 @@
+namespace: dbc.exchange
+record: Source
+version: 1
+type: data
+fields:
+  name:
+    type: string
+    max_bytes: 128
+  sha256:
+    type: string
+    max_bytes: 64

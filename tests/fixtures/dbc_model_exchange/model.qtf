@@ -1,0 +1,59 @@
+# Hand-authored instance. No DBC exporter is implemented by this study.
+{
+  model_version: 1
+  exporter_version: "hand-authored-study"
+  sources: [{ name: "source.dbc" sha256: "32906eafda362ab1e2c839fbfded99fec7c53925e78afb48bb7446138d52a255" }]
+  messages: [
+    {
+      name: "Example"
+      dbc_id: 100
+      dlc: 8
+      source_index: 0
+      source_line: 1
+      # Description deliberately omitted. Metadata that must survive goes in fields.
+      signals: [
+        {
+          name: "Selector"
+          start_bit: 0
+          width: 4
+          byte_order: 0
+          is_signed: false
+          scale: "1"
+          offset: "0"
+          is_mux_switch: true
+          source_line: 2
+          enums: [{ raw: 0 label: "Intel mode" }, { raw: 1 label: "Motorola mode" }]
+        },
+        {
+          name: "Intel"
+          start_bit: 8
+          width: 12
+          byte_order: 0
+          is_signed: true
+          scale: "0.123456789012345678901234567890"
+          offset: "-2.000000000000000000000000000001"
+          unit: "rpm"
+          spn: 0
+          mux_switch: "Selector"
+          mux_value: 0
+          source_line: 3
+        },
+        {
+          name: "Motorola"
+          start_bit: 23
+          width: 12
+          byte_order: 1
+          is_signed: true
+          scale: "0.25"
+          offset: "10"
+          unit: ""
+          mux_switch: "Selector"
+          mux_value: 1
+          source_line: 4
+        }
+      ]
+    }
+  ]
+  # Independent representation probe, not a valid enum of the 4-bit Selector.
+  u64_probe: { raw: 18446744073709551615 label: "literal # stays data" }
+}

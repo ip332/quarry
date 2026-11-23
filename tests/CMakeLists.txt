@@ -507,3 +507,32 @@ add_test(NAME generated_code_identity_fast_test
 set_tests_properties(generated_code_identity_fast_test PROPERTIES LABELS "identity-fast")
 
 add_quarry_gtest(typed_record_test runtime_c/typed_record_test.cpp quarry_runtime_c)
+
+# Feasibility study only: uses internal source-tree QBS/QTF libraries, not an installed SDK.
+set(dbc_exchange_fixtures "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/dbc_model_exchange")
+set(dbc_exchange_qbs "${CMAKE_CURRENT_BINARY_DIR}/dbc_model_exchange/model.qbs")
+add_custom_command(
+    OUTPUT "${dbc_exchange_qbs}"
+    COMMAND $<TARGET_FILE:quarry_schema_compiler>
+            --emit-qbs "${dbc_exchange_qbs}" --qbs-reflective
+            --output-directory "${CMAKE_CURRENT_BINARY_DIR}/dbc_model_exchange/generated"
+            "${dbc_exchange_fixtures}/configuration.brd"
+    DEPENDS quarry_schema_compiler
+            "${dbc_exchange_fixtures}/configuration.brd" "${dbc_exchange_fixtures}/model.brd"
+            "${dbc_exchange_fixtures}/frame.brd" "${dbc_exchange_fixtures}/signal.brd"
+            "${dbc_exchange_fixtures}/source.brd" "${dbc_exchange_fixtures}/enum_value.brd"
+    VERBATIM)
+set(dbc_exchange_generated "${CMAKE_CURRENT_BINARY_DIR}/dbc_model_exchange/generated")
+add_custom_command(
+    OUTPUT "${dbc_exchange_generated}/dbc/exchange.generated.hpp"
+    COMMAND $<TARGET_FILE:quarry_schema_compiler> --output-directory "${dbc_exchange_generated}"
+            "${dbc_exchange_fixtures}/configuration.brd"
+    DEPENDS "${dbc_exchange_qbs}"
+    VERBATIM)
+add_executable(dbc_model_exchange_consumer runtime/dbc_model_exchange_consumer.cpp
+               "${dbc_exchange_qbs}" "${dbc_exchange_generated}/dbc/exchange.generated.hpp")
+target_include_directories(dbc_model_exchange_consumer PRIVATE "${dbc_exchange_generated}")
+target_link_libraries(dbc_model_exchange_consumer PRIVATE quarry_compiler_qbs quarry_runtime)
+add_test(NAME dbc_model_exchange_consumer
+         COMMAND dbc_model_exchange_consumer "${dbc_exchange_qbs}"
+                 "${dbc_exchange_fixtures}/model.qtf" "${dbc_exchange_fixtures}/expected-schema-id.txt")

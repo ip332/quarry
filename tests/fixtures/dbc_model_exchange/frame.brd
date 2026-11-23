@@ -1,0 +1,24 @@
+namespace: dbc.exchange
+record: FrameDefinition
+version: 1
+type: data
+imports:
+  - signal.brd
+fields:
+  name:
+    type: string
+    max_bytes: 64
+  dbc_id:
+    type: u32
+  dlc:
+    type: u8
+  source_index:
+    type: u16
+  source_line:
+    type: u32
+  description:
+    type: string
+    max_bytes: 128
+  signals:
+    type: SignalDefinition[]
+    max_elements: 3

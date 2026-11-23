@@ -1,0 +1,3 @@
+configuration: dbc_exchange_study_v1
+imports:
+  - model.brd

@@ -1,0 +1,22 @@
+namespace: dbc.exchange
+record: DbcModel
+version: 1
+type: data
+imports:
+  - source.brd
+  - frame.brd
+  - enum_value.brd
+fields:
+  model_version:
+    type: u32
+  exporter_version:
+    type: string
+    max_bytes: 32
+  sources:
+    type: Source[]
+    max_elements: 2
+  messages:
+    type: FrameDefinition[]
+    max_elements: 2
+  u64_probe:
+    type: EnumValue

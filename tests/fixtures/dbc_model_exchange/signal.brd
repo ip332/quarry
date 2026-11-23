@@ -1,0 +1,46 @@
+namespace: dbc.exchange
+record: SignalDefinition
+version: 1
+type: data
+imports:
+  - enum_value.brd
+enums:
+  ByteOrder:
+    values:
+      Intel: 0
+      Motorola: 1
+fields:
+  name:
+    type: string
+    max_bytes: 64
+  start_bit:
+    type: u16
+  width:
+    type: u8
+  byte_order:
+    type: ByteOrder
+  is_signed:
+    type: bool
+  scale:
+    type: string
+    max_bytes: 96
+  offset:
+    type: string
+    max_bytes: 96
+  unit:
+    type: string
+    max_bytes: 32
+  spn:
+    type: u32
+  is_mux_switch:
+    type: bool
+  mux_switch:
+    type: string
+    max_bytes: 64
+  mux_value:
+    type: u64
+  source_line:
+    type: u32
+  enums:
+    type: EnumValue[]
+    max_elements: 4

@@ -1,0 +1,7 @@
+BO_ 100 Example: 8 ECU
+ SG_ Selector M : 0|4@1+ (1,0) [0|15] "" Receiver
+ SG_ Intel m0 : 8|12@1- (0.123456789012345678901234567890,-2.000000000000000000000000000001) [-255|255] "rpm" Receiver
+ SG_ Motorola m1 : 23|12@0- (0.25,10) [-502|521.75] "" Receiver
+
+VAL_ 100 Selector 0 "Intel mode" 1 "Motorola mode" ;
+BA_ "SPN" SG_ 100 Intel 0;
