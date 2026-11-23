@@ -7,6 +7,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+
 namespace {
 using namespace quarry::compiler::qbs;
 using quarry::compiler::diagnostics::DiagnosticCollection;
@@ -208,5 +210,194 @@ TEST(QtfParserTest, RejectsMalformedArraysAndFloats) {
         diagnostics.clear();
         EXPECT_FALSE(parse_qtf(text, *schema, *record, diagnostics).has_value()) << text;
     }
+}
+
+TEST(QtfParserTest, InfinityPreservesSelectedFloatTypeThroughImportAndDecode) {
+    DiagnosticCollection diagnostics;
+    const auto ir = schema_ir();
+    const auto layout = quarry::compiler::layout::LayoutComputer{}.compute(ir, diagnostics);
+    const auto model =
+        QbsModelBuilder{}.build(ir, layout, {.mode = BuildMode::Reflective}, diagnostics);
+    ASSERT_TRUE(model.has_value());
+    const auto image = serialize_qbs(*model, diagnostics);
+    ASSERT_TRUE(image.has_value());
+    const auto schema = parse_qbs(image->bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_identity("Root");
+    ASSERT_TRUE(record.has_value());
+    for (const auto token : {"inf", "-inf"}) {
+        SCOPED_TRACE(token);
+        diagnostics.clear();
+        const auto text = std::string("{ f32: ") + token + " f64: " + token + " }";
+        const auto parsed = parse_qtf(text, *schema, *record, diagnostics);
+        ASSERT_TRUE(parsed.has_value());
+        ASSERT_TRUE(parsed->fields[2U].has_value());
+        ASSERT_TRUE(parsed->fields[3U].has_value());
+        const auto* f32 = std::get_if<float>(&*parsed->fields[2U]);
+        const auto* f64 = std::get_if<double>(&*parsed->fields[3U]);
+        EXPECT_NE(f32, nullptr);
+        EXPECT_NE(f64, nullptr);
+        const auto bytes = import_qtf(text, *schema, *record, diagnostics);
+        EXPECT_TRUE(bytes.has_value());
+        if (!bytes)
+            continue;
+        const auto view = validate_brf_record(*schema, *record, *bytes);
+        ASSERT_TRUE(view.has_value());
+        const auto decoded32 = view->field(2U)->as_float32();
+        const auto decoded64 = view->field(3U)->as_float64();
+        ASSERT_TRUE(decoded32.has_value());
+        ASSERT_TRUE(decoded64.has_value());
+        EXPECT_TRUE(std::isinf(*decoded32));
+        EXPECT_TRUE(std::isinf(*decoded64));
+        EXPECT_EQ(std::signbit(*decoded32), token[0] == '-');
+        EXPECT_EQ(std::signbit(*decoded64), token[0] == '-');
+        const auto exported = export_qtf(*view);
+        ASSERT_TRUE(exported.text.has_value());
+        EXPECT_NE(exported.text->find(std::string("f32: ") + token), std::string::npos);
+        EXPECT_NE(exported.text->find(std::string("f64: ") + token), std::string::npos);
+    }
+}
+
+TEST(QtfParserTest, OptInCommentsAreWhitespaceAndDoNotSurviveImport) {
+    DiagnosticCollection diagnostics;
+    const auto ir = schema_ir();
+    const auto layout = quarry::compiler::layout::LayoutComputer{}.compute(ir, diagnostics);
+    const auto model =
+        QbsModelBuilder{}.build(ir, layout, {.mode = BuildMode::Reflective}, diagnostics);
+    ASSERT_TRUE(model.has_value());
+    const auto image = serialize_qbs(*model, diagnostics);
+    ASSERT_TRUE(image.has_value());
+    const auto schema = parse_qbs(image->bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_identity("Root");
+    ASSERT_TRUE(record.has_value());
+    const auto plain = "{ value: 42 name: \"#inside\" samples: [1, 2] child: { value: 7 } }";
+    const auto expected = import_qtf(plain, *schema, *record, diagnostics);
+    ASSERT_TRUE(expected.has_value());
+    const std::vector<std::string> comments{
+        std::string("# beginning\n") + plain + "# end at EOF",
+        std::string("# beginning\r\n") + plain + "\r\n# end\r\n",
+        "{# record\nvalue# field\n:# colon\n42# number\nname:\"#inside\"# string\n"
+        "samples:[1# element\n,# comma\n2] child:{value:7} }# EOF",
+        "{\r\nvalue:42# value\r\nname:\"#inside\" samples:[# open\r\n"
+        "1,# separator\r\n2# last\r\n] child:{# nested\r\nvalue:7} }"};
+    for (const auto& text : comments) {
+        SCOPED_TRACE(text);
+        diagnostics.clear();
+        EXPECT_FALSE(parse_qtf(text, *schema, *record, diagnostics).has_value());
+        diagnostics.clear();
+        const auto bytes =
+            import_qtf(text, *schema, *record, diagnostics, {.allow_line_comments = true});
+        ASSERT_TRUE(bytes.has_value());
+        EXPECT_EQ(*bytes, *expected);
+        const auto view = validate_brf_record(*schema, *record, *bytes);
+        ASSERT_TRUE(view.has_value());
+        const auto exported = export_qtf(*view);
+        ASSERT_TRUE(exported.text.has_value());
+        EXPECT_NE(exported.text->find("name: \"#inside\""), std::string::npos);
+        EXPECT_EQ(exported.text->find("# beginning"), std::string::npos);
+        diagnostics.clear();
+        EXPECT_EQ(import_qtf(*exported.text, *schema, *record, diagnostics), expected);
+    }
+    // Comments consume input bytes but no value tokens; the existing resource bounds remain.
+    diagnostics.clear();
+    EXPECT_FALSE(parse_qtf("# over limit\n{}", *schema, *record, diagnostics,
+                           {.max_input_bytes = 4U, .allow_line_comments = true})
+                     .has_value());
+    diagnostics.clear();
+    EXPECT_TRUE(parse_qtf("# before\n{value:42}# after", *schema, *record, diagnostics,
+                          {.max_tokens = 6U, .allow_line_comments = true})
+                    .has_value());
+    diagnostics.clear();
+    EXPECT_FALSE(parse_qtf("# before\n{value:42}", *schema, *record, diagnostics,
+                           {.max_tokens = 4U, .allow_line_comments = true})
+                     .has_value());
+    const auto location = qtf_source_location("# note\r\n{ missing: 1 }", 10U);
+    EXPECT_EQ(location.line, 2U);
+    EXPECT_EQ(location.column, 3U);
+}
+
+TEST(QtfParserTest, CommentsDoNotMakeMalformedInputValid) {
+    DiagnosticCollection diagnostics;
+    const auto ir = schema_ir();
+    const auto layout = quarry::compiler::layout::LayoutComputer{}.compute(ir, diagnostics);
+    const auto model =
+        QbsModelBuilder{}.build(ir, layout, {.mode = BuildMode::Reflective}, diagnostics);
+    ASSERT_TRUE(model.has_value());
+    const auto image = serialize_qbs(*model, diagnostics);
+    ASSERT_TRUE(image.has_value());
+    const auto schema = parse_qbs(image->bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_identity("Root");
+    ASSERT_TRUE(record.has_value());
+    for (const auto text :
+         {"# only a comment", "{ value: 42 # missing closing brace",
+          "{ name: \"unterminated# still a string }", "{ samples: [1 # missing comma\n2] }",
+          "{ samples: [1,# trailing comma\n] }", "{ value: 4# cannot join tokens\n2 }",
+          "{ value: 1 # duplicate\nvalue: 2 }", "{ missing: 1 # unknown\n}", "{} // not a comment",
+          "{ value: 1 } \"unterminated# trailing lexical error"}) {
+        SCOPED_TRACE(text);
+        diagnostics.clear();
+        EXPECT_FALSE(import_qtf(text, *schema, *record, diagnostics, {.allow_line_comments = true})
+                         .has_value());
+        EXPECT_TRUE(diagnostics.has_errors());
+    }
+    // A quoted # is also ordinary string content in strict v1, with no opt-in needed.
+    diagnostics.clear();
+    EXPECT_TRUE(parse_qtf("{name:\"# ordinary\"}", *schema, *record, diagnostics).has_value());
+}
+
+TEST(QtfParserTest, WhitespaceAndNanUseSelectedQbsTypes) {
+    DiagnosticCollection diagnostics;
+    const auto ir = schema_ir();
+    const auto layout = quarry::compiler::layout::LayoutComputer{}.compute(ir, diagnostics);
+    const auto model =
+        QbsModelBuilder{}.build(ir, layout, {.mode = BuildMode::Reflective}, diagnostics);
+    ASSERT_TRUE(model.has_value());
+    const auto image = serialize_qbs(*model, diagnostics);
+    ASSERT_TRUE(image.has_value());
+    const auto schema = parse_qbs(image->bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_identity("Root");
+    ASSERT_TRUE(record.has_value());
+    const auto bytes =
+        import_qtf("\t\r\n{ f32:\tnan\r\nf64: nan }\r\n", *schema, *record, diagnostics);
+    ASSERT_TRUE(bytes.has_value());
+    const auto view = validate_brf_record(*schema, *record, *bytes);
+    ASSERT_TRUE(view.has_value());
+    EXPECT_TRUE(std::isnan(*view->field(2U)->as_float32()));
+    EXPECT_TRUE(std::isnan(*view->field(3U)->as_float64()));
+}
+
+TEST(QtfParserTest, EnumMembershipUsesOneOwnedValueRange) {
+    DiagnosticCollection diagnostics;
+    auto ir = schema_ir();
+    auto* mode = ir.mutable_root_namespace()->add_enums();
+    mode->set_ir_id(10U);
+    mode->set_name("Mode");
+    mode->set_fqn("Mode");
+    for (const auto value : {0U, 1U}) {
+        auto* item = mode->add_values();
+        item->set_name(value == 0U ? "zero" : "one");
+        item->set_value(value);
+    }
+    auto* field = ir.mutable_root_namespace()->mutable_records(1)->add_fields();
+    field->set_name("mode");
+    field->set_field_index(6U);
+    field->mutable_type()->mutable_enum_type()->set_target_enum_ir_id(10U);
+    const auto layout = quarry::compiler::layout::LayoutComputer{}.compute(ir, diagnostics);
+    const auto model =
+        QbsModelBuilder{}.build(ir, layout, {.mode = BuildMode::Reflective}, diagnostics);
+    ASSERT_TRUE(model.has_value());
+    const auto image = serialize_qbs(*model, diagnostics);
+    ASSERT_TRUE(image.has_value());
+    const auto schema = parse_qbs(image->bytes, diagnostics);
+    ASSERT_TRUE(schema.has_value());
+    const auto record = schema->find_record_by_identity("Root");
+    ASSERT_TRUE(record.has_value());
+    EXPECT_TRUE(parse_qtf("{mode:0}", *schema, *record, diagnostics).has_value());
+    EXPECT_TRUE(parse_qtf("{mode:1}", *schema, *record, diagnostics).has_value());
+    diagnostics.clear();
+    EXPECT_FALSE(parse_qtf("{mode:2}", *schema, *record, diagnostics).has_value());
 }
 } // namespace

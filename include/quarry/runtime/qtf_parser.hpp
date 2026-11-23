@@ -22,6 +22,8 @@ struct QtfParseLimits {
     std::size_t max_input_bytes = 64U * 1024U * 1024U;
     std::size_t max_depth = 1024U;
     std::size_t max_tokens = 1U << 20U;
+    // Non-canonical input extension. Default QTF v1 remains comment-free.
+    bool allow_line_comments = false;
 };
 
 [[nodiscard]] std::optional<BrfRecordInput>

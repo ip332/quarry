@@ -70,7 +70,7 @@ the validated traversal and emits deterministic text such as:
 
 QTF is inspired by protobuf TextFormat but is not protobuf TextFormat. It
 uses QBS for types, `[]` for arrays, `hex"..."` for bytes, and omission for
-absence. Parsing/import is intentionally not implemented.
+absence. Schema-directed parsing and import are available; see "QTF import" below.
 
 `traverse_brf` is the iterative traversal layer. It emits record begin/end,
 field, scalar, array begin/end, and array-element events in depth-first QBS
@@ -436,6 +436,15 @@ generic encoder; it does not write BRF framing directly.
 
 QTF is inspired by protobuf TextFormat but is not protobuf-compatible. QBS is
 required for both parsing and importing.
+
+Strict QTF v1 rejects comments by default. For hand-edited host input, set
+`QtfParseLimits::allow_line_comments = true` and pass those limits to either
+`parse_qtf` or `import_qtf` to accept `#` line comments wherever whitespace is
+allowed. Hash characters inside quoted strings remain data. Comments are
+non-semantic and discarded; canonical export never emits or preserves them.
+This is an opt-in input extension: comment-bearing files are not accepted by
+older/default v1 readers. See the [QTF specification](../docs/specifications/quarry-text-format.md).
+Special float tokens use the selected QBS float width, including both signs of infinity.
 
 ## Fuzzing
 

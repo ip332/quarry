@@ -117,16 +117,28 @@ void error(DiagnosticCollection& diagnostics, std::size_t offset, std::string me
 
 class Lexer {
 public:
-    Lexer(std::string_view text, DiagnosticCollection& diagnostics, std::size_t max_tokens)
-        : text_(text), diagnostics_(diagnostics), max_tokens_(max_tokens) {}
+    Lexer(std::string_view text, DiagnosticCollection& diagnostics, std::size_t max_tokens,
+          bool allow_line_comments)
+        : text_(text), diagnostics_(diagnostics), max_tokens_(max_tokens),
+          allow_line_comments_(allow_line_comments) {}
     Token next() {
         if (tokens_++ >= max_tokens_) {
             error(diagnostics_, pos_, "QTF token limit exceeded");
             return {};
         }
-        while (pos_ < text_.size() && (text_[pos_] == ' ' || text_[pos_] == '\t' ||
-                                       text_[pos_] == '\r' || text_[pos_] == '\n'))
-            ++pos_;
+        while (pos_ < text_.size()) {
+            if (text_[pos_] == ' ' || text_[pos_] == '\t' || text_[pos_] == '\r' ||
+                text_[pos_] == '\n') {
+                ++pos_;
+            } else if (allow_line_comments_ && text_[pos_] == '#') {
+                // A comment is whitespace, never a value token. Retain offsets in
+                // the original input for diagnostics; strings use their own scanner.
+                while (pos_ < text_.size() && text_[pos_] != '\r' && text_[pos_] != '\n')
+                    ++pos_;
+            } else {
+                break;
+            }
+        }
         const auto start = pos_;
         if (pos_ == text_.size())
             return {Kind::eof, {}, start};
@@ -154,7 +166,8 @@ public:
         while (pos_ < text_.size() && text_[pos_] != ' ' && text_[pos_] != '\t' &&
                text_[pos_] != '\r' && text_[pos_] != '\n' && text_[pos_] != '{' &&
                text_[pos_] != '}' && text_[pos_] != '[' && text_[pos_] != ']' &&
-               text_[pos_] != ':' && text_[pos_] != ',')
+               text_[pos_] != ':' && text_[pos_] != ',' &&
+               !(allow_line_comments_ && text_[pos_] == '#'))
             ++pos_;
         std::string word(text_.substr(start, pos_ - start));
         if (word.starts_with("hex\"") && word.back() == '"')
@@ -234,6 +247,7 @@ private:
     std::string_view text_;
     DiagnosticCollection& diagnostics_;
     std::size_t max_tokens_;
+    bool allow_line_comments_;
     std::size_t pos_ = 0U;
     std::size_t tokens_ = 0U;
 };
@@ -242,8 +256,8 @@ class Parser {
 public:
     Parser(std::string_view text, const ValidatedQbsView& schema, DiagnosticCollection& diagnostics,
            QtfParseLimits limits)
-        : lexer_(text, diagnostics, limits.max_tokens), schema_(schema), diagnostics_(diagnostics),
-          limits_(limits) {
+        : lexer_(text, diagnostics, limits.max_tokens, limits.allow_line_comments), schema_(schema),
+          diagnostics_(diagnostics), limits_(limits) {
         current_ = lexer_.next();
     }
     std::optional<BrfRecordInput> root(const QbsRecordView& record) {
@@ -397,9 +411,14 @@ private:
             if (text == "nan")
                 return type.code == 10U ? BrfEncodeValue{std::numeric_limits<float>::quiet_NaN()}
                                         : BrfEncodeValue{std::numeric_limits<double>::quiet_NaN()};
-            if (text == "inf" || text == "-inf")
-                return type.code == 10U ? BrfEncodeValue{text == "-inf" ? -INFINITY : INFINITY}
-                                        : BrfEncodeValue{text == "-inf" ? -INFINITY : INFINITY};
+            if (text == "inf" || text == "-inf") {
+                if (type.code == 10U) {
+                    const auto infinity = std::numeric_limits<float>::infinity();
+                    return BrfEncodeValue{text == "-inf" ? -infinity : infinity};
+                }
+                const auto infinity = std::numeric_limits<double>::infinity();
+                return BrfEncodeValue{text == "-inf" ? -infinity : infinity};
+            }
             if (type.code == 10U) {
                 float v{};
                 if (parse_float(text, v))
@@ -414,11 +433,12 @@ private:
             type.code == 9U) {
             std::uint64_t v{};
             auto [p, e] = std::from_chars(text.data(), text.data() + text.size(), v);
+            // Keep one owned range: enum_type() returns its values by value.
+            const auto allowed = type.code == 12U ? schema_.enum_type(type.reference).values
+                                                  : std::vector<std::uint64_t>{};
             if (e == std::errc{} && p == text.data() + text.size() &&
                 unsigned_range(v, type.encoded_width) &&
-                (type.code != 12U || std::find(schema_.enum_type(type.reference).values.begin(),
-                                               schema_.enum_type(type.reference).values.end(), v) !=
-                                         schema_.enum_type(type.reference).values.end()))
+                (type.code != 12U || std::find(allowed.begin(), allowed.end(), v) != allowed.end()))
                 return BrfEncodeValue{v};
         }
         if (type.code == 2U || type.code == 4U || type.code == 6U || type.code == 8U) {
@@ -531,7 +551,11 @@ parse_qtf(std::string_view text, const quarry::compiler::qbs::ValidatedQbsView& 
         diagnostic_source = {};
         return std::nullopt;
     }
+    const auto previous_errors = diagnostics.error_count();
     auto result = Parser(text, schema, diagnostics, limits).root(record);
+    // Lexer failures use an EOF token; never mistake that for a clean end of input.
+    if (diagnostics.error_count() != previous_errors)
+        result = std::nullopt;
     diagnostic_source = {};
     return result;
 }

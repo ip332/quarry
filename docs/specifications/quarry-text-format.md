@@ -36,7 +36,7 @@ The v1 scalar forms are:
 
 ## Lexical grammar
 
-The future v1 parser accepts space, horizontal tab, carriage return, and
+The v1 parser accepts space, horizontal tab, carriage return, and
 newline as whitespace between tokens. Canonical export uses only newline for
 line endings and does not emit tabs or carriage returns except inside escaped
 strings. A carriage-return/line-feed pair is one line ending when parsing.
@@ -71,8 +71,22 @@ canonical. Empty arrays use `[]`. Unknown fields and duplicate fields are
 parser errors. A parser must use the selected QBS record to resolve every
 field and reject a field whose identifier is not present in that record.
 
-Comments are not part of QTF v1 and are invalid input; this keeps the lexer
-small and the canonical grammar unambiguous.
+Comments are not part of strict QTF v1 and are rejected by default. The C++
+parser additionally offers the explicit `QtfParseLimits::allow_line_comments`
+input extension, defaulting to `false`. With it enabled, `#` through the next
+CR, LF, or end of input is accepted wherever whitespace is permitted. A
+comment can immediately follow a token; it cannot join pieces of a token.
+`#` inside a quoted string is ordinary string content. A bytes literal still
+requires hexadecimal digits: comments cannot be inserted into a bytes token.
+No block comments or `//` comments are supported.
+
+Comments are discarded and carry no semantic data. Units, descriptions and
+provenance that must survive import belong in schema-defined fields. Import
+and re-export do not preserve comments; canonical output is always comment-free.
+The extension is an opt-in parser capability, not an amendment to strict v1 or
+a new QTF version. Older/default v1 readers reject comment-bearing documents;
+exchange producers targeting them must send canonical comment-free QTF. No BRF,
+QBS, schema identity or generated-code epoch changes are introduced.
 
 The grammar is intentionally schema-driven. In compact EBNF, the structural
 forms are:
@@ -87,8 +101,8 @@ identifier   = name | "@" , decimal-index ;
 
 The lexer must distinguish `-inf`/`nan` from numeric tokens using the selected
 QBS float type. A string or bytes literal ends only at its unescaped closing
-quote. Whitespace is never significant inside a quoted string or bytes
-literal.
+quote. Whitespace inside a quoted string remains string content; it is not skipped.
+Bytes literals still require pairs of hexadecimal digits.
 
 | QBS value | Canonical QTF |
 |---|---|
@@ -100,9 +114,10 @@ literal.
 | string | quoted UTF-8 |
 | bytes | `hex"` followed by lowercase hexadecimal and `"` |
 
-Floating-point special values are represented because the generic BRF encoder
-and reader preserve them. A future parser must map them to the corresponding
-QBS float type. Negative zero is emitted with its sign when the conversion
+Floating-point special tokens are interpreted using the selected QBS float
+type, because the generic BRF encoder and reader preserve these values.
+`nan`, `inf`, and `-inf` produce float32 values for QBS float32 and float64
+values for QBS float64. Negative zero is emitted with its sign when the conversion
 library preserves that spelling.
 
 Strings escape `"`, `\\`, newline, carriage return, and tab as `\"`, `\\`,
@@ -147,8 +162,8 @@ child: {
 The closing brace is indented at the nested record's structural depth. An
 empty root record is exactly `{\n}\n`.
 
-The exporter emits no comments. Comment syntax is reserved for a future
-parser and is not part of QTF v1 canonical output.
+The exporter emits no comments, including when the input was parsed with the
+opt-in line-comment extension. Comments are not preserved by a round trip.
 
 ## Canonical exporter
 
@@ -156,5 +171,5 @@ parser and is not part of QTF v1 canonical output.
 the validated structured reader and `traverse_brf()`. It does not parse BRF,
 inspect descriptors, or validate again. The result is atomic: a successful
 call returns complete text; a traversal or value failure returns no text.
-Traversal work and depth limits apply to export. Future import support must
-reject duplicate fields and use QBS to interpret every value token.
+Traversal work and depth limits apply to export. Import rejects duplicate
+fields and uses the selected QBS record to interpret every value token.
